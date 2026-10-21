@@ -371,6 +371,29 @@ describe('createEngineFromEnv in real mode', () => {
   });
 });
 
+describe('createEngineFromEnv in real mode: not installed', () => {
+  test('the provider names the app like the rest of the engine', async () => {
+    const { logger } = recordingLogger();
+    const dir = await mkdtemp(join(tmpdir(), 'engine-boot-'));
+    const engine = await createEngineFromEnv(
+      {
+        ...REAL_ENV,
+        APP_NAME: 'Acme Planner',
+        PGLITE_DIR: join(dir, 'pglite'),
+      },
+      { logger }
+    );
+    try {
+      expect(await rejectionMessage(engine.fullSync('org-x'))).toBe(
+        'Acme Planner is not installed in this Linear workspace yet.'
+      );
+    } finally {
+      await engine.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('isLinearApiError', () => {
   test('recognises the class and copies from another bundle', () => {
     expect(LinearApiError).toBe(SourceLinearApiError);

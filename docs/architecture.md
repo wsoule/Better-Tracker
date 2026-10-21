@@ -704,7 +704,13 @@ missing/invalid variable), `EngineAuthError`, `EngineInputError`,
   provider's `now` clock), and returns `createLinearGateway({ accessToken })`. A
   revoked installation or an `invalid_grant` refresh →
   `EngineAuthError('not_installed')` (workspace) or
-  `EngineAuthError('not_signed_in')` (session), logged at error. A dead
+  `EngineAuthError('not_signed_in')` (session), logged at error. Every
+  `not_installed` the engine raises, from the provider (sync, webhooks) or from
+  its own installation check (allocation, PM edits, settings), uses one of two
+  messages naming `APP_NAME` (`NOT_INSTALLED_MESSAGE` in `runtime.ts`; boot
+  passes `appName` to the provider): "… is not installed in this Linear
+  workspace yet." (no row) and "… lost its access to this Linear workspace …; an
+  admin must install it again." (revoked, or a grant Linear rejects). A dead
   installation grant (`invalid_grant`, or an expired token without a refresh
   token) is also recorded with `markInstallationRevoked(workspaceId, now)` once
   the row lock is released, after re-reading the row: a reinstall saved in

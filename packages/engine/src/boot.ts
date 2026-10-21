@@ -179,6 +179,7 @@ export async function createEngineFromEnv(
         logger,
         now,
         fetch: options.fetch,
+        appName: config.appName,
       });
     }
 
