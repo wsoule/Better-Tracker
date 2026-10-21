@@ -1,6 +1,7 @@
-// runDaily (§7): the scheduled job. Claims (workspace, 'daily', today) so
-// it runs once per workspace-local day, then sync → allocation in the
-// configured mode → warnings, and marks the claim finished.
+// runDaily (§7): the scheduled job. Claims (workspace, 'daily', day) so it
+// runs once per workspace-local day (today, or the day the scheduler
+// decided on), then sync → allocation in the configured mode → warnings
+// for that day, and marks the claim finished.
 //
 // The claim is a lease. If anything throws, it is released so the next
 // scheduler tick can retry. If the process dies instead (killed, or the
@@ -10,18 +11,54 @@
 // which is safe at any point the first run stopped: allocation never
 // reassigns an assigned issue, and nobody gets a second digest that day.
 
-import { isValidTimeZone, todayIn } from '@better-tracker/core';
+import {
+  addDays,
+  type IsoDate,
+  isValidIsoDate,
+  isValidTimeZone,
+  todayIn,
+} from '@better-tracker/core';
 
 import { runAllocation } from './allocation-run';
 import { DEFAULT_DAILY_LEASE_MINUTES } from './config';
 import { type EngineRuntime, readSettings } from './runtime';
 import { fullSync } from './sync';
-import type { DailyResult } from './types';
+import { type DailyResult, EngineInputError } from './types';
 import { runWarnings } from './warning-run';
+
+/**
+ * The day a daily run is for: `requested` when the scheduler passed one,
+ * else today in the workspace timezone. The scheduler decides "due for
+ * local day D" and then calls runDaily; if local midnight passes in
+ * between, recomputing the day here would claim D+1 hours early (and D
+ * never). So a requested day is honoured when it is today or yesterday
+ * in the workspace timezone; anything else is a caller bug.
+ */
+function dailyDay(
+  requested: IsoDate | undefined,
+  timezone: string,
+  now: Date
+): IsoDate {
+  const today = todayIn(timezone, now);
+  if (requested === undefined) return today;
+  if (!isValidIsoDate(requested)) {
+    throw new EngineInputError(
+      'invalid',
+      'day must be a calendar date (YYYY-MM-DD).'
+    );
+  }
+  if (requested !== today && requested !== addDays(today, -1)) {
+    throw new EngineInputError(
+      'invalid',
+      `day must be today (${today}) or yesterday in the workspace timezone (${timezone}).`
+    );
+  }
+  return requested;
+}
 
 export async function runDaily(
   rt: EngineRuntime,
-  input: { workspaceId: string; force?: boolean }
+  input: { workspaceId: string; force?: boolean; day?: IsoDate }
 ): Promise<DailyResult> {
   const { workspaceId } = input;
   const force = input.force === true;
@@ -29,7 +66,7 @@ export async function runDaily(
   const timezone = isValidTimeZone(before.timezone)
     ? before.timezone
     : rt.config.defaultTimezone;
-  const day = todayIn(timezone, rt.clock());
+  const day = dailyDay(input.day, timezone, rt.clock());
   const log = rt.logger.child({ workspaceId, op: 'daily', day, force });
 
   // A forced run still claims an unclaimed (or abandoned) day so the

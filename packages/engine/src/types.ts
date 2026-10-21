@@ -279,6 +279,13 @@ export interface Engine {
   runDaily(input: {
     workspaceId: string;
     force?: boolean;
+    /**
+     * Additive: the workspace-local day to run (claim and warnings), as
+     * the scheduler decided it. Defaults to today in the workspace
+     * timezone. Must be today or yesterday there (a decision made just
+     * before local midnight), else EngineInputError('invalid').
+     */
+    day?: IsoDate;
   }): Promise<DailyResult>;
   listWorkspaceIds(): Promise<string[]>;
 

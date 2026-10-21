@@ -643,13 +643,18 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `warningsMode === 'live'` deliver via the channel, else status `preview`. Save
   memory only after notifications are recorded. `previewOnly` builds digests
   without writing anything (Settings preview).
-- **runDaily**: `claimJob(daily, today, { leaseMinutes })` unless `force` →
+- **runDaily**: `claimJob(daily, day, { leaseMinutes })` unless `force` →
   fullSync → runAllocation(settings.allocationMode, schedule) → runWarnings →
   `finishJob`. If the run throws, `releaseJob` so the next tick can retry. If
   the process dies instead (killed, hard timeout), the claim stays unfinished
   and, once older than `config.dailyLeaseMinutes` (default 30,
   `DEFAULT_DAILY_LEASE_MINUTES`), the next due tick takes the day over and runs
-  the whole job again (see "A daily takeover" below).
+  the whole job again (see "A daily takeover" below). `day` is the optional
+  `input.day` (the day the scheduler decided is due), else today in the
+  workspace timezone; a given day must be today or yesterday there
+  (`EngineInputError('invalid')` otherwise), so a decision made just before
+  local midnight claims and warns for that day instead of claiming the next one
+  hours early. Warnings run for that day.
 - **PM edits**: require `actor.isPm` (else `not_pm`). Linear writes
   (`setMilestoneTargetDate`, `setProjectLead`) also require
   `actor.canWriteLinear` (else `needs_write_scope`) and go through
@@ -1012,9 +1017,11 @@ Worker decisions made while building it (binding):
   later, until local midnight. On a fall-back day a repeated time counts from
   its first occurrence and stays due through the repeated hour; a time inside a
   spring-forward gap is due from the transition. The timezone is the saved
-  setting, or `DEFAULT_TIMEZONE` when that is invalid (as the engine does).
-  "Unclaimed" is decided by `runDaily`'s own claim: a due tick whose `runDaily`
-  returns `ran: false` falls back to `fullSync`.
+  setting, or `DEFAULT_TIMEZONE` when that is invalid (as the engine does). The
+  tick passes the local date it decided on as `runDaily`'s `day`, so a run that
+  starts after local midnight still runs the day that was due. "Unclaimed" is
+  decided by `runDaily`'s own claim: a due tick whose `runDaily` returns
+  `ran: false` falls back to `fullSync`.
 - `DAILY_RUN_AT` is strict `HH:MM` (00:00–23:59); invalid worker variables exit
   1 before boot. A time later than one tick interval before midnight is logged
   as a warning (no tick may land before midnight).
