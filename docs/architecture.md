@@ -724,11 +724,16 @@ Engine decisions made while building it (binding for callers):
   the outcome (at most one digest per person per day, even across a crash). A
   notice that one of its recipients did not get today keeps its old warning
   memory, so it is announced the next day instead of being lost: the person
-  already had today's digest, the send `failed` (Slack down, bad token),
-  warnings are live with no channel configured, or the notice had no recipient
-  at all (no active lead, no watchers). A per-person `undeliverable` (no Slack
-  account) does not hold the notice, or everyone else would get it again every
-  day.
+  already had a digest today that did not carry it, the send `failed` (Slack
+  down, bad token), warnings are live with no channel configured, or the notice
+  had no recipient at all (no active lead, no watchers). A per-person
+  `undeliverable` (no Slack account) does not hold the notice, or everyone else
+  would get it again every day. When a recipient already has today's row (a
+  second run the same day, such as a daily takeover), the notices its stored
+  digest carried with the same key count as told if it went out (`sent`, or
+  `preview` while warnings are in preview); a `pending` row (the send's outcome
+  is unknown, so it is never repeated), a `failed` one, or a preview row after
+  going live told nothing.
 - **Going live forgets the warning memory**: `updateSettings` switching
   `warningsMode` from `preview` to `live` resets every memory row to "never
   told", so the first live run announces whatever is notable now (preview runs
@@ -763,8 +768,9 @@ Engine decisions made while building it (binding for callers):
   the day back, and a later tick runs the job. Killed during warnings: memory
   was not saved yet, so every notice is planned again; nobody is sent a second
   digest that day (a recipient with a row today counts as `alreadySent`,
-  including a `pending` row, whose send may have reached Slack), and those
-  recipients' notices keep their old memory, so they are offered again the next
+  including a `pending` row, whose send may have reached Slack). What the dead
+  run's delivered digests carried counts as told; the notices of the recipient
+  whose send was in flight keep their old memory and are offered again the next
   day. A run that outlives its lease and completes anyway finds its claim gone:
   `finishJob` returns false and it logs a warning. The lease must be longer than
   any daily run can live: the worker caps `TICK_TIMEOUT_MINUTES` at 29 (one

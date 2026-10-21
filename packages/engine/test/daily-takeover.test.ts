@@ -12,12 +12,17 @@ import { afterEach, describe, expect, test } from 'bun:test';
 // (the run never finishes, throws or releases anything), then checks what
 // the takeover does at that point.
 
+import { createEngine } from '../src/engine';
 import {
   createDemoHarness,
   type DemoHarness,
+  fixtureProvider,
   type GatewayWrapper,
-  WORKSPACE_ID,
+  recordingLogger,
   rejectionMessage,
+  storeWith,
+  TEST_CONFIG,
+  WORKSPACE_ID,
 } from './helpers';
 
 let harness: DemoHarness | null = null;
@@ -309,12 +314,53 @@ describe('runDaily after a run that died', () => {
     ]);
 
     // Dev's notice was never confirmed delivered, so it is offered again.
+    // What the dead run's delivered digests told ana, ben and chloe counts
+    // as told: those notices are not repeated (overdue repeats daily by
+    // rule).
     h.clock.advanceDays(1);
     const tomorrow = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     expect(tomorrow.ran).toBe(true);
-    const dev = tomorrow.warnings?.digests.find(
-      (d) => d.recipientId === 'user-dev'
+    const byRecipient = Object.fromEntries(
+      (tomorrow.warnings?.digests ?? []).map((d) => [
+        d.recipientId,
+        noticeIds(d),
+      ])
     );
-    expect(noticeIds(dev)).toEqual(['at_risk:ms-beacon-1']);
+    expect(byRecipient).toEqual({
+      'user-ana': ['at_risk:ms-beacon-1', 'overdue:ms-atlas-2'],
+      'user-ben': ['at_risk:ms-beacon-1', 'overdue:ms-atlas-2'],
+      'user-chloe': ['overdue:ms-atlas-2'],
+      'user-dev': ['at_risk:ms-beacon-1'],
+    });
+  });
+
+  test("a preview re-run counts today's preview digests as told", async () => {
+    harness = await createDemoHarness();
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    // A second process whose run dies after recording every preview digest
+    // and before saving the warning memory.
+    const gate = hangGate();
+    const dying = createEngine({
+      store: storeWith(h.store, { saveWarningMemory: () => gate.hang() }),
+      linear: fixtureProvider(h.fixture),
+      channel: h.channel,
+      logger: recordingLogger().logger,
+      config: TEST_CONFIG,
+      now: h.clock.now,
+    });
+    void dying.runDaily({ workspaceId: WORKSPACE_ID });
+    await gate.reached;
+    expect(await h.store.listWarningMemory(WORKSPACE_ID)).toEqual([]);
+
+    at(h, startMs, 31);
+    const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(takeover.warnings).toMatchObject({ alreadySent: 5, notices: 8 });
+    h.clock.advanceDays(1);
+    const tomorrow = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    // Only the overdue milestone repeats (by rule); the rest was previewed.
+    expect(
+      [...new Set(tomorrow.warnings?.digests.flatMap(noticeIds))].sort()
+    ).toEqual(['overdue:ms-atlas-2']);
   });
 });

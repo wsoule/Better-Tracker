@@ -427,8 +427,8 @@ service if your Railway plan offers one: **verify this in your workspace**.
   already assigned (never assigned or commented twice; a comment it had not
   posted yet stays missing). Nobody gets a second digest that day, not even
   someone whose digest was being sent when the tick died (it may have reached
-  Slack). The notices of people who already had a digest that day keep their
-  warning memory and come back the next day.
+  Slack). What the dead tick's delivered digests said counts as said; the
+  notices in the digest that was being sent come back the next day.
 
 `daily --force` is safe to repeat. Allocation never reassigns an assigned issue,
 and nobody gets a second digest on the same day.
