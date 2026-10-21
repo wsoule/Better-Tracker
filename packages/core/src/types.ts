@@ -540,7 +540,10 @@ export interface WeekSection {
   daysLeft: number | null;
   status: MilestoneStatus | null;
   progress: Progress | null;
-  /** Overdue, or due on or before today + 6 days. */
+  /**
+   * In an active project (§2.8), and overdue or due on or before
+   * today + 6 days.
+   */
   thisWeek: boolean;
   rows: WeekIssueRow[];
 }

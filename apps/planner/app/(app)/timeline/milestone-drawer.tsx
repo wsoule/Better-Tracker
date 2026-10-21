@@ -202,9 +202,10 @@ function DrawerBody({
             status={model.status.status}
             label={model.status.label}
             showLabel
+            muted={model.muted}
           />
           {model.status.lines.length > 0 ? (
-            <span className={css.reasons}>
+            <span className={model.muted ? css.note : css.reasons}>
               {model.status.lines.join(' · ')}
             </span>
           ) : null}
@@ -396,7 +397,7 @@ function DrawerBody({
       ) : (
         <ul className={css.issues} aria-label="Issues in this milestone">
           {model.issues.map((issue) => (
-            <IssueRow key={issue.id} issue={issue} />
+            <IssueRow key={issue.id} issue={issue} quiet={model.muted} />
           ))}
         </ul>
       )}
@@ -427,7 +428,10 @@ function DrawerBody({
   );
 }
 
-function IssueRow({ issue }: { issue: DrawerIssue }) {
+/** One issue of the milestone. `quiet` (an inactive project, §2.8) keeps
+    "Unassigned" and "Blocked by" out of the accent: nothing there is
+    allocated or warned about while the project is paused. */
+function IssueRow({ issue, quiet }: { issue: DrawerIssue; quiet: boolean }) {
   return (
     <li>
       <a
@@ -448,13 +452,15 @@ function IssueRow({ issue }: { issue: DrawerIssue }) {
           </span>
           <span
             className={
-              issue.assignee === null && issue.open ? css.accent : undefined
+              issue.assignee === null && issue.open && !quiet
+                ? css.accent
+                : undefined
             }
           >
             {issue.assignee ?? 'Unassigned'}
           </span>
           {issue.blockedBy.length > 0 ? (
-            <span className={css.accent}>
+            <span className={quiet ? undefined : css.accent}>
               Blocked by {issue.blockedBy.join(', ')}
             </span>
           ) : null}

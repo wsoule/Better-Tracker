@@ -46,6 +46,12 @@
   );
 }
 
+/* An inactive project: hollow, in the faint grey (never loud). */
+.muted {
+  border-color: var(--grey-3);
+  background: transparent;
+}
+
 .text {
   font-family: var(--font-mono);
   font-size: 10px;

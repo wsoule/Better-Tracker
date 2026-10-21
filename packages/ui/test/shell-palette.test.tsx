@@ -305,6 +305,37 @@ describe('CommandPalette over other overlays', () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  test("statusMuted draws a row's status mark in greys, still named", () => {
+    setup({
+      items: [
+        {
+          id: 'loud',
+          label: 'Dual-write',
+          section: 'Jump to',
+          href: '/timeline?milestone=dual',
+          status: 'overdue',
+          statusLabel: 'Overdue',
+        },
+        {
+          id: 'quiet',
+          label: 'Dashboards',
+          section: 'Jump to',
+          href: '/timeline?milestone=dash',
+          status: 'overdue',
+          statusLabel: 'Overdue · inactive project',
+          statusMuted: true,
+        },
+      ],
+    });
+    fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+    const loud = screen.getByRole('img', { name: 'Overdue' });
+    const quiet = screen.getByRole('img', {
+      name: 'Overdue · inactive project',
+    });
+    expect(loud.hasAttribute('data-muted')).toBe(false);
+    expect(quiet.hasAttribute('data-muted')).toBe(true);
+  });
+
   test('a section cap below 1 still shows one row per section', () => {
     setup({ maxPerSection: 0 });
     fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });

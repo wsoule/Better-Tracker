@@ -241,7 +241,11 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
           }
         >
           <span className={css.milestone}>
-            <StatusMark status={next.status} label={next.statusLabel} />
+            <StatusMark
+              status={next.status}
+              label={next.statusLabel}
+              muted={next.muted}
+            />
             <span className={css.milestoneName}>{next.name}</span>
           </span>
         </RegisterCell>

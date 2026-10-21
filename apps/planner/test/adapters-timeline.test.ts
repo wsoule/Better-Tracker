@@ -22,11 +22,16 @@ import {
   filterTimelineGroups,
   laneSublabel,
   leadOptions,
+  laneNeedsAction,
   needsWriteGrant,
+  parseTimelineSearch,
   parseTimelineSelection,
   parseTimelineState,
+  SHOW_OPTIONS,
+  showFilters,
   timelineHref,
   timelineReceipts,
+  timelineShow,
   toChartBar,
   toChartGroups,
   visibleDependencies,
@@ -384,13 +389,89 @@ describe('filters and the URL', () => {
     expect(
       ids(filterTimelineGroups(groups, { ...base, activeOnly: true }))
     ).toEqual(['p-atlas', 'p-harbor']);
+    // An inactive lane is never "at risk / overdue" (§2.8), whatever its
+    // milestones' status: Fjord's overdue bar does not count.
     expect(
       ids(filterTimelineGroups(groups, { ...base, riskOnly: true }))
-    ).toEqual(['p-harbor', 'p-fjord']);
+    ).toEqual(['p-harbor']);
     // Empty groups are dropped.
     expect(
       filterTimelineGroups(groups, { ...base, query: 'atlas' }).map((g) => g.id)
     ).toEqual(['init-1']);
+  });
+
+  test('laneNeedsAction: an at-risk or overdue bar in an active lane only', () => {
+    const lanes = groups.flatMap((g) => g.lanes);
+    expect(lanes.map((l) => [l.id, laneNeedsAction(l)])).toEqual([
+      ['p-atlas', false],
+      ['p-harbor', true],
+      ['p-fjord', false],
+    ]);
+  });
+
+  test('Show is one choice over the two nested URL filters', () => {
+    expect(SHOW_OPTIONS.map((o) => o.id)).toEqual(['all', 'active', 'at_risk']);
+    const base = DEFAULT_TIMELINE_STATE;
+    expect(timelineShow(base)).toBe('all');
+    expect(timelineShow({ ...base, activeOnly: true })).toBe('active');
+    expect(timelineShow({ ...base, riskOnly: true })).toBe('at_risk');
+    // Both set (an old link) reads as At risk, which only keeps active lanes.
+    expect(timelineShow({ ...base, activeOnly: true, riskOnly: true })).toBe(
+      'at_risk'
+    );
+    expect(showFilters('all')).toEqual({ activeOnly: false, riskOnly: false });
+    expect(showFilters('active')).toEqual({
+      activeOnly: true,
+      riskOnly: false,
+    });
+    expect(showFilters('at_risk')).toEqual({
+      activeOnly: false,
+      riskOnly: true,
+    });
+    expect(showFilters('nonsense')).toEqual({
+      activeOnly: false,
+      riskOnly: false,
+    });
+    expect(timelineHref({ ...base, ...showFilters('at_risk') })).toBe(
+      '/timeline?risk=1'
+    );
+  });
+
+  test('parseTimelineSearch reads the address bar as the server does', () => {
+    const href =
+      '/timeline?project=p-1&milestone=ms-1&q=atlas+api&initiative=init-1&risk=1&zoom=months&deps=1';
+    const search = new URL(href, 'http://x').searchParams;
+    expect(parseTimelineSearch(search)).toEqual(
+      parseTimelineState(Object.fromEntries(search.entries()))
+    );
+    expect(parseTimelineSearch(search)).toEqual({
+      query: 'atlas api',
+      initiative: 'init-1',
+      activeOnly: false,
+      riskOnly: true,
+      zoom: 'months',
+      showDependencies: true,
+    });
+    // A plain /timeline (the sidebar link) is the default state.
+    expect(parseTimelineSearch(new URLSearchParams(''))).toEqual(
+      DEFAULT_TIMELINE_STATE
+    );
+    // The first of a repeated key wins, and long values are capped.
+    const repeated = new URLSearchParams(
+      `q=a&q=b&initiative=${'x'.repeat(300)}`
+    );
+    expect(parseTimelineSearch(repeated).query).toBe('a');
+    expect(parseTimelineSearch(repeated).initiative).toHaveLength(200);
+    // What the island writes reads back as the same state.
+    const state = {
+      ...DEFAULT_TIMELINE_STATE,
+      query: 'harbor',
+      activeOnly: true,
+    };
+    const written = timelineHref(state, { projectId: 'p-2' });
+    expect(
+      parseTimelineSearch(new URL(written, 'http://x').searchParams)
+    ).toEqual(state);
   });
 
   test('state round-trips through the URL and defaults are left out', () => {
@@ -522,8 +603,7 @@ describe('banners', () => {
       {
         id: 'p-harbor',
         label: 'Harbor API v3',
-        detail:
-          'Next milestone is missing required details · missing: done means…',
+        detail: 'Next milestone is missing: done means…',
         target: { milestoneId: 'ms-beta', projectId: 'p-harbor' },
       },
       {
@@ -580,6 +660,27 @@ describe('banners', () => {
     ]);
     expect(timelineReceipts(v)).toBe(
       '1 project · 3 milestones · 1 overdue · 1 at risk · Oct 7 – Dec 30'
+    );
+    // An inactive lane's milestones are listed but never counted overdue
+    // or at risk; the project count says how many lanes are inactive.
+    const withInactive = view([
+      {
+        id: null,
+        name: 'N',
+        lanes: [
+          lane({
+            bars: [bar({ status: 'overdue' }), bar({ status: 'at_risk' })],
+          }),
+          lane({
+            projectId: 'p-fjord',
+            active: false,
+            bars: [bar({ status: 'overdue' }), bar({ status: 'at_risk' })],
+          }),
+        ],
+      },
+    ]);
+    expect(timelineReceipts(withInactive)).toBe(
+      '2 projects (1 inactive) · 4 milestones · 1 overdue · 1 at risk · Oct 7 – Dec 30'
     );
     const page = buildTimelinePage({
       view: v,
@@ -985,5 +1086,70 @@ describe('milestone drawer', () => {
       note: 'Olga Old · deactivated in Linear',
     });
     expect(drawer().lead.note).toBeNull();
+  });
+
+  test('a complete milestone is never overdue: its date has no countdown', () => {
+    // Schema cutover: every issue done, due 20 days ago.
+    const m = drawer(
+      detail({
+        milestone: { ...detail().milestone, targetDate: '2026-10-01' },
+        assessment: assessment({
+          status: 'complete',
+          daysLeft: -20,
+          reasons: [],
+        }),
+      })
+    );
+    expect(m.overdueText).toBeNull();
+    expect(m.due).toEqual({
+      value: '2026-10-01',
+      label: 'Oct 1 · complete',
+      tone: 'default',
+    });
+    expect(m.status.status).toBe('done');
+  });
+
+  test("an inactive project's milestone is drawn quietly (§2.8)", () => {
+    const paused = view([
+      {
+        id: null,
+        name: 'No initiative',
+        lanes: [
+          lane({
+            bars: [bar({ isNext: true, status: 'overdue' })],
+            active: false,
+            statusType: 'paused',
+            allocation: plan({ outcome: 'inactive' }),
+          }),
+        ],
+      },
+    ]);
+    const m = buildMilestoneDrawer({
+      detail: detail(),
+      today: TODAY,
+      permissions: PM,
+      users: USERS,
+      issues: ISSUES,
+      limits: LIMITS,
+      view: paused,
+    });
+    // Same facts, no accent: no overdue strip, a grey mark still named
+    // with its status, a plain due date and progress.
+    expect(m.muted).toBe(true);
+    expect(m.overdueText).toBeNull();
+    expect(m.status).toEqual({
+      status: 'overdue',
+      label: 'Overdue · inactive project',
+      lines: ['Open issues unassigned', 'More work left than time left'],
+    });
+    expect(m.due).toEqual({
+      value: '2026-10-18',
+      label: 'Oct 18 · 3 days overdue',
+      tone: 'default',
+    });
+    expect(m.progress.tone).toBe('default');
+    // An active lane (or no view) keeps it loud.
+    expect(drawer().muted).toBe(false);
+    expect(drawer().overdueText).toBe('Overdue by 3 days.');
   });
 });

@@ -34,7 +34,7 @@ import {
 // the frame adapters are tested against the shapes the engine produces.
 const TODAY = '2026-10-21';
 
-function fixtureViews() {
+function fixtureViews(userId = 'user-ana') {
   const snapshot = indexWorkspace(createFixtureWorkspace(TODAY));
   const meta = new Map<string, MilestoneMeta>(
     FIXTURE_MILESTONE_META.map((m) => [
@@ -56,7 +56,7 @@ function fixtureViews() {
       snapshot,
       ctx,
       assessments,
-      userId: 'user-ana',
+      userId,
       recentAllocations: [],
     }),
   };
@@ -256,8 +256,50 @@ describe('palette index (GET /api/palette)', () => {
       expect(entry.status).toBeDefined();
     }
     expect(
-      index.milestones.every((m) => / · (due |no target date)/.test(m.hint))
+      index.milestones.every((m) =>
+        / · (due |no target date|complete · )/.test(m.hint)
+      )
     ).toBe(true);
+  });
+
+  test('a complete milestone is not "due": its hint says complete', () => {
+    const schema = index.milestones.find(
+      (m) => m.id === 'milestone:ms-atlas-1'
+    );
+    expect(schema?.hint).toBe('Atlas billing migration · complete · Oct 1');
+    const dual = index.milestones.find((m) => m.id === 'milestone:ms-atlas-2');
+    expect(dual?.hint).toBe('Atlas billing migration · due Oct 18');
+  });
+
+  test('an inactive project is listed with grey marks (§2.8)', () => {
+    // Fjord analytics is paused; its next milestone is overdue.
+    const fjord = index.projects.find((p) => p.id === 'project:proj-fjord');
+    expect(fjord).toMatchObject({
+      status: 'overdue',
+      statusLabel: 'Overdue · inactive project',
+      muted: true,
+    });
+    const dashboards = index.milestones.find(
+      (m) => m.id === 'milestone:ms-fjord-1'
+    );
+    expect(dashboards?.muted).toBe(true);
+    // Active ones carry no muted flag at all.
+    const atlas = index.projects.find((p) => p.id === 'project:proj-atlas');
+    expect(atlas?.muted).toBeUndefined();
+    expect(atlas?.statusLabel).toBe('Overdue');
+    // Femi's own issue in Fjord, and its palette row.
+    const femi = fixtureViews('user-femi');
+    const femiIndex = buildPaletteIndex(femi);
+    const ops8 = femiIndex.issues.find((i) => i.hint.startsWith('OPS-8 '));
+    expect(ops8).toMatchObject({
+      statusLabel: 'Milestone overdue · inactive project',
+      muted: true,
+    });
+    const rows = paletteItemsFromIndex(femiIndex, { openExternal: () => {} });
+    expect(rows.find((r) => r.id === ops8?.id)?.statusMuted).toBe(true);
+    expect(
+      rows.filter((r) => r.statusMuted === true).map((r) => r.label)
+    ).toEqual(['Fjord analytics', 'Dashboards', 'Usage dashboard']);
   });
 
   test("issues are the person's open issues, opening in Linear", () => {

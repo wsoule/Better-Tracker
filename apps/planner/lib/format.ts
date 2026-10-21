@@ -73,14 +73,21 @@ export function daysLeftPhrase(daysLeft: number): string {
   return late === 1 ? '1 day overdue' : `${late} days overdue`;
 }
 
-/** "Oct 28 · in 3 days"; just the phrase when there is no date. */
+/**
+ * "Oct 28 · in 3 days"; just the phrase when there is no date. Pass the
+ * milestone's status (§2.5) where it is known: a complete milestone (every
+ * issue done or canceled) has no countdown, since finished work is never
+ * "20 days overdue" or "in 3 days", so it reads "Oct 1 · complete".
+ */
 export function dueLabel(
   targetDate: string | null,
   daysLeft: number | null,
-  today: string
+  today: string,
+  status?: string | null
 ): string {
   if (targetDate === null) return 'No target date';
   const when = formatDate(targetDate, today);
+  if (status === 'complete') return `${when} · complete`;
   return daysLeft === null ? when : `${when} · ${daysLeftPhrase(daysLeft)}`;
 }
 

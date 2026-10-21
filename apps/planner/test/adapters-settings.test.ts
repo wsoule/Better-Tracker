@@ -11,6 +11,7 @@ import {
   type AuditEntry,
   auditRows,
   digestPreview,
+  formStatusText,
   type Installation,
   isDigestPreviewModel,
   lockedPmIds,
@@ -22,10 +23,13 @@ import {
   parseSettingsSection,
   peopleRows,
   readOnlyNote,
+  RESET_OUTCOME,
   sameIds,
+  scheduleFieldError,
   scheduleForm,
   scheduleSavedMessage,
   sectionTabs,
+  sentenceCase,
   settingsChanges,
   settingsHref,
   statusRows,
@@ -203,6 +207,74 @@ describe('schedule', () => {
   });
 });
 
+describe('saving a section', () => {
+  const idle = { dirty: false, saving: false, blocked: null, outcome: null };
+
+  test('the status line: saving, blocked, unsaved, then the last outcome', () => {
+    expect(formStatusText(idle)).toBe('No changes');
+    expect(formStatusText({ ...idle, dirty: true })).toBe('Unsaved changes');
+    expect(formStatusText({ ...idle, dirty: true, saving: true })).toBe(
+      'Saving…'
+    );
+    expect(
+      formStatusText({ ...idle, dirty: true, blocked: 'Fix the field' })
+    ).toBe('Fix the field');
+    const saved = { kind: 'saved' as const, text: 'Saved' };
+    const failed = { kind: 'error' as const, text: 'Not saved: no network' };
+    // After a save the form is clean again and says so, until it changes.
+    expect(formStatusText({ ...idle, outcome: saved })).toBe('Saved');
+    expect(formStatusText({ ...idle, dirty: true, outcome: saved })).toBe(
+      'Unsaved changes'
+    );
+    // A failed save keeps its changes and says why.
+    expect(formStatusText({ ...idle, dirty: true, outcome: failed })).toBe(
+      'Not saved: no network'
+    );
+    expect(formStatusText({ ...idle, outcome: failed })).toBe('No changes');
+    // Reset after a save focuses the line: it must not say "Saved".
+    expect(formStatusText({ ...idle, outcome: RESET_OUTCOME })).toBe(
+      'Changes discarded'
+    );
+    expect(
+      formStatusText({ ...idle, dirty: true, outcome: RESET_OUTCOME })
+    ).toBe('Unsaved changes');
+  });
+
+  test('the timezone refusal belongs to the timezone field, capitalised', () => {
+    expect(
+      scheduleFieldError({
+        code: 'invalid',
+        message: 'timezone must be an IANA timezone such as Europe/Oslo.',
+      })
+    ).toEqual({
+      field: 'timezone',
+      message: 'Timezone must be an IANA timezone such as Europe/Oslo.',
+    });
+    expect(
+      scheduleFieldError({ code: 'invalid', message: 'timezone: Too big' })
+    ).toEqual({ field: 'timezone', message: 'Timezone: Too big' });
+    // Everything else stays a toast.
+    expect(
+      scheduleFieldError({
+        code: 'invalid',
+        message: 'At least one active PM must remain.',
+      })
+    ).toBeNull();
+    expect(
+      scheduleFieldError({ code: 'not_pm', message: 'timezone is yours' })
+    ).toBeNull();
+    expect(
+      scheduleFieldError({ code: 'invalid', message: 'timezones: nope' })
+    ).toBeNull();
+  });
+
+  test('sentenceCase', () => {
+    expect(sentenceCase('timezone must be')).toBe('Timezone must be');
+    expect(sentenceCase('  ok ')).toBe('Ok');
+    expect(sentenceCase('')).toBe('');
+  });
+});
+
 describe('status', () => {
   const installation: Installation = {
     workspaceId: 'org-1',
@@ -315,11 +387,78 @@ describe('digest preview', () => {
       kindLabel: 'Allocation stopped',
       title: 'Delta',
       due: null,
+      dueNote: null,
       href: '/timeline?project=p1',
       tone: 'accent',
     });
     expect(isDigestPreviewModel(model)).toBe(true);
     expect(isDigestPreviewModel({ day: 1 })).toBe(false);
+  });
+
+  test('allocation stopped names the next milestone and its date', () => {
+    const notice = {
+      kind: 'allocation_blocked' as const,
+      subjectKind: 'project' as const,
+      subjectId: 'p1',
+      projectId: 'p1',
+      milestoneId: 'm1',
+      key: 'blocked:next_milestone_invalid:m1:no_done_means',
+      targetDate: '2026-10-25',
+      daysLeft: 4,
+      reasons: [],
+      gaps: ['no_done_means' as const],
+      blockReason: 'next_milestone_invalid' as const,
+      openIssueIds: ['i1'],
+      unassignedIssueIds: ['i1'],
+      recipientIds: ['u-ana'],
+      occurrence: 1,
+    };
+    const model = digestPreview({
+      day: '2026-10-21',
+      mode: 'preview',
+      digests: [
+        {
+          recipientId: 'u-ana',
+          recipientName: 'Ana Moreno',
+          recipientEmail: null,
+          day: '2026-10-21',
+          items: [
+            {
+              notice,
+              projectName: 'Harbor API v3',
+              milestoneName: 'Public beta',
+              leadName: 'Ana Moreno',
+              openCount: 1,
+              unassignedCount: 1,
+              lines: ['next milestone Public beta is missing: done means…'],
+              url: 'https://planner.example/timeline?project=p1',
+            },
+            {
+              notice: { ...notice, targetDate: null, daysLeft: null },
+              projectName: 'Delta exports',
+              milestoneName: 'CSV exports',
+              leadName: null,
+              openCount: 1,
+              unassignedCount: 1,
+              lines: [],
+              url: 'https://planner.example/timeline?project=p1',
+            },
+          ],
+        },
+      ],
+    });
+    const [dated, undated] = model.digests[0]?.items ?? [];
+    // The project is the subject; the milestone is spelled out under Due.
+    expect(dated).toMatchObject({
+      title: 'Harbor API v3',
+      due: 'Oct 25 · in 4 days',
+      dueNote: 'Next milestone: Public beta',
+      href: '/timeline?milestone=m1',
+    });
+    expect(undated).toMatchObject({
+      due: 'No target date',
+      dueNote: 'Next milestone: CSV exports',
+    });
   });
 
   test('the accent marks what needs action; at risk stays ink', () => {

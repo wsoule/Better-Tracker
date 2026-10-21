@@ -69,7 +69,10 @@ function recentAllocationsFor(
  * in milestone display order, rows in issue order, then a final "No
  * milestone" section. A row is marked new when a live allocation gave it to
  * this user within `newBadgeDays` and it is still theirs. Totals count
- * issues, except `overdue`, which counts overdue milestones.
+ * issues, except `overdue`, which counts overdue milestones. A milestone
+ * in an inactive project (§2.8) is never "this week" and never counted
+ * overdue: its date is not a deadline while the project is paused, so it
+ * stays listed (as a later section) without making the week loud.
  */
 export function buildWeekView(input: {
   snapshot: Snapshot;
@@ -133,11 +136,15 @@ export function buildWeekView(input: {
     })
     .sort(compareMilestones(snapshot, ctx, assessments));
 
+  const activeStatuses = new Set(ctx.tuning.activeProjectStatuses);
   const sections: WeekSection[] = milestones.map((milestone) => {
     const assessment = assessments.get(milestone.id);
     const project = snapshot.projects.get(milestone.projectId);
     const daysLeft = assessment?.daysLeft ?? null;
     const status = assessment?.status ?? null;
+    // A milestone whose project is missing from the mirror keeps its date.
+    const active =
+      project === undefined || activeStatuses.has(project.statusType);
     return {
       milestoneId: milestone.id,
       milestoneName: milestone.name,
@@ -149,8 +156,9 @@ export function buildWeekView(input: {
       status,
       progress: assessment?.progress ?? null,
       thisWeek:
-        status === 'overdue' ||
-        (daysLeft !== null && daysLeft <= THIS_WEEK_DAYS),
+        active &&
+        (status === 'overdue' ||
+          (daysLeft !== null && daysLeft <= THIS_WEEK_DAYS)),
       rows: (byMilestone.get(milestone.id) ?? [])
         .sort(compareIssues)
         .map(toRow),
@@ -174,12 +182,13 @@ export function buildWeekView(input: {
 
   // open, thisWeek and new count the user's issues; overdue counts the
   // overdue milestones they have open issues in (§8.4: "Overdue milestones",
-  // "1 milestone overdue").
+  // "1 milestone overdue"), in active projects only: an overdue section is
+  // this week exactly when its project is active.
   const totals = { open: 0, thisWeek: 0, overdue: 0, new: 0 };
   for (const section of sections) {
     totals.open += section.rows.length;
     if (section.thisWeek) totals.thisWeek += section.rows.length;
-    if (section.status === 'overdue') totals.overdue += 1;
+    if (section.status === 'overdue' && section.thisWeek) totals.overdue += 1;
     for (const row of section.rows) {
       if (row.newBecauseLeadOf !== null) totals.new += 1;
     }
@@ -224,7 +233,8 @@ function toBar(
  * The PM timeline (§7.2): a window from `timelineDaysBack` before today to
  * `timelineDaysAhead` after, lanes for projects that are not completed or
  * canceled grouped by initiative ("No initiative" last), one bar per
- * milestone, and the banners that make missing inputs loud.
+ * milestone, and the banners that make missing inputs loud. Banners list
+ * active projects only (§2.8: an inactive project is never loud).
  */
 export function buildTimelineView(input: {
   snapshot: Snapshot;
@@ -250,6 +260,9 @@ export function buildTimelineView(input: {
   const toLane = (project: Project): TimelineLane => {
     const lead =
       project.leadId === null ? undefined : snapshot.users.get(project.leadId);
+    // Inactive projects (§2.8) keep their lane, drawn quietly, but never
+    // appear in a banner: nothing in them is allocated or warned about.
+    const active = activeStatuses.has(project.statusType);
     const bars: TimelineBar[] = [];
     const undated: TimelineBar[] = [];
     // A malformed project start is ignored, like a malformed milestone date.
@@ -268,12 +281,14 @@ export function buildTimelineView(input: {
         undated.push(
           toBar(milestone, ctx, assessment, projectStart ?? windowStart)
         );
-        banners.milestonesWithoutDate.push({
-          milestoneId: milestone.id,
-          name: milestone.name,
-          projectId: project.id,
-          projectName: project.name,
-        });
+        if (active) {
+          banners.milestonesWithoutDate.push({
+            milestoneId: milestone.id,
+            name: milestone.name,
+            projectId: project.id,
+            projectName: project.name,
+          });
+        }
       } else {
         const start = previousDate ?? projectStart ?? windowStart;
         bars.push(toBar(milestone, ctx, assessment, start));
@@ -292,7 +307,7 @@ export function buildTimelineView(input: {
       )
       .sort(compareIssues)
       .map((issue) => issue.id);
-    if (unplannedIssueIds.length > 0) {
+    if (active && unplannedIssueIds.length > 0) {
       banners.issuesWithoutMilestone.count += unplannedIssueIds.length;
       banners.issuesWithoutMilestone.byProject.push({
         projectId: project.id,
@@ -301,7 +316,6 @@ export function buildTimelineView(input: {
       });
     }
 
-    const active = activeStatuses.has(project.statusType);
     if (active && project.leadId === null) {
       banners.projectsWithoutLead.push({
         projectId: project.id,

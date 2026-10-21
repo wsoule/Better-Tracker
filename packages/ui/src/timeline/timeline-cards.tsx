@@ -34,9 +34,14 @@ export interface TimelineCardsProps {
 }
 
 /** One line of receipts under a milestone name: status, progress, tags,
- * the missing input. */
-function receipts(bar: TimelineBar): string {
-  const parts = [bar.statusLabel];
+ * the missing input. A hatched (missing-input) milestone that carries its
+ * missing line says it once: the line names what is missing, so the
+ * status label ("Missing input", "No issues yet") is left out. */
+function cardReceipts(bar: TimelineBar): string {
+  const parts =
+    bar.status === 'missing' && bar.missing !== undefined
+      ? []
+      : [bar.statusLabel];
   if (bar.progressLabel !== undefined) parts.push(bar.progressLabel);
   for (const tag of bar.tags ?? []) parts.push(tag);
   if (bar.missing !== undefined) parts.push(bar.missing);
@@ -157,8 +162,9 @@ function TimelineCardsImpl({
                             onClick={() => onOpenBar(bar.id)}
                           >
                             <StatusMark
-                              status={loud ? bar.status : 'on_track'}
+                              status={bar.status}
                               label={bar.statusLabel}
+                              muted={!loud}
                             />
                             <span className={styles.rowBody}>
                               <span className={styles.rowName}>
@@ -171,7 +177,7 @@ function TimelineCardsImpl({
                                 )}
                                 data-tone={metaLoud ? 'accent' : 'default'}
                               >
-                                {receipts(bar)}
+                                {cardReceipts(bar)}
                               </span>
                             </span>
                             <span

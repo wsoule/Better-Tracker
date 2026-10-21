@@ -33,6 +33,22 @@ describe('format', () => {
     expect(dueLabel(null, null, '2026-10-21')).toBe('No target date');
   });
 
+  test('dueLabel gives a complete milestone no countdown', () => {
+    // Done work is never overdue, whatever its date.
+    expect(dueLabel('2026-10-01', -20, '2026-10-21', 'complete')).toBe(
+      'Oct 1 · complete'
+    );
+    expect(dueLabel('2026-10-24', 3, '2026-10-21', 'complete')).toBe(
+      'Oct 24 · complete'
+    );
+    expect(dueLabel('2026-10-01', -20, '2026-10-21', 'overdue')).toBe(
+      'Oct 1 · 20 days overdue'
+    );
+    expect(dueLabel(null, null, '2026-10-21', 'complete')).toBe(
+      'No target date'
+    );
+  });
+
   test('rejects malformed dates loudly', () => {
     expect(() => formatDate('10/28/2026')).toThrow(/YYYY-MM-DD/);
   });

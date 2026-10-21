@@ -410,6 +410,73 @@ export function parseScheduleForm(
   return { ok: true, patch: { timezone, tuning } };
 }
 
+// ---------------------------------------------------------------------------
+// Saving a section
+// ---------------------------------------------------------------------------
+
+/** How the last save of a section went, for the form's status line; a
+ * `reset` once Reset has put the saved values back. */
+export interface SaveOutcome {
+  kind: 'saved' | 'error' | 'reset';
+  text: string;
+}
+
+/** The status line after Reset: nothing was saved, the edits are gone. */
+export const RESET_OUTCOME: SaveOutcome = {
+  kind: 'reset',
+  text: 'Changes discarded',
+};
+
+/**
+ * The words on a section form's status line (beside Save and Reset): what
+ * is happening, else what needs fixing, else whether anything is unsaved
+ * (a failed save says why while its changes are still unsaved), else how
+ * the last save or reset went. The line takes focus after a save or a
+ * reset, so this is what a screen reader hears then; a reset after a save
+ * must not read "Saved".
+ */
+export function formStatusText(input: {
+  dirty: boolean;
+  saving: boolean;
+  blocked: string | null;
+  outcome: SaveOutcome | null;
+}): string {
+  const { dirty, saving, blocked, outcome } = input;
+  if (saving) return 'Saving…';
+  if (blocked !== null && blocked !== '') return blocked;
+  if (dirty) {
+    return outcome?.kind === 'error' ? outcome.text : 'Unsaved changes';
+  }
+  return outcome === null || outcome.kind === 'error'
+    ? 'No changes'
+    : outcome.text;
+}
+
+/** "timezone must be…" → "Timezone must be…": a sentence for the UI. */
+export function sentenceCase(text: string): string {
+  const trimmed = text.trim();
+  return trimmed === ''
+    ? trimmed
+    : `${trimmed[0]?.toUpperCase() ?? ''}${trimmed.slice(1)}`;
+}
+
+/**
+ * Which Schedule field a refused save belongs to, so the form can show it
+ * beside that field instead of in a toast. Only the timezone is checked
+ * on the server alone (the IANA database), so it is the one refusal the
+ * form cannot catch first: the engine's "timezone must be an IANA
+ * timezone…" or the route's "timezone: …" (code `invalid`). Anything else
+ * is null and stays a toast.
+ */
+export function scheduleFieldError(error: {
+  code: string;
+  message: string;
+}): { field: 'timezone'; message: string } | null {
+  if (error.code !== 'invalid') return null;
+  if (!/^timezone\b/i.test(error.message.trim())) return null;
+  return { field: 'timezone', message: sentenceCase(error.message) };
+}
+
 /**
  * The toast after a Schedule save, naming what changed in the rows' own
  * words: "Saved: timezone America/Chicago, warn ahead 6 days."
@@ -550,10 +617,14 @@ export interface DigestItemPreview {
   id: string;
   kind: NoticeKind;
   kindLabel: string;
-  /** "Atlas billing migration › Dual-write". */
+  /** "Atlas billing migration › Dual-write"; just the project for a
+   * project notice (allocation stopped), whose milestone is in `due`. */
   title: string;
-  /** "Oct 18 · 3 days overdue", or null for a project notice. */
+  /** "Oct 18 · 3 days overdue"; for a project notice its next
+   * milestone's date, or null when it has no next milestone. */
   due: string | null;
+  /** Under the date of a project notice: "Next milestone: Public beta". */
+  dueNote: string | null;
   lines: string[];
   href: string;
   tone: 'default' | 'accent';
@@ -590,8 +661,11 @@ function previewItem(
 ): DigestItemPreview[] {
   return digest.items.map((item, i) => {
     const notice = item.notice;
+    const project = notice.subjectKind === 'project';
+    // A project notice is about the whole project; the milestone it names
+    // is the next one, which the Due column spells out.
     const title =
-      item.milestoneName === null
+      item.milestoneName === null || project
         ? item.projectName
         : `${item.projectName} › ${item.milestoneName}`;
     const href =
@@ -604,9 +678,13 @@ function previewItem(
       kindLabel: NOTICE_KIND_LABEL[notice.kind],
       title,
       due:
-        notice.subjectKind === 'project'
+        project && item.milestoneName === null
           ? null
           : dueLabel(notice.targetDate, notice.daysLeft, today),
+      dueNote:
+        project && item.milestoneName !== null
+          ? `Next milestone: ${item.milestoneName}`
+          : null,
       lines: item.lines,
       href,
       tone: noticeTone(notice.kind),

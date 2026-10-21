@@ -190,14 +190,16 @@ async function renderSection(
         );
       }
       return (
+        // The recipient leads (with the channel under it): it is the
+        // card's title once the register stacks, and six columns left the
+        // name and the error about 70px each in a 700px register.
         <Register
           label="Recent digests, newest first"
-          columns="96px minmax(0, 1fr) 100px 128px 80px minmax(0, 1.2fr)"
+          columns="minmax(0, 1fr) 96px 128px 72px minmax(0, 1.3fr)"
           stackWithin={700}
           header={[
-            { id: 'day', label: 'Day' },
             { id: 'to', label: 'Recipient' },
-            { id: 'channel', label: 'Channel' },
+            { id: 'day', label: 'Day' },
             { id: 'status', label: 'Status' },
             { id: 'items', label: 'Items', align: 'end' },
             { id: 'error', label: 'Error' },
@@ -206,14 +208,11 @@ async function renderSection(
         >
           {rows.map((row) => (
             <RegisterRow key={row.id} tone={row.rowTone}>
-              <RegisterCell label="Day" variant="mono">
-                {row.day}
-              </RegisterCell>
-              <RegisterCell label="Recipient" variant="name">
+              <RegisterCell label="Recipient" variant="name" sub={row.channel}>
                 {row.recipient}
               </RegisterCell>
-              <RegisterCell label="Channel" variant="mono" tone="muted">
-                {row.channel}
+              <RegisterCell label="Day" variant="mono">
+                {row.day}
               </RegisterCell>
               <RegisterCell label="Status">
                 <Chip tone={row.statusTone}>{row.statusLabel}</Chip>
@@ -225,7 +224,7 @@ async function renderSection(
                 label="Error"
                 tone={row.error === null ? 'muted' : 'accent'}
               >
-                {row.error ?? '—'}
+                <span className={css.breakAnywhere}>{row.error ?? '—'}</span>
               </RegisterCell>
             </RegisterRow>
           ))}
@@ -246,7 +245,7 @@ async function renderSection(
       return (
         <Register
           label="Recent PM edits, newest first"
-          columns="minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.6fr)"
+          columns="152px minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.6fr)"
           stackWithin={700}
           header={[
             { id: 'when', label: 'When' },

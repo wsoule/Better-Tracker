@@ -20,6 +20,8 @@ import {
   cyclesPhrase,
   edgeKind,
   graphHref,
+  ISOLATED_COLLAPSE_AFTER,
+  isolatedNodeIds,
   issueMark,
   levelTabs,
   listPhrase,
@@ -49,12 +51,13 @@ function fixture() {
     meta,
   };
   const assessments = assessWorkspace(snapshot, ctx);
-  const page = (scope: GraphScope) =>
+  const page = (scope: GraphScope, keep?: string[]) =>
     buildGraphPage({
       graph: buildDependencyGraph(snapshot, ctx, assessments, scope),
       snapshot,
       assessments,
       today: TODAY,
+      keep,
     });
   return { snapshot, page };
 }
@@ -278,6 +281,16 @@ describe('buildGraphPage on the demo workspace', () => {
     expect(model.receipts).toContain('outside it that');
   });
 
+  test('an issue in a complete milestone gives its date no countdown', () => {
+    // Atlas's Schema cutover: every issue done, due Oct 1 (20 days ago).
+    const model = page({ level: 'issue', projectId: 'proj-atlas' });
+    const milestone = model.details['iss-eng-1']?.properties.find(
+      (p) => p.label === 'Milestone'
+    );
+    expect(milestone?.value).toBe('Schema cutover · Oct 1 · complete');
+    expect(milestone?.tone).toBe('default');
+  });
+
   test('a scope without any blocking relation shows the empty state', () => {
     const model = page({ level: 'issue', projectId: 'proj-compass' });
     expect(model.nodes).toEqual([]);
@@ -285,6 +298,105 @@ describe('buildGraphPage on the demo workspace', () => {
       'No issue in Compass onboarding blocks or waits on another.'
     );
     expect(model.meta).toBe('No edges');
+  });
+});
+
+describe('nodes with no blocking relation', () => {
+  const { snapshot, page } = fixture();
+
+  test('isolatedNodeIds keeps node order and spares kept ids', () => {
+    const edges = [{ from: 'b', to: 'c' }];
+    expect(isolatedNodeIds(['a', 'b', 'c', 'd'], edges)).toEqual(['a', 'd']);
+    expect(isolatedNodeIds(['a', 'b', 'c', 'd'], edges, ['d'])).toEqual(['a']);
+    expect(isolatedNodeIds(['a'], [])).toEqual(['a']);
+  });
+
+  test('milestone level draws only connected milestones and lists the rest', () => {
+    const model = page({ level: 'milestone' });
+    const onEdge = new Set(model.edges.flatMap((e) => [e.from, e.to]));
+    expect(model.nodes.length).toBeGreaterThan(0);
+    for (const n of model.nodes) expect(onEdge.has(n.id)).toBe(true);
+
+    const list = model.isolated;
+    expect(list).not.toBeNull();
+    if (list === null) return;
+    const listed = list.rows.length;
+    expect(listed).toBeGreaterThan(ISOLATED_COLLAPSE_AFTER);
+    expect(list.collapsed).toBe(true);
+    expect(list.title).toBe(`${listed} milestones have no blocking relations`);
+    expect(list.nameLabel).toBe('Milestone');
+    expect(list.contextLabel).toBe('Project');
+    for (const row of list.rows) {
+      expect(onEdge.has(row.id)).toBe(false);
+      expect(row.href).toBe(
+        `/timeline?milestone=${encodeURIComponent(row.id)}`
+      );
+      expect(row.external).toBe(false);
+      const milestone = snapshot.milestones.get(row.id);
+      expect(row.context).toBe(
+        snapshot.projects.get(milestone?.projectId ?? '')?.name ?? ''
+      );
+    }
+    // Counts in the header sentence and the block meta: shown vs listed.
+    const total = model.nodes.length + listed;
+    expect(model.meta).toBe(
+      `${model.nodes.length} of ${total} milestones · ${model.edges.length} edges`
+    );
+    expect(model.receipts).toContain(
+      `${listed} more have no blocking relations and are listed under the graph.`
+    );
+    expect(model.ariaSummary).toContain(
+      `${listed} milestones with no blocking relations are listed after the graph.`
+    );
+    // The Mermaid copy is the drawn graph: one line per drawn node.
+    const nodeLines = model.mermaid
+      .split('\n')
+      .filter((line) => /^ {2}n\d+\["/.test(line));
+    expect(nodeLines).toHaveLength(model.nodes.length);
+  });
+
+  test('a kept node is drawn even without an edge', () => {
+    const plain = page({ level: 'milestone' });
+    const first = plain.isolated?.rows[0];
+    expect(first).toBeDefined();
+    if (first === undefined) return;
+    const kept = page({ level: 'milestone' }, [first.id]);
+    expect(kept.nodes.some((n) => n.id === first.id)).toBe(true);
+    expect(kept.isolated?.rows.some((r) => r.id === first.id)).toBe(false);
+  });
+
+  test('issue level lists unrelated issues, opening them in Linear', () => {
+    const model = page({ level: 'issue', milestoneId: 'ms-atlas-2' });
+    const list = model.isolated;
+    expect(list).not.toBeNull();
+    if (list === null) return;
+    expect(list.collapsed).toBe(list.rows.length > ISOLATED_COLLAPSE_AFTER);
+    expect(list.nameLabel).toBe('Issue');
+    expect(list.contextLabel).toBe('Assignee');
+    for (const row of list.rows) {
+      const issue = snapshot.issues.get(row.id);
+      expect(row.key).toBe(issue?.identifier ?? null);
+      expect(row.href).toBe(issue?.url ?? '');
+      expect(row.external).toBe(true);
+      const closed = row.status === 'done';
+      // A closed issue shows its milestone's date without a countdown.
+      if (closed) expect(row.due).not.toMatch(/overdue|in \d+ days/);
+      if (issue?.assigneeId === null && !closed) {
+        expect(row.context).toBe('Unassigned');
+        expect(row.contextTone).toBe('accent');
+      }
+    }
+    const inside = model.nodes.filter((n) => n.external !== true).length;
+    expect(model.receipts.startsWith(`${inside} issue`)).toBe(true);
+    expect(model.receipts).toContain(
+      `${list.rows.length} more in Dual-write have no blocking relations`
+    );
+  });
+
+  test('with no edge at all there is only the empty state', () => {
+    const model = page({ level: 'issue', projectId: 'proj-compass' });
+    expect(model.nodes).toEqual([]);
+    expect(model.isolated).toBeNull();
   });
 });
 

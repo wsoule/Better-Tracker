@@ -1,6 +1,4 @@
 import {
-  BLOCK_REASON_LABEL,
-  missingLine,
   type ProjectAllocationPlan,
   type ProjectStatusType,
   type TimelineBar,
@@ -15,7 +13,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { dueLabel, plural } from '../format';
-import { assessmentMark } from './status';
+import { assessmentMark, blockedReasonLine } from './status';
 
 // The projects register (architecture §8.4): one row per lane of the
 // engine's TimelineView (every project that is not completed or canceled),
@@ -23,6 +21,9 @@ import { assessmentMark } from './status';
 // Linear status, its next milestone (due, mark, progress), its lead, and
 // what the allocation plan would do with it. Pure functions over plain
 // data, shared by the server page and the client island that filters.
+// An inactive project (§2.8; the lane's `active` flag) stays listed, in
+// greys (its next milestone's mark, date and progress included), and is
+// never counted as at risk.
 
 export type ProjectFilterId = 'all' | 'blocked' | 'at_risk' | 'inactive';
 
@@ -62,12 +63,15 @@ export interface ProjectNextMilestone {
   done: number;
   total: number;
   progressTone: 'default' | 'accent';
+  /** An inactive project's milestone: the mark is drawn in greys. */
+  muted: boolean;
 }
 
 export interface ProjectAllocationCell {
-  /** "Allocating 2", "Blocked: Project has no lead", "Nothing to do"… */
+  /** The chip: "Allocating 2", "Blocked", "Nothing to do"… */
   label: string;
-  /** Mono line under it, e.g. "missing: done means…". */
+  /** Mono line under it: why it is blocked (blockedReasonLine), e.g.
+      "Project has no lead" or "Next milestone is missing: done means…". */
   detail?: string;
   /** Chip tone: accent = blocked (needs action), muted = nothing applies. */
   tone: 'default' | 'muted' | 'accent';
@@ -140,15 +144,16 @@ export function allocationCell(
   switch (plan.outcome) {
     case 'allocate':
       return { label: `Allocating ${plan.actions.length}`, tone: 'default' };
-    case 'blocked': {
-      const reason =
-        plan.blockReason === null
-          ? 'Blocked'
-          : `Blocked: ${BLOCK_REASON_LABEL[plan.blockReason]}`;
-      return plan.gaps.length > 0
-        ? { label: reason, detail: missingLine(plan.gaps), tone: 'accent' }
-        : { label: reason, tone: 'accent' };
-    }
+    case 'blocked':
+      // A short chip; the reason goes on the mono line under it, worded as
+      // on the timeline's Blocked banner and My week's "Needs attention".
+      return plan.blockReason === null
+        ? { label: 'Blocked', tone: 'accent' }
+        : {
+            label: 'Blocked',
+            detail: blockedReasonLine(plan.blockReason, plan.gaps),
+            tone: 'accent',
+          };
     case 'nothing_to_do':
       return { label: 'Nothing to do', tone: 'default' };
     case 'no_open_milestone':
@@ -158,6 +163,11 @@ export function allocationCell(
   }
 }
 
+/**
+ * The register's next-milestone cell. In an inactive project it is never
+ * loud (§2.8): grey mark (still named with its status), muted date, ink
+ * progress.
+ */
 function nextMilestone(
   lane: TimelineLane,
   today: string
@@ -165,17 +175,22 @@ function nextMilestone(
   const bar = [...lane.bars, ...lane.undated].find((b) => b.isNext);
   if (bar === undefined) return null;
   const mark = barMark(bar);
+  const loud = lane.active;
   return {
     id: bar.milestoneId,
     name: bar.name,
     href: `/timeline?milestone=${encodeURIComponent(bar.milestoneId)}`,
-    dueLabel: dueLabel(bar.end, bar.daysLeft, today),
-    dueTone: bar.status === 'overdue' || bar.end === null ? 'accent' : 'muted',
+    dueLabel: dueLabel(bar.end, bar.daysLeft, today, bar.status),
+    dueTone:
+      loud && (bar.status === 'overdue' || bar.end === null)
+        ? 'accent'
+        : 'muted',
     status: mark.status,
-    statusLabel: mark.label,
+    statusLabel: loud ? mark.label : `${mark.label} · inactive project`,
     done: bar.progress.completed,
     total: bar.progress.scope,
-    progressTone: progressTone(bar),
+    progressTone: loud ? progressTone(bar) : 'default',
+    muted: !loud,
   };
 }
 
@@ -189,7 +204,9 @@ function toRow(
   const allocation = allocationCell(lane.allocation);
   const blocked = lane.allocation?.outcome === 'blocked';
   const atRisk =
-    next !== null && (next.status === 'overdue' || next.status === 'at_risk');
+    lane.active &&
+    next !== null &&
+    (next.status === 'overdue' || next.status === 'at_risk');
   const tags: ProjectFilterId[] = [];
   if (blocked) tags.push('blocked');
   if (atRisk) tags.push('at_risk');
@@ -218,6 +235,7 @@ function toRow(
       lane.leadName ?? 'no lead',
       next?.name ?? '',
       allocation.label,
+      allocation.detail ?? '',
     ]
       .join(' ')
       .toLowerCase(),

@@ -16,6 +16,7 @@ import {
   parseProjectsSearch,
   progressTone,
 } from '../lib/adapters/projects';
+import { blockedReasonLine } from '../lib/adapters/status';
 
 // Hand-built TimelineView pieces: only the fields the register reads are
 // meaningful; the rest are plausible defaults.
@@ -186,10 +187,14 @@ describe('allocationCell', () => {
     expect(allocationCell(null).tone).toBe('muted');
   });
 
-  test('blocked names the reason and the missing rubric items', () => {
+  test('blocked is a short chip; the reason and missing items go under it', () => {
     expect(
       allocationCell(plan({ outcome: 'blocked', blockReason: 'no_lead' }))
-    ).toEqual({ label: 'Blocked: Project has no lead', tone: 'accent' });
+    ).toEqual({
+      label: 'Blocked',
+      detail: 'Project has no lead',
+      tone: 'accent',
+    });
     expect(
       allocationCell(
         plan({
@@ -199,10 +204,14 @@ describe('allocationCell', () => {
         })
       )
     ).toEqual({
-      label: 'Blocked: Next milestone is missing required details',
-      detail: 'missing: done means…, issues',
+      label: 'Blocked',
+      detail: 'Next milestone is missing: done means…, issues',
       tone: 'accent',
     });
+    // Without a recorded reason the chip still says Blocked.
+    expect(
+      allocationCell(plan({ outcome: 'blocked', blockReason: null }))
+    ).toEqual({ label: 'Blocked', tone: 'accent' });
   });
 });
 
@@ -330,13 +339,23 @@ describe('buildProjectsPage', () => {
       done: 1,
       total: 4,
       progressTone: 'default',
+      muted: false,
     });
     expect(row('proj-2').next?.progressTone).toBe('accent');
     expect(row('proj-3').next?.dueLabel).toBe('No target date');
     expect(row('proj-3').next?.status).toBe('missing');
-    expect(row('proj-4').next?.dueLabel).toBe('Oct 16 · 5 days overdue');
-    expect(row('proj-4').next?.dueTone).toBe('accent');
     expect(row('proj-5').next).toBeNull();
+  });
+
+  test("an inactive project's overdue next milestone is drawn in greys", () => {
+    expect(row('proj-4').next).toMatchObject({
+      dueLabel: 'Oct 16 · 5 days overdue',
+      dueTone: 'muted',
+      status: 'overdue',
+      statusLabel: 'Overdue · inactive project',
+      progressTone: 'default',
+      muted: true,
+    });
   });
 
   test('marks leads, tones and filter tags', () => {
@@ -346,10 +365,14 @@ describe('buildProjectsPage', () => {
     expect(row('proj-1').rowTone).toBe('default');
     expect(row('proj-2').tags).toEqual(['blocked', 'at_risk']);
     expect(row('proj-3').tags).toEqual(['blocked']);
-    expect(row('proj-4').tags).toEqual(['at_risk', 'inactive']);
+    // Overdue, but inactive: never counted as at risk (§2.8).
+    expect(row('proj-4').tags).toEqual(['inactive']);
     expect(row('proj-1').tags).toEqual([]);
-    expect(row('proj-3').allocation.label).toBe('Blocked: Project has no lead');
-    expect(row('proj-2').allocation.detail).toBe('missing: done means…');
+    expect(row('proj-3').allocation.label).toBe('Blocked');
+    expect(row('proj-3').allocation.detail).toBe('Project has no lead');
+    expect(row('proj-2').allocation.detail).toBe(
+      'Next milestone is missing: done means…'
+    );
   });
 
   test('links each row to its timeline lane, graph and Linear project', () => {
@@ -364,12 +387,12 @@ describe('buildProjectsPage', () => {
     expect(page.filters).toEqual([
       { id: 'all', label: 'All', count: 5 },
       { id: 'blocked', label: 'Blocked', count: 2 },
-      { id: 'at_risk', label: 'At risk', count: 2 },
+      { id: 'at_risk', label: 'At risk', count: 1 },
       { id: 'inactive', label: 'Inactive', count: 1 },
     ]);
     expect(page.total).toBe(5);
     expect(page.receipts).toBe(
-      '5 projects · 4 active · 2 blocked · 2 at risk or overdue'
+      '5 projects · 4 active · 2 blocked · 1 at risk or overdue'
     );
   });
 
@@ -400,6 +423,10 @@ describe('buildProjectsPage', () => {
     expect(ids(filterProjectGroups(page.groups, 'no lead', 'all'))).toEqual([
       'proj-3',
     ]);
+    // The blocked reason under the chip is searchable too.
+    expect(
+      ids(filterProjectGroups(page.groups, 'missing: done', 'all'))
+    ).toEqual(['proj-2']);
     // Groups left empty are dropped.
     const onlyInactive = filterProjectGroups(page.groups, '', 'inactive');
     expect(onlyInactive.map((g) => g.id)).toEqual(['none']);
@@ -429,5 +456,27 @@ describe('buildProjectsPage', () => {
     expect(parseProjectFilter(['at_risk', 'all'])).toBe('at_risk');
     expect(parseProjectFilter('nope')).toBe('all');
     expect(parseProjectFilter(undefined)).toBe('all');
+  });
+});
+
+describe('blockedReasonLine (shared by the timeline, My week and here)', () => {
+  test('the reason alone, or what the next milestone lacks', () => {
+    expect(blockedReasonLine('no_lead', [])).toBe('Project has no lead');
+    expect(blockedReasonLine('lead_inactive', [])).toBe(
+      'Project lead is deactivated'
+    );
+    expect(blockedReasonLine('next_milestone_invalid', [])).toBe(
+      'Next milestone is missing required details'
+    );
+    expect(
+      blockedReasonLine('next_milestone_invalid', [
+        'no_target_date',
+        'no_done_means',
+      ])
+    ).toBe('Next milestone is missing: target date, done means…');
+    // Another reason with rubric gaps keeps its label and lists them.
+    expect(blockedReasonLine('no_lead', ['no_project_lead'])).toBe(
+      'Project has no lead · missing: project lead'
+    );
   });
 });

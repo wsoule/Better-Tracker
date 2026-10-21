@@ -410,6 +410,7 @@ export function CommandPalette({
                             <StatusMark
                               status={item.status}
                               label={item.statusLabel ?? item.status}
+                              muted={item.statusMuted === true}
                             />
                           ) : (
                             renderIcon(item.icon)

@@ -643,6 +643,68 @@ describe('phone cards and empty state', () => {
     // Receipts line, then the due date.
     expect(tones(muted)).toEqual(['default', 'default']);
     expect(tones(live)).toEqual(['accent', 'accent']);
+    // The inactive lane's mark is the grey hollow square, still named with
+    // its status; the live lane keeps the accent mark.
+    const markOf = (card: Element) => card.querySelector('[role="img"]');
+    expect(markOf(muted)?.hasAttribute('data-muted')).toBe(true);
+    expect(markOf(muted)?.getAttribute('aria-label')).toBe('Overdue');
+    expect(markOf(live)?.hasAttribute('data-muted')).toBe(false);
+  });
+
+  test('a missing-input card names what is missing once', () => {
+    const empty: TimelineGroup[] = [
+      {
+        id: 'g',
+        label: 'Mobile',
+        lanes: [
+          {
+            id: 'p-garnet',
+            label: 'Garnet mobile app',
+            bars: [
+              {
+                id: 'm-push',
+                label: 'Push notifications',
+                start: '2026-10-27',
+                end: '2026-11-10',
+                status: 'missing',
+                statusLabel: 'No issues yet',
+                progressLabel: '0/0',
+                missing: 'Missing: issues',
+              },
+              {
+                id: 'm-beta',
+                label: 'Public beta',
+                start: '2026-10-01',
+                end: '2026-10-25',
+                status: 'at_risk',
+                statusLabel: 'At risk',
+                progressLabel: '0/3',
+                missing: 'Missing: done means…',
+              },
+            ],
+            undated: [],
+          },
+        ],
+      },
+    ];
+    const { container } = renderChart({ groups: empty });
+    const lines = [...container.querySelectorAll('article button')].map(
+      (button) => button.querySelector('[data-tone]')?.textContent
+    );
+    // The hatched mark plus the missing line say it; the status label would
+    // repeat it. A milestone with its own status keeps the label.
+    expect(lines).toEqual([
+      'At risk · 0/3 · Missing: done means…',
+      '0/0 · Missing: issues',
+    ]);
+    // The spoken name still carries the status.
+    expect(
+      container
+        .querySelector('article button[aria-label^="Push notifications"]')
+        ?.getAttribute('aria-label')
+    ).toBe(
+      'Push notifications, No issues yet, due Tue, Nov 10, 0/0 done, Missing: issues'
+    );
   });
 
   test('no lanes renders the empty copy instead of a chart', () => {

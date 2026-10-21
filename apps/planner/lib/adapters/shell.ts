@@ -242,6 +242,9 @@ export interface PaletteEntry {
   external: boolean;
   status?: UiStatus;
   statusLabel?: string;
+  /** An inactive project's target (§2.8): the mark is drawn in greys and
+      its label ends "· inactive project". Absent when active. */
+  muted?: boolean;
 }
 
 /** The GET /api/palette body. */
@@ -251,14 +254,38 @@ export interface PaletteIndex {
   issues: PaletteEntry[];
 }
 
+/** "Atlas · due Oct 18"; a complete milestone is not "due" any more, so
+    it reads "Atlas · complete · Oct 1". */
 function milestoneHint(
   lane: TimelineLane,
   bar: TimelineBar,
   today: string
 ): string {
   const when =
-    bar.end === null ? 'no target date' : `due ${formatDate(bar.end, today)}`;
+    bar.end === null
+      ? 'no target date'
+      : bar.status === 'complete'
+        ? `complete · ${formatDate(bar.end, today)}`
+        : `due ${formatDate(bar.end, today)}`;
   return `${lane.name} · ${when}`;
+}
+
+/**
+ * The palette's status fields for a mark. In an inactive project (§2.8:
+ * never loud) the mark is muted and its label says why, as on the
+ * projects register.
+ */
+function paletteMark(
+  mark: Mark,
+  active: boolean
+): Pick<PaletteEntry, 'status' | 'statusLabel' | 'muted'> {
+  return active
+    ? { status: mark.status, statusLabel: mark.label }
+    : {
+        status: mark.status,
+        statusLabel: `${mark.label} · inactive project`,
+        muted: true,
+      };
 }
 
 /**
@@ -280,8 +307,7 @@ export function buildPaletteIndex(input: {
       hint: `Project · ${lane.leadName ?? 'No lead'}`,
       href: projectHref(lane.projectId),
       external: false,
-      status: mark.status,
-      statusLabel: mark.label,
+      ...paletteMark(mark, lane.active),
     };
   });
   const milestones = lanes.flatMap((lane) =>
@@ -293,10 +319,16 @@ export function buildPaletteIndex(input: {
         hint: milestoneHint(lane, bar, timeline.today),
         href: milestoneHref(bar.milestoneId),
         external: false,
-        status: mark.status,
-        statusLabel: mark.label,
+        ...paletteMark(mark, lane.active),
       };
     })
+  );
+  const inactiveMilestones = new Set(
+    lanes
+      .filter((lane) => !lane.active)
+      .flatMap((lane) =>
+        [...lane.bars, ...lane.undated].map((bar) => bar.milestoneId)
+      )
   );
   const issues = week.sections.flatMap((section) =>
     section.rows.map((row): PaletteEntry => {
@@ -310,8 +342,14 @@ export function buildPaletteIndex(input: {
       if (section.status === null) return entry;
       return {
         ...entry,
-        status: uiStatus(section.status),
-        statusLabel: `Milestone ${statusLabel(section.status).toLowerCase()}`,
+        ...paletteMark(
+          {
+            status: uiStatus(section.status),
+            label: `Milestone ${statusLabel(section.status).toLowerCase()}`,
+          },
+          section.milestoneId === null ||
+            !inactiveMilestones.has(section.milestoneId)
+        ),
       };
     })
   );
@@ -362,6 +400,7 @@ export function paletteItemsFromIndex(
     if (entry.status !== undefined) {
       item.status = entry.status;
       item.statusLabel = entry.statusLabel;
+      if (entry.muted === true) item.statusMuted = true;
     }
     if (entry.external) {
       item.onSelect = () => options.openExternal(entry.href);

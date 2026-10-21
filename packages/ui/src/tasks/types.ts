@@ -276,6 +276,10 @@ export interface TaskGroupData {
   daysLeftLabel?: string;
   dueTone?: UiTone;
   progress?: TaskGroupProgress;
+  /** Drawn quietly (e.g. a paused project's milestone): the status mark in
+   * greys, and the due date and progress never in the accent, whatever
+   * dueTone and progress.tone say. */
+  muted?: boolean;
   rows: TaskRowData[];
 }
 
@@ -285,6 +289,9 @@ export interface TaskSectionData {
   label: string;
   /** Mono note after the label; defaults to the issue count. */
   note?: string;
+  /** Said when the section has no groups; defaults to "Nothing in this
+   * section". */
+  emptyLabel?: string;
   groups: TaskGroupData[];
 }
 

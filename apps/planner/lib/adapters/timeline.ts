@@ -15,6 +15,7 @@ import {
 } from '@better-tracker/core';
 import type {
   ChecklistItem,
+  SegmentedOption,
   TimelineBar,
   TimelineDependency,
   TimelineGroup,
@@ -26,7 +27,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { dueLabel, formatDate, plural } from '../format';
-import { assessmentMark } from './status';
+import { assessmentMark, blockedReasonLine } from './status';
 
 // The timeline page's core → ui mapping (architecture §8.4 Timeline, §8.3
 // slide-over): the engine's TimelineView becomes TimelineChart groups,
@@ -47,7 +48,7 @@ export interface TimelineFilters {
   initiative: string;
   /** Hide inactive projects (status outside the active list). */
   activeOnly: boolean;
-  /** Keep only projects with an at-risk or overdue milestone. */
+  /** Keep only active projects with an at-risk or overdue milestone. */
   riskOnly: boolean;
 }
 
@@ -94,6 +95,23 @@ export function parseTimelineState(params: SearchParams): TimelineUrlState {
     zoom: param(params, 'zoom') === 'months' ? 'months' : 'weeks',
     showDependencies: param(params, 'deps') === '1',
   };
+}
+
+/**
+ * The same state from the address bar as the client island reads it
+ * (useSearchParams) when the URL changes under it: back/forward, or a
+ * plain /timeline link while filters are on. Parsed exactly as the server
+ * parses the page's searchParams.
+ */
+export function parseTimelineSearch(params: {
+  get(name: string): string | null;
+}): TimelineUrlState {
+  const record: SearchParams = {};
+  for (const key of ['q', 'initiative', 'active', 'risk', 'zoom', 'deps']) {
+    const value = params.get(key);
+    if (value !== null) record[key] = value;
+  }
+  return parseTimelineState(record);
 }
 
 /** ?milestone= and ?project= (ids are opaque; the engine checks them). */
@@ -288,12 +306,49 @@ export function chartDependencies(
   return [...seen.values()];
 }
 
-/** True when a lane has an at-risk or overdue milestone. */
+/**
+ * True when an active lane has an at-risk or overdue milestone. An
+ * inactive (muted) lane never needs action (§2.8: not loud), whatever its
+ * milestones' status.
+ */
 export function laneNeedsAction(lane: TimelineLane): boolean {
-  return lane.bars.some(
-    (bar) => bar.status === 'overdue' || bar.status === 'at_risk'
+  return (
+    lane.muted !== true &&
+    lane.bars.some(
+      (bar) => bar.status === 'overdue' || bar.status === 'at_risk'
+    )
   );
 }
+
+/**
+ * The toolbar's one "Show" choice. The two URL filters nest (at risk /
+ * overdue only ever keeps active lanes), so one segmented control covers
+ * every combination: All, Active (?active=1), At risk (?risk=1).
+ */
+export type TimelineShow = 'all' | 'active' | 'at_risk';
+
+export function timelineShow(filters: TimelineFilters): TimelineShow {
+  if (filters.riskOnly) return 'at_risk';
+  return filters.activeOnly ? 'active' : 'all';
+}
+
+/** The URL filters for a "Show" choice. */
+export function showFilters(
+  show: string
+): Pick<TimelineFilters, 'activeOnly' | 'riskOnly'> {
+  if (show === 'at_risk') return { activeOnly: false, riskOnly: true };
+  if (show === 'active') return { activeOnly: true, riskOnly: false };
+  return { activeOnly: false, riskOnly: false };
+}
+
+/** The "Show" cells. No counts: the toolbar stays one row down to a
+    1366px window with the sidebar open, and each initiative row of the
+    chart already counts the projects it shows. */
+export const SHOW_OPTIONS: readonly SegmentedOption[] = [
+  { id: 'all', label: 'All' },
+  { id: 'active', label: 'Active' },
+  { id: 'at_risk', label: 'At risk' },
+];
 
 /**
  * Applies the toolbar filters, dropping initiative groups left empty. The
@@ -506,14 +561,10 @@ export function buildTimelineBanners(
       text: `Allocation is stopped in ${plural(blocked.length, 'project')} until the missing input is fixed.`,
       items: blocked.map((project) => {
         const nextId = nextById.get(project.projectId) ?? null;
-        const reason = BLOCK_REASON_LABEL[project.reason];
         return {
           id: project.projectId,
           label: project.name,
-          detail:
-            project.gaps.length > 0
-              ? `${reason} · ${missingLine(project.gaps)}`
-              : reason,
+          detail: blockedReasonLine(project.reason, project.gaps),
           target:
             project.reason === 'next_milestone_invalid' && nextId !== null
               ? { milestoneId: nextId, projectId: project.projectId }
@@ -527,26 +578,34 @@ export function buildTimelineBanners(
 }
 
 /**
- * The header's receipts line: "9 projects · 21 milestones · 3 overdue ·
- * 2 at risk · Oct 7 – Dec 30".
+ * The header's receipts line: "9 projects (1 inactive) · 21 milestones ·
+ * 3 overdue · 2 at risk · Oct 7 – Dec 30". Overdue and at risk count
+ * active projects only (§2.8: an inactive project is never loud; its lane
+ * is drawn in greys), so the inactive count says why a grey overdue bar
+ * is not in them.
  */
 export function timelineReceipts(view: TimelineView): string {
   let lanes = 0;
+  let inactive = 0;
   let milestones = 0;
   let overdue = 0;
   let atRisk = 0;
   for (const group of view.groups) {
     for (const lane of group.lanes) {
       lanes += 1;
+      if (!lane.active) inactive += 1;
       for (const bar of [...lane.bars, ...lane.undated]) {
         milestones += 1;
+        if (!lane.active) continue;
         if (bar.status === 'overdue') overdue += 1;
         if (bar.status === 'at_risk') atRisk += 1;
       }
     }
   }
   return [
-    plural(lanes, 'project'),
+    inactive > 0
+      ? `${plural(lanes, 'project')} (${inactive} inactive)`
+      : plural(lanes, 'project'),
     plural(milestones, 'milestone'),
     `${overdue} overdue`,
     `${atRisk} at risk`,
@@ -640,8 +699,15 @@ export interface MilestoneDrawerModel {
   linearUrl: string;
   /** The canonical link copied by "Copy link". */
   path: string;
-  /** "Overdue by 3 days." when overdue, else null. */
+  /** "Overdue by 3 days." when overdue (and the project is active), else
+      null. */
   overdueText: string | null;
+  /**
+   * The milestone of an inactive project (§2.8): never loud. No overdue
+   * strip, a grey status mark (its label still names the status), and no
+   * accent on the risk lines, due date, progress or issue rows.
+   */
+  muted: boolean;
   status: {
     status: UiStatus;
     label: string;
@@ -898,8 +964,11 @@ export function buildMilestoneDrawer(input: {
   }));
 
   const { progress } = assessment;
+  // An inactive project's milestone keeps its real status, said quietly:
+  // its dates are not deadlines while the project is paused (§2.8).
+  const muted = lane !== undefined && !lane.active;
   const overdue =
-    assessment.status === 'overdue' && assessment.daysLeft !== null
+    !muted && assessment.status === 'overdue' && assessment.daysLeft !== null
       ? overdueText(-assessment.daysLeft)
       : null;
 
@@ -913,12 +982,23 @@ export function buildMilestoneDrawer(input: {
     linearUrl: project.url,
     path: `/timeline?milestone=${encodeURIComponent(milestone.id)}`,
     overdueText: overdue,
-    status: { status: mark.status, label: mark.label, lines },
+    muted,
+    status: {
+      status: mark.status,
+      label: muted ? `${mark.label} · inactive project` : mark.label,
+      lines,
+    },
     due: {
       value: milestone.targetDate,
-      label: dueLabel(milestone.targetDate, assessment.daysLeft, today),
+      label: dueLabel(
+        milestone.targetDate,
+        assessment.daysLeft,
+        today,
+        assessment.status
+      ),
       tone:
-        milestone.targetDate === null || assessment.status === 'overdue'
+        !muted &&
+        (milestone.targetDate === null || assessment.status === 'overdue')
           ? 'accent'
           : 'default',
     },
@@ -932,8 +1012,9 @@ export function buildMilestoneDrawer(input: {
       total: progress.scope,
       canceled: progress.canceled,
       tone:
-        assessment.status === 'overdue' ||
-        assessment.reasons.includes('behind_pace')
+        !muted &&
+        (assessment.status === 'overdue' ||
+          assessment.reasons.includes('behind_pace'))
           ? 'accent'
           : 'default',
     },

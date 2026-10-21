@@ -167,6 +167,9 @@ export interface PaletteItem {
   shortcut?: string[];
   status?: UiStatus;
   statusLabel?: string;
+  /** Draw the status mark in greys (e.g. a paused project's milestone,
+   * which is never loud); statusLabel still names the status. */
+  statusMuted?: boolean;
   icon?: ShellIcon;
 }
 

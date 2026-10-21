@@ -22,11 +22,12 @@ import {
   waiterIndex,
 } from '@better-tracker/ui';
 import { ExternalLink } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 
 import {
   type GraphNodeDetail,
   type GraphPageModel,
+  type IsolatedList,
   levelTabs,
 } from '../../../lib/adapters/graph';
 import css from './page.module.css';
@@ -63,6 +64,11 @@ export default function GraphScreen({ model }: { model: GraphPageModel }) {
           emptyMessage={model.emptyMessage}
           toolbar={<NavTabs label="Graph level" size="sm" items={tabs} />}
         />
+        {/* Keyed by scope: moving between levels keeps this island
+            mounted, and a long list must start collapsed at each scope. */}
+        {model.isolated !== null ? (
+          <IsolatedRegister key={model.scopeHref} list={model.isolated} />
+        ) : null}
         {model.nodes.length > 0 ? (
           <MermaidSource
             source={model.mermaid}
@@ -92,6 +98,78 @@ export default function GraphScreen({ model }: { model: GraphPageModel }) {
         onClose={() => setSelectedId(null)}
       />
     </div>
+  );
+}
+
+/* The nodes left off the canvas because they have no blocking relation:
+   one line saying how many and why, then a small register (mark, name,
+   project or assignee, due), each row opening the milestone on the
+   timeline or the issue in Linear. A long list starts collapsed behind a
+   Show button so the canvas stays the subject of the page. */
+function IsolatedRegister({ list }: { list: IsolatedList }) {
+  const [open, setOpen] = useState(!list.collapsed);
+  const listId = useId();
+  const count = list.rows.length;
+  return (
+    <section className={css.isolated} aria-label={list.title}>
+      <div className={css.isolatedBar}>
+        <p className={css.isolatedText}>
+          <span className={css.isolatedTitle}>{list.title}.</span>{' '}
+          <span className={css.isolatedNote}>{list.note}</span>
+        </p>
+        {list.collapsed ? (
+          <Button
+            size="sm"
+            variant="quiet"
+            aria-expanded={open}
+            aria-controls={listId}
+            onClick={() => setOpen((was) => !was)}
+          >
+            {open ? 'Hide' : `Show ${count}`}
+          </Button>
+        ) : null}
+      </div>
+      <div id={listId} hidden={!open}>
+        <Register
+          label={list.title}
+          columns="minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 0.9fr)"
+          header={[
+            { id: 'name', label: list.nameLabel },
+            { id: 'context', label: list.contextLabel },
+            { id: 'due', label: 'Due' },
+          ]}
+          stackWithin={700}
+        >
+          {list.rows.map((row) => (
+            <RegisterRow
+              key={row.id}
+              href={row.href}
+              external={row.external}
+              rowLabel={row.rowLabel}
+              tone={row.tone}
+            >
+              <RegisterCell label={list.nameLabel} variant="name">
+                <span className={css.neighbour}>
+                  <StatusMark status={row.status} label={row.statusLabel} />
+                  <span className={css.neighbourName}>
+                    {row.key !== null ? (
+                      <span className={css.isolatedKey}>{row.key}</span>
+                    ) : null}
+                    {row.name}
+                  </span>
+                </span>
+              </RegisterCell>
+              <RegisterCell label={list.contextLabel} tone={row.contextTone}>
+                {row.context}
+              </RegisterCell>
+              <RegisterCell label="Due" variant="mono" tone={row.dueTone}>
+                {row.due}
+              </RegisterCell>
+            </RegisterRow>
+          ))}
+        </Register>
+      </div>
+    </section>
   );
 }
 

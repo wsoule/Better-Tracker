@@ -135,6 +135,14 @@
   color: var(--muted);
 }
 
+/* A field the form or the server refused keeps an accent rule after focus
+   leaves it, beside its error line (2px is emphasis). */
+.textInput[aria-invalid='true'],
+.numberInput[aria-invalid='true'] {
+  border: 2px solid var(--accent);
+  padding: 7px 9px;
+}
+
 .fieldError {
   max-width: 260px;
   font-family: var(--font-mono);
@@ -155,6 +163,11 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* Errors quote addresses and ids with no spaces to wrap at. */
+.breakAnywhere {
+  overflow-wrap: anywhere;
 }
 
 .preview {

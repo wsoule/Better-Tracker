@@ -232,6 +232,42 @@ describe('buildWeekView', () => {
     expect(view.totals).toEqual({ open: 4, thisWeek: 4, overdue: 2, new: 0 });
   });
 
+  test('an inactive project is never due this week or counted overdue (§2.8)', () => {
+    const evaluated = evaluate(
+      workspace({
+        users: [user('lead'), user('ana')],
+        projects: [
+          project('pA'),
+          project('pPaused', { statusType: 'paused', statusName: 'Paused' }),
+        ],
+        milestones: [
+          milestone('late', 'pA', { targetDate: day(-2) }),
+          milestone('pausedLate', 'pPaused', { targetDate: day(-5) }),
+          milestone('pausedSoon', 'pPaused', { targetDate: day(3) }),
+        ],
+        issues: [
+          ana('a', { projectId: 'pA', milestoneId: 'late' }),
+          ana('p1', { projectId: 'pPaused', milestoneId: 'pausedLate' }),
+          ana('p2', { projectId: 'pPaused', milestoneId: 'pausedSoon' }),
+        ],
+      })
+    );
+    const view = buildWeekView({
+      ...evaluated,
+      userId: 'ana',
+      recentAllocations: [],
+    });
+    // Still listed with their real status; just not this week.
+    expect(
+      view.sections.map((s) => [s.milestoneId, s.status, s.thisWeek])
+    ).toEqual([
+      ['pausedLate', 'overdue', false],
+      ['late', 'overdue', true],
+      ['pausedSoon', 'at_risk', false],
+    ]);
+    expect(view.totals).toEqual({ open: 3, thisWeek: 1, overdue: 1, new: 0 });
+  });
+
   test('a weight override reorders sections but overdue stays on top', () => {
     const view = week('ana', { mLater: 3 });
     expect(view.sections.map((s) => s.milestoneId)).toEqual([
@@ -299,6 +335,7 @@ describe('buildTimelineView', () => {
       milestone('y1', 'pY', { targetDate: day(5), description: null }),
       milestone('l1', 'pLoose', { targetDate: day(3) }),
       milestone('done1', 'pDone', { targetDate: null }),
+      milestone('zU', 'pZ', { targetDate: null, name: 'Paused someday' }),
     ],
     issues: [
       issue('x1-i', {
@@ -328,6 +365,7 @@ describe('buildTimelineView', () => {
       issue('x-unplanned-done', { projectId: 'pX', stateId: STATE.done }),
       issue('y-ghost', { projectId: 'pY', milestoneId: 'ghost' }),
       issue('no-project', {}),
+      issue('z-unplanned', { projectId: 'pZ', identifier: 'ENG-990' }),
     ],
   });
   const evaluated = evaluate(data, { meta: [meta('x2', { weight: 4 })] });
@@ -493,6 +531,21 @@ describe('buildTimelineView', () => {
         { projectId: 'pY', name: 'Y', reason: 'no_lead', gaps: [] },
       ],
     });
+  });
+
+  test('an inactive project keeps its undated and unplanned work on its lane, out of the banners', () => {
+    const lanes = new Map(
+      view.groups.flatMap((g) => g.lanes).map((l) => [l.projectId, l])
+    );
+    expect(lanes.get('pZ')?.undated.map((b) => b.milestoneId)).toEqual(['zU']);
+    expect(lanes.get('pZ')?.unplannedIssueIds).toEqual(['z-unplanned']);
+    const bannerProjects = [
+      ...view.banners.projectsWithoutLead.map((p) => p.projectId),
+      ...view.banners.milestonesWithoutDate.map((m) => m.projectId),
+      ...view.banners.issuesWithoutMilestone.byProject.map((p) => p.projectId),
+      ...view.banners.blockedProjects.map((p) => p.projectId),
+    ];
+    expect(bannerProjects).not.toContain('pZ');
   });
 });
 
