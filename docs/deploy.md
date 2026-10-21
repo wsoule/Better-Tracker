@@ -428,9 +428,15 @@ offers one: **verify this in your workspace**.
   next two or three ticks report `daily already ran`. After that the next tick
   takes the day over and runs the whole job again (logged as
   `took over a stale job claim`), normally 45 to 60 minutes after the killed run
-  started. If the dead run had started an allocation run, that run is more than
-  30 minutes old by then, so the takeover closes it as crashed (logged as
-  `marked stale allocation run as failed`) instead of being blocked by it.
+  started. If the dead run was killed during its allocation run, that run is
+  more than 30 minutes old by then, so the takeover closes it as crashed (logged
+  as `marked stale allocation run as failed`) instead of being blocked by it.
+- A takeover happens only while the job is still due, before local midnight. If
+  the killed job started after about 23:00 in the workspace's timezone, the
+  ticks after midnight are due for the next day, so the killed day's job is not
+  repeated; the next day's job runs as usual. A `daily` or `warn` run by hand
+  after midnight counts for the new day, so run `allocate` by hand if the
+  assignments cannot wait.
 - If another allocation run is in progress when the daily job starts, the job
   fails with `An allocation run is already in progress` (exit 1), gives the day
   back, and a later tick runs it. That run can be an `allocate` run by hand (or

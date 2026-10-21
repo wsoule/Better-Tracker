@@ -663,9 +663,11 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   the process dies instead (killed, hard timeout), the claim stays unfinished
   and, once older than `config.dailyLeaseMinutes` (default 45,
   `DEFAULT_DAILY_LEASE_MINUTES`), the next due tick takes the day over and runs
-  the whole job again (see "A daily takeover" below). `day` is the optional
-  `input.day` (the day the scheduler decided is due), else today in the
-  workspace timezone; a given day must be today or yesterday there
+  the whole job again (see "A daily takeover" below). Ticks run a day only until
+  its local midnight, so a claim still within its lease at the day's last tick
+  is never taken over by the schedule, and that day's job is not repeated. `day`
+  is the optional `input.day` (the day the scheduler decided is due), else today
+  in the workspace timezone; a given day must be today or yesterday there
   (`EngineInputError('invalid')` otherwise), so a decision made just before
   local midnight claims and warns for that day instead of claiming the next one
   hours early. Warnings run for that day.
