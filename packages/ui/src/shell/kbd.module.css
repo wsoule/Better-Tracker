@@ -1,0 +1,32 @@
+/* Key caps: mono, uppercase, square. The border is currentColor so a cap
+   inherits whatever surface it sits on instead of fighting it. */
+
+.keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font: inherit;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid currentColor;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: inherit;
+}
+
+.keys > .kbd {
+  /* Caps inside a run sit on the run's baseline, not nested boxes. */
+  margin: 0;
+}

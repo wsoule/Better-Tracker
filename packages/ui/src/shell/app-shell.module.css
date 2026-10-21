@@ -1,0 +1,907 @@
+/* The app frame. Gr8r decides where things go (252px sidebar, 46px topbar,
+   30px nav rhythm, phone drawer + tab bar); Analytics decides how they look
+   (hatched chrome, hairlines, mono labels, ink fill for current, orange
+   flood on hover, registration marks). The page scrolls the document, so
+   position: sticky keeps working for every page under the topbar. */
+
+.shell {
+  --shell-sidebar-w: 252px;
+  --shell-rail-w: 52px;
+  --shell-topbar-h: 46px;
+  --shell-tabbar-h: 56px;
+  /* One left edge for crumbs, banner and page blocks: the .block gutter
+     (48px, 16px on phones), as Gr8r starts the first crumb on the
+     content gutter. */
+  --shell-gutter: 48px;
+  /* .block's scroll-margin clears the topbar instead of the site nav. */
+  --nav-h: var(--shell-topbar-h);
+  /* The accent resolved here, so a hover flood can still paint orange
+     after it locally retints --accent to white for the marks inside. */
+  --shell-flood: var(--accent);
+
+  min-height: 100dvh;
+}
+
+/* ============================================================================
+   SIDEBAR: the chrome zone
+   ========================================================================== */
+
+.sidebar {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: var(--shell-sidebar-w);
+  border-right: 1px solid var(--border);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+  color: var(--foreground);
+}
+
+.sidebar:focus {
+  outline: none;
+}
+
+/* Registration marks: the vertical arm sits exactly on the 1px right
+   border (right: -6px from the padding box), the horizontal arm on the
+   brand row's bottom line (46px) or the footer's top line. */
+.mark {
+  position: absolute;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  pointer-events: none;
+}
+
+.mark::before,
+.mark::after {
+  content: '';
+  position: absolute;
+  background: var(--accent);
+}
+
+.mark::before {
+  left: 0;
+  top: 5px;
+  width: 11px;
+  height: 1px;
+}
+
+.mark::after {
+  top: 0;
+  left: 5px;
+  width: 1px;
+  height: 11px;
+}
+
+.markTop {
+  top: calc(var(--shell-topbar-h) - 6px);
+  right: -6px;
+}
+
+.markBottom {
+  top: -6px;
+  right: -6px;
+}
+
+/* ---- brand row ---------------------------------------------------- */
+
+.brand {
+  flex: 0 0 var(--shell-topbar-h);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.brandLink {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.appName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.workspace {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.collapseWrap {
+  margin-left: auto;
+  display: flex;
+}
+
+/* The 26px square control shared by the brand row and the footer, the
+   same footprint as the theme toggle. */
+.squareButton {
+  flex: 0 0 26px;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid currentColor;
+  color: inherit;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.closeButton,
+.menuButton {
+  display: none;
+}
+
+/* ---- nav ------------------------------------------------------------ */
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  padding: 10px 8px 14px;
+  scrollbar-width: none;
+}
+
+.scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 8px;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Current = ink fill. Paper and ink swap locally so the icon, count and
+   status mark invert from the same tokens. */
+.item[aria-current='page'] {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+  --muted: var(--muted-inverse);
+
+  background: var(--background);
+}
+
+.icon {
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.item[aria-current='page'] .icon {
+  color: inherit;
+}
+
+.icon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+}
+
+.label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.count {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+/* An accent count needs action: an orange chip, square like a Mark. */
+.countAccent {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.hint {
+  display: none;
+  flex: 0 0 auto;
+}
+
+/* ---- sections (PROJECTS) -------------------------------------------- */
+
+.section {
+  margin-top: 18px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  padding: 0 8px;
+}
+
+.sectionTitle {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.sectionAction {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid transparent;
+}
+
+.sectionAction:hover,
+.sectionAction:focus-visible {
+  border-bottom-color: currentColor;
+}
+
+.sectionEmpty {
+  padding: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Project names are titles: the sans voice, not the machine voice. */
+.sectionItem {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  text-transform: none;
+}
+
+/* ---- footer ----------------------------------------------------------- */
+
+.footer {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.userRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 2px 0 0 8px;
+}
+
+.userWrap {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.avatar {
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.userName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.badge {
+  flex: 0 0 auto;
+  padding: 3px 5px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.toolWrap,
+.signOut {
+  display: flex;
+}
+
+/* ============================================================================
+   COLUMN: topbar + content
+   ========================================================================== */
+
+.column {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100dvh;
+  margin-left: var(--shell-sidebar-w);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: var(--shell-topbar-h);
+  padding: 0 14px 0 var(--shell-gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+.crumbs {
+  min-width: 0;
+}
+
+.crumbList {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.crumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.crumbLink {
+  color: var(--muted);
+  border-bottom: 1px solid transparent;
+  transition: color 0.15s ease;
+}
+
+.crumbLink:hover,
+.crumbLink:focus-visible {
+  color: var(--foreground);
+  border-bottom-color: currentColor;
+}
+
+.crumbCurrent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sep {
+  color: var(--grey-2);
+}
+
+.spacer {
+  flex: 1 1 auto;
+}
+
+.search {
+  flex: 0 1 300px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.searchLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchKeys {
+  margin-left: auto;
+}
+
+.topbarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.main:focus {
+  outline: none;
+}
+
+.banner {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 16px var(--shell-gutter) 0;
+}
+
+.scrim,
+.tabbar {
+  display: none;
+}
+
+/* The rail tooltip: an ink slab with a mono label, fixed beside the rail
+   so the sidebar's scroll clipping cannot cut it off. */
+.tip {
+  position: fixed;
+  left: calc(var(--shell-rail-w) + 8px);
+  z-index: 95;
+  padding: 6px 8px;
+  background: var(--foreground);
+  color: var(--background);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+/* ============================================================================
+   HOVER: full-surface floods, only where hover is real and wide
+   ========================================================================== */
+
+@media (hover: hover) and (width >= 901px) {
+  .item:not([aria-current='page']):hover {
+    --foreground: var(--on-accent);
+    --border: var(--on-accent);
+    --muted: var(--on-accent);
+    --accent: var(--on-accent);
+
+    background: var(--shell-flood);
+  }
+
+  .item:not([aria-current='page']):hover .countAccent {
+    background: var(--on-accent);
+    color: var(--shell-flood);
+  }
+
+  .item:hover .hint,
+  .item:focus-visible .hint {
+    display: inline-flex;
+  }
+
+  .item:hover .count:has(+ .hint),
+  .item:focus-visible .count:has(+ .hint) {
+    display: none;
+  }
+
+  .squareButton:hover,
+  .search:hover {
+    border-color: var(--shell-flood);
+    background: var(--shell-flood);
+    color: var(--on-accent);
+  }
+}
+
+@media (width <= 1100px) and (width >= 901px) {
+  .search {
+    flex: 0 0 auto;
+  }
+  .searchLabel {
+    display: none;
+  }
+}
+
+/* ============================================================================
+   RAIL: the collapsed sidebar (desktop only). The attribute lives on <html>
+   so a pre-paint script can apply it before React hydrates.
+   ========================================================================== */
+
+@media (width >= 901px) {
+  :global(html[data-shell-collapsed='true']) .sidebar {
+    width: var(--shell-rail-w);
+  }
+
+  :global(html[data-shell-collapsed='true']) .column {
+    margin-left: var(--shell-rail-w);
+  }
+
+  :global(html[data-shell-collapsed='true']) .brand {
+    justify-content: center;
+    padding: 0;
+  }
+
+  :global(html[data-shell-collapsed='true']) .brandLink {
+    display: none;
+  }
+
+  :global(html[data-shell-collapsed='true']) .collapseWrap {
+    margin-left: 0;
+  }
+
+  :global(html[data-shell-collapsed='true']) .scroll {
+    padding: 10px 6px 14px;
+  }
+
+  :global(html[data-shell-collapsed='true']) .item {
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+  }
+
+  /* Labels leave the layout but stay in the accessible name. */
+  :global(html[data-shell-collapsed='true']) .label,
+  :global(html[data-shell-collapsed='true']) .userName {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  /* A count shrinks to a 5px square beside the icon. */
+  :global(html[data-shell-collapsed='true']) .count {
+    position: absolute;
+    top: 6px;
+    right: 9px;
+    width: 5px;
+    min-width: 0;
+    height: 5px;
+    padding: 0;
+    overflow: hidden;
+    background: var(--foreground);
+    font-size: 0;
+  }
+
+  :global(html[data-shell-collapsed='true']) .countAccent {
+    background: var(--accent);
+  }
+
+  :global(html[data-shell-collapsed='true']) .item .hint,
+  :global(html[data-shell-collapsed='true']) .badge,
+  :global(html[data-shell-collapsed='true']) .sectionHead,
+  :global(html[data-shell-collapsed='true']) .sectionEmpty {
+    display: none;
+  }
+
+  :global(html[data-shell-collapsed='true']) .section {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid var(--hairline-faint);
+  }
+
+  :global(html[data-shell-collapsed='true']) .footer {
+    align-items: stretch;
+    padding: 8px 6px;
+  }
+
+  :global(html[data-shell-collapsed='true']) .userRow {
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0 2px;
+  }
+
+  :global(html[data-shell-collapsed='true']) .userWrap {
+    flex: 0 0 auto;
+  }
+
+  :global(html[data-shell-collapsed='true']) .tools {
+    flex-direction: column;
+    gap: 8px;
+    margin-left: 0;
+  }
+}
+
+/* ============================================================================
+   PHONE (≤ 900px): off-canvas drawer + bottom tab bar
+   ========================================================================== */
+
+@media (width <= 900px) {
+  .sidebar {
+    z-index: 60;
+    width: min(300px, 86vw);
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition:
+      transform 0.42s var(--ease-out-quint),
+      visibility 0s linear 0.42s;
+  }
+
+  .shell[data-drawer='open'] .sidebar {
+    visibility: visible;
+    transform: none;
+    transition:
+      transform 0.42s var(--ease-out-quint),
+      visibility 0s;
+  }
+
+  .collapseWrap {
+    display: none;
+  }
+
+  .closeButton {
+    display: grid;
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
+    margin-left: auto;
+    border-color: transparent;
+  }
+
+  .item {
+    height: 40px;
+  }
+
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: color-mix(in srgb, var(--ink) 35%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+  }
+
+  .shell[data-drawer='open'] .scrim {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .column {
+    margin-left: 0;
+  }
+
+  .topbar {
+    gap: 4px;
+    padding: 0 4px;
+  }
+
+  .menuButton {
+    display: grid;
+    flex-basis: 40px;
+    width: 40px;
+    height: 40px;
+    border-color: transparent;
+  }
+
+  .search {
+    flex: 0 0 40px;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-color: transparent;
+    color: var(--foreground);
+  }
+
+  /* Doubled class: beats the Kbd module's own display rule. */
+  .search .searchLabel,
+  .search .searchKeys {
+    display: none;
+  }
+
+  .banner {
+    padding-top: 12px;
+  }
+
+  /* The tab bar is chrome too: hatched, hairline-ruled cells, current =
+     ink fill (the competitors-site tab strip turned into a dock). */
+  .tabbar {
+    display: block;
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 45;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    border-top: 1px solid var(--border);
+    background-color: var(--background);
+    background-image: repeating-linear-gradient(
+      45deg,
+      var(--hatch) 0,
+      var(--hatch) 1px,
+      transparent 1px,
+      transparent 9px
+    );
+    color: var(--foreground);
+  }
+
+  .tabList {
+    display: grid;
+    grid-template-columns: repeat(var(--tab-count, 5), minmax(0, 1fr));
+  }
+
+  .tabList > li + li {
+    border-left: 1px solid var(--border);
+  }
+
+  .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    height: var(--shell-tabbar-h);
+    background: transparent;
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .tab[aria-current='page'],
+  .tab[aria-expanded='true'] {
+    --background: var(--ink);
+    --foreground: var(--paper);
+
+    background: var(--background);
+  }
+
+  .tabIcon {
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+  }
+
+  .tabIcon svg {
+    width: 16px;
+    height: 16px;
+    stroke-width: 1.5;
+  }
+
+  .tabLabel {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Nothing hides behind the tab bar. */
+  .shell[data-shell-tabbar='true'] .main {
+    padding-bottom: calc(
+      var(--shell-tabbar-h) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+}
+
+@media (width <= 768px) {
+  .shell {
+    --shell-gutter: 16px;
+  }
+}
+
+@media (width <= 640px) {
+  .crumb:not(:last-child),
+  .crumb:last-child .sep {
+    display: none;
+  }
+  .crumbList {
+    padding-left: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .shell[data-drawer='open'] .sidebar,
+  .scrim,
+  .item,
+  .squareButton,
+  .search,
+  .crumbLink {
+    transition: none;
+  }
+}

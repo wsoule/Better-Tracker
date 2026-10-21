@@ -1,0 +1,172 @@
+/* The competitors-site nav (Nav.module.css), slimmed to 46px for the
+   signed-out frame: same hatch, same marks, same orange flood. */
+
+.frame {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.dock {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  padding: 12px;
+  background: var(--background);
+}
+
+.bar {
+  position: relative;
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 10px 0 20px;
+  border: 1px solid var(--border);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+  transition:
+    background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mark {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mark::before,
+.mark::after {
+  content: '';
+  position: absolute;
+  background: var(--accent);
+}
+
+.mark::before {
+  left: 0;
+  top: 5px;
+  width: 11px;
+  height: 1px;
+}
+
+.mark::after {
+  top: 0;
+  left: 5px;
+  width: 1px;
+  height: 11px;
+}
+
+.tl {
+  top: -6px;
+  left: -6px;
+}
+
+.tr {
+  top: -6px;
+  right: -6px;
+}
+
+.bl {
+  bottom: -6px;
+  left: -6px;
+}
+
+.br {
+  bottom: -6px;
+  right: -6px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.brandName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.brandRule {
+  flex: 0 0 1px;
+  width: 1px;
+  height: 16px;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.brandLabel {
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.main:focus {
+  outline: none;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .bar:hover {
+    background-color: var(--accent);
+    color: var(--on-accent);
+  }
+  .bar:hover .brandLabel {
+    color: var(--on-accent);
+  }
+  .bar:hover .mark {
+    opacity: 0;
+  }
+}
+
+@media (width <= 640px) {
+  .brandRule,
+  .brandLabel {
+    display: none;
+  }
+  .bar {
+    padding: 0 8px 0 14px;
+  }
+  .brandName {
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .mark {
+    transition: none;
+  }
+}

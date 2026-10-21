@@ -1,0 +1,60 @@
+/* 2px is emphasis: the strip spends it because it asks for action. */
+.strip {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  border: 2px solid var(--accent);
+  padding: 10px 14px;
+  background: var(--background);
+}
+
+.key {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.text {
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.action {
+  display: inline;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.action:hover,
+.action:focus-visible {
+  color: var(--accent-hover);
+}
+
+@media (width <= 640px) {
+  .strip {
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .action {
+    transition: none;
+  }
+}

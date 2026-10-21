@@ -28,6 +28,11 @@ export default function GalleryIndex() {
             Tasks · primitives, task table, deadlines, registers
           </a>
         </p>
+        <p className="empty">
+          <a className="accentLink" href="/ui-gallery/shell">
+            Shell · app frame, command palette, toasts, slide-over, skeletons
+          </a>
+        </p>
       </div>
     </main>
   );

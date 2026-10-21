@@ -1,0 +1,170 @@
+/* The toast stack. Boxes are paper with a 1px ink border; an error spends
+   the 2px accent (emphasis is reserved for what needs action). No shadow:
+   the border separates the toast from the page, as on every overlay. */
+
+.viewport {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 100;
+  pointer-events: none;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  column-gap: 12px;
+  width: min(400px, calc(100vw - 32px));
+  padding: 11px 8px 14px 14px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  pointer-events: auto;
+  animation: enter 0.32s var(--ease-out-quint) both;
+}
+
+/* 2px eats into the padding so an error is the same size as an info. */
+.error {
+  border: 2px solid var(--accent);
+  padding: 10px 7px 13px 13px;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.error .label {
+  color: var(--accent);
+}
+
+.message {
+  font-size: 13.5px;
+  line-height: 1.45;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.action {
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.action:hover,
+.action:focus-visible {
+  color: var(--accent-hover);
+}
+
+.dismiss {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .dismiss:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* The countdown as a drawn rule along the bottom edge; it stops with the
+   timer while the toast is hovered or focused. */
+.timer {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 5px;
+  height: 1px;
+  background: var(--grey-3);
+  transform-origin: left center;
+  animation: countdown var(--toast-duration, 4000ms) linear both;
+}
+
+.error .timer {
+  left: 13px;
+  right: 13px;
+  bottom: 4px;
+  background: var(--accent);
+}
+
+.toast[data-paused='true'] .timer {
+  animation-play-state: paused;
+}
+
+@keyframes countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* Phones: bottom-centre, full gutter width, lifted above the shell's tab
+   bar when one is on the page. */
+@media (width <= 900px) {
+  .viewport {
+    left: 16px;
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+  :global(body:has([data-shell-tabbar='true'])) .viewport {
+    bottom: calc(56px + 12px + env(safe-area-inset-bottom, 0px));
+  }
+  .stack {
+    align-items: stretch;
+  }
+  .toast {
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+  }
+  .timer {
+    display: none;
+  }
+  .dismiss {
+    transition: none;
+  }
+}

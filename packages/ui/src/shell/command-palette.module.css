@@ -1,0 +1,422 @@
+/* The command palette and shortcuts sheet. A 640px panel framed by a 1px
+   ink border with a 2px accent top rule, over a scrim derived from --ink
+   (never blur). The active row is an ink fill: the selected-tab idiom. */
+
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 16px 16px;
+}
+
+.scrim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--ink) 35%, transparent);
+  animation: fade-in 0.18s ease both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(640px, 100%);
+  max-height: min(72vh, 600px);
+  background: var(--background);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  animation: rise 0.28s var(--ease-out-quint) both;
+}
+
+.panel:focus {
+  outline: none;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- input row ---------------------------------------------------- */
+
+.inputRow {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 10px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.searchIcon {
+  flex: 0 0 auto;
+  color: var(--muted);
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.input:focus-visible {
+  outline: 0;
+}
+
+.input::placeholder {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.escButton {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  height: 30px;
+  padding: 0 6px;
+  color: var(--muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .escButton:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* ---- results ------------------------------------------------------ */
+
+.scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.group {
+  padding-bottom: 6px;
+}
+
+.group + .group {
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.groupTitle {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.groupError {
+  color: var(--accent);
+}
+
+.groupCount {
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 18px;
+  cursor: pointer;
+  background: var(--background);
+  color: var(--foreground);
+  font-size: 13.5px;
+  font-weight: 400;
+  user-select: none;
+}
+
+/* Active row: paper and ink swap locally, so the status mark, hint and
+   key caps all invert from the same tokens. */
+.option[aria-selected='true'] {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+  --muted: var(--muted-inverse);
+  --ink-soft: var(--ink-soft-inverse);
+  --hairline-faint: var(--hairline-inverse);
+}
+
+.optionIcon {
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+}
+
+.optionIcon svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.5;
+}
+
+.optionLabel {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionHint {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.optionKeys {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.hit {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.more {
+  padding: 4px 18px 6px 46px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.loading {
+  border-top: 1px solid var(--hairline-faint);
+  padding-bottom: 8px;
+}
+
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 18px;
+}
+
+.skeletonEnd {
+  margin-left: auto;
+}
+
+.empty {
+  padding: 28px 18px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---- footer: hatched chrome, like every titlebar --------------------- */
+
+.footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: 36px;
+  padding: 0 10px 0 18px;
+  border-top: 1px solid var(--border);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.footerHint {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.footerButton {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .footerButton:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* ---- shortcuts sheet ------------------------------------------------ */
+
+.sheet {
+  width: min(720px, 100%);
+}
+
+.sheetHead {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 52px;
+  padding: 0 10px 0 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sheetTitle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sheetHead .escButton {
+  margin-left: auto;
+}
+
+.sheetBody {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Columns, not a grid: groups of different lengths balance instead of
+     leaving an empty cell. */
+  columns: 2;
+  column-gap: 0;
+  column-rule: 1px solid var(--hairline-faint);
+  padding-bottom: 12px;
+}
+
+.sheetGroup {
+  break-inside: avoid;
+  padding: 0 0 8px;
+}
+
+.sheetGroup dl {
+  margin: 0;
+}
+
+.sheetRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 34px;
+  padding: 0 18px;
+}
+
+.sheetLabel {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--ink-soft);
+}
+
+.sheetKeys {
+  margin: 0 0 0 auto;
+  color: var(--muted);
+}
+
+/* ---- phones ---------------------------------------------------------- */
+
+@media (width <= 640px) {
+  .layer {
+    padding: 8px;
+  }
+  .panel {
+    max-height: calc(100dvh - 16px);
+  }
+  .footerHint {
+    display: none;
+  }
+  .sheetBody {
+    columns: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scrim,
+  .panel {
+    animation: none;
+  }
+  .escButton,
+  .footerButton {
+    transition: none;
+  }
+}

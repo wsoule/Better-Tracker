@@ -67,3 +67,68 @@ export type {
   TaskSectionData,
   TaskStateKind,
 } from './tasks/types';
+
+// ---- shell family (src/shell): the app frame and overlays (architecture
+// §8.3) — AppShell, SignedOutFrame, command palette + shortcuts, toasts,
+// slide-over, property list, alert strip, skeletons, key caps. Props are
+// typed in ./shell/types.
+export { default as AlertStrip } from './shell/alert-strip';
+export { default as AppShell } from './shell/app-shell';
+export {
+  CommandPalette,
+  CommandPaletteProvider,
+  shortcutCode,
+  ShortcutSheet,
+  useCommandPalette,
+  useOptionalCommandPalette,
+} from './shell/command-palette';
+export { type FuzzyMatch, fuzzyMatch, highlightRuns } from './shell/fuzzy';
+export { Kbd, KbdKeys } from './shell/kbd';
+export { default as PropertyList } from './shell/property-list';
+export { sidebarCollapseScript } from './shell/sidebar-script';
+export { default as SignedOutFrame } from './shell/signed-out-frame';
+export {
+  Skeleton,
+  SkeletonBlock,
+  SkeletonRows,
+  SkeletonText,
+} from './shell/skeleton';
+export { default as SlideOver } from './shell/slide-over';
+export { ToastProvider, useToast } from './shell/toast';
+export type {
+  AlertStripAction,
+  AlertStripProps,
+  AppShellProps,
+  CommandPaletteApi,
+  CommandPaletteProps,
+  CommandPaletteProviderProps,
+  KbdKeysProps,
+  KbdProps,
+  PaletteItem,
+  PaletteView,
+  PropertyListItem,
+  PropertyListProps,
+  ShellCrumb,
+  ShellIcon,
+  ShellIconProps,
+  ShellNavItem,
+  ShellSection,
+  ShellSectionItem,
+  ShellSettingsLink,
+  ShellSignOut,
+  ShellTab,
+  ShellUser,
+  ShortcutGroup,
+  ShortcutRow,
+  ShortcutSheetProps,
+  SignedOutFrameProps,
+  SkeletonBlockProps,
+  SkeletonProps,
+  SkeletonRowsProps,
+  SkeletonTextProps,
+  SlideOverProps,
+  ToastApi,
+  ToastInput,
+  ToastKind,
+  ToastProviderProps,
+} from './shell/types';
