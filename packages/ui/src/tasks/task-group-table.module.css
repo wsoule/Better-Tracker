@@ -1,0 +1,520 @@
+/* The grouped task table: one hairline drawing. The column header,
+   section dividers and group frames collapse into each other with -1px;
+   rows inside a group are separated by the faint sub-weight rule, so the
+   group reads as a card of register rows (the Matrix phone-card move). */
+
+.root {
+  /* Where row content starts: under the group's status mark (row padding
+     + toggle + gap), so keys line up with the group heading. */
+  --task-indent: 44px;
+  --task-key-col: 68px;
+
+  position: relative;
+}
+
+/* ---- column header ----------------------------------------------------- */
+
+.head {
+  position: sticky;
+  top: var(--task-sticky-top, 0);
+  z-index: 2;
+  display: grid;
+  grid-template-columns: var(--task-cols);
+  align-items: center;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+.headCell {
+  padding: 0 12px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--grey-2);
+}
+
+.headTitle {
+  padding-left: var(--task-indent);
+}
+
+/* ---- sections: hatched chrome dividers -------------------------------- */
+
+.section {
+  margin-top: -1px;
+}
+
+.sectionRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 34px;
+  margin: 0;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+  font: inherit;
+}
+
+.sectionLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.sectionNote {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---- groups ------------------------------------------------------------ */
+
+.group {
+  margin-top: -1px;
+  border: 1px solid var(--border);
+}
+
+.groupRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 50px;
+  padding: 6px 18px 6px 8px;
+  background: var(--background);
+  transition: background-color 0.15s ease;
+}
+
+.group:not(.collapsed) .groupRow {
+  border-bottom: 1px solid var(--border);
+}
+
+.toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  color: var(--foreground);
+}
+
+/* The whole header toggles (Gr8r); the title link sits above this. */
+.toggle::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.chevron {
+  transition: transform 0.2s var(--ease-out-quint);
+}
+
+.toggle[aria-expanded='true'] .chevron {
+  transform: rotate(90deg);
+}
+
+.groupHeading {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  margin: 0;
+  font: inherit;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.crumb {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--grey-2);
+}
+
+.groupTitle,
+.groupLink {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--foreground);
+  text-align: left;
+}
+
+.groupLink {
+  position: relative;
+  z-index: 1;
+  border-bottom: 1px solid transparent;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.groupLink:focus-visible {
+  color: var(--accent);
+}
+
+.count {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.groupMeta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-left: auto;
+}
+
+.groupDue {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.daysLeft {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.groupProgress {
+  display: inline-flex;
+  width: 150px;
+}
+
+/* The header answers hover with the flat-surface wash (the Evidence
+   disclosure); the title link turns orange. */
+@media (hover: hover) and (width >= 901px) {
+  .groupRow:hover {
+    background: var(--tint);
+  }
+
+  .groupLink:hover {
+    color: var(--accent);
+    border-bottom-color: currentColor;
+  }
+}
+
+/* ---- rows: register rows ---------------------------------------------- */
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rows[hidden] {
+  display: none;
+}
+
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--task-cols);
+  align-items: center;
+  min-height: 46px;
+  padding: 9px 0;
+  background: var(--background);
+  color: var(--foreground);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.row + .row {
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.titleCell {
+  display: grid;
+  grid-template-columns: var(--task-key-col) minmax(0, 1fr);
+  align-items: baseline;
+  column-gap: 8px;
+  min-width: 0;
+  padding: 0 12px 0 var(--task-indent);
+}
+
+.key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.titleWrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px 12px;
+  min-width: 0;
+}
+
+.titleText {
+  min-width: 0;
+}
+
+.titleLink {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+/* Stretched link: the whole row is the click target, the cells stay plain
+   text for assistive tech. */
+.titleLink::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+.externalGlyph {
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: -1px;
+}
+
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 12px;
+}
+
+.project {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.glyphValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.metaText {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.accentText {
+  color: var(--accent);
+}
+
+.mutedText {
+  color: var(--muted);
+}
+
+.emptyLine {
+  margin: 0;
+  padding: 13px 18px 13px var(--task-indent);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+
+.section > .emptyLine {
+  margin-top: -1px;
+  border: 1px solid var(--border);
+}
+
+/* Register hover and keyboard focus: paper and ink swap locally, so every
+   token-driven colour inside the row (glyphs, chips, rules) inverts from
+   the token block. The group frame is drawn by the group, so it stays.
+   The row the host has open (activeRowId) keeps the same ink fill, like a
+   selected tab. */
+.row[aria-current='true'],
+.row:has(.titleLink:focus-visible) {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+  --muted: var(--muted-inverse);
+  --ink-soft: var(--ink-soft-inverse);
+  --hairline-faint: var(--hairline-inverse);
+}
+
+.row:has(.titleLink:focus-visible) {
+  z-index: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.groupRow:has(.toggle:focus-visible) {
+  z-index: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* Only hand the ring to the row where :has() can draw it. */
+@supports selector(:has(*)) {
+  .titleLink:focus-visible,
+  .toggle:focus-visible {
+    outline: none;
+  }
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .row:hover {
+    --background: var(--ink);
+    --foreground: var(--paper);
+    --border: var(--paper);
+    --muted: var(--muted-inverse);
+    --ink-soft: var(--ink-soft-inverse);
+    --hairline-faint: var(--hairline-inverse);
+  }
+}
+
+/* ---- phone: rows stack -------------------------------------------------- */
+
+@media (width <= 900px) {
+  /* Row padding (4) + toggle (26) + gap (10): keys sit under the group's
+     status mark, as on desktop. */
+  .root {
+    --task-indent: 40px;
+    --task-key-col: 60px;
+  }
+
+  .head {
+    display: none;
+  }
+
+  .sectionRow {
+    padding: 0 14px;
+  }
+
+  .groupRow {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 14px 10px 4px;
+  }
+
+  /* The heading keeps its line beside the toggle and wraps inside. */
+  .groupHeading {
+    flex: 1 1 0;
+  }
+
+  .groupMeta {
+    flex: 1 1 100%;
+    justify-content: space-between;
+    gap: 14px;
+    margin-left: 0;
+    padding-left: 36px;
+  }
+
+  .groupProgress {
+    flex: 0 1 160px;
+    width: auto;
+  }
+
+  /* Key + title on the first line, meta wrapping below it; every line
+     starts at the key, so a wrapped due date never falls to the edge. */
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 14px;
+    min-height: 0;
+    padding: 11px 14px 11px var(--task-indent);
+  }
+
+  .titleCell {
+    flex: 1 1 100%;
+    padding: 0;
+  }
+
+  .cell {
+    flex: none;
+    padding: 0;
+  }
+
+  .project {
+    max-width: 150px;
+  }
+
+  /* The heading already names the project; the meta keeps one line. */
+  .cell[data-repeats-heading] {
+    display: none;
+  }
+
+  .emptyLine {
+    padding-left: var(--task-indent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .groupRow,
+  .groupLink,
+  .row,
+  .chevron {
+    transition: none;
+  }
+}

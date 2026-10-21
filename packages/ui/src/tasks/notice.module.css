@@ -1,0 +1,49 @@
+/* Layered on the global .notice / .empty primitives; only what the
+   components add lives here. */
+
+/* Two classes so the quiet tone wins over the global .notice regardless of
+   stylesheet order. */
+:global(.notice).quiet {
+  border: 1px solid var(--border);
+}
+
+.key {
+  flex: none;
+  text-transform: uppercase;
+}
+
+.body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.action {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+}
+
+.empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+}
+
+.emptyText {
+  flex: 1 1 260px;
+}
+
+.emptyAction {
+  flex: none;
+  font-family: var(--font-body);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+@media (width <= 768px) {
+  .action {
+    align-self: flex-start;
+    margin-left: 0;
+  }
+}

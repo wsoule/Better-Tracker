@@ -1,0 +1,111 @@
+/* The Analytics tab strip at toolbar scale: one row of bordered cells whose
+   shared edges collapse with -1px, so the strip reads as one drawing. */
+
+/* Wraps when the strip is wider than its container: every cell overlaps
+   its left and top neighbour by 1px and the strip pads 1px back, so the
+   hairline stays single on any row break. */
+.group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  max-width: 100%;
+  padding: 1px 0 0 1px;
+}
+
+.fill {
+  display: flex;
+}
+
+.fill .option {
+  flex: 1 1 0;
+}
+
+.option {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-start;
+  gap: 10px;
+  margin: -1px 0 0 -1px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.md .option {
+  min-height: 36px;
+  align-items: center;
+  padding: 0 14px;
+  font-size: 10.5px;
+}
+
+.sm .option {
+  min-height: 28px;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 9.5px;
+}
+
+.count {
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.option[aria-checked='true'] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.option[aria-checked='true'] .count {
+  color: var(--background);
+  opacity: 0.7;
+}
+
+/* Focus sits inside the cell: the outer outline would be cut by the
+   neighbour's collapsed border. */
+.option:focus-visible {
+  outline-offset: -4px;
+  position: relative;
+  z-index: 1;
+}
+
+.option[aria-checked='true']:focus-visible {
+  outline-color: var(--accent);
+}
+
+.option:disabled {
+  cursor: not-allowed;
+  color: var(--grey-2);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .option[aria-checked='false']:not(:disabled):hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .option[aria-checked='false']:not(:disabled):hover .count {
+    color: var(--on-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .option {
+    transition: none;
+  }
+}

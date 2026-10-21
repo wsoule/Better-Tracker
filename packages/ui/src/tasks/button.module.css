@@ -1,0 +1,118 @@
+/* Mirrors the global .button / .buttonPrimary primitives so the component
+   and plain markup read as one family; variants and sizes live here. */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 2px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.md {
+  min-height: 36px;
+  padding: 0 16px;
+  font-size: 11px;
+}
+
+.sm {
+  min-height: 28px;
+  padding: 0 10px;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.iconOnly.md {
+  width: 36px;
+  padding: 0;
+}
+
+.iconOnly.sm {
+  width: 28px;
+  padding: 0;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.text {
+  line-height: 1;
+}
+
+.primary {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+/* Quiet: the bare mono label of a toolbar. No box at rest; the hover
+   answers in colour only, like the Matrix switch label. */
+.quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.quiet.md {
+  padding: 0 8px;
+}
+
+.quiet.sm {
+  padding: 0 6px;
+}
+
+/* The accent as an outline: destructive or "needs action" commands. */
+.danger {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.button[aria-pressed='true'] {
+  background: var(--foreground);
+  border-color: var(--foreground);
+  color: var(--background);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .button:not(:disabled, .quiet):hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .quiet:not(:disabled):hover {
+    color: var(--accent);
+  }
+}
+
+/* Touch and narrow screens get the pressed colour as feedback instead. */
+.button:not(:disabled, .quiet):active {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+  }
+}

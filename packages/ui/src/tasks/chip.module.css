@@ -1,0 +1,80 @@
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+/* A chip that outgrows its container wraps rather than truncating: the
+   long "NEW — GIVEN TO YOU BECAUSE…" chip is the reason, not decoration. */
+.text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mark {
+  display: inline-flex;
+  flex: none;
+}
+
+/* The mark is 13px elsewhere; inside a 9.5px chip it drops to 9px so the
+   chip keeps the Roster chip's height. */
+.mark :global(span[role='img']) {
+  width: 9px;
+  height: 9px;
+  flex-basis: 9px;
+}
+
+.default {
+  border-color: var(--border);
+}
+
+.muted {
+  border-color: var(--grey-3);
+  color: var(--muted);
+}
+
+/* Filled tones redefine the ink tokens locally, so anything inside (the
+   status mark included) inverts from the token block, never by hand. */
+.accent {
+  --background: var(--accent);
+  --foreground: var(--on-accent);
+  --border: var(--on-accent);
+
+  border-color: var(--background);
+}
+
+/* On the orange fill the mark's own accent must turn white, or an overdue
+   mark would vanish into the chip. Scoped to the mark so the chip's fill
+   still resolves the real accent. */
+.accent .mark {
+  --accent: var(--on-accent);
+}
+
+/* Ink fill from the constants, edge from the SURROUNDING --border: at rest
+   that equals the fill (a solid slab), and inside a row that floods to ink
+   (register hover/focus/selected) it is the swapped paper, so the chip keeps
+   its box instead of vanishing ink-on-ink. Only the content redefines the
+   tokens, so a status mark inside still inverts. */
+.inverse {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.inverse .mark,
+.inverse .text {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+}

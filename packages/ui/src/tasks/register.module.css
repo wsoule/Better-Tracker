@@ -1,0 +1,329 @@
+/* The Roster register: rows share hairlines (-1px), hover floods to ink by
+   swapping the paper and ink tokens locally. */
+
+.register {
+  --register-gap: 24px;
+}
+
+.header {
+  display: grid;
+  grid-template-columns: var(--register-cols);
+  column-gap: var(--register-gap);
+  align-items: end;
+  padding: 10px 18px;
+  border: 1px solid var(--border);
+}
+
+.headerCell {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--grey-2);
+}
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.header + .list {
+  margin-top: -1px;
+}
+
+.row {
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--register-cols);
+  column-gap: var(--register-gap);
+  align-items: center;
+  margin-top: -1px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.list > .row:first-child {
+  margin-top: 0;
+}
+
+/* 2px is emphasis: the row that needs action carries the accent rule. */
+.rowAccent {
+  border-left: 2px solid var(--accent);
+  padding-left: 17px;
+}
+
+.rowMuted {
+  --foreground: var(--muted);
+}
+
+.selected {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+  --muted: var(--muted-inverse);
+  --ink-soft: var(--ink-soft-inverse);
+  --hairline-faint: var(--hairline-inverse);
+
+  border-color: var(--ink);
+}
+
+/* Stretched row target; links and buttons inside cells sit above it. */
+.overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.overlay:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.cell a,
+.cell button,
+.cell [role='switch'] {
+  position: relative;
+  z-index: 2;
+}
+
+.linked:has(.overlay:focus-visible) {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+  --muted: var(--muted-inverse);
+  --ink-soft: var(--ink-soft-inverse);
+  --hairline-faint: var(--hairline-inverse);
+
+  border-color: var(--ink);
+}
+
+.rowAccent.selected,
+.rowAccent.linked:has(.overlay:focus-visible) {
+  border-left-color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .linked:hover {
+    --background: var(--ink);
+    --foreground: var(--paper);
+    --border: var(--paper);
+    --muted: var(--muted-inverse);
+    --ink-soft: var(--ink-soft-inverse);
+    --hairline-faint: var(--hairline-inverse);
+
+    border-color: var(--ink);
+  }
+
+  .linked.rowAccent:hover {
+    border-left-color: var(--accent);
+  }
+}
+
+/* ---- cells ------------------------------------------------------------- */
+
+.cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.end {
+  align-items: flex-end;
+  justify-self: end;
+  text-align: right;
+}
+
+.cellLabel {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+
+.cellValue {
+  min-width: 0;
+}
+
+.cellSub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  line-height: 1.35;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.variantName .cellValue {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.variantValue .cellValue {
+  font-size: 13.5px;
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.variantMono .cellValue {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.toneAccent .cellValue,
+.toneAccent .cellSub {
+  color: var(--accent);
+}
+
+.toneMuted .cellValue {
+  color: var(--muted);
+}
+
+/* Under a header row the column label is already printed once; the cell's
+   own label is kept for assistive tech only (until the rows stack). */
+.hasHeader .cellLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- stacked: one card per row ---------------------------------------- */
+
+@media (width <= 900px) {
+  .stack900 .header {
+    display: none;
+  }
+
+  .stack900 .header + .list {
+    margin-top: 0;
+  }
+
+  .stack900 .row {
+    grid-template-columns: var(--register-stacked-cols);
+    gap: 12px 16px;
+    align-items: start;
+    padding: 12px 14px;
+  }
+
+  .stack900 .row > .cell:first-of-type {
+    grid-column: 1 / -1;
+  }
+
+  .stack900 .rowAccent {
+    padding-left: 13px;
+  }
+
+  .stack900 .end {
+    align-items: flex-start;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .stack900.hasHeader .cellLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  /* The subject cell is the card's title: its label ("PROJECT", "RUN")
+     would only repeat what the name says, so it stays for assistive tech
+     only, as it is under the desktop header. */
+  .stack900 .row > .cell:first-of-type .cellLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@media (width <= 700px) {
+  .stack700 .header {
+    display: none;
+  }
+
+  .stack700 .header + .list {
+    margin-top: 0;
+  }
+
+  .stack700 .row {
+    grid-template-columns: var(--register-stacked-cols);
+    gap: 12px 16px;
+    align-items: start;
+    padding: 12px 14px;
+  }
+
+  .stack700 .row > .cell:first-of-type {
+    grid-column: 1 / -1;
+  }
+
+  .stack700 .rowAccent {
+    padding-left: 13px;
+  }
+
+  .stack700 .end {
+    align-items: flex-start;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .stack700.hasHeader .cellLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  /* The subject cell is the card's title: its label ("PROJECT", "RUN")
+     would only repeat what the name says, so it stays for assistive tech
+     only, as it is under the desktop header. */
+  .stack700 .row > .cell:first-of-type .cellLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row {
+    transition: none;
+  }
+}

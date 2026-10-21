@@ -1,0 +1,54 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  width: 100%;
+}
+
+/* The track is a 1px hairline in the ghost grey; the fill is drawn on top
+   of it 2px tall (the emphasis weight; nothing in the system is heavier),
+   centred, so the drawing reads as a rule with a filled run rather than a
+   progress pill. */
+.track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 40px;
+  height: 2px;
+  background: linear-gradient(var(--grey-4), var(--grey-4)) center / 100% 1px
+    no-repeat;
+}
+
+.fill {
+  position: absolute;
+  inset: 0;
+  background: var(--foreground);
+  transform-origin: left center;
+  transition: transform 0.5s var(--ease-out-expo);
+}
+
+.accent .fill {
+  background: var(--accent);
+}
+
+.label {
+  flex: none;
+  min-width: 4ch;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--foreground);
+}
+
+.accent .label {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fill {
+    transition: none;
+  }
+}

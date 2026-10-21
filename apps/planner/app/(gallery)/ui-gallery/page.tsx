@@ -23,6 +23,11 @@ export default function GalleryIndex() {
           <StatusMark status="overdue" label="Overdue" showLabel />{' '}
           <StatusMark status="missing" label="Missing input" showLabel />
         </div>
+        <p className="empty">
+          <a className="accentLink" href="/ui-gallery/tasks">
+            Tasks · primitives, task table, deadlines, registers
+          </a>
+        </p>
       </div>
     </main>
   );

@@ -1,0 +1,102 @@
+.strip {
+  display: grid;
+  grid-template-columns: repeat(var(--stat-cols, 4), minmax(0, 1fr));
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+
+.cell {
+  grid-column: span var(--stat-span, 1);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 16px 18px 18px;
+}
+
+a.inner:focus-visible {
+  outline-offset: -4px;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.value {
+  font-family: var(--font-mono);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+.note {
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+
+.accent .value,
+.accent .note {
+  color: var(--accent);
+}
+
+.muted .value {
+  color: var(--muted);
+}
+
+/* Linked cells flood to ink by swapping paper and ink locally (the Roster
+   move), so every inner colour follows from the token block. */
+@media (hover: hover) and (width >= 901px) {
+  .cell:has(a:hover),
+  .cell:has(a:focus-visible) {
+    --background: var(--ink);
+    --foreground: var(--paper);
+    --muted: var(--muted-inverse);
+  }
+}
+
+@media (width <= 900px) {
+  .strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .cell {
+    grid-column: auto;
+  }
+
+  .cell:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .inner {
+    padding: 14px;
+    gap: 6px;
+  }
+
+  .value {
+    font-size: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell {
+    transition: none;
+  }
+}
