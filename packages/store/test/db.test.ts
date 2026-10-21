@@ -16,7 +16,9 @@ import { openStore } from '../src/store';
 import { rejection, repeatableReadUrl, TEST_KEY } from './fixtures';
 
 const STARTUP_TIMEOUT = 60_000;
-const DATABASE_URL = process.env.DATABASE_URL ?? '';
+// Only TEST_DATABASE_URL enables the Postgres suites, so a production-style
+// DATABASE_URL in the environment never points tests at a real database.
+const DATABASE_URL = process.env.TEST_DATABASE_URL ?? '';
 
 let sql: Sql;
 
@@ -222,7 +224,7 @@ describe('runMigrations', () => {
 // migrators. Each one gets its own pool (its own connections), like
 // separate processes booting at once.
 describe.skipIf(DATABASE_URL === '')(
-  'runMigrations on node-postgres (DATABASE_URL)',
+  'runMigrations on node-postgres (TEST_DATABASE_URL)',
   () => {
     // URLs are built lazily: this table is evaluated even when skipped.
     test.each([

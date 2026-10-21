@@ -1,7 +1,7 @@
 import type { MilestoneMeta, WorkspaceSettings } from '@better-tracker/core';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 // Every Store method against in-memory PGlite, and the same suite against a
-// real Postgres when DATABASE_URL is set (skipped otherwise). Each test uses
+// real Postgres when TEST_DATABASE_URL is set (skipped otherwise). Each test uses
 // its own workspace id, so the suite also runs against a shared database.
 import { createHash } from 'node:crypto';
 
@@ -20,7 +20,8 @@ import {
 } from './fixtures';
 
 const STARTUP_TIMEOUT = 60_000;
-const DATABASE_URL = process.env.DATABASE_URL;
+// Only TEST_DATABASE_URL enables the Postgres suites (see db.test.ts).
+const DATABASE_URL = process.env.TEST_DATABASE_URL;
 const HAS_POSTGRES = DATABASE_URL !== undefined && DATABASE_URL !== '';
 
 function entry(overrides: Partial<NewRunEntry>): NewRunEntry {
@@ -1320,9 +1321,12 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
 
 storeSuite('Store on PGlite (in-memory)', () => openPgliteSql());
 
-describe.skipIf(!HAS_POSTGRES)('Store on node-postgres (DATABASE_URL)', () => {
-  storeSuite('suite', () => openPgSql(DATABASE_URL ?? ''));
-});
+describe.skipIf(!HAS_POSTGRES)(
+  'Store on node-postgres (TEST_DATABASE_URL)',
+  () => {
+    storeSuite('suite', () => openPgSql(DATABASE_URL ?? ''));
+  }
+);
 
 // The locking tests (concurrent refreshers, mirror writers, run starts)
 // again, on sessions whose default isolation is stricter than Postgres'

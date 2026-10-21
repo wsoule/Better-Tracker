@@ -7,7 +7,7 @@ import type { Installation, StoredTokens } from '../src/types';
 
 /**
  * A valid TOKEN_ENCRYPTION_KEY (32 bytes, base64). Fixed rather than random
- * so rows left in a shared DATABASE_URL by an earlier run still decrypt.
+ * so rows left in a shared TEST_DATABASE_URL by an earlier run still decrypt.
  */
 export const TEST_KEY: string = Buffer.alloc(32, 7).toString('base64');
 

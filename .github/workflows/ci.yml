@@ -31,6 +31,23 @@ jobs:
   ci:
     name: Build, test, lint
     runs-on: ubuntu-latest
+    # A real Postgres so the store's node-postgres suites (row and advisory
+    # locks, isolation levels, the concurrent-migration race) run in CI, not
+    # only the PGlite ones. Production uses node-postgres.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: planner_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      # Read only by the store test suites (see packages/store/test).
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/planner_test
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
