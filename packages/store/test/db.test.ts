@@ -5,12 +5,18 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { isUniqueViolation, openPgliteSql, type Sql } from '../src/db';
+import {
+  isUniqueViolation,
+  openPgliteSql,
+  openPgSql,
+  type Sql,
+} from '../src/db';
 import { type Migration, MIGRATIONS, runMigrations } from '../src/migrations';
 import { openStore } from '../src/store';
-import { rejection, TEST_KEY } from './fixtures';
+import { rejection, repeatableReadUrl, TEST_KEY } from './fixtures';
 
 const STARTUP_TIMEOUT = 60_000;
+const DATABASE_URL = process.env.DATABASE_URL ?? '';
 
 let sql: Sql;
 
@@ -211,6 +217,55 @@ describe('runMigrations', () => {
     expect(results.flat()).toEqual([4001]);
   });
 });
+
+// PGlite runs one transaction at a time, so only a real server can race
+// migrators. Each one gets its own pool (its own connections), like
+// separate processes booting at once.
+describe.skipIf(DATABASE_URL === '')(
+  'runMigrations on node-postgres (DATABASE_URL)',
+  () => {
+    // URLs are built lazily: this table is evaluated even when skipped.
+    test.each([
+      ['the server default isolation', () => DATABASE_URL],
+      [
+        'sessions defaulting to repeatable read',
+        () => repeatableReadUrl(DATABASE_URL),
+      ],
+    ])(
+      'separate pools racing apply a migration exactly once (%s)',
+      async (_label, toUrl) => {
+        const url = toUrl();
+        // A version and table no other run uses, removed afterwards, so the
+        // test also runs against a shared database.
+        const version = 900_000_000 + Math.floor(Math.random() * 100_000_000);
+        const table = `migration_race_${version}`;
+        const list: Migration[] = [
+          {
+            version,
+            name: 'migration_race',
+            statements: [`CREATE TABLE ${table} (id integer)`],
+          },
+        ];
+        const pools = await Promise.all([1, 2, 3, 4].map(() => openPgSql(url)));
+        try {
+          const applied = await Promise.all(
+            pools.map((pool) => runMigrations(pool, list))
+          );
+          expect(applied.flat()).toEqual([version]);
+        } finally {
+          const [first] = pools;
+          await first?.query(`DROP TABLE IF EXISTS ${table}`);
+          await first?.query(
+            'DELETE FROM schema_migrations WHERE version = $1',
+            [version]
+          );
+          await Promise.all(pools.map((pool) => pool.close()));
+        }
+      },
+      STARTUP_TIMEOUT
+    );
+  }
+);
 
 describe('PGlite data directory', () => {
   test(

@@ -190,8 +190,22 @@ const INITIAL_SCHEMA: readonly string[] = [
 ];
 
 /** Every migration, oldest first. */
+// Claim-first digests: a notification is inserted as 'pending' (the
+// one-per-person-per-day claim), delivered, then updated to its outcome.
+const NOTIFICATION_PENDING: readonly string[] = [
+  'ALTER TABLE notifications DROP CONSTRAINT IF EXISTS notifications_status_check',
+  `ALTER TABLE notifications ADD CONSTRAINT notifications_status_check
+    CHECK (status IN ('pending', 'sent', 'preview', 'failed', 'undeliverable'))`,
+  'CREATE INDEX IF NOT EXISTS webhook_deliveries_received_idx ON webhook_deliveries (received_at)',
+];
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', statements: INITIAL_SCHEMA },
+  {
+    version: 2,
+    name: 'notification_pending_status',
+    statements: NOTIFICATION_PENDING,
+  },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise
@@ -216,8 +230,9 @@ function assertOrdered(migrations: readonly Migration[]): void {
  * Applies every migration not yet recorded in schema_migrations, oldest
  * first, each in its own transaction under the migration advisory lock.
  * Safe to run on every boot and from several processes at once: a migrator
- * that loses the race re-checks under the lock and skips. Returns the
- * versions this call applied.
+ * that loses the race re-checks under the lock and skips. That re-check
+ * sees the winner's commit because Sql transactions run at READ COMMITTED
+ * (see openPgSql). Returns the versions this call applied.
  */
 export async function runMigrations(
   sql: Sql,

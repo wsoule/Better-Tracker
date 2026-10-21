@@ -314,11 +314,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-// Serializes a value for a `::text::jsonb` parameter. undefined (and other
-// values JSON cannot represent) become JSON null rather than SQL NULL so a
-// NOT NULL jsonb column never rejects them.
+// A UTF-16 surrogate half without its partner (e.g. an emoji cut in two).
+// It has no UTF-8 form, so Postgres cannot store it.
+const LONE_SURROGATE =
+  /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+
+// Makes a string storable in jsonb. jsonb rejects U+0000 and lone
+// surrogates outright, so a single such character in one mirrored title
+// would otherwise fail a whole replaceMirror (and every later full sync).
+// NUL is dropped; a lone surrogate becomes U+FFFD, the same replacement a
+// UTF-8 encoder makes for plain text parameters.
+function storableString(value: string): string {
+  return value.replaceAll('\u0000', '').replace(LONE_SURROGATE, '�');
+}
+
+// Serializes a value for a `::text::jsonb` parameter, cleaning every string
+// with storableString. undefined (and other values JSON cannot represent)
+// become JSON null rather than SQL NULL so a NOT NULL jsonb column never
+// rejects them.
 function jsonParam(value: unknown): string {
-  const text: string | undefined = JSON.stringify(value);
+  const text: string | undefined = JSON.stringify(
+    value,
+    (_key: string, item: unknown): unknown =>
+      typeof item === 'string' ? storableString(item) : item
+  );
   return text ?? 'null';
 }
 
@@ -328,9 +347,17 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
-// LIMIT rejects negatives and fractions; callers pass UI-provided numbers.
+/** The largest value a `$n::int` LIMIT parameter accepts (int4 max). */
+const MAX_SQL_LIMIT = 2_147_483_647;
+
+// LIMIT takes a non-negative int4 and callers pass UI-provided numbers:
+// NaN and negatives become 0, fractions round down, and anything larger
+// (Infinity included) is capped rather than failing the query.
 function sqlLimit(limit: number): number {
-  return Number.isFinite(limit) ? Math.max(0, Math.floor(limit)) : 0;
+  if (Number.isNaN(limit)) {
+    return 0;
+  }
+  return Math.min(MAX_SQL_LIMIT, Math.max(0, Math.floor(limit)));
 }
 
 // Flattens a workspace into mirror rows in a fixed kind order, so loadMirror
@@ -997,6 +1024,15 @@ class SqlStore implements Store {
     });
   }
 
+  async pruneWebhookDeliveries(before: IsoDateTime): Promise<number> {
+    const rows = await this.sql.query<{ delivery_id: string }>(
+      `DELETE FROM webhook_deliveries WHERE received_at < $1::timestamptz
+       RETURNING delivery_id`,
+      [before]
+    );
+    return rows.length;
+  }
+
   async markWebhookProcessed(
     deliveryId: string,
     result: { at: IsoDateTime; error: string | null }
@@ -1260,6 +1296,28 @@ class SqlStore implements Store {
       ]
     );
     return rows.length === 1;
+  }
+
+  async updateNotificationStatus(input: {
+    workspaceId: string;
+    day: IsoDate;
+    recipientId: string;
+    channel: 'slack' | 'outbox';
+    status: Exclude<NotificationStatus, 'pending'>;
+    error: string | null;
+  }): Promise<void> {
+    await this.sql.query(
+      `UPDATE notifications SET status = $4, channel = $5, error = $6
+       WHERE workspace_id = $1 AND day = $2::date AND recipient_id = $3`,
+      [
+        input.workspaceId,
+        input.day,
+        input.recipientId,
+        input.status,
+        input.channel,
+        input.error,
+      ]
+    );
   }
 
   async listNotifications(

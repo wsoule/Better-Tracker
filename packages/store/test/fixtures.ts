@@ -11,6 +11,20 @@ import type { Installation, StoredTokens } from '../src/types';
  */
 export const TEST_KEY: string = Buffer.alloc(32, 7).toString('base64');
 
+/**
+ * The same Postgres URL with every session defaulting to REPEATABLE READ
+ * (a startup `options` parameter), to prove the store does not depend on
+ * the server's default isolation level.
+ */
+export function repeatableReadUrl(databaseUrl: string): string {
+  const url = new URL(databaseUrl);
+  url.searchParams.set(
+    'options',
+    '-c default_transaction_isolation=repeatable\\ read'
+  );
+  return url.toString();
+}
+
 /** A unique workspace id per test, so tests never see each other's rows. */
 export function newWorkspaceId(): string {
   return `ws-${randomUUID()}`;

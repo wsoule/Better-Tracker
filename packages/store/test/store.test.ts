@@ -13,6 +13,7 @@ import {
   installation,
   newWorkspaceId,
   rejection,
+  repeatableReadUrl,
   TEST_KEY,
   tokens,
   workspaceData,
@@ -406,6 +407,38 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(loaded?.data.milestones[0]?.targetDate).toBe('2026-10-28');
       });
 
+      test('strings Postgres cannot store are cleaned instead of failing the write', async () => {
+        const ws = newWorkspaceId();
+        const data = workspaceData(ws);
+        const [first, second] = data.issues;
+        if (first === undefined || second === undefined) {
+          throw new Error('fixture has issues');
+        }
+        first.title = 'nul\u0000 byte';
+        second.title = 'cut emoji \ud83d, stray \ude00, whole pair 😀';
+        await store.replaceMirror(data, '2026-10-21T08:00:00.000Z');
+        const titles = (await store.loadMirror(ws))?.data.issues.map(
+          (issue) => issue.title
+        );
+        expect(titles?.slice(0, 2)).toEqual([
+          'nul byte',
+          'cut emoji �, stray �, whole pair 😀',
+        ]);
+        // Every JSON column goes through the same cleaning.
+        await store.appendAudit({
+          workspaceId: ws,
+          actorUserId: 'u-ana',
+          action: 'milestone.done_means',
+          subjectId: 'm-alpha',
+          before: null,
+          after: { doneMeans: 'ship\u0000 it \udbff' },
+          at: '2026-10-21T08:00:00.000Z',
+        });
+        expect((await store.listAudit(ws, 1))[0]?.after).toEqual({
+          doneMeans: 'ship it �',
+        });
+      });
+
       test('replaceMirror deletes entities missing from the new data', async () => {
         const ws = newWorkspaceId();
         await store.replaceMirror(
@@ -620,6 +653,40 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           lastFullSyncError: null,
           lastWebhookAt: null,
         });
+      });
+
+      test('pruneWebhookDeliveries deletes only older deliveries', async () => {
+        const ws = newWorkspaceId();
+        const old = crypto.randomUUID();
+        const recent = crypto.randomUUID();
+        for (const [deliveryId, receivedAt] of [
+          [old, '2026-08-01T00:00:00.000Z'],
+          [recent, '2026-10-20T00:00:00.000Z'],
+        ] as const) {
+          await store.recordWebhookDelivery({
+            deliveryId,
+            workspaceId: ws,
+            type: 'Issue',
+            action: 'update',
+            entityId: 'i1',
+            receivedAt,
+          });
+        }
+        expect(
+          await store.pruneWebhookDeliveries('2026-09-21T00:00:00.000Z')
+        ).toBeGreaterThanOrEqual(1);
+        // The old delivery id is free again; the recent one is still deduped.
+        const again = (deliveryId: string) =>
+          store.recordWebhookDelivery({
+            deliveryId,
+            workspaceId: ws,
+            type: 'Issue',
+            action: 'update',
+            entityId: 'i1',
+            receivedAt: '2026-10-21T00:00:00.000Z',
+          });
+        expect(await again(old)).toBe(true);
+        expect(await again(recent)).toBe(false);
       });
 
       test('recordWebhookDelivery dedupes on the delivery id', async () => {
@@ -841,6 +908,28 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(unknownRun.message).toMatch(/Unknown allocation run/);
       });
 
+      test('concurrent appenders to one run get gap-free seq numbers', async () => {
+        const ws = newWorkspaceId();
+        const run = await start(ws, '2026-10-21T08:00:00.000Z');
+        const runId = run?.id ?? '';
+        await Promise.all(
+          ['a', 'b', 'c', 'd'].map((batch) =>
+            store.appendRunEntries(runId, [
+              entry({ issueId: `${batch}-1` }),
+              entry({ issueId: `${batch}-2` }),
+            ])
+          )
+        );
+        const entries = (await store.getRun(ws, runId))?.entries ?? [];
+        expect(entries.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+        // Each call's entries stay together, in the order given.
+        for (let i = 0; i < entries.length; i += 2) {
+          const firstId = entries[i]?.issueId ?? '';
+          expect(firstId).toMatch(/-1$/);
+          expect(entries[i + 1]?.issueId).toBe(firstId.replace(/-1$/, '-2'));
+        }
+      });
+
       test('finishRun stores status, summary and error', async () => {
         const ws = newWorkspaceId();
         const run = await start(ws, '2026-10-21T08:00:00.000Z');
@@ -891,6 +980,13 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           ids.toReversed().slice(0, 2)
         );
         expect(await store.listRuns(ws, -1)).toEqual([]);
+        // Out-of-range limits are clamped instead of failing the query.
+        expect((await store.listRuns(ws, 1e12)).map((r) => r.id)).toEqual(
+          ids.toReversed()
+        );
+        expect(await store.listRuns(ws, Infinity)).toHaveLength(3);
+        expect(await store.listRuns(ws, 1.9)).toHaveLength(1);
+        expect(await store.listRuns(ws, Number.NaN)).toEqual([]);
         expect(await store.getRun(newWorkspaceId(), ids[0] ?? '')).toBeNull();
         expect(await store.getRun(ws, 'not-a-uuid')).toBeNull();
       });
@@ -1018,6 +1114,44 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             occurrence: 1,
           },
         ]);
+      });
+
+      test('claim-first: insert pending, then record the outcome', async () => {
+        const ws = newWorkspaceId();
+        const claim = {
+          workspaceId: ws,
+          day: '2026-10-21',
+          recipientId: 'u-ben',
+          channel: 'slack' as const,
+          status: 'pending' as const,
+          digest: digest('u-ben', '2026-10-21'),
+          error: null,
+          now: '2026-10-21T13:00:00.000Z',
+        };
+        expect(await store.insertNotification(claim)).toBe(true);
+        // A second runner the same day cannot claim it again.
+        expect(await store.insertNotification(claim)).toBe(false);
+        await store.updateNotificationStatus({
+          workspaceId: ws,
+          day: '2026-10-21',
+          recipientId: 'u-ben',
+          channel: 'slack',
+          status: 'undeliverable',
+          error: 'users_not_found',
+        });
+        const [record] = await store.listNotifications(ws, { limit: 5 });
+        expect(record?.status).toBe('undeliverable');
+        expect(record?.error).toBe('users_not_found');
+        // Updating a record that does not exist is a no-op.
+        await store.updateNotificationStatus({
+          workspaceId: ws,
+          day: '2026-10-22',
+          recipientId: 'u-ben',
+          channel: 'slack',
+          status: 'sent',
+          error: null,
+        });
+        expect(await store.listNotifications(ws, { limit: 5 })).toHaveLength(1);
       });
 
       test('insertNotification: one per recipient per day', async () => {
@@ -1189,6 +1323,16 @@ storeSuite('Store on PGlite (in-memory)', () => openPgliteSql());
 describe.skipIf(!HAS_POSTGRES)('Store on node-postgres (DATABASE_URL)', () => {
   storeSuite('suite', () => openPgSql(DATABASE_URL ?? ''));
 });
+
+// The locking tests (concurrent refreshers, mirror writers, run starts)
+// again, on sessions whose default isolation is stricter than Postgres'
+// READ COMMITTED default.
+describe.skipIf(!HAS_POSTGRES)(
+  'Store on node-postgres, sessions defaulting to repeatable read',
+  () => {
+    storeSuite('suite', () => openPgSql(repeatableReadUrl(DATABASE_URL ?? '')));
+  }
+);
 
 describe('Store without a database', () => {
   test('ping is false when the database is unreachable', async () => {

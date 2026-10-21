@@ -89,6 +89,14 @@ function toError(value: unknown): Error {
 /**
  * node-postgres pool. Plain queries use any pooled connection; each
  * transaction checks out one client and runs BEGIN/COMMIT/ROLLBACK on it.
+ *
+ * Everything runs at READ COMMITTED. The store's locking pattern
+ * (take an advisory or row lock, then read what the previous holder
+ * committed) depends on each statement seeing the latest commits. Under a
+ * stricter server default (default_transaction_isolation = repeatable
+ * read) a transaction keeps the snapshot it took before waiting for the
+ * lock: concurrent migrators then re-apply a migration and fail, and
+ * concurrent token refreshers or mirror writers hit serialization errors.
  */
 export async function openPgSql(
   databaseUrl: string,
@@ -100,6 +108,24 @@ export async function openPgSql(
   // a listener Node treats it as unhandled and kills the process.
   pool.on('error', (error) => {
     logger?.error('postgres idle client error', { error });
+  });
+  // Statements outside transaction() (claimJob's and insertNotification's
+  // INSERT … ON CONFLICT DO NOTHING) follow the session default, and under
+  // REPEATABLE READ a concurrent conflicting insert raises a serialization
+  // error instead of answering "already exists". So every new connection
+  // defaults to READ COMMITTED too. The query is queued before the pool
+  // hands the client out. A transaction-mode pooler may not keep session
+  // settings, which is why transaction() also pins the level in BEGIN.
+  pool.on('connect', (client) => {
+    client
+      .query(
+        'SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED'
+      )
+      .catch((error: unknown) => {
+        logger?.error('could not set the connection isolation level', {
+          error,
+        });
+      });
   });
 
   const poolQuery: QueryFn = async <T>(
@@ -128,7 +154,7 @@ export async function openPgSql(
         () => finished
       );
       try {
-        await client.query('BEGIN');
+        await client.query('BEGIN ISOLATION LEVEL READ COMMITTED');
         const result = await fn(transactionSql(clientQuery, 0));
         await client.query('COMMIT');
         return result;

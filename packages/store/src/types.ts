@@ -151,6 +151,12 @@ export interface RunEntry {
 export type NewRunEntry = Omit<RunEntry, 'runId' | 'seq' | 'createdAt'>;
 
 export type NotificationStatus =
+  /**
+   * Claimed for today and being delivered. A record left 'pending' means the
+   * process stopped mid-delivery; it is not retried the same day (the
+   * one-digest-per-day guarantee is at-most-once).
+   */
+  | 'pending'
   /** Delivered. */
   | 'sent'
   /** warningsMode=preview: recorded only. */
@@ -270,6 +276,8 @@ export interface Store {
     result: { at: IsoDateTime; error: string | null }
   ): Promise<void>;
   markInstallationRevoked(workspaceId: string, at: IsoDateTime): Promise<void>;
+  /** Deletes webhook delivery records received before `before`; returns the count. */
+  pruneWebhookDeliveries(before: IsoDateTime): Promise<number>;
 
   // --- allocation runs ----------------------------------------------------
   /**
@@ -317,6 +325,19 @@ export interface Store {
   insertNotification(
     record: Omit<NotificationRecord, 'id' | 'createdAt'> & { now: IsoDateTime }
   ): Promise<boolean>;
+  /**
+   * Sets the outcome of the day's notification for a recipient, after
+   * delivery (claim-first flow: insertNotification as 'pending', deliver,
+   * then update). No-op when no record exists.
+   */
+  updateNotificationStatus(input: {
+    workspaceId: string;
+    day: IsoDate;
+    recipientId: string;
+    channel: 'slack' | 'outbox';
+    status: Exclude<NotificationStatus, 'pending'>;
+    error: string | null;
+  }): Promise<void>;
   listNotifications(
     workspaceId: string,
     options: { limit: number; day?: IsoDate }
