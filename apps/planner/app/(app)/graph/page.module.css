@@ -79,6 +79,46 @@
   color: var(--accent);
 }
 
+/* Nodes with no blocking relation, listed under the canvas: a hairline
+   bar (count, why, Show/Hide) over a small register. */
+.isolated > * + * {
+  margin-top: -1px;
+}
+
+.isolatedBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+}
+
+.isolatedText {
+  flex: 1 1 320px;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.isolatedTitle {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.isolatedNote {
+  color: var(--muted);
+}
+
+.isolatedKey {
+  margin-right: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
 /* Loading skeleton: header lines. */
 .skeletonHead {
   display: flex;
@@ -100,5 +140,9 @@
   .body {
     margin-top: 20px;
     padding: 0 16px 48px;
+  }
+
+  .isolatedBar {
+    padding: 12px 14px;
   }
 }

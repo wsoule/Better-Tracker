@@ -163,6 +163,15 @@ For each project, in timeline order:
 Issues with no milestone are never allocated; they appear in the timeline's
 per-project "unplanned" bucket.
 
+"Not loud" for an inactive project means: the engine's `TimelineLane.active` is
+false, and nothing derives it again. Its lane, register row and the person's
+issues in it stay listed, drawn in greys, but it is in no warning, banner
+(§2.11), due-this-week, overdue or at-risk count, "at risk / overdue" filter,
+deadline or "needs attention" list (its dates are not deadlines while it is
+inactive; core's week view never marks its milestones `thisWeek`, §2.11); where
+a count could seem to contradict a grey overdue bar, the page says how many were
+left out (§8.4).
+
 ### 2.9 Warnings (§6.5, §7.5, §6.11)
 
 Evaluated daily for milestones in active projects:
@@ -222,18 +231,22 @@ count, plain lines ("3 open issues unassigned", "no state change in 9 days",
 
 - `buildWeekView` (§7.1): sections = milestones containing the user's open
   issues, in display order; rows in issue order; then a "No milestone" section.
-  `thisWeek` = overdue or `daysLeft <= 6`. A row is `newBecauseLeadOf` when a
-  live allocation assigned it to this user within `newBadgeDays` and it is still
-  assigned to them.
+  `thisWeek` = the project is active (§2.8) and the milestone is overdue or
+  `daysLeft <= 6`; `totals.thisWeek` counts issues in those sections and
+  `totals.overdue` the overdue milestones of active projects (an inactive
+  project's section keeps its real status and sorts as usual, under "Later" on
+  the page). A row is `newBecauseLeadOf` when a live allocation assigned it to
+  this user within `newBadgeDays` and it is still assigned to them.
 - `buildTimelineView` (§7.2): window `today - timelineDaysBack` →
   `today + timelineDaysAhead`. Groups per initiative (initiative priority rank,
   then `sortOrder`; projects in several initiatives appear under the first),
   then "No initiative". Lanes = projects not completed/canceled, ordered by
   project priority rank then `sortOrder`. Bars per dated milestone: `start` =
   previous dated milestone's date (same project), else project `startDate`, else
-  window start, never after `end`. Banners: projects without lead (active only),
-  milestones without date, open issues without milestone (per project), blocked
-  projects.
+  window start, never after `end`. Banners, active projects only (an inactive
+  project keeps its undated milestones and `unplannedIssueIds` on its lane):
+  projects without lead, milestones without date, open issues without milestone
+  (per project), blocked projects.
 
 ## 3. Core API (packages/core/src/index.ts)
 
@@ -874,15 +887,41 @@ binding):
   its own fields. People lists active non-app people plus deactivated people
   still on a list; the last active PM's box is locked on. Slack status is not
   shown: the engine exposes no "Slack configured" flag.
+- A settings save moves keyboard focus to the form's status line (a
+  `tabIndex=-1` live region beside Save and Reset) before Save and the fields
+  disable, and the line then says "Saved" or "Not saved: <why>"; Reset focuses
+  it too and it says "Changes discarded" (never a previous save's "Saved"), so
+  focus never falls to `<body>`. The engine's timezone refusal (code `invalid`,
+  "timezone must be…") is shown capitalised under the timezone field
+  (`aria-invalid`, `aria-describedby`) with focus moved there, not toasted;
+  other refusals stay toasts. A submit stopped by the form's own checks focuses
+  the first field marked. Status's Resync and Preview do the same with their own
+  status line, and a finished preview focuses its heading (it is not a live
+  region, which would read every digest aloud).
+- The digest preview's "Allocation stopped" rows name the project (the subject)
+  and, under Due, the next milestone's date with "Next milestone: <name>";
+  "Whole project" only when there is no next milestone.
 - `/graph` with no edges in scope shows the empty state rather than a field of
-  unconnected boxes. Milestone nodes take the accent only when at risk or
-  overdue (a later milestone's unassigned issues are normal; they keep the
-  `UNASSIGNED` chip); issue nodes when open and unassigned or overdue.
+  unconnected boxes. Otherwise only nodes on at least one edge are drawn (and
+  any id the adapter is asked to keep); the rest are listed under the canvas as
+  "N milestones (issues) have no blocking relations", a small register (mark,
+  name, project or assignee, due) collapsed behind "Show N" when longer than six
+  (again at each scope: moving between levels does not carry it open). Milestone
+  rows open `/timeline?milestone=<id>`, issue rows the issue in Linear (a
+  scope's issues would all open the same drawer). The receipts and the block
+  meta count drawn vs listed ("4 of 14 milestones"), and Copy Mermaid copies the
+  drawn graph. Milestone nodes take the accent only when at risk or overdue (a
+  later milestone's unassigned issues are normal; they keep the `UNASSIGNED`
+  chip); issue nodes when open and unassigned or overdue.
 - `/runs/[id]` answers the not-found page for an unknown id; already-assigned
   skips are collapsed into one count per project.
 - The run and settings registers stack into cards by their own width
   (`stackWithin`), not the viewport's: inside the 252px sidebar a 1024px window
-  leaves the settings content about 440px wide.
+  leaves the settings content about 440px wide (700px at 1280). Run cards flow
+  their eight cells into as many ~120px columns as fit (two rows at 1024 and
+  1280, three on a phone). The Notifications register leads with the recipient
+  (channel under the name) in five columns, so it stays a table at 700px; the
+  Audit "When" column is fixed at 152px so the time fits one line.
 
 ### 8.2 Visual language (Analytics `competitors-site` + `DESIGN.md`)
 
@@ -975,14 +1014,22 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   `completed/scope` with a 1px progress rule, status mark), "THIS WEEK" (always
   shown once anything is open) and "LATER" dividers, rows with identifier
   (mono), title, state, priority label, and the accent chip "NEW — GIVEN TO YOU
-  BECAUSE YOU LEAD <PROJECT>"; a final "No milestone" divider with one group per
-  project (`PROJECT › Issues without a milestone`, linking to
-  `/timeline?project=`; a completed or canceled project has no lane, so its
-  group is not a link), then "Issues without a project or milestone". "At risk
-  in your projects" counts the milestones of projects the person leads whose
-  status is at risk or overdue (§2.5) — a blocked project whose next milestone
-  is on track is not at risk; it appears under "Needs attention" with its
-  reason. The two columns sit side by side only while the content area (not the
+  BECAUSE YOU LEAD <PROJECT>" (an empty THIS WEEK says "Nothing of yours is due
+  this week."); a final "No milestone" divider with one group per project
+  (`PROJECT › Issues without a milestone`, linking to `/timeline?project=`; a
+  completed or canceled project has no lane, so its group is not a link), then
+  "Issues without a project or milestone". "At risk in your projects" counts the
+  milestones of active projects the person leads whose status is at risk or
+  overdue (§2.5) — a blocked project whose next milestone is on track is not at
+  risk; it appears under "Needs attention" with its reason. Inactive projects
+  (§2.8) are never loud here: the person's issues in them stay in the list,
+  under "LATER", their group drawn quietly (grey mark named "<status> · inactive
+  project", "Inactive project" for the days left, no accent), but THIS WEEK, the
+  this-week counts (receipts, the Open issues note, the sidebar's My week
+  count), "Overdue milestones", "At risk in your projects", the deadlines and
+  "Needs attention" leave them out; the two stats add "+1 in an inactive
+  project" and the empty "Needs attention" names the inactive project it left
+  out. The two columns sit side by side only while the content area (not the
   viewport) is at least 1040px wide; below that the deadlines and attention
   panels stack under the list. Right column (Gr8r "Upcoming deadlines"):
   milestones the user leads or has issues in, grouped Overdue / Today / Tomorrow
@@ -991,17 +1038,26 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   get a person picker (`?user=<id>`, honoured on the server for PMs only and
   only for people in the mirror).
 - **Timeline** (Gr8r Timeline in the Matrix drawing style): banners first (no
-  lead / no date / unplanned / blocked, each a count that expands to a list). A
-  toolbar: project search, zoom **Weeks / Months** (segmented tab strip),
-  **Today** (scrolls to today), filters (initiative, only active, only at
-  risk/overdue), **Dependencies** toggle. The chart: a sticky left column of
-  lanes grouped by initiative (lane = project name, lead or `NO LEAD` in
-  accent), a two-row sticky header (month names; day/week ticks in mono 9.5px;
-  weekends shaded with `--tint`), today as a 1px accent vertical rule, a
-  "Milestones" summary row with a diamond (45°-rotated square mark) at each due
-  date like Gr8r, bars per milestone (start → due date) with a diamond at the
-  end, styled by status (overdue accent fill; at risk 2px accent border; on
-  track ink border; complete ink fill; rubric-invalid hatched with "MISSING:
+  lead / no date / unplanned / blocked, each a count that expands to a list), as
+  one compact block: a 1px hairline frame with a single 2px accent rule on its
+  left, one ~40px row per banner on 1px rules (mono key and count, one sentence,
+  a quiet Show / Hide), banners at zero left out. A toolbar: project search,
+  zoom **Weeks / Months** (segmented tab strip), **Today** (scrolls to today),
+  filters (initiative; **Show All / Active / At risk** as one segmented control,
+  since at risk only ever keeps active lanes), **Dependencies** toggle. It is
+  one row from a 1366px window with the sidebar open (the search gives up width,
+  220 → 100px, before anything wraps, and the initiative select is capped at
+  200px with an ellipsis so a long initiative name cannot push it over the zoom
+  control); narrower, the Show control wraps under it. The receipts line counts
+  overdue and at-risk milestones in active projects only and says how many
+  projects are inactive ("9 projects (1 inactive) · …"). The chart: a sticky
+  left column of lanes grouped by initiative (lane = project name, lead or
+  `NO LEAD` in accent), a two-row sticky header (month names; day/week ticks in
+  mono 9.5px; weekends shaded with `--tint`), today as a 1px accent vertical
+  rule, a "Milestones" summary row with a diamond (45°-rotated square mark) at
+  each due date like Gr8r, bars per milestone (start → due date) with a diamond
+  at the end, styled by status (overdue accent fill; at risk 2px accent border;
+  on track ink border; complete ink fill; rubric-invalid hatched with "MISSING:
   …"), a `NEXT` tag on each lane's next milestone, `↑2` for a weight override.
   With Dependencies on, milestone-level edges are drawn as 1px curved connectors
   between bars (accent when on a risk chain), like Gr8r's dependency arrows. PMs
@@ -1012,8 +1068,13 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   - The toolbar state is mirrored to the URL in place (`?q=`, `?initiative=`,
     `?active=1`, `?risk=1`, `?zoom=months`, `?deps=1`; Dependencies start off,
     Weeks is the default zoom), and every link the page builds (lane names,
-    banner rows, "waits on") keeps it. "Only at risk / overdue" keeps projects
-    with an at-risk or overdue dated milestone.
+    banner rows, "waits on") keeps it. Show: Active is `?active=1`, At risk is
+    `?risk=1` (both set reads as At risk); At risk keeps active projects with an
+    at-risk or overdue dated milestone. The toolbar follows the address bar when
+    it changes under it (back/forward, the sidebar's plain `/timeline` or a
+    project link while filtered), as the projects register does: it reads
+    `useSearchParams`, skips the query strings it wrote itself, and keeps a
+    half-typed search when a URL means the state already shown.
   - Re-dating and the lead are Linear writes: handles and those drawer fields
     only for PMs with Linear write access (a read-only PM sees a one-line notice
     linking `/api/auth/linear?intent=grant_write&returnTo=/timeline`). Weight
@@ -1030,8 +1091,13 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     other milestone, which one is next. A deactivated lead is loud in the Lead
     cell and named as deactivated in the met "Project lead" check.
   - An inactive (muted) lane is never loud anywhere: its bars, its phone card
-    rows and the "Milestones" summary diamonds (a day with only inactive
-    milestones is drawn in greys; a shared day takes the active lanes' status).
+    rows (grey hollow marks) and the "Milestones" summary diamonds (a day with
+    only inactive milestones is drawn in greys; a shared day takes the active
+    lanes' status); it is in no banner, receipt count or At risk filter.
+  - A phone card row whose mark is hatched (missing input) and that carries its
+    "Missing: …" line leaves the status label out of its receipts, so an empty
+    milestone reads "0/0 · Missing: issues", not "No issues yet · 0/0 · Missing:
+    issues".
   - `PATCH /api/milestones/[id]` needs at least one of `targetDate`
     (`YYYY-MM-DD` or null), `weight` (integer or null), `doneMeans` (string or
     null), no other keys; it applies the date first, then weight, then "done
@@ -1041,18 +1107,22 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   project grouped by initiative: name + initiative, Linear status (mono chip),
   next milestone (name, due, status mark), next-milestone progress bar
   (`completed/scope`), lead or `NO LEAD`, allocation state chip (`ALLOCATING n`
-  / `BLOCKED: <reason>` filled accent with the missing rubric items under it /
-  `NOTHING TO DO` / `NO OPEN MILESTONE` / `INACTIVE`), links to its timeline
-  lane (the row), graph and Linear. Search + status filter (All / Blocked / At
-  risk = next milestone at risk or overdue / Inactive) in a toolbar, mirrored to
-  `?q=` and `?filter=` so a filtered register can be linked; the register also
-  follows the URL when it changes under it (back/forward, a link to `/projects`
-  while filtered).
+  / `BLOCKED` filled accent with the reason as a mono line under it, worded as
+  on the timeline's Blocked banner and My week's "Needs attention": "Project has
+  no lead", "Next milestone is missing: done means…" / `NOTHING TO DO` /
+  `NO OPEN MILESTONE` / `INACTIVE`), links to its timeline lane (the row), graph
+  and Linear. An inactive project's next milestone is drawn in greys (grey mark,
+  muted date, ink progress). Search + status filter (All / Blocked / At risk =
+  an active project's next milestone at risk or overdue / Inactive) in a
+  toolbar, mirrored to `?q=` and `?filter=` so a filtered register can be
+  linked; the register also follows the URL when it changes under it
+  (back/forward, a link to `/projects` while filtered).
 - **Graph**: level tabs (Milestones / Issues in <scope>); SVG laid out with
   `@dagrejs/dagre` (rankdir LR) on the server, hairline boxes with mono labels;
   risk chains in accent, cycles dashed accent, cross-project edges dashed ink,
   resolved edges faint; legend; hover/focus highlights the upstream chain; click
-  a node → slide-over details; "Copy Mermaid" copies `toMermaid` output.
+  a node → slide-over details; "Copy Mermaid" copies `toMermaid` output. Nodes
+  with no blocking relation are listed under the canvas, not drawn (§8.1).
 - **Runs**: register of runs (mode chip DRY RUN / LIVE, trigger, counts); detail
   lists assigned / would assign / failed / stale / skipped / blocked grouped by
   project with reasons.

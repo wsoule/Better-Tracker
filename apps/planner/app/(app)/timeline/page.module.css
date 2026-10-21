@@ -28,23 +28,71 @@
 
 /* ---- banners ---------------------------------------------------------- */
 
-/* Accent notices collapse onto one 2px rule, like a ruled table. */
+/* The page notices (not found, read only) and the banner block stack
+   with a small gap. */
 .notices {
   display: flex;
   flex-direction: column;
+  gap: 10px;
   max-width: 1440px;
   margin: 24px auto 0;
   padding: 0 48px;
 }
 
-.notices > * + * {
-  margin-top: -2px;
+/* One block for every banner: a 1px hairline frame with the single 2px
+   accent rule down its left edge (2px is emphasis, spent once), and one
+   1px ruled row per banner, about 40px tall. */
+.banners {
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+}
+
+.bannerRows {
+  display: flex;
+  flex-direction: column;
+}
+
+.banner + .banner {
+  border-top: 1px solid var(--border);
+}
+
+.bannerHead {
+  display: flex;
+  align-items: center;
+  gap: 4px 16px;
+  min-height: 40px;
+  padding: 5px 8px 5px 16px;
+}
+
+.bannerKey {
+  flex: 0 0 auto;
+  min-width: 112px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.bannerText {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.bannerAction {
+  flex: none;
+  margin-left: auto;
 }
 
 .bannerList {
   display: flex;
   flex-direction: column;
-  margin-top: 10px;
+  margin: 0 16px 8px;
   border-top: 1px solid var(--hairline-faint);
 }
 
@@ -90,6 +138,28 @@
   border-bottom: 1px solid currentcolor;
 }
 
+/* Narrow: the key and the Show button share the first line, the sentence
+   wraps under them. */
+@media (width <= 768px) {
+  .bannerHead {
+    flex-wrap: wrap;
+    padding: 6px 6px 8px 12px;
+  }
+
+  .bannerKey {
+    min-width: 0;
+  }
+
+  .bannerText {
+    flex-basis: 100%;
+    order: 1;
+  }
+
+  .bannerList {
+    margin: 0 12px 8px;
+  }
+}
+
 @media (hover: hover) and (width >= 901px) {
   .bannerLink:hover,
   .issueKeyLink:hover {
@@ -126,14 +196,34 @@
   max-width: 100%;
 }
 
-.count {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-  white-space: nowrap;
+/* Desktop: the toolbar is one row from about 1050px of chart width (a
+   1366px window with the sidebar open): the search gives up width
+   (220 → 100) before anything wraps, then grows back to 220 where there is
+   room. Narrower, the Show control wraps to a second row. */
+@media (width >= 901px) {
+  /* An explicit min-width: the search's 220px width would otherwise make
+     the min-content (and so the wrap point) 415px. It holds the search at
+     its 100px minimum, the gap and the select at its 200px cap, so a long
+     initiative name never pushes the select over the zoom control. */
+  .filters {
+    flex: 1 1 310px;
+    flex-wrap: nowrap;
+    min-width: 310px;
+    max-width: 430px;
+  }
+
+  .search {
+    flex: 1 1 220px;
+    min-width: 100px;
+  }
+
+  /* Sized by its longest option ("All initiatives" here), capped: a longer
+     initiative name is cut with an ellipsis instead of widening the row. */
+  .select {
+    flex: none;
+    max-width: 200px;
+    text-overflow: ellipsis;
+  }
 }
 
 /* ---- drawer ------------------------------------------------------------- */

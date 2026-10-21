@@ -6,12 +6,13 @@ import {
   RegisterCell,
   RegisterRow,
 } from '@better-tracker/ui';
-import { type FormEvent, useId, useState } from 'react';
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 
 import {
   parseScheduleForm,
   PROJECT_STATUS_OPTIONS,
   type ScheduleForm as ScheduleFormState,
+  scheduleFieldError,
   scheduleSavedMessage,
   TUNING_FIELDS,
 } from '../../../lib/adapters/settings';
@@ -28,10 +29,20 @@ function sameForm(a: ScheduleFormState, b: ScheduleFormState): boolean {
   );
 }
 
+/** The error keys in the order the rows show them (first one gets focus). */
+const FIELD_ORDER = [
+  'timezone',
+  ...TUNING_FIELDS.map((f) => f.key),
+  'statuses',
+] as const;
+
 /* Settings → Schedule: the workspace timezone (checked against the IANA
    database on the server) and the tuning numbers behind risk, warnings
    and the timeline, each with one line on what it changes. The form
-   checks ranges before sending; the server checks everything again. */
+   checks ranges before sending; the server checks everything again, and
+   its timezone refusal is shown on the timezone field like the form's own
+   errors. Whenever a submit stops on a field error, focus moves to the
+   first field marked. */
 export default function ScheduleForm({
   initial,
   canEdit,
@@ -46,23 +57,52 @@ export default function ScheduleForm({
     setForm(initial);
   }
   const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
-  const { saving, save } = useSaveSettings('Schedule');
+  const { saving, outcome, statusRef, save, discarded } =
+    useSaveSettings('Schedule');
   const baseId = useId();
   const dirty = !sameForm(form, initial);
   const disabled = !canEdit || saving;
+  const fieldId = (key: string) =>
+    key === 'timezone' ? `${baseId}-tz` : `${baseId}-${key}`;
+
+  // The field to focus once it is enabled again (inputs are disabled while
+  // a save is in flight), set when a submit stops on a field error.
+  const focusNext = useRef<string | null>(null);
+  useEffect(() => {
+    if (saving || focusNext.current === null) return;
+    const target = document.getElementById(focusNext.current);
+    focusNext.current = null;
+    const input =
+      target instanceof HTMLInputElement
+        ? target
+        : target?.querySelector('input');
+    input?.focus();
+  });
+
+  function showErrors(next: Partial<Record<string, string>>) {
+    setErrors(next);
+    const first = FIELD_ORDER.find((key) => next[key] !== undefined);
+    focusNext.current = first === undefined ? null : fieldId(first);
+  }
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!dirty || !canEdit) return;
     const parsed = parseScheduleForm(form);
     if (!parsed.ok) {
-      setErrors(parsed.errors);
+      showErrors(parsed.errors);
       return;
     }
     setErrors({});
     void save(
       { timezone: parsed.patch.timezone, tuning: parsed.patch.tuning },
-      scheduleSavedMessage(initial, parsed.patch)
+      scheduleSavedMessage(initial, parsed.patch),
+      (error) => {
+        const field = scheduleFieldError(error);
+        if (field === null) return false;
+        showErrors({ [field.field]: field.message });
+        return true;
+      }
     );
   }
 
@@ -175,9 +215,15 @@ export default function ScheduleForm({
           <RegisterCell align="end">
             <span className={css.field}>
               <span
+                id={fieldId('statuses')}
                 className={css.statusList}
                 role="group"
                 aria-label="Active project statuses"
+                aria-describedby={
+                  errors.statuses !== undefined
+                    ? `${fieldId('statuses')}-error`
+                    : undefined
+                }
               >
                 {PROJECT_STATUS_OPTIONS.map((option) => (
                   <Checkbox
@@ -200,7 +246,12 @@ export default function ScheduleForm({
                 ))}
               </span>
               {errors.statuses !== undefined ? (
-                <span className={css.fieldError}>{errors.statuses}</span>
+                <span
+                  id={`${fieldId('statuses')}-error`}
+                  className={css.fieldError}
+                >
+                  {errors.statuses}
+                </span>
               ) : null}
             </span>
           </RegisterCell>
@@ -210,6 +261,9 @@ export default function ScheduleForm({
         <FormBar
           dirty={dirty}
           saving={saving}
+          outcome={outcome}
+          statusRef={statusRef}
+          onDiscarded={discarded}
           blocked={
             errorCount > 0
               ? `Fix ${errorCount === 1 ? 'the field' : `${errorCount} fields`} marked above`

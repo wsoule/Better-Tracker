@@ -526,4 +526,85 @@ describe('TaskGroupTable review additions', () => {
     expect(view.getByText('Nothing in this section')).toBeTruthy();
     expect(view.getByText('No open issues')).toBeTruthy();
   });
+
+  test('an empty section can say its own sentence', () => {
+    const view = renderTable({
+      sections: [
+        {
+          id: 'week',
+          label: 'This week',
+          emptyLabel: 'Nothing of yours is due this week.',
+          groups: [],
+        },
+        {
+          id: 'later',
+          label: 'Later',
+          groups: [{ id: 'g', title: 'Cutover', rows: [row('l-1')] }],
+        },
+      ],
+    });
+    expect(view.getByText('Nothing of yours is due this week.')).toBeTruthy();
+    expect(view.queryByText('Nothing in this section')).toBeNull();
+  });
+
+  test('a muted group is never loud: grey mark, no accent date or progress', () => {
+    const view = renderTable({
+      sections: [
+        {
+          id: 'week',
+          label: 'This week',
+          groups: [
+            {
+              id: 'quiet',
+              eyebrow: 'Fjord',
+              title: 'Dashboards',
+              status: 'overdue',
+              statusLabel: 'Overdue · inactive project',
+              dueLabel: 'Oct 16',
+              daysLeftLabel: 'Inactive project',
+              dueTone: 'accent',
+              progress: { done: 0, total: 2, tone: 'accent' },
+              muted: true,
+              rows: [row('f-1')],
+            },
+            {
+              id: 'loud',
+              title: 'Cutover',
+              status: 'overdue',
+              statusLabel: 'Overdue',
+              dueLabel: 'Oct 19',
+              dueTone: 'accent',
+              progress: { done: 1, total: 2, tone: 'accent' },
+              rows: [row('a-1')],
+            },
+          ],
+        },
+      ],
+    });
+    const header = (id: string) => {
+      const el = view.container.querySelector(
+        `[data-group-id="${id}"] [data-nav-item="group"]`
+      );
+      if (el === null) throw new Error(`no group ${id}`);
+      return el;
+    };
+    const quiet = header('quiet');
+    const quietMark = within(quiet as HTMLElement).getByRole('img', {
+      name: 'Overdue · inactive project',
+    });
+    expect(quietMark.hasAttribute('data-muted')).toBe(true);
+    const tones = (el: Element) =>
+      [...el.querySelectorAll('[data-tone]')].map((n) =>
+        n.getAttribute('data-tone')
+      );
+    // The due date, then the progress rule.
+    expect(tones(quiet)).toEqual(['default', 'default']);
+    const loud = header('loud');
+    expect(
+      within(loud as HTMLElement)
+        .getByRole('img', { name: 'Overdue' })
+        .hasAttribute('data-muted')
+    ).toBe(false);
+    expect(tones(loud)).toEqual(['accent', 'accent']);
+  });
 });

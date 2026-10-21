@@ -336,7 +336,9 @@ function Section({
         <span className={styles.sectionNote}>{note}</span>
       </Heading>
       {section.groups.length === 0 ? (
-        <p className={styles.emptyLine}>Nothing in this section</p>
+        <p className={styles.emptyLine}>
+          {section.emptyLabel ?? 'Nothing in this section'}
+        </p>
       ) : null}
       {section.groups.map((group) => (
         <Group
@@ -389,7 +391,9 @@ function Group({
       ? `${group.eyebrow}, ${group.title}`
       : group.title;
   const countId = `${listId}-count`;
-  const dueAccent = group.dueTone === 'accent';
+  // A muted group is never loud: no accent on its date or progress.
+  const muted = group.muted === true;
+  const dueAccent = !muted && group.dueTone === 'accent';
 
   function onTitleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (onOpenGroup === undefined || !isPlainClick(event)) return;
@@ -451,6 +455,7 @@ function Group({
             <StatusMark
               status={group.status}
               label={group.statusLabel ?? group.status}
+              muted={muted}
             />
           ) : null}
           {group.eyebrow !== undefined && group.eyebrow !== '' ? (
@@ -473,7 +478,7 @@ function Group({
                 styles.groupDue,
                 dueAccent ? styles.accentText : undefined
               )}
-              data-tone={group.dueTone ?? 'default'}
+              data-tone={muted ? 'default' : (group.dueTone ?? 'default')}
             >
               <span className="srOnly">Due </span>
               {group.dueLabel}
@@ -494,7 +499,7 @@ function Group({
               <ProgressRule
                 done={group.progress.done}
                 total={group.progress.total}
-                tone={group.progress.tone}
+                tone={muted ? 'default' : group.progress.tone}
                 aria-label={`${group.title} progress`}
               />
             </span>

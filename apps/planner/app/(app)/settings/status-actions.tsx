@@ -13,7 +13,7 @@ import {
 } from '@better-tracker/ui';
 import { Mail, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 
 import {
   type DigestPreview,
@@ -24,26 +24,45 @@ import { syncFailureMessage } from '../../../lib/adapters/shell';
 import { sendJson } from '../../../lib/api-client';
 import css from './page.module.css';
 
+/** The status line's resting words. */
+const PREVIEW_NOTE = 'The preview records and sends nothing.';
+
 /* Settings → Status, PM controls: "Resync now" (POST /api/sync, then the
    page re-reads the sync time) and "Preview today's digests" (POST
    /api/warnings/preview: built, never recorded or sent), rendered inline
-   below as one block per recipient. Failures are toasted. */
+   below as one block per recipient. Failures are toasted. Each button
+   disables while it works, so keyboard focus first moves to the status
+   line beside them (tabIndex=-1, a live region saying what is happening
+   and how it went); a finished preview takes focus to its heading. */
 export default function StatusActions() {
   const router = useRouter();
   const { toast } = useToast();
   const [syncing, setSyncing] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [preview, setPreview] = useState<DigestPreviewModel | null>(null);
+  const [note, setNote] = useState(PREVIEW_NOTE);
+  const statusRef = useRef<HTMLParagraphElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  // Focus the preview's heading once a new preview has rendered.
+  useEffect(() => {
+    if (preview !== null) headingRef.current?.focus();
+  }, [preview]);
 
   async function resync() {
     setSyncing(true);
+    setNote('Syncing from Linear…');
+    statusRef.current?.focus();
     const result = await sendJson('POST', '/api/sync', {});
     setSyncing(false);
     if (!result.ok) {
+      setNote(`Sync failed: ${result.message}`);
       toast({ kind: 'error', label: 'Sync', message: result.message });
       return;
     }
     const failure = syncFailureMessage(result.data);
+    setNote(
+      failure === null ? 'Synced from Linear.' : `Sync failed: ${failure}`
+    );
     toast(
       failure === null
         ? {
@@ -58,14 +77,18 @@ export default function StatusActions() {
 
   async function previewDigests() {
     setPreviewing(true);
+    setNote('Building today’s digests…');
+    statusRef.current?.focus();
     const result = await sendJson('POST', '/api/warnings/preview', {});
     setPreviewing(false);
     if (!result.ok) {
+      setNote(`Preview failed: ${result.message}`);
       toast({ kind: 'error', label: 'Preview', message: result.message });
       return;
     }
     const body = result.data as { preview?: unknown } | null;
     if (!isDigestPreviewModel(body?.preview)) {
+      setNote('Preview failed: it came back in an unexpected shape.');
       toast({
         kind: 'error',
         label: 'Preview',
@@ -73,6 +96,7 @@ export default function StatusActions() {
       });
       return;
     }
+    setNote(PREVIEW_NOTE);
     setPreview(body.preview);
   }
 
@@ -95,21 +119,39 @@ export default function StatusActions() {
         >
           {previewing ? 'Building…' : 'Preview today’s digests'}
         </Button>
-        <p className={css.formStatus}>The preview records and sends nothing.</p>
+        <p
+          ref={statusRef}
+          tabIndex={-1}
+          className={css.formStatus}
+          aria-live="polite"
+        >
+          {note}
+        </p>
       </div>
-      {preview !== null ? <DigestPreviewBlock preview={preview} /> : null}
+      {preview !== null ? (
+        <DigestPreviewBlock preview={preview} headingRef={headingRef} />
+      ) : null}
     </div>
   );
 }
 
-function DigestPreviewBlock({ preview }: { preview: DigestPreviewModel }) {
+// The preview takes focus on its heading when it arrives (rather than
+// being a live region that would read every digest aloud).
+function DigestPreviewBlock({
+  preview,
+  headingRef,
+}: {
+  preview: DigestPreviewModel;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+}) {
   return (
-    <section
-      className={css.preview}
-      aria-labelledby="digest-preview-title"
-      aria-live="polite"
-    >
-      <h3 id="digest-preview-title" className={css.previewTitle}>
+    <section className={css.preview} aria-labelledby="digest-preview-title">
+      <h3
+        id="digest-preview-title"
+        ref={headingRef}
+        tabIndex={-1}
+        className={css.previewTitle}
+      >
         {preview.heading}
       </h3>
       <p className={css.previewSummary}>{preview.summary}</p>
@@ -142,14 +184,15 @@ function DigestBlock({
         title={digest.recipient}
         meta={`${digest.items.length} ${digest.items.length === 1 ? 'item' : 'items'} · ${digest.email ?? 'no email in Linear'}`}
       />
-      {/* The milestone leads each row: it is the card's title once the
-          register stacks. */}
+      {/* The subject (a milestone, or a project whose allocation stopped)
+          leads each row: it is the card's title once the register
+          stacks. */}
       <Register
         label={`Digest for ${digest.recipient}`}
         columns="minmax(0, 1fr) 176px minmax(0, 0.5fr)"
         stackWithin={700}
         header={[
-          { id: 'what', label: 'Milestone' },
+          { id: 'what', label: 'What' },
           { id: 'kind', label: 'Why' },
           { id: 'due', label: 'Due' },
         ]}
@@ -157,7 +200,7 @@ function DigestBlock({
         {digest.items.map((item) => (
           <RegisterRow key={item.id} tone={item.tone}>
             <RegisterCell
-              label="Milestone"
+              label="What"
               variant="name"
               sub={item.lines.join(' · ')}
             >
@@ -168,7 +211,12 @@ function DigestBlock({
                 {item.kindLabel}
               </Chip>
             </RegisterCell>
-            <RegisterCell label="Due" variant="mono" tone={item.tone}>
+            <RegisterCell
+              label="Due"
+              variant="mono"
+              tone={item.tone}
+              sub={item.dueNote ?? undefined}
+            >
               {item.due ?? 'Whole project'}
             </RegisterCell>
           </RegisterRow>

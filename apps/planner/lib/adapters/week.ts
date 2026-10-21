@@ -1,9 +1,7 @@
 import {
-  BLOCK_REASON_LABEL,
   type Issue,
   PRIORITY_LABEL,
   type Project,
-  RUBRIC_GAP_SHORT_LABEL,
   type TimelineBar,
   type TimelineLane,
   type TimelineView,
@@ -32,13 +30,18 @@ import {
   plural,
 } from '../format';
 import { barMark, progressTone } from './projects';
-import { uiStatus, statusLabel } from './status';
+import { blockedReasonLine, uiStatus, statusLabel } from './status';
 
 // My week (architecture §8.4): turns the engine's WeekView (the person's
 // open issues grouped by milestone) and TimelineView (every lane, bar and
 // allocation outcome) into the props of the shell's StatsStrip,
 // TaskGroupTable, DeadlineList and the "Needs attention" register. Pure
 // functions over plain data so every line of copy is unit-tested.
+//
+// Inactive projects (§2.8; the lane's `active` flag from the engine) are
+// never loud here: the person's issues in them stay listed, in greys, but
+// no count, deadline or attention row includes them, and the stats say
+// how many were left out.
 
 /** Milestones due within this many days count as "this week" (core's rule). */
 const THIS_WEEK_DAYS = 6;
@@ -172,6 +175,43 @@ function timelineProjectHref(projectId: string): string {
   return `/timeline?project=${encodeURIComponent(projectId)}`;
 }
 
+/**
+ * Whether a milestone's project is active (§2.8), from the engine's flag
+ * on its timeline lane. Only a lane marked inactive quiets it: a milestone
+ * with no lane (its project completed or canceled) keeps its status.
+ */
+function milestoneActive(
+  bars: Map<string, { bar: TimelineBar; lane: TimelineLane }>,
+  milestoneId: string | null
+): boolean {
+  if (milestoneId === null) return true;
+  return bars.get(milestoneId)?.lane.active ?? true;
+}
+
+/** "+1 in an inactive project", "+2 in inactive projects". */
+export function inactiveNote(count: number): string {
+  return count === 1
+    ? '+1 in an inactive project'
+    : `+${count} in inactive projects`;
+}
+
+/**
+ * A stat note that also says how many were left out for being in an
+ * inactive project, so a grey overdue group in the list does not seem to
+ * contradict the count: the names counted (or, with none, the "+1" note
+ * alone in place of `fallback`), then "+1 in an inactive project".
+ */
+function statNote(
+  named: string | null,
+  fallback: string,
+  inactive: number
+): string {
+  if (inactive === 0) return named ?? fallback;
+  return named === null
+    ? inactiveNote(inactive)
+    : `${named} · ${inactiveNote(inactive)}`;
+}
+
 /** Every bar (dated and undated) by milestone id, with its lane. */
 function indexBars(
   timeline: TimelineView
@@ -286,9 +326,10 @@ function toTaskRow(
   section: WeekSection,
   projectName: string | undefined,
   today: string,
-  copy: { isSelf: boolean; name: string }
+  copy: { isSelf: boolean; name: string },
+  active = true
 ): TaskRowData {
-  const overdue = section.status === 'overdue';
+  const overdue = active && section.status === 'overdue';
   return {
     id: row.issueId,
     key: row.identifier,
@@ -317,11 +358,18 @@ function toTaskRow(
   };
 }
 
+/**
+ * One milestone group of the person's issues. A milestone in an inactive
+ * project (§2.8) is drawn quietly: a grey mark still named with its
+ * status, "Inactive project" where the days left would be, and no accent
+ * on its date or progress.
+ */
 function toTaskGroup(
   section: WeekSection,
   bar: TimelineBar | undefined,
   today: string,
-  copy: { isSelf: boolean; name: string }
+  copy: { isSelf: boolean; name: string },
+  active = true
 ): TaskGroupData {
   const milestoneId = section.milestoneId ?? '';
   const mark = sectionMark(section, bar);
@@ -331,6 +379,11 @@ function toTaskGroup(
   // overdue milestone's progress is called out.
   const tone =
     bar !== undefined ? progressTone(bar) : overdue ? 'accent' : 'default';
+  const quiet = {
+    statusLabel: mark === null ? undefined : `${mark.label} · inactive project`,
+    daysLeftLabel: 'Inactive project',
+    muted: true,
+  };
   return {
     id: milestoneId,
     eyebrow: section.projectName ?? undefined,
@@ -345,16 +398,24 @@ function toTaskGroup(
     daysLeftLabel:
       section.daysLeft === null ? undefined : daysLeftPhrase(section.daysLeft),
     dueTone: overdue || undated ? 'accent' : undefined,
+    ...(active ? {} : { ...quiet, dueTone: undefined }),
     progress:
       section.progress === null
         ? undefined
         : {
             done: section.progress.completed,
             total: section.progress.scope,
-            tone,
+            tone: active ? tone : 'default',
           },
     rows: section.rows.map((row) =>
-      toTaskRow(row, section, section.projectName ?? undefined, today, copy)
+      toTaskRow(
+        row,
+        section,
+        section.projectName ?? undefined,
+        today,
+        copy,
+        active
+      )
     ),
   };
 }
@@ -420,6 +481,10 @@ function buildSections(
   unplanned: Map<string, NoMilestoneProject>,
   copy: { isSelf: boolean; name: string }
 ): TaskSectionData[] {
+  // THIS WEEK is shown even when empty; it says so in the planner's words.
+  const nothingDue = copy.isSelf
+    ? 'Nothing of yours is due this week.'
+    : `Nothing of ${copy.name}'s is due this week.`;
   const thisWeek: TaskGroupData[] = [];
   const later: TaskGroupData[] = [];
   const noMilestone: TaskGroupData[] = [];
@@ -434,13 +499,19 @@ function buildSections(
       section,
       bars.get(section.milestoneId)?.bar,
       week.today,
-      copy
+      copy,
+      milestoneActive(bars, section.milestoneId)
     );
     (section.thisWeek ? thisWeek : later).push(group);
   }
   if (thisWeek.length + later.length + noMilestone.length === 0) return [];
   const sections: TaskSectionData[] = [
-    { id: 'this-week', label: 'This week', groups: thisWeek },
+    {
+      id: 'this-week',
+      label: 'This week',
+      emptyLabel: nothingDue,
+      groups: thisWeek,
+    },
   ];
   if (later.length > 0) {
     sections.push({ id: 'later', label: 'Later', groups: later });
@@ -464,22 +535,24 @@ function nameList(items: { project: string; milestone: string }[]): string {
 }
 
 /**
- * Milestones in projects the person leads whose status (§2.5) is overdue
- * or at risk, overdue first. Only those two statuses count: a blocked
- * project whose next milestone is still on track (or due beyond
+ * Milestones in active projects the person leads whose status (§2.5) is
+ * overdue or at risk, overdue first. Only those two statuses count: a
+ * blocked project whose next milestone is still on track (or due beyond
  * warnLeadDays) is not "at risk"; it is listed under "Needs attention"
- * with its block reason instead.
+ * with its block reason instead. Inactive projects (§2.8) are left out;
+ * `inactive: true` lists theirs instead, for the "+1" note.
  */
 export function atRiskInLedProjects(
   timeline: TimelineView,
-  userId: string
+  userId: string,
+  { inactive = false }: { inactive?: boolean } = {}
 ): { milestoneId: string; project: string; milestone: string }[] {
   const overdue: { milestoneId: string; project: string; milestone: string }[] =
     [];
   const atRisk: typeof overdue = [];
   for (const group of timeline.groups) {
     for (const lane of group.lanes) {
-      if (lane.leadId !== userId) continue;
+      if (lane.leadId !== userId || lane.active === inactive) continue;
       for (const bar of [...lane.bars, ...lane.undated]) {
         const item = {
           milestoneId: bar.milestoneId,
@@ -494,22 +567,44 @@ export function atRiskInLedProjects(
   return [...overdue, ...atRisk];
 }
 
+/**
+ * The overdue milestones the person has open issues in, split by whether
+ * their project is active (§2.8): only active ones are counted.
+ */
+function overdueSections(
+  week: WeekView,
+  bars: Map<string, { bar: TimelineBar; lane: TimelineLane }>
+): { active: WeekSection[]; inactive: number } {
+  const active: WeekSection[] = [];
+  let inactive = 0;
+  for (const section of week.sections) {
+    if (section.status !== 'overdue' || section.milestoneId === null) continue;
+    if (milestoneActive(bars, section.milestoneId)) active.push(section);
+    else inactive += 1;
+  }
+  return { active, inactive };
+}
+
 function buildStats(
   week: WeekView,
   timeline: TimelineView,
+  bars: Map<string, { bar: TimelineBar; lane: TimelineLane }>,
   copy: { isSelf: boolean; name: string },
   newBadgeDays: number,
   leadsProjects: boolean
 ): StatCell[] {
-  const overdueSections = week.sections.filter(
-    (section) => section.status === 'overdue' && section.milestoneId !== null
-  );
-  const overdueNames = overdueSections.map((section) => ({
+  const late = overdueSections(week, bars);
+  const overdueNames = late.active.map((section) => ({
     project: section.projectName ?? '',
     milestone: section.milestoneName ?? '',
   }));
   const onlyOverdueId =
-    overdueSections.length === 1 ? overdueSections[0]?.milestoneId : null;
+    late.active.length === 1 ? late.active[0]?.milestoneId : null;
+  const overdueNote = statNote(
+    overdueNames.length === 0 ? null : nameList(overdueNames),
+    'None',
+    late.inactive
+  );
 
   const newProjects = new Set<string>();
   for (const section of week.sections) {
@@ -527,15 +622,19 @@ function buildStats(
         : `Because ${leadVerb} ${plural(newProjects.size, 'project')}`;
 
   const risky = atRiskInLedProjects(timeline, week.userId);
+  const quietRisky = atRiskInLedProjects(timeline, week.userId, {
+    inactive: true,
+  }).length;
   const onlyRisky = risky.length === 1 ? risky[0] : undefined;
-  const riskNote =
-    risky.length > 0
-      ? nameList(risky)
-      : leadsProjects
-        ? 'Nothing at risk or overdue'
-        : copy.isSelf
-          ? 'You lead no projects'
-          : `${copy.name} leads no projects`;
+  const riskNote = statNote(
+    risky.length > 0 ? nameList(risky) : null,
+    leadsProjects
+      ? 'Nothing at risk or overdue'
+      : copy.isSelf
+        ? 'You lead no projects'
+        : `${copy.name} leads no projects`,
+    quietRisky
+  );
 
   return [
     {
@@ -547,9 +646,9 @@ function buildStats(
     {
       id: 'overdue',
       label: 'Overdue milestones',
-      value: week.totals.overdue,
-      note: overdueNames.length === 0 ? 'None' : nameList(overdueNames),
-      tone: week.totals.overdue > 0 ? 'accent' : 'default',
+      value: late.active.length,
+      note: overdueNote,
+      tone: late.active.length > 0 ? 'accent' : 'default',
       href:
         onlyOverdueId === null || onlyOverdueId === undefined
           ? undefined
@@ -580,6 +679,7 @@ function buildStats(
  * Upcoming deadlines (Gr8r's panel): dated, not-yet-complete milestones the
  * person leads or has open issues in, grouped Overdue / Today / Tomorrow /
  * This week (up to six days out). Each group lists the nearest first.
+ * Milestones of inactive projects (§2.8) are not deadlines: left out.
  */
 function buildDeadlines(
   week: WeekView,
@@ -605,6 +705,7 @@ function buildDeadlines(
     const entry = bars.get(id);
     if (entry === undefined) continue;
     const { bar, lane } = entry;
+    if (!lane.active) continue;
     if (bar.end === null || bar.daysLeft === null) continue;
     if (bar.status === 'complete') continue;
     const mark = barMark(bar);
@@ -648,10 +749,11 @@ function buildDeadlines(
 }
 
 /**
- * Needs attention: projects the person leads whose allocation is blocked
- * (with the reason and the missing rubric items), or whose next milestone
- * still has open unassigned issues. Blocked projects first, each project
- * once, otherwise in timeline order.
+ * Needs attention: active projects the person leads whose allocation is
+ * blocked (with the reason and the missing rubric items), or whose next
+ * milestone still has open unassigned issues. Blocked projects first, each
+ * project once, otherwise in timeline order. An inactive project (§2.8)
+ * never needs attention here: nothing in it is allocated or warned about.
  */
 export function buildAttention(
   timeline: TimelineView,
@@ -661,15 +763,12 @@ export function buildAttention(
   const unassigned: WeekAttentionItem[] = [];
   for (const group of timeline.groups) {
     for (const lane of group.lanes) {
-      if (lane.leadId !== userId) continue;
+      if (lane.leadId !== userId || !lane.active) continue;
       const bars = [...lane.bars, ...lane.undated];
       const next = bars.find((bar) => bar.isNext);
       const plan = lane.allocation;
       if (plan?.outcome === 'blocked' && plan.blockReason !== null) {
-        const gaps = plan.gaps.map((gap) => RUBRIC_GAP_SHORT_LABEL[gap]);
-        const reason = BLOCK_REASON_LABEL[plan.blockReason];
-        const detail =
-          gaps.length > 0 ? `${reason}: ${gaps.join(', ')}` : reason;
+        const detail = blockedReasonLine(plan.blockReason, plan.gaps);
         blocked.push({
           id: lane.projectId,
           projectName: lane.name,
@@ -706,6 +805,41 @@ function leadsAnyProject(timeline: TimelineView, userId: string): boolean {
   );
 }
 
+/** Names of the inactive projects the person leads, in timeline order. */
+function inactiveLedProjects(timeline: TimelineView, userId: string): string[] {
+  return timeline.groups.flatMap((group) =>
+    group.lanes
+      .filter((lane) => lane.leadId === userId && !lane.active)
+      .map((lane) => lane.name)
+  );
+}
+
+/**
+ * The "Needs attention" empty line. When the person leads inactive
+ * projects it says they are left out, so a paused project with unassigned
+ * issues is not mistaken for one that was missed.
+ */
+function attentionEmptyLine(
+  timeline: TimelineView,
+  userId: string,
+  copy: { isSelf: boolean; name: string },
+  leadsProjects: boolean
+): string {
+  if (!leadsProjects) {
+    return copy.isSelf
+      ? 'You lead no projects'
+      : `${copy.name} leads no projects`;
+  }
+  const base = copy.isSelf
+    ? 'Nothing needs attention in the projects you lead'
+    : `Nothing needs attention in the projects ${copy.name} leads`;
+  const inactive = inactiveLedProjects(timeline, userId);
+  if (inactive.length === 0) return base;
+  return inactive.length === 1
+    ? `${base}. ${inactive[0]} is inactive, so it is left out`
+    : `${base}. ${inactive.length} inactive projects are left out`;
+}
+
 /** Everything the /week page renders, from the two engine views. */
 export function buildWeekPage(input: WeekPageInput): WeekPageModel {
   const { week, timeline } = input;
@@ -727,14 +861,16 @@ export function buildWeekPage(input: WeekPageInput): WeekPageModel {
       ? 'Their week'
       : `${week.userName}'s week`;
 
+  // Overdue counts active projects only, like the stat (§2.8).
+  const overdue = overdueSections(week, bars).active.length;
   const receiptParts = [
     formatLongDate(week.today),
     week.totals.thisWeek === 0
       ? 'Nothing due this week'
       : `${plural(week.totals.thisWeek, 'issue')} due this week`,
   ];
-  if (week.totals.overdue > 0) {
-    receiptParts.push(`${plural(week.totals.overdue, 'milestone')} overdue`);
+  if (overdue > 0) {
+    receiptParts.push(`${plural(overdue, 'milestone')} overdue`);
   }
 
   return {
@@ -742,19 +878,25 @@ export function buildWeekPage(input: WeekPageInput): WeekPageModel {
     isSelf,
     heading,
     receipts: receiptParts.join(' · '),
-    stats: buildStats(week, timeline, copy, input.newBadgeDays, leadsProjects),
+    stats: buildStats(
+      week,
+      timeline,
+      bars,
+      copy,
+      input.newBadgeDays,
+      leadsProjects
+    ),
     sections: buildSections(week, bars, unplanned, copy),
     emptyMessage: isSelf
       ? "Nothing assigned to you is open. Work in your projects' next milestones lands here when the daily run assigns it."
       : `Nothing assigned to ${week.userName === '' ? 'this person' : week.userName} is open.`,
     deadlines: buildDeadlines(week, timeline, bars),
     attention: buildAttention(timeline, week.userId),
-    attentionEmpty: !leadsProjects
-      ? isSelf
-        ? 'You lead no projects'
-        : `${copy.name} leads no projects`
-      : isSelf
-        ? 'Nothing needs attention in the projects you lead'
-        : `Nothing needs attention in the projects ${copy.name} leads`,
+    attentionEmpty: attentionEmptyLine(
+      timeline,
+      week.userId,
+      copy,
+      leadsProjects
+    ),
   };
 }

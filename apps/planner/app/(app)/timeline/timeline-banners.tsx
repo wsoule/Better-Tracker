@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Link, Notice } from '@better-tracker/ui';
+import { Button, Link } from '@better-tracker/ui';
 import { useId, useState } from 'react';
 
 import type {
@@ -10,11 +10,15 @@ import type {
 import css from './page.module.css';
 
 /* The timeline's missing-input banners (architecture §8.4: no lead, no
-   date, unplanned issues, blocked projects), each a Notice with its count
-   that expands to the list it counts. Rows open the lane or the milestone
-   drawer through `hrefFor`, which keeps the current filters in the URL;
-   issue keys open Linear in a new tab. Banners at zero are not rendered
-   (the adapter leaves them out). */
+   date, unplanned issues, blocked projects) as one compact block: a
+   hairline frame with one 2px accent rule down its left edge, and a 1px
+   ruled row per banner (mono key with its count, one sentence, a quiet
+   Show / Hide) that expands to the list it counts. One block instead of
+   four 2px boxes keeps the emphasis to a single rule and lets the chart
+   start higher. Rows open the lane or the milestone drawer through
+   `hrefFor`, which keeps the current filters in the URL; issue keys open
+   Linear in a new tab. Banners at zero are not rendered (the adapter
+   leaves them out). */
 export default function TimelineBanners({
   banners,
   hrefFor,
@@ -22,12 +26,15 @@ export default function TimelineBanners({
   banners: TimelineBanner[];
   hrefFor: (selection: TimelineSelection) => string;
 }) {
+  if (banners.length === 0) return null;
   return (
-    <>
-      {banners.map((banner) => (
-        <BannerRow key={banner.id} banner={banner} hrefFor={hrefFor} />
-      ))}
-    </>
+    <section className={css.banners} aria-label="Missing inputs">
+      <ul className={css.bannerRows}>
+        {banners.map((banner) => (
+          <BannerRow key={banner.id} banner={banner} hrefFor={hrefFor} />
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -42,21 +49,24 @@ function BannerRow({
   const listId = useId();
   const noun = banner.items.length === 1 ? 'item' : 'items';
   return (
-    <Notice
-      label={`${banner.label} · ${banner.count}`}
-      action={
-        <Button
-          size="sm"
-          variant="quiet"
-          aria-expanded={open}
-          aria-controls={listId}
-          onClick={() => setOpen((was) => !was)}
-        >
-          {open ? 'Hide' : `Show ${banner.items.length} ${noun}`}
-        </Button>
-      }
-    >
-      <p>{banner.text}</p>
+    <li className={css.banner} data-banner-id={banner.id}>
+      <div className={css.bannerHead}>
+        <span className={css.bannerKey}>
+          {banner.label} · {banner.count}
+        </span>
+        <p className={css.bannerText}>{banner.text}</p>
+        <span className={css.bannerAction}>
+          <Button
+            size="sm"
+            variant="quiet"
+            aria-expanded={open}
+            aria-controls={listId}
+            onClick={() => setOpen((was) => !was)}
+          >
+            {open ? 'Hide' : `Show ${banner.items.length} ${noun}`}
+          </Button>
+        </span>
+      </div>
       <ul id={listId} className={css.bannerList} hidden={!open}>
         {banner.items.map((item) => (
           <li key={item.id} className={css.bannerItem}>
@@ -85,6 +95,6 @@ function BannerRow({
           </li>
         ))}
       </ul>
-    </Notice>
+    </li>
   );
 }

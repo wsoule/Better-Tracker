@@ -1,7 +1,12 @@
 import {
+  type AllocationBlockReason,
+  BLOCK_REASON_LABEL,
+  missingLine,
+  RUBRIC_GAP_SHORT_LABEL,
   STATUS_LABEL,
   type MilestoneAssessment,
   type MilestoneStatus,
+  type RubricGap,
 } from '@better-tracker/core';
 import type { UiStatus } from '@better-tracker/ui';
 
@@ -46,4 +51,26 @@ export function assessmentMark(
     status: uiStatus(assessment.status),
     label: statusLabel(assessment.status),
   };
+}
+
+/**
+ * Why a project's allocation is stopped, as one short line, worded the
+ * same on the timeline's Blocked banner, My week's "Needs attention" and
+ * the projects register (it sits under a chip in a narrow column there):
+ * the reason alone ("Project has no lead"), or, for an invalid next
+ * milestone, the rubric items it lacks ("Next milestone is missing: done
+ * means…") rather than the generic "missing required details" followed by
+ * the same list.
+ */
+export function blockedReasonLine(
+  reason: AllocationBlockReason,
+  gaps: readonly RubricGap[]
+): string {
+  const label = BLOCK_REASON_LABEL[reason];
+  if (gaps.length === 0) return label;
+  if (reason === 'next_milestone_invalid') {
+    const items = gaps.map((gap) => RUBRIC_GAP_SHORT_LABEL[gap]).join(', ');
+    return `Next milestone is missing: ${items}`;
+  }
+  return `${label} · ${missingLine(gaps)}`;
 }

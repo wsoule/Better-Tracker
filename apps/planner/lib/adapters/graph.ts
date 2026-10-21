@@ -104,6 +104,42 @@ export interface GraphNodeDetail {
   issuesLabel: string | null;
 }
 
+/** One node with no blocking relation, listed under the canvas instead. */
+export interface IsolatedRow {
+  id: string;
+  /** Milestone name, or issue title. */
+  name: string;
+  /** The issue identifier ("ENG-12"); null for a milestone. */
+  key: string | null;
+  status: UiStatus;
+  statusLabel: string;
+  /** Project name (milestone level) or assignee (issue level). */
+  context: string;
+  contextTone: 'default' | 'accent';
+  /** "Oct 26 · in 5 days", "No target date", "No milestone". */
+  due: string;
+  dueTone: 'default' | 'accent';
+  /** The milestone's timeline drawer, or the issue in Linear. */
+  href: string;
+  external: boolean;
+  rowLabel: string;
+  tone: 'default' | 'accent' | 'muted';
+}
+
+/** The register of nodes left off the canvas (no edge in scope). */
+export interface IsolatedList {
+  /** "10 milestones have no blocking relations". */
+  title: string;
+  /** Why they are not drawn. */
+  note: string;
+  /** Register column labels: name, context. */
+  nameLabel: string;
+  contextLabel: string;
+  rows: IsolatedRow[];
+  /** Long lists start collapsed behind a Show button. */
+  collapsed: boolean;
+}
+
 export interface GraphPageModel {
   level: 'milestone' | 'issue';
   /** The issue-level scope's name ("Dual-write", "Atlas billing migration"). */
@@ -113,12 +149,17 @@ export interface GraphPageModel {
   receipts: string;
   /** BlockBar meta over the graph. */
   meta: string;
+  /** The drawn nodes: those on at least one edge (plus any kept one). */
   nodes: GraphNodeData[];
   edges: GraphEdgeData[];
   details: Record<string, GraphNodeDetail>;
+  /** Nodes with no blocking relation, or null when there are none or
+   * when nothing is drawn at all (the empty state covers that). */
+  isolated: IsolatedList | null;
   ariaSummary: string;
   emptyMessage: string;
   legend: GraphLegendItem[];
+  /** Mermaid text of the drawn graph. */
   mermaid: string;
   /** The page's own breadcrumb ("Issues in Dual-write"), or null. */
   crumb: string | null;
@@ -129,6 +170,29 @@ export interface GraphPageInput {
   snapshot: Snapshot;
   assessments: ReadonlyMap<string, MilestoneAssessment>;
   today: IsoDate;
+  /** Node ids drawn even without an edge (a selected or focused node). */
+  keep?: readonly string[];
+}
+
+/** Isolated lists longer than this start collapsed. */
+export const ISOLATED_COLLAPSE_AFTER = 6;
+
+/**
+ * The ids of nodes that touch no edge, in node order, minus `keep`. They
+ * are listed under the canvas rather than drawn: a column of unconnected
+ * boxes would push the few that wait on each other out of view.
+ */
+export function isolatedNodeIds(
+  nodeIds: readonly string[],
+  edges: readonly { from: string; to: string }[],
+  keep: readonly string[] = []
+): string[] {
+  const linked = new Set<string>(keep);
+  for (const edge of edges) {
+    linked.add(edge.from);
+    linked.add(edge.to);
+  }
+  return nodeIds.filter((id) => !linked.has(id));
 }
 
 function isMilestoneStatus(value: string): value is MilestoneStatus {
@@ -478,14 +542,126 @@ export function scopeLabel(
   return snapshot.projects.get(scope.projectId)?.name ?? null;
 }
 
+/** A milestone left off the canvas, as a register row. */
+function isolatedMilestoneRow(
+  input: GraphPageInput,
+  node: GraphNode,
+  data: GraphNodeData
+): IsolatedRow {
+  const { snapshot, assessments, today } = input;
+  const milestone = snapshot.milestones.get(node.id);
+  const assessment = assessments.get(node.id);
+  return {
+    id: node.id,
+    name: node.label,
+    key: null,
+    status: data.status ?? 'missing',
+    statusLabel: data.statusLabel ?? '',
+    context: projectName(snapshot, node.projectId),
+    contextTone: 'default',
+    due: dueLabel(
+      milestone?.targetDate ?? null,
+      assessment?.daysLeft ?? null,
+      today
+    ),
+    dueTone: node.overdue ? 'accent' : 'default',
+    href: timelineMilestoneHref(node.id),
+    external: false,
+    rowLabel: `${node.label}, ${projectName(snapshot, node.projectId)}: open on the timeline`,
+    tone: data.tone === 'accent' ? 'accent' : 'default',
+  };
+}
+
+/** An issue left off the canvas, as a register row (opens in Linear). */
+function isolatedIssueRow(
+  input: GraphPageInput,
+  node: GraphNode,
+  data: GraphNodeData
+): IsolatedRow {
+  const { snapshot, assessments, today } = input;
+  const issue = snapshot.issues.get(node.id);
+  const milestone =
+    issue?.milestoneId == null
+      ? undefined
+      : snapshot.milestones.get(issue.milestoneId);
+  const assignee = userName(snapshot, issue?.assigneeId ?? null);
+  const key = issue?.identifier ?? null;
+  return {
+    id: node.id,
+    name: node.label,
+    key,
+    status: data.status ?? 'missing',
+    statusLabel: data.statusLabel ?? '',
+    context: assignee ?? 'Unassigned',
+    contextTone: assignee === null && node.open ? 'accent' : 'default',
+    // A closed issue is not late, whatever its milestone's countdown says.
+    due:
+      milestone === undefined
+        ? 'No milestone'
+        : dueLabel(
+            milestone.targetDate,
+            node.open
+              ? (assessments.get(milestone.id)?.daysLeft ?? null)
+              : null,
+            today
+          ),
+    dueTone: node.overdue ? 'accent' : 'default',
+    // Issues always carry their Linear URL; the drawer is a fallback.
+    href:
+      node.url ??
+      (milestone === undefined
+        ? '/timeline'
+        : timelineMilestoneHref(milestone.id)),
+    external: node.url !== null,
+    rowLabel: `${key === null ? '' : `${key} `}${node.label} in Linear`,
+    tone:
+      data.tone === 'accent'
+        ? 'accent'
+        : data.tone === 'muted'
+          ? 'muted'
+          : 'default',
+  };
+}
+
+/** The register under the canvas, or null when it would be empty. */
+function isolatedList(
+  level: 'milestone' | 'issue',
+  rows: IsolatedRow[]
+): IsolatedList | null {
+  if (rows.length === 0) return null;
+  const n = rows.length;
+  const noun = level === 'milestone' ? 'milestone' : 'issue';
+  return {
+    title: `${plural(n, noun)} ${n === 1 ? 'has' : 'have'} no blocking relations`,
+    note:
+      level === 'milestone'
+        ? `Not drawn: no open issue in ${n === 1 ? 'it' : 'them'} blocks, or waits on, an open issue in another milestone.`
+        : n === 1
+          ? 'Not drawn: it neither blocks nor waits on another issue.'
+          : 'Not drawn: none of them blocks or waits on another issue.',
+    nameLabel: level === 'milestone' ? 'Milestone' : 'Issue',
+    contextLabel: level === 'milestone' ? 'Project' : 'Assignee',
+    rows,
+    collapsed: n > ISOLATED_COLLAPSE_AFTER,
+  };
+}
+
 /** Builds everything /graph shows from the engine's graph and mirror. */
 export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   const { graph, snapshot, assessments, today } = input;
   const scope = graph.scope;
   const level = scope.level;
   const label = scopeLabel(snapshot, scope);
+  const isolatedIds = new Set(
+    isolatedNodeIds(
+      graph.nodes.map((n) => n.id),
+      graph.edges,
+      input.keep
+    )
+  );
 
   const nodes: GraphNodeData[] = [];
+  const isolatedRows: IsolatedRow[] = [];
   const details: Record<string, GraphNodeDetail> = {};
   const labels = new Map<string, string>();
   for (const node of graph.nodes) {
@@ -524,7 +700,15 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
       group,
     };
     if (node.external) data.external = true;
-    nodes.push(data);
+    if (isolatedIds.has(node.id)) {
+      isolatedRows.push(
+        node.kind === 'milestone'
+          ? isolatedMilestoneRow(input, node, data)
+          : isolatedIssueRow(input, node, data)
+      );
+    } else {
+      nodes.push(data);
+    }
   }
 
   const edges: GraphEdgeData[] = graph.edges.map((edge) => ({
@@ -544,35 +728,50 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   const metaCycles =
     cycleCount === 0 ? '' : ` · ${plural(cycleCount, 'cycle')}`;
   // With no edge there is nothing to draw: every box would stand alone,
-  // so the page shows its empty state instead of a grid of boxes.
+  // so the page shows its empty state instead of a grid of boxes (and no
+  // list of them either). Otherwise only nodes on an edge are drawn and
+  // the rest are listed under the canvas.
   const drawn = edges.length > 0;
+  const isolated = drawn ? isolatedList(level, isolatedRows) : null;
+  const listed = isolated?.rows.length ?? 0;
+  const drawnGraph = {
+    ...graph,
+    nodes: graph.nodes.filter((n) => !isolatedIds.has(n.id)),
+  };
+  const mermaid = toMermaid(drawn ? drawnGraph : graph);
 
   if (level === 'milestone') {
-    const projects = new Set(graph.nodes.map((n) => n.projectId)).size;
+    const total = graph.nodes.length;
+    const projects = new Set(drawnGraph.nodes.map((n) => n.projectId)).size;
     const detail = listPhrase([
       riskCount > 0 ? `${riskCount} on a risk chain` : null,
       crossCount > 0 ? `${crossCount} across projects` : null,
       cycleCount > 0 ? plural(cycleCount, 'cycle') : null,
     ]);
+    const listedSentence =
+      listed === 0
+        ? ''
+        : ` ${listed} more ${listed === 1 ? 'milestone has' : 'have'} no blocking relations and ${listed === 1 ? 'is' : 'are'} listed under the graph.`;
     return {
       level,
       scopeLabel: null,
       scopeHref: GRAPH_PATH,
       heading: 'Dependencies',
       receipts: drawn
-        ? `${plural(nodes.length, 'milestone')} in ${plural(projects, 'project')}, joined by ${plural(edges.length, 'blocking edge')}${detail === '' ? '' : `: ${detail}`}. Select a milestone to see its issues.`
+        ? `${plural(nodes.length, 'milestone')} in ${plural(projects, 'project')}, joined by ${plural(edges.length, 'blocking edge')}${detail === '' ? '' : `: ${detail}`}.${listedSentence} Select a milestone to see its issues.`
         : 'Which milestones wait on which, from Linear’s blocking relations between open issues.',
       meta: drawn
-        ? `${plural(nodes.length, 'milestone')} · ${plural(edges.length, 'edge')}${metaCycles}`
+        ? `${listed === 0 ? plural(nodes.length, 'milestone') : `${nodes.length} of ${plural(total, 'milestone')}`} · ${plural(edges.length, 'edge')}${metaCycles}`
         : 'No edges',
       nodes: drawn ? nodes : [],
       edges,
       details,
-      ariaSummary: `Milestone dependency graph: ${plural(nodes.length, 'milestone')} in ${plural(projects, 'project')} joined by ${plural(edges.length, 'blocking edge')}, ${riskCount} on a risk chain and ${crossCount} across projects; ${cycles}.`,
+      isolated,
+      ariaSummary: `Milestone dependency graph: ${plural(nodes.length, 'milestone')} in ${plural(projects, 'project')} joined by ${plural(edges.length, 'blocking edge')}, ${riskCount} on a risk chain and ${crossCount} across projects; ${cycles}.${listed === 0 ? '' : ` ${plural(listed, 'milestone')} with no blocking relations ${listed === 1 ? 'is' : 'are'} listed after the graph.`}`,
       emptyMessage:
         'No blocking relations between open work in active projects.',
       legend: MILESTONE_LEGEND,
-      mermaid: toMermaid(graph),
+      mermaid,
       crumb: null,
     };
   }
@@ -580,6 +779,8 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   const name = label ?? 'this scope';
   const outside = graph.nodes.filter((n) => n.external).length;
   const inside = graph.nodes.length - outside;
+  // Externals are only ever on an edge, so every listed issue is inside.
+  const insideDrawn = inside - listed;
   const outsidePart =
     outside === 0
       ? ''
@@ -589,24 +790,29 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
     resolvedCount > 0 ? `${resolvedCount} resolved` : null,
     cycleCount > 0 ? plural(cycleCount, 'cycle') : null,
   ]);
+  const listedSentence =
+    listed === 0
+      ? ''
+      : ` ${listed} more in ${name} ${listed === 1 ? 'has' : 'have'} no blocking relations and ${listed === 1 ? 'is' : 'are'} listed under the graph.`;
   return {
     level,
     scopeLabel: label,
     scopeHref: graphHref(scope),
     heading: `Issues in ${name}`,
     receipts: drawn
-      ? `${plural(inside, 'issue')} in ${name}${outsidePart}; ${plural(edges.length, 'blocking relation')}${detail === '' ? '' : `: ${detail}`}.`
+      ? `${plural(insideDrawn, 'issue')} in ${name}${outsidePart}; ${plural(edges.length, 'blocking relation')}${detail === '' ? '' : `: ${detail}`}.${listedSentence}`
       : `${plural(inside, 'issue')} in ${name}, none blocking or waiting on another.`,
     meta: drawn
-      ? `${plural(nodes.length, 'issue')} · ${plural(edges.length, 'edge')}${metaCycles}`
+      ? `${listed === 0 ? plural(nodes.length, 'issue') : `${nodes.length} of ${plural(graph.nodes.length, 'issue')}`} · ${plural(edges.length, 'edge')}${metaCycles}`
       : 'No edges',
     nodes: drawn ? nodes : [],
     edges,
     details,
-    ariaSummary: `Issue dependency graph for ${name}: ${plural(inside, 'issue')} in scope and ${plural(outside, 'outside issue')} joined by ${plural(edges.length, 'blocking relation')}, ${riskCount} on a risk chain and ${resolvedCount} resolved; ${cycles}.`,
+    isolated,
+    ariaSummary: `Issue dependency graph for ${name}: ${plural(insideDrawn, 'issue')} in scope and ${plural(outside, 'outside issue')} joined by ${plural(edges.length, 'blocking relation')}, ${riskCount} on a risk chain and ${resolvedCount} resolved; ${cycles}.${listed === 0 ? '' : ` ${plural(listed, 'issue')} with no blocking relations ${listed === 1 ? 'is' : 'are'} listed after the graph.`}`,
     emptyMessage: `No issue in ${name} blocks or waits on another.`,
     legend: ISSUE_LEGEND,
-    mermaid: toMermaid(graph),
+    mermaid,
     crumb: `Issues in ${name}`,
   };
 }

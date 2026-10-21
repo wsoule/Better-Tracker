@@ -56,7 +56,8 @@ export default function PeopleForm({
     setPms(pmUserIds);
     setWatchers(watcherUserIds);
   }
-  const { saving, save } = useSaveSettings('People');
+  const { saving, outcome, statusRef, save, discarded } =
+    useSaveSettings('People');
   const locked = lockedPmIds(pms, rows);
   const dirty = !sameIds(pms, pmUserIds) || !sameIds(watchers, watcherUserIds);
 
@@ -131,6 +132,9 @@ export default function PeopleForm({
         <FormBar
           dirty={dirty}
           saving={saving}
+          outcome={outcome}
+          statusRef={statusRef}
+          onDiscarded={discarded}
           onReset={() => {
             setPms(pmUserIds);
             setWatchers(watcherUserIds);

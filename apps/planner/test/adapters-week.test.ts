@@ -554,6 +554,20 @@ describe('buildWeekPage sections', () => {
       ['this-week', 0],
       ['later', 1],
     ]);
+    // In the planner's words, not the table's generic line.
+    expect(laterOnly.sections[0]?.emptyLabel).toBe(
+      'Nothing of yours is due this week.'
+    );
+    const theirs = buildWeekPage({
+      week: { ...week, sections: [week.sections[2]] },
+      timeline,
+      viewerId: 'user-ana',
+      hour: 9,
+      newBadgeDays: 7,
+    });
+    expect(theirs.sections[0]?.emptyLabel).toBe(
+      "Nothing of Chloe's is due this week."
+    );
   });
 
   test('an on-track milestone missing an input is hatched, as on the timeline', () => {
@@ -644,11 +658,11 @@ describe('deadlines and needs attention', () => {
       {
         id: 'proj-harbor',
         projectName: 'Harbor API v3',
-        detail: 'Next milestone is missing required details: done means…',
+        detail: 'Next milestone is missing: done means…',
         flag: 'Blocked',
         href: '/timeline?milestone=ms-harbor-1',
         rowLabel:
-          'Harbor API v3: allocation blocked. Next milestone is missing required details: done means…',
+          'Harbor API v3: allocation blocked. Next milestone is missing: done means…',
       },
       {
         id: 'proj-atlas',
@@ -857,5 +871,163 @@ describe('week helpers', () => {
       { id: 'user-ben', label: 'Ben Carter' },
       { id: 'user-hugo', label: 'Hugo Laurent (deactivated)' },
     ]);
+  });
+});
+
+describe('inactive projects are never loud (§2.8)', () => {
+  // Femi leads Fjord analytics (paused) and has an issue in its overdue
+  // Dashboards milestone, which also has an unassigned issue; Femi also
+  // has an issue in Beacon (active, at risk).
+  const fjord = lane({
+    projectId: 'proj-fjord',
+    name: 'Fjord analytics',
+    leadId: 'user-femi',
+    leadName: 'Femi Adeyemi',
+    statusType: 'paused',
+    active: false,
+    bars: [
+      bar({
+        milestoneId: 'ms-fjord-1',
+        projectId: 'proj-fjord',
+        name: 'Dashboards',
+        status: 'overdue',
+        end: '2026-10-16',
+        daysLeft: -5,
+        reasons: ['unassigned_open'],
+        progress: progress({
+          completed: 0,
+          scope: 2,
+          open: 2,
+          openUnassigned: 1,
+        }),
+      }),
+    ],
+    allocation: plan({
+      projectId: 'proj-fjord',
+      outcome: 'inactive',
+      nextMilestoneId: 'ms-fjord-1',
+    }),
+  });
+  const view: TimelineView = {
+    ...timeline,
+    groups: [
+      ...timeline.groups,
+      { initiativeId: 'init-x', name: 'Paused', lanes: [fjord] },
+    ],
+  };
+  const femiWeek: WeekView = {
+    userId: 'user-femi',
+    userName: 'Femi Adeyemi',
+    today: TODAY,
+    sections: [
+      section({
+        milestoneId: 'ms-fjord-1',
+        milestoneName: 'Dashboards',
+        projectId: 'proj-fjord',
+        projectName: 'Fjord analytics',
+        targetDate: '2026-10-16',
+        daysLeft: -5,
+        status: 'overdue',
+        // As core builds it: an inactive project's milestone is never
+        // due this week, nor counted overdue (§2.11).
+        thisWeek: false,
+        progress: progress({ completed: 0, scope: 2, open: 2 }),
+        rows: [issue({ issueId: 'iss-f', identifier: 'OPS-8' })],
+      }),
+    ],
+    totals: { open: 1, thisWeek: 0, overdue: 0, new: 0 },
+  };
+  const femi = buildWeekPage({
+    week: femiWeek,
+    timeline: view,
+    viewerId: 'user-femi',
+    hour: 18,
+    newBadgeDays: 7,
+  });
+
+  test('the stats and receipts leave it out and say so', () => {
+    expect(femi.receipts).toBe('Wednesday, October 21 · Nothing due this week');
+    const cell = (id: string) => femi.stats.find((c) => c.id === id);
+    expect(cell('open')).toMatchObject({ value: 1, note: '0 this week' });
+    expect(cell('overdue')).toMatchObject({
+      value: 0,
+      note: '+1 in an inactive project',
+      tone: 'default',
+    });
+    expect(cell('overdue')?.href).toBeUndefined();
+    expect(cell('risk')).toMatchObject({
+      value: 0,
+      note: '+1 in an inactive project',
+    });
+    expect(cell('risk')?.href).toBeUndefined();
+  });
+
+  test('its group stays in the list, under Later, drawn quietly', () => {
+    // Nothing of Femi's is due this week: the paused milestone's date is
+    // not a deadline, so its group sits under Later.
+    expect(femi.sections.map((s) => [s.id, s.groups.map((g) => g.id)])).toEqual(
+      [
+        ['this-week', []],
+        ['later', ['ms-fjord-1']],
+      ]
+    );
+    expect(femi.sections[0]?.emptyLabel).toBe(
+      'Nothing of yours is due this week.'
+    );
+    const group = femi.sections[1]?.groups[0];
+    expect(group).toMatchObject({
+      id: 'ms-fjord-1',
+      status: 'overdue',
+      statusLabel: 'Overdue · inactive project',
+      dueLabel: 'Oct 16',
+      daysLeftLabel: 'Inactive project',
+      muted: true,
+      progress: { done: 0, total: 2, tone: 'default' },
+    });
+    expect(group?.dueTone).toBeUndefined();
+    expect(group?.rows[0]?.dueTone).toBeUndefined();
+    // Active groups are not muted.
+    expect(page.sections[0]?.groups[0]?.muted).toBeUndefined();
+  });
+
+  test('no deadline and no "needs attention" row; the empty line says why', () => {
+    expect(femi.deadlines.flatMap((group) => group.items)).toEqual([]);
+    expect(buildAttention(view, 'user-femi')).toEqual([]);
+    expect(femi.attention).toEqual([]);
+    expect(femi.attentionEmpty).toBe(
+      'Nothing needs attention in the projects you lead. Fjord analytics is inactive, so it is left out'
+    );
+    expect(atRiskInLedProjects(view, 'user-femi')).toEqual([]);
+    expect(atRiskInLedProjects(view, 'user-femi', { inactive: true })).toEqual([
+      {
+        milestoneId: 'ms-fjord-1',
+        project: 'Fjord analytics',
+        milestone: 'Dashboards',
+      },
+    ]);
+  });
+
+  test('active ones are still named, with the inactive count after them', () => {
+    const both = buildWeekPage({
+      week: {
+        ...femiWeek,
+        sections: [...femiWeek.sections, week.sections[0]],
+        // Atlas's overdue Dual-write (two issues) is due this week.
+        totals: { open: 3, thisWeek: 2, overdue: 1, new: 1 },
+      },
+      timeline: view,
+      viewerId: 'user-femi',
+      hour: 18,
+      newBadgeDays: 7,
+    });
+    expect(both.stats.find((c) => c.id === 'overdue')).toMatchObject({
+      value: 1,
+      note: 'Atlas billing migration · Dual-write · +1 in an inactive project',
+      tone: 'accent',
+      href: '/timeline?milestone=ms-atlas-2',
+    });
+    expect(both.receipts).toBe(
+      'Wednesday, October 21 · 2 issues due this week · 1 milestone overdue'
+    );
   });
 });

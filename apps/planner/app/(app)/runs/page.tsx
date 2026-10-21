@@ -19,7 +19,9 @@ export const metadata: Metadata = { title: 'Runs' };
 const RUN_LIMIT = 50;
 
 // Seven fixed columns leave the start and finish times about 170px each
-// on a 1440px window; narrower registers (stackWithin) become cards.
+// on a 1440px window; narrower registers (stackWithin) become cards whose
+// eight cells flow into as many ~120px columns as fit: two rows at 1024
+// and 1280 with the sidebar open, three on a phone.
 const COLUMNS =
   'minmax(0, 1.3fr) 80px 104px 64px 96px 56px 64px 64px minmax(0, 1.2fr)';
 
@@ -84,7 +86,7 @@ export default async function RunsPage() {
               columns={COLUMNS}
               header={HEADER}
               stackWithin={1000}
-              stackedColumns="repeat(3, minmax(0, 1fr))"
+              stackedColumns="repeat(auto-fill, minmax(min(120px, 30%), 1fr))"
             >
               {page.rows.map((row) => (
                 <RunRow key={row.id} row={row} />

@@ -41,7 +41,8 @@ export default function ModesForm({
     setSynced(initial);
     setState(initial);
   }
-  const { saving, save } = useSaveSettings('Modes');
+  const { saving, outcome, statusRef, save, discarded } =
+    useSaveSettings('Modes');
   const dirty =
     state.allocationMode !== initial.allocationMode ||
     state.warningsMode !== initial.warningsMode;
@@ -122,6 +123,9 @@ export default function ModesForm({
         <FormBar
           dirty={dirty}
           saving={saving}
+          outcome={outcome}
+          statusRef={statusRef}
+          onDiscarded={discarded}
           onReset={() => setState(initial)}
         />
       ) : null}

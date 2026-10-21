@@ -3,13 +3,20 @@
 import {
   Button,
   Notice,
-  Switch,
+  SegmentedControl,
   TimelineChart,
   type TimelineZoom,
   useToast,
 } from '@better-tracker/ui';
-import { useRouter } from 'next/navigation';
-import { useCallback, useId, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   countLanes,
@@ -18,8 +25,12 @@ import {
   initiativeOptions,
   type MilestoneDrawerModel,
   milestoneNames,
+  parseTimelineSearch,
+  SHOW_OPTIONS,
+  showFilters,
   type TimelinePageModel,
   type TimelineSelection,
+  timelineShow,
   type TimelineUrlState,
   timelineHref,
   visibleDependencies,
@@ -43,14 +54,17 @@ interface TimelineScreenProps {
 }
 
 /** Rewrites the address bar without a server round trip (Next keeps
-    useSearchParams in step with native history calls). */
-function replaceUrl(href: string): void {
+    useSearchParams in step with native history calls). Returns the query
+    string it wrote, as useSearchParams will echo it back. */
+function replaceUrl(href: string): string {
   window.history.replaceState(null, '', href);
+  const at = href.indexOf('?');
+  return at === -1 ? '' : href.slice(at + 1);
 }
 
 /* The timeline's client island (architecture §8.4): banners, the toolbar
-   (search, initiative, only active, only at risk / overdue, plus the
-   chart's own zoom, Today and Dependencies), the chart, and the milestone
+   (search, initiative, Show all / active / at risk, plus the chart's own
+   zoom, Today and Dependencies), the chart, and the milestone
    drawer. Filter and zoom state is mirrored to the URL in place; opening
    or closing a milestone navigates (?milestone=) so the server loads its
    details. Re-dating PATCHes the milestone and refreshes; a failure is
@@ -67,17 +81,30 @@ export default function TimelineScreen({
   const searchId = useId();
   const initiativeId = useId();
 
-  // Local filter state, reset whenever a navigation brings a different URL
-  // state from the server (the sidebar's project links, back/forward).
-  // Our own replaceState writes never re-render the server page, and our
-  // pushes carry the current state, so they leave it alone.
-  const urlKey = timelineHref(urlState);
-  const [syncedKey, setSyncedKey] = useState(urlKey);
+  // Local filter state that follows the address bar whenever it changes
+  // under the island: back/forward (the cached page still carries the
+  // props it was first rendered with), the sidebar's plain /timeline link
+  // or a project link while filters are on. The query strings this island
+  // wrote itself come back here too, possibly late while someone types, so
+  // those are recognised and skipped; a URL that means the state already
+  // shown (a drawer push carries the filters) keeps it, half-typed search
+  // included.
   const [state, setState] = useState(urlState);
-  if (syncedKey !== urlKey) {
-    setSyncedKey(urlKey);
-    setState(urlState);
-  }
+  const searchParams = useSearchParams();
+  const urlSearch = searchParams.toString();
+  const written = useRef<string[]>([]);
+  useEffect(() => {
+    const own = written.current.indexOf(urlSearch);
+    if (own !== -1) {
+      written.current.splice(0, own + 1);
+      return;
+    }
+    written.current = [];
+    const next = parseTimelineSearch(new URLSearchParams(urlSearch));
+    setState((current) =>
+      timelineHref(current) === timelineHref(next) ? current : next
+    );
+  }, [urlSearch]);
 
   // The drawer opens at once on click (with a skeleton) and fills in when
   // the server's details arrive; it follows the server when the URL moves,
@@ -101,11 +128,13 @@ export default function TimelineScreen({
     (patch: Partial<TimelineUrlState>) => {
       const next = { ...state, ...patch };
       setState(next);
-      replaceUrl(
-        timelineHref(next, {
-          projectId: focusProjectId,
-          milestoneId: requestedId,
-        })
+      written.current.push(
+        replaceUrl(
+          timelineHref(next, {
+            projectId: focusProjectId,
+            milestoneId: requestedId,
+          })
+        )
       );
     },
     [state, focusProjectId, requestedId]
@@ -255,7 +284,7 @@ export default function TimelineScreen({
                 id={searchId}
                 className={`input ${css.search}`}
                 type="search"
-                placeholder="Search projects"
+                placeholder="Search"
                 autoComplete="off"
                 value={state.query}
                 onChange={(event) => update({ query: event.target.value })}
@@ -279,17 +308,16 @@ export default function TimelineScreen({
           }
           toolbarEnd={
             <>
-              <Switch
-                checked={state.activeOnly}
-                onChange={(on) => update({ activeOnly: on })}
-                label="Only active"
+              <SegmentedControl
+                size="sm"
+                label="Show projects"
+                options={[...SHOW_OPTIONS]}
+                value={timelineShow(state)}
+                onChange={(id) => update(showFilters(id))}
               />
-              <Switch
-                checked={state.riskOnly}
-                onChange={(on) => update({ riskOnly: on })}
-                label="Only at risk / overdue"
-              />
-              <p className={css.count} aria-live="polite">
+              {/* Each initiative row of the chart shows its count; this
+                  says the total when a filter or the search changes it. */}
+              <p className="srOnly" aria-live="polite">
                 {narrowed
                   ? `${shown} of ${plural(total, 'project')}`
                   : plural(total, 'project')}

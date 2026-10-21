@@ -20,4 +20,16 @@ describe('StatusMark', () => {
     );
     expect(shown.getByText('Complete')).toBeTruthy();
   });
+
+  test('muted draws any status in greys but keeps its name', () => {
+    const loud = render(<StatusMark status="overdue" label="Overdue" />);
+    const loudMark = loud.container.querySelector('[role="img"]');
+    expect(loudMark?.hasAttribute('data-muted')).toBe(false);
+    const quiet = render(
+      <StatusMark status="overdue" label="Overdue · inactive project" muted />
+    );
+    const mark = quiet.container.querySelector('[role="img"]');
+    expect(mark?.hasAttribute('data-muted')).toBe(true);
+    expect(mark?.getAttribute('aria-label')).toBe('Overdue · inactive project');
+  });
 });
