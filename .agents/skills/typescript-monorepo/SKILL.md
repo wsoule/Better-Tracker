@@ -21,8 +21,8 @@ strict.
 
 ## Adding a Package
 
-Copy an existing library package (e.g. `packages/logger`) and wire the copy
-into four places. Example for a new library `@better-tracker/utils`:
+Copy an existing library package (e.g. `packages/logger`) and wire the copy into
+four places. Example for a new library `@better-tracker/utils`:
 
 ```bash
 cp -r packages/logger packages/utils
@@ -47,10 +47,11 @@ follow the same steps under `apps/`.
 
 Cross-package imports resolve through the dependency's published `dist`, not
 through TypeScript project references, and moon builds dependencies first via
-`deps: ['^:build']`. So when `@better-tracker/planner` imports `@better-tracker/utils`:
+`deps: ['^:build']`. So when `@better-tracker/planner` imports
+`@better-tracker/utils`:
 
-- Add `"@better-tracker/utils": "workspace:*"` to the consumer's `package.json` and
-  run `pnpm install`. moon infers the project dependency from it.
+- Add `"@better-tracker/utils": "workspace:*"` to the consumer's `package.json`
+  and run `pnpm install`. moon infers the project dependency from it.
 - Do not add a `references` entry between the two package tsconfigs.
 
 ## Workspace Dependencies
