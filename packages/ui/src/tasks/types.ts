@@ -93,6 +93,55 @@ export interface SwitchProps {
   id?: string;
 }
 
+export interface CheckboxProps {
+  /** Controlled state. Omit (and pass defaultChecked) for uncontrolled. */
+  checked?: boolean;
+  defaultChecked?: boolean;
+  onChange?: (checked: boolean) => void;
+  /** Mono label beside the glyph (and the accessible name). */
+  label: string;
+  /** Sans note after the label (muted). */
+  note?: string;
+  disabled?: boolean;
+  id?: string;
+  /** Form field name and value, for hosts that submit a native form. */
+  name?: string;
+  value?: string;
+  /** Keep the label for assistive tech only (a register column names it). */
+  hideLabel?: boolean;
+  /** Overrides the accessible name; keep the visible label inside it
+      ("Ana Moreno: PM"). */
+  'aria-label'?: string;
+}
+
+/** One cell of a NavTabs strip: a destination, not a state. */
+export interface NavTabItem {
+  id: string;
+  label: string;
+  /** Where the cell goes. Omit for a cell that cannot be followed yet
+      (drawn hatched; say why in `note`). */
+  href?: string;
+  /** The page being shown: ink fill and aria-current="page". */
+  current?: boolean;
+  /** Mono count after the label. */
+  count?: number;
+  /** Short muted note after the label ("select a milestone"). */
+  note?: string;
+}
+
+export interface NavTabsProps {
+  items: NavTabItem[];
+  /** Accessible name of the <nav> ("Graph level", "Settings sections"). */
+  label: string;
+  /** horizontal = a tab strip; vertical = a sub-nav column that becomes a
+      wrapping strip at 900px and below. */
+  orientation?: 'horizontal' | 'vertical';
+  size?: 'sm' | 'md';
+  /** Horizontal only: stretch the cells across the container. */
+  fill?: boolean;
+  className?: string;
+}
+
 export interface ProgressRuleProps {
   done: number;
   total: number;

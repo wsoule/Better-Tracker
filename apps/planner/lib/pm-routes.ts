@@ -1,0 +1,227 @@
+import type { WorkspaceSettings } from '@better-tracker/core';
+import type { Engine } from '@better-tracker/engine';
+import { z } from 'zod';
+
+import { digestPreview } from './adapters/settings';
+import { errorResponse, jsonError, readJson } from './http';
+import type { ApiActorResolver } from './timeline-edits';
+
+// The PM-only operations of /runs and /settings as route handlers
+// (architecture §8.1): POST /api/runs { mode }, POST /api/sync,
+// POST /api/warnings/preview and PATCH /api/settings. The app/api route
+// files only pass requireApiActor in; the handlers live here so tests can
+// run them with a fake actor resolver and a stubbed engine.
+//
+// Order in every handler: resolve the actor (CSRF guard + signed in) →
+// validate the JSON body with zod (a malformed body never reaches the
+// engine: 400) → refuse non-PMs (403 not_pm; the engine checks again
+// where it can) → call the engine, mapping its errors with errorResponse.
+
+/** POST /api/runs body. */
+export const runRequestSchema = z.strictObject({
+  mode: z.enum(['dry_run', 'live'], {
+    message: 'must be dry_run or live',
+  }),
+});
+
+/** POST /api/sync and /api/warnings/preview take no options: `{}`. */
+export const emptyBodySchema = z.strictObject({});
+
+const userIds = z
+  .array(z.string().trim().min(1).max(200))
+  .max(1000, { message: 'lists at most 1000 people' });
+
+const days = z
+  .number()
+  .int({ message: 'must be a whole number of days' })
+  .min(1, { message: 'must be at least 1 day' })
+  .max(90, { message: 'must be at most 90 days' });
+
+/**
+ * PATCH /api/settings body: any subset of the settings, at least one
+ * field. Shapes and ranges are checked here; the engine applies the rules
+ * that need the mirror (people must exist, at least one active PM must
+ * remain, the timezone must be a real IANA zone).
+ */
+export const settingsPatchSchema = z
+  .strictObject({
+    pmUserIds: userIds.optional(),
+    watcherUserIds: userIds.optional(),
+    allocationMode: z
+      .enum(['dry_run', 'live'], { message: 'must be dry_run or live' })
+      .optional(),
+    warningsMode: z
+      .enum(['preview', 'live'], { message: 'must be preview or live' })
+      .optional(),
+    timezone: z.string().trim().min(1).max(100).optional(),
+    tuning: z
+      .strictObject({
+        warnLeadDays: days.optional(),
+        paceWindowDays: days.optional(),
+        stallDays: days.optional(),
+        overdueRepeatDays: days.optional(),
+        newBadgeDays: days.optional(),
+        timelineDaysBack: days.optional(),
+        timelineDaysAhead: days.optional(),
+        activeProjectStatuses: z
+          .array(
+            z.enum([
+              'backlog',
+              'planned',
+              'started',
+              'paused',
+              'completed',
+              'canceled',
+            ])
+          )
+          .min(1, { message: 'must list at least one project status' })
+          .max(6)
+          .optional(),
+      })
+      // `tuning: {}` would save nothing and still write an audit entry.
+      .refine((tuning) => Object.values(tuning).some((v) => v !== undefined), {
+        message: 'send at least one tuning value to change',
+      })
+      .optional(),
+  })
+  .refine((body) => Object.values(body).some((v) => v !== undefined), {
+    message: 'send at least one setting to change',
+  });
+
+export type SettingsPatch = z.infer<typeof settingsPatchSchema>;
+
+/** Drops keys whose value is undefined, so the engine sees only real fields. */
+function definedOnly<T extends object>(value: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(value).filter(([, v]) => v !== undefined)
+  ) as Partial<T>;
+}
+
+function notPm(what: string): Response {
+  return jsonError(403, 'not_pm', `Only PMs can ${what}.`);
+}
+
+/** What startRun needs: runs, and the saved allocation mode (the live gate). */
+export type RunEngine = Pick<Engine, 'runAllocation'> & {
+  load(
+    workspaceId: string
+  ): Promise<{ settings: Pick<WorkspaceSettings, 'allocationMode'> }>;
+};
+
+/**
+ * POST /api/runs { mode }: a manual allocation run as the signed-in PM.
+ * A live run is refused (409 live_runs_off) while the workspace's
+ * allocation mode is dry run: switching it to live in Settings is the
+ * gate (§7.4: dry run first, live once a PM says so). 201 { run }.
+ */
+export async function startRun<E extends RunEngine>(
+  request: Request,
+  resolve: ApiActorResolver<E>
+): Promise<Response> {
+  const context = await resolve(request);
+  if (context instanceof Response) return context;
+  const body = await readJson(request, runRequestSchema);
+  if (body instanceof Response) return body;
+  const { engine, actor } = context;
+  if (!actor.isPm) return notPm('run allocation');
+  const workspaceId = actor.session.workspaceId;
+  try {
+    if (body.mode === 'live') {
+      const { settings } = await engine.load(workspaceId);
+      if (settings.allocationMode !== 'live') {
+        return jsonError(
+          409,
+          'live_runs_off',
+          'Live runs are off: allocation is in dry run. A PM can switch it to live in Settings → Modes.'
+        );
+      }
+    }
+    const run = await engine.runAllocation({
+      workspaceId,
+      mode: body.mode,
+      trigger: 'manual',
+      actor,
+    });
+    return Response.json({ run }, { status: 201 });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export type SyncEngine = Pick<Engine, 'fullSync'>;
+
+/** POST /api/sync {}: a full resync from Linear (PMs). 200 { sync }. */
+export async function resync<E extends SyncEngine>(
+  request: Request,
+  resolve: ApiActorResolver<E>
+): Promise<Response> {
+  const context = await resolve(request);
+  if (context instanceof Response) return context;
+  const body = await readJson(request, emptyBodySchema);
+  if (body instanceof Response) return body;
+  const { engine, actor } = context;
+  if (!actor.isPm) return notPm('resync from Linear');
+  try {
+    const sync = await engine.fullSync(actor.session.workspaceId);
+    return Response.json({ sync });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export type PreviewEngine = Pick<Engine, 'runWarnings'>;
+
+/**
+ * POST /api/warnings/preview {}: today's digests, built but not recorded
+ * or sent (PMs). 200 { preview } in the shape the Status section renders.
+ */
+export async function previewWarnings<E extends PreviewEngine>(
+  request: Request,
+  resolve: ApiActorResolver<E>
+): Promise<Response> {
+  const context = await resolve(request);
+  if (context instanceof Response) return context;
+  const body = await readJson(request, emptyBodySchema);
+  if (body instanceof Response) return body;
+  const { engine, actor } = context;
+  if (!actor.isPm) return notPm('preview the digests');
+  try {
+    const result = await engine.runWarnings({
+      workspaceId: actor.session.workspaceId,
+      previewOnly: true,
+    });
+    return Response.json({ preview: digestPreview(result) });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+export type SettingsEngine = Pick<Engine, 'updateSettings'>;
+
+/** PATCH /api/settings: a validated partial settings patch (PMs). 200 { settings }. */
+export async function patchSettings<E extends SettingsEngine>(
+  request: Request,
+  resolve: ApiActorResolver<E>
+): Promise<Response> {
+  const context = await resolve(request);
+  if (context instanceof Response) return context;
+  const body = await readJson(request, settingsPatchSchema);
+  if (body instanceof Response) return body;
+  const { engine, actor } = context;
+  if (!actor.isPm) return notPm('change settings');
+  const patch = definedOnly({
+    ...body,
+    tuning: body.tuning === undefined ? undefined : definedOnly(body.tuning),
+  });
+  try {
+    // The engine merges a partial `tuning` over the saved one
+    // (applySettingsPatch); its signature types tuning as a whole Tuning.
+    const settings = await engine.updateSettings(
+      actor,
+      patch as Parameters<SettingsEngine['updateSettings']>[1]
+    );
+    return Response.json({ settings });
+  } catch (error) {
+    return errorResponse(error);
+  }
+}

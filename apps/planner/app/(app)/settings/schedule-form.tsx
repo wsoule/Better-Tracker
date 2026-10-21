@@ -1,0 +1,226 @@
+'use client';
+
+import {
+  Checkbox,
+  Register,
+  RegisterCell,
+  RegisterRow,
+} from '@better-tracker/ui';
+import { type FormEvent, useId, useState } from 'react';
+
+import {
+  parseScheduleForm,
+  PROJECT_STATUS_OPTIONS,
+  type ScheduleForm as ScheduleFormState,
+  scheduleSavedMessage,
+  TUNING_FIELDS,
+} from '../../../lib/adapters/settings';
+import FormBar from './form-bar';
+import css from './page.module.css';
+import { useSaveSettings } from './use-save-settings';
+
+function sameForm(a: ScheduleFormState, b: ScheduleFormState): boolean {
+  return (
+    a.timezone === b.timezone &&
+    TUNING_FIELDS.every((f) => a.values[f.key] === b.values[f.key]) &&
+    a.statuses.length === b.statuses.length &&
+    a.statuses.every((s) => b.statuses.includes(s))
+  );
+}
+
+/* Settings → Schedule: the workspace timezone (checked against the IANA
+   database on the server) and the tuning numbers behind risk, warnings
+   and the timeline, each with one line on what it changes. The form
+   checks ranges before sending; the server checks everything again. */
+export default function ScheduleForm({
+  initial,
+  canEdit,
+}: {
+  initial: ScheduleFormState;
+  canEdit: boolean;
+}) {
+  const [form, setForm] = useState(initial);
+  const [synced, setSynced] = useState(initial);
+  if (!sameForm(synced, initial)) {
+    setSynced(initial);
+    setForm(initial);
+  }
+  const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
+  const { saving, save } = useSaveSettings('Schedule');
+  const baseId = useId();
+  const dirty = !sameForm(form, initial);
+  const disabled = !canEdit || saving;
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!dirty || !canEdit) return;
+    const parsed = parseScheduleForm(form);
+    if (!parsed.ok) {
+      setErrors(parsed.errors);
+      return;
+    }
+    setErrors({});
+    void save(
+      { timezone: parsed.patch.timezone, tuning: parsed.patch.tuning },
+      scheduleSavedMessage(initial, parsed.patch)
+    );
+  }
+
+  const errorCount = Object.keys(errors).length;
+
+  return (
+    <form
+      onSubmit={submit}
+      className={css.form}
+      aria-label="Schedule"
+      noValidate
+    >
+      <Register
+        label="Schedule"
+        columns="minmax(0, 1fr) 220px"
+        stackWithin={700}
+        stackedColumns="minmax(0, 1fr)"
+      >
+        <RegisterRow>
+          <RegisterCell
+            variant="name"
+            sub="Decides what “today” is for due dates, the daily run and digests. An IANA name such as America/Chicago."
+          >
+            <label htmlFor={`${baseId}-tz`}>Timezone</label>
+          </RegisterCell>
+          <RegisterCell align="end">
+            <span className={css.field}>
+              <input
+                id={`${baseId}-tz`}
+                className={`input ${css.textInput}`}
+                type="text"
+                autoComplete="off"
+                spellCheck={false}
+                value={form.timezone}
+                readOnly={!canEdit}
+                disabled={saving}
+                aria-invalid={errors.timezone !== undefined}
+                aria-describedby={
+                  errors.timezone !== undefined
+                    ? `${baseId}-tz-error`
+                    : undefined
+                }
+                onChange={(event) =>
+                  setForm((f) => ({ ...f, timezone: event.target.value }))
+                }
+              />
+              {errors.timezone !== undefined ? (
+                <span id={`${baseId}-tz-error`} className={css.fieldError}>
+                  {errors.timezone}
+                </span>
+              ) : null}
+            </span>
+          </RegisterCell>
+        </RegisterRow>
+        {TUNING_FIELDS.map((field) => {
+          const id = `${baseId}-${field.key}`;
+          const error = errors[field.key];
+          return (
+            <RegisterRow key={field.key}>
+              <RegisterCell variant="name" sub={field.help}>
+                <label htmlFor={id}>{field.label}</label>
+              </RegisterCell>
+              <RegisterCell align="end">
+                <span className={css.field}>
+                  <span className={css.numberRow}>
+                    <input
+                      id={id}
+                      className={`input ${css.numberInput}`}
+                      type="number"
+                      inputMode="numeric"
+                      min={field.min}
+                      max={field.max}
+                      step={1}
+                      value={form.values[field.key]}
+                      readOnly={!canEdit}
+                      disabled={saving}
+                      aria-invalid={error !== undefined}
+                      aria-describedby={
+                        error !== undefined ? `${id}-error` : undefined
+                      }
+                      onChange={(event) =>
+                        setForm((f) => ({
+                          ...f,
+                          values: {
+                            ...f.values,
+                            [field.key]: event.target.value,
+                          },
+                        }))
+                      }
+                    />
+                    <span className={css.unit}>days</span>
+                  </span>
+                  {error !== undefined ? (
+                    <span id={`${id}-error`} className={css.fieldError}>
+                      {error}
+                    </span>
+                  ) : null}
+                </span>
+              </RegisterCell>
+            </RegisterRow>
+          );
+        })}
+        <RegisterRow>
+          <RegisterCell
+            variant="name"
+            sub="Projects in these Linear statuses get allocation and warnings; the rest are shown but left alone."
+          >
+            Active project statuses
+          </RegisterCell>
+          <RegisterCell align="end">
+            <span className={css.field}>
+              <span
+                className={css.statusList}
+                role="group"
+                aria-label="Active project statuses"
+              >
+                {PROJECT_STATUS_OPTIONS.map((option) => (
+                  <Checkbox
+                    key={option.id}
+                    label={option.label}
+                    checked={form.statuses.includes(option.id)}
+                    disabled={disabled}
+                    onChange={(on) =>
+                      setForm((f) => ({
+                        ...f,
+                        statuses: on
+                          ? [
+                              ...f.statuses.filter((s) => s !== option.id),
+                              option.id,
+                            ]
+                          : f.statuses.filter((s) => s !== option.id),
+                      }))
+                    }
+                  />
+                ))}
+              </span>
+              {errors.statuses !== undefined ? (
+                <span className={css.fieldError}>{errors.statuses}</span>
+              ) : null}
+            </span>
+          </RegisterCell>
+        </RegisterRow>
+      </Register>
+      {canEdit ? (
+        <FormBar
+          dirty={dirty}
+          saving={saving}
+          blocked={
+            errorCount > 0
+              ? `Fix ${errorCount === 1 ? 'the field' : `${errorCount} fields`} marked above`
+              : null
+          }
+          onReset={() => {
+            setForm(initial);
+            setErrors({});
+          }}
+        />
+      ) : null}
+    </form>
+  );
+}

@@ -13,6 +13,7 @@ export { default as ThemeToggle } from './components/theme-toggle';
 // ---- tasks family (src/tasks): primitives, the grouped task table,
 // deadlines, stats strip and registers. Props are typed in ./tasks/types.
 export { Button } from './tasks/button';
+export { Checkbox } from './tasks/checkbox';
 export { Checklist } from './tasks/checklist';
 export { Chip } from './tasks/chip';
 export {
@@ -21,6 +22,7 @@ export {
   toggleCollapsed,
 } from './tasks/collapsed-groups';
 export { DeadlineList } from './tasks/deadline-list';
+export { NavTabs } from './tasks/nav-tabs';
 export { EmptyState, Notice } from './tasks/notice';
 export { ProgressRule } from './tasks/progress-rule';
 export { Register, RegisterCell, RegisterRow } from './tasks/register';
@@ -35,6 +37,7 @@ export type {
   ButtonProps,
   ButtonSize,
   ButtonVariant,
+  CheckboxProps,
   ChecklistItem,
   ChecklistProps,
   ChipProps,
@@ -43,6 +46,8 @@ export type {
   DeadlineItem,
   DeadlineListProps,
   EmptyStateProps,
+  NavTabItem,
+  NavTabsProps,
   NoticeProps,
   ProgressRuleProps,
   RegisterCellProps,

@@ -1,0 +1,104 @@
+/* /graph page furniture around the package components: the header, the
+   graph block, and the slide-over's sections (property list, links,
+   neighbour lists). Built only from the shared tokens. */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.receipts {
+  max-width: 96ch;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.body {
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 48px 72px;
+}
+
+.collapse > * + * {
+  margin-top: -1px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panelSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panelKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.neighbour {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.neighbourName {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.accentText {
+  color: var(--accent);
+}
+
+/* Loading skeleton: header lines. */
+.skeletonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, 100%);
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .body {
+    margin-top: 20px;
+    padding: 0 16px 48px;
+  }
+}

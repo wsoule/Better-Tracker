@@ -1,0 +1,135 @@
+/* /runs and /runs/[id] page furniture around the package components: the
+   header, the run controls, one block per project, and the cell contents.
+   Built only from the shared tokens. */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.receipts {
+  max-width: 96ch;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.body {
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 48px 72px;
+}
+
+.body > * + * {
+  margin-top: 24px;
+}
+
+.collapse > * + * {
+  margin-top: -1px;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.actionBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+}
+
+.actionNote {
+  flex: 1 1 280px;
+  max-width: 80ch;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.facts {
+  padding: 6px 18px 10px;
+  border: 1px solid var(--border);
+}
+
+.issue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.issueKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+
+.issueTitle {
+  overflow-wrap: anywhere;
+}
+
+.blockGaps {
+  margin-top: 6px;
+  padding-left: 18px;
+  list-style: square;
+}
+
+/* Loading skeleton: header lines and the controls' height. */
+.skeletonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(520px, 100%);
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .body {
+    margin-top: 20px;
+    padding: 0 16px 48px;
+  }
+
+  .actionBar {
+    padding: 12px 14px;
+  }
+}

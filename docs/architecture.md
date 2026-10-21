@@ -848,6 +848,42 @@ Auth and frame details (decided while building `apps/planner`; binding):
   come from another route bundle's copy of the package, where `instanceof`
   fails.
 
+Run log, sync and settings routes (decided while building `apps/planner`;
+binding):
+
+- `POST /api/runs`, `POST /api/sync`, `POST /api/warnings/preview` and
+  `PATCH /api/settings` share one order (`lib/pm-routes.ts`): CSRF guard and
+  session (`requireApiActor`) → strict zod body (unknown keys, a bad `mode`, a
+  tuning value outside 1–90 or not whole, an empty patch or an empty `tuning`
+  object: 400 before the engine, so a no-op never writes an audit entry; sync
+  and preview take `{}`) → `actor.isPm` (else 403 `not_pm`; the engine's
+  `fullSync` and `runWarnings` have no actor, so this check is the only one for
+  those two) → the engine, errors mapped by `errorResponse`.
+- **A live run is gated by the saved mode**: `POST /api/runs { mode: 'live' }`
+  answers 409 `live_runs_off` while `settings.allocationMode` is `dry_run`
+  (§7.4: dry run until a PM switches it live in Settings → Modes). Only the web
+  route is gated; the worker's `allocate --live` is an operator command.
+  Answers: `/api/runs` 201 `{ run }` (the finished run; the run takes as long as
+  its sync), `/api/sync` 200 `{ sync }` (a `SyncResult`, `ok: false` carries the
+  error), `/api/warnings/preview` 200 `{ preview }` (the digests mapped for
+  display with app-relative `/timeline?…` links; nothing recorded or sent),
+  `/api/settings` 200 `{ settings }`. A partial `tuning` is passed through; the
+  engine merges it over the saved tuning.
+- `/settings?section=modes|people|schedule|status|notifications|audit` (default
+  Modes) shows one section beside the sub-nav; each section's form PATCHes only
+  its own fields. People lists active non-app people plus deactivated people
+  still on a list; the last active PM's box is locked on. Slack status is not
+  shown: the engine exposes no "Slack configured" flag.
+- `/graph` with no edges in scope shows the empty state rather than a field of
+  unconnected boxes. Milestone nodes take the accent only when at risk or
+  overdue (a later milestone's unassigned issues are normal; they keep the
+  `UNASSIGNED` chip); issue nodes when open and unassigned or overdue.
+- `/runs/[id]` answers the not-found page for an unknown id; already-assigned
+  skips are collapsed into one count per project.
+- The run and settings registers stack into cards by their own width
+  (`stackWithin`), not the viewport's: inside the 252px sidebar a 1024px window
+  leaves the settings content about 440px wide.
+
 ### 8.2 Visual language (Analytics `competitors-site` + `DESIGN.md`)
 
 The one deliberate departure from Analytics is the accent: purple `#9747ff`
