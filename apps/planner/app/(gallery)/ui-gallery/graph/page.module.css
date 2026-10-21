@@ -1,0 +1,118 @@
+/* Gallery-only composition for /ui-gallery/graph: page furniture and the
+   selection panel's lists, built from the same tokens as the package. */
+
+.page {
+  padding-bottom: 96px;
+}
+
+.barMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.panelSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panelKey {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.panelEmpty {
+  padding: 12px 14px;
+  border: 1px solid var(--hairline-faint);
+  color: var(--grey-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.nodeList > li + li {
+  margin-top: -1px;
+}
+
+/* Register rows: hover swaps paper and ink locally, like the roster. */
+.nodeRow {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  text-align: left;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.nodeRowName {
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeRowSub {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .nodeRow:hover {
+    --background: var(--ink);
+    --foreground: var(--paper);
+    --border: var(--paper);
+    --muted: var(--muted-inverse);
+
+    border-color: var(--ink);
+  }
+}
+
+@media (width <= 768px) {
+  .nodeRow {
+    grid-template-columns: 13px minmax(0, 1fr);
+    row-gap: 4px;
+  }
+
+  .nodeRowSub {
+    grid-column: 2;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nodeRow {
+    transition: none;
+  }
+}

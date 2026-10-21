@@ -165,3 +165,39 @@ export type {
   TimelineUndated,
   TimelineZoom,
 } from './timeline/types';
+
+// ---- graph family (src/graph): the dependency graph (architecture §8.4
+// Graph, §2.10) — the pure dagre layout, upstream-chain helpers, the
+// pan/zoom DependencyGraph, its legend and the Copy Mermaid block. Props
+// are typed in ./graph/types.
+export { blockerIndex, upstreamChain, waiterIndex } from './graph/chain';
+export type { BlockerIndex, BlockerIndexOptions } from './graph/chain';
+export { DependencyGraph } from './graph/dependency-graph';
+export { defaultGraphLegend, GraphLegend } from './graph/graph-legend';
+export {
+  edgeKey,
+  GRAPH_METRICS,
+  layoutGraph,
+  measureNode,
+  type NodeMeasure,
+} from './graph/layout';
+export { COPIED_MS, MermaidSource } from './graph/mermaid-source';
+export type {
+  DependencyGraphProps,
+  GraphDirection,
+  GraphEdgeData,
+  GraphEdgeKind,
+  GraphLayout,
+  GraphLayoutOptions,
+  GraphLegendItem,
+  GraphLegendMark,
+  GraphLegendProps,
+  GraphNodeData,
+  GraphNodeTag,
+  GraphNodeTone,
+  LaidOutEdge,
+  LaidOutGroup,
+  LaidOutNode,
+  MermaidSourceProps,
+  UpstreamChain,
+} from './graph/types';

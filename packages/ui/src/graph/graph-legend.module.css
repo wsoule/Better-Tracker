@@ -1,0 +1,165 @@
+/* The graph legend: Matrix's legend strip (one hairline box, swatch + bold
+   mono name + muted note), split into a NODES row and an EDGES row so the
+   two vocabularies never mix. Swatches reuse the graph's own marks. */
+
+.legend {
+  margin-top: -1px;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+.row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px 18px;
+  padding: 11px 18px;
+}
+
+.row + .row {
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.rowKey {
+  flex: 0 0 52px;
+  color: var(--grey-2);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  min-width: 0;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* ---- swatches ----------------------------------------------------------- */
+
+.node {
+  position: relative;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 13px;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+.nodeAccent {
+  border: 2px solid var(--accent);
+}
+
+.nodeOverdue {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.nodeExternal {
+  border-style: dashed;
+  border-color: var(--muted);
+}
+
+.nodeMuted {
+  border-color: var(--grey-3);
+}
+
+.nodeCycle::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border: 1px dashed var(--accent);
+}
+
+.nodeCycle {
+  margin: 0 3px;
+}
+
+.edge {
+  flex: 0 0 28px;
+  color: var(--foreground);
+}
+
+.edgeLine {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+}
+
+.edgeArrow {
+  fill: currentcolor;
+}
+
+.edgeRisk,
+.edgeCycle {
+  color: var(--accent);
+}
+
+.edgeCycle .edgeLine {
+  stroke-dasharray: 5 3;
+}
+
+.edgeCross .edgeLine {
+  stroke-dasharray: 3 3;
+}
+
+.edgeResolved {
+  color: var(--grey-3);
+}
+
+.weight {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+@media (width <= 1200px) {
+  .note {
+    display: none;
+  }
+}
+
+@media (width <= 768px) {
+  .row {
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .rowKey {
+    flex-basis: auto;
+  }
+
+  .list {
+    gap: 8px 16px;
+  }
+}

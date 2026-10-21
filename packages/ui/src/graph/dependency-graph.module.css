@@ -1,0 +1,517 @@
+/* The dependency graph as a technical figure (architecture §8.4 Graph):
+   a toolbar strip and a hairline frame that scrolls inside itself, both
+   collapsing into whatever sits above with -1px. Box metrics (padding,
+   font sizes, line heights) mirror GRAPH_METRICS in layout.ts: the layout
+   sizes every box from these numbers, so change them together. */
+
+.graph {
+  min-width: 0;
+  max-width: 100%;
+  margin-top: -1px;
+}
+
+/* ---- toolbar ------------------------------------------------------------ */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  min-height: 48px;
+  padding: 8px 8px 8px 18px;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+.toolbarStart {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  min-width: 0;
+}
+
+.hint {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.zoom {
+  display: flex;
+  margin-left: auto;
+}
+
+.hint + .zoom {
+  margin-left: 0;
+}
+
+.zoomButton,
+.zoomValue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  min-width: 30px;
+  margin-left: -1px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoomButton {
+  padding: 0 7px;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.zoomButton:first-child {
+  margin-left: 0;
+}
+
+.zoomButton:disabled {
+  color: var(--grey-3);
+  cursor: not-allowed;
+}
+
+/* The buttons overlap by 1px, so a later sibling would paint over the
+   focus ring's far edge; lift the focused one above its neighbours. */
+.zoomButton:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+.zoomValue {
+  min-width: 54px;
+  padding: 0 8px;
+  letter-spacing: 0.06em;
+}
+
+.fitButton {
+  padding: 0 10px 0 9px;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .zoomButton:not(:disabled):hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* ---- the frame ---------------------------------------------------------- */
+
+/* Fixed footprint from the layout's height at 100% (plus room for a thin
+   scrollbar), capped by the viewport: zooming changes what is inside the
+   frame, never the page around it. */
+.viewport {
+  position: relative;
+  display: grid;
+  height: clamp(220px, calc(var(--graph-h) + 12px), min(70vh, 720px));
+  margin-top: -1px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  background: var(--background);
+  cursor: grab;
+  scrollbar-width: thin;
+  scrollbar-color: var(--grey-3) transparent;
+}
+
+.viewport[data-panning] {
+  cursor: grabbing;
+  user-select: none;
+}
+
+/* A grid item with auto margins: centred while smaller than the frame,
+   scrollable from its true edge once larger. */
+.canvas {
+  position: relative;
+  margin: auto;
+}
+
+.stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* ---- groups (project frames) -------------------------------------------- */
+
+.group {
+  position: absolute;
+  border: 1px solid var(--hairline-faint);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+  pointer-events: none;
+}
+
+/* The title sits on the frame's top rule like a drawing's sheet label. */
+.groupTitle {
+  position: absolute;
+  top: 0;
+  left: 10px;
+  max-width: calc(100% - 20px);
+  padding: 2px 6px;
+  overflow: hidden;
+  transform: translateY(-50%);
+  border: 1px solid var(--hairline-faint);
+  background: var(--background);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 12px;
+  letter-spacing: 0.14em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* ---- edges -------------------------------------------------------------- */
+
+.edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge {
+  color: var(--foreground);
+  transition: opacity 0.15s ease;
+}
+
+.edgeLine {
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1;
+}
+
+.edgeArrow {
+  fill: currentcolor;
+  stroke: none;
+}
+
+.edgeRisk,
+.edgeCycle {
+  color: var(--accent);
+}
+
+.edgeCycle .edgeLine {
+  stroke-dasharray: 5 3;
+}
+
+.edgeCross .edgeLine {
+  stroke-dasharray: 3 3;
+}
+
+.edgeResolved {
+  color: var(--grey-3);
+}
+
+.weight rect {
+  fill: var(--background);
+  stroke: currentcolor;
+  stroke-width: 1;
+}
+
+.weight text {
+  fill: currentcolor;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 2px is emphasis: spent on the chain being read. */
+.edge.lit .edgeLine {
+  stroke-width: 2;
+}
+
+.edge.dim {
+  opacity: 0.16;
+}
+
+/* ---- nodes -------------------------------------------------------------- */
+
+.node {
+  position: absolute;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    opacity 0.15s ease;
+}
+
+div.node {
+  cursor: default;
+}
+
+.linkWrap {
+  position: absolute;
+  display: block;
+}
+
+.linkWrap > .node {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+/* Status in the Mark idiom (see components/status-mark), drawn here at
+   11px so it can follow a node's local token swap. */
+.glyph {
+  flex: 0 0 11px;
+  width: 11px;
+  height: 11px;
+  margin-top: 2.5px;
+  border: 1px solid var(--border);
+}
+
+.done {
+  background: var(--foreground);
+}
+
+.at_risk {
+  border: 2px solid var(--accent);
+}
+
+.overdue {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.missing {
+  border-color: var(--muted);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--muted) 0,
+    var(--muted) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+.text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.label {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.line,
+.sublabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sublabel {
+  margin-top: 3px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  line-height: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.tag {
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tagAccent {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* ---- node marks ----------------------------------------------------------- */
+
+/* Accent tone: needs action (unassigned, at risk). 2px, so padding gives
+   the extra pixel back and the content never moves. */
+.toneAccent {
+  padding: 9px 11px;
+  border: 2px solid var(--accent);
+}
+
+.toneMuted {
+  border-color: var(--grey-3);
+  color: var(--muted);
+}
+
+/* Outside the scope: present for context, drawn in a lighter hand. */
+.external {
+  border-style: dashed;
+  border-color: var(--muted);
+}
+
+/* Overdue floods the box with the accent. The tokens swap locally so the
+   glyph, sublabel and chips inside follow without per-element rules. */
+.node.overdueNode {
+  --foreground: var(--on-accent);
+  --border: var(--on-accent);
+  --muted: var(--on-accent);
+
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.node.overdueNode .glyph.overdue,
+.node.overdueNode .tagAccent {
+  border-color: var(--on-accent);
+  background: var(--on-accent);
+  color: var(--accent);
+}
+
+/* In a cycle: a dashed accent outline drawn just outside the box, so it
+   survives the focus ring and the hover flood. */
+.cycle::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+
+/* Selected: the tab strip's ink fill, by swapping paper and ink locally. */
+.node.selected {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+  --muted: var(--muted-inverse);
+
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* On the ink fill the overdue mark and the accent chip go back to the
+   accent: the overdue flood's white-on-orange swap would read as a
+   paper square (invisible on dark ink). */
+.node.selected .glyph.overdue,
+.node.selected .tagAccent {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The chain being read: 2px rules on its boxes, everything else recedes. */
+.node.lit,
+.node.active {
+  padding: 9px 11px;
+  border-width: 2px;
+}
+
+.node.dim {
+  opacity: 0.22;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .node:not(.selected):hover {
+    --foreground: var(--on-accent);
+    --border: var(--on-accent);
+    --muted: var(--on-accent);
+
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .node.overdueNode:not(.selected):hover {
+    border-color: var(--accent-hover);
+    background: var(--accent-hover);
+  }
+
+  .node:not(.selected):hover .glyph.overdue,
+  .node:not(.selected):hover .tagAccent {
+    border-color: var(--on-accent);
+    background: var(--on-accent);
+    color: var(--accent);
+  }
+}
+
+/* ---- empty -------------------------------------------------------------- */
+
+.emptyState {
+  margin-top: -1px;
+}
+
+/* ---- phone -------------------------------------------------------------- */
+
+@media (width <= 900px) {
+  .toolbar {
+    padding: 8px 8px 8px 14px;
+  }
+
+  /* Touch pans natively; the pointer hint would be wrong here. */
+  .hint {
+    display: none;
+  }
+
+  .viewport {
+    height: clamp(220px, calc(var(--graph-h) + 12px), 64vh);
+    cursor: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zoomButton,
+  .edge,
+  .node {
+    transition: none;
+  }
+}

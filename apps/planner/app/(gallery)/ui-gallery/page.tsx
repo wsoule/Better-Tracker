@@ -38,6 +38,11 @@ export default function GalleryIndex() {
             Timeline · Gantt chart, re-dating, dependencies, phone cards
           </a>
         </p>
+        <p className="empty">
+          <a className="accentLink" href="/ui-gallery/graph">
+            Graph · dependency graph, upstream chains, legend, Copy Mermaid
+          </a>
+        </p>
       </div>
     </main>
   );
