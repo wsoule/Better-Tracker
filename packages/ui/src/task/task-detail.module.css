@@ -1,0 +1,320 @@
+/* The task view. Drawer: one column, no frame (the slide-over or pane is
+   the frame). Page: a 1px-ruled block under the hatched header bar, with
+   the property sheet in a right rail once the view is wide enough. */
+
+/* Property values carry notes under them, so each label sits on its
+   value's first line rather than floating at the middle of the row. */
+.detail {
+  --property-align: baseline;
+
+  min-width: 0;
+  color: var(--foreground);
+}
+
+/* The base reset covers h1-h4, p and lists but not dl: without this the
+   property sheet (and any host dl in the rail) carries the browser's 16px
+   margins, pushing it off the alerts and widening the gap below it. */
+.detail dl {
+  margin: 0;
+}
+
+/* ---- header ------------------------------------------------------------ */
+
+/* The slide-over's chrome bar: hatched, 46px like the topbar. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 46px;
+  padding: 6px 8px 6px 22px;
+  border-bottom: 1px solid var(--hairline-faint);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+.crumb {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.page .title {
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+/* Done and canceled tasks go quiet; the state still says which.
+   closedTitle is the same for the title TaskSlideOver hands its drawer. */
+.detail[data-closed='true'] .title,
+.closedTitle {
+  color: var(--muted);
+}
+
+/* ---- the lead: title, status line, alerts ------------------------------ */
+
+.lead {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.title + .statusLine {
+  margin-top: -4px;
+}
+
+.statusLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  min-height: 20px;
+}
+
+.key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.keyLink {
+  border-bottom: 1px solid var(--grey-3);
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.keyLink:focus-visible {
+  color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .keyLink:hover {
+    color: var(--accent);
+    border-color: currentcolor;
+  }
+}
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.control {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.statusMeta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Alerts stack into one 2px-framed register: each strip keeps its own
+   frame, and the shared edges collapse onto each other. */
+.alerts {
+  display: flex;
+  flex-direction: column;
+}
+
+.alerts > * + * {
+  margin-top: -2px;
+}
+
+/* ---- drawer ------------------------------------------------------------ */
+
+.column {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+
+/* The properties follow the alerts closely; the sections below breathe. */
+.column > .lead + .properties {
+  margin-top: -10px;
+}
+
+/* Standalone (a split pane), the view pads itself; inside SlideOver the
+   panel's body already does. */
+.drawer.withHeader .column {
+  padding: 18px 22px 40px;
+}
+
+/* ---- page -------------------------------------------------------------- */
+
+.page {
+  container: task-detail / inline-size;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+.page .bar {
+  padding-left: 28px;
+  border-bottom-color: var(--border);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    'head'
+    'rail'
+    'body';
+}
+
+.head {
+  grid-area: head;
+  min-width: 0;
+  padding: 24px 28px 0;
+}
+
+.rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+  padding: 22px 28px 0;
+}
+
+.body {
+  grid-area: body;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+  padding: 28px 28px 40px;
+}
+
+/* ---- narrow ------------------------------------------------------------ */
+
+/* Phone widths. Before the container queries on purpose: a page view that
+   is still 760px wide on a 900px screen keeps its two-column padding. */
+
+@media (width <= 900px) {
+  .bar,
+  .page .bar {
+    padding: 6px 4px 6px 16px;
+  }
+
+  .title,
+  .page .title {
+    font-size: 20px;
+  }
+
+  .drawer.withHeader .column {
+    padding: 16px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .head {
+    padding: 18px 16px 0;
+  }
+
+  .rail {
+    padding: 18px 16px 0;
+  }
+
+  .body {
+    padding: 24px 16px 32px;
+  }
+}
+
+/* Wide enough for two columns: the main column reads on the left, the
+   property sheet sits in a ruled rail on the right for the full height. */
+@container task-detail (width >= 760px) {
+  .grid {
+    grid-template:
+      'head rail' auto
+      'body rail' 1fr
+      / minmax(0, 1fr) 340px;
+  }
+
+  .page .bar,
+  .head {
+    padding-left: 36px;
+  }
+
+  .head {
+    padding-top: 28px;
+    padding-right: 36px;
+  }
+
+  .body {
+    padding: 32px 36px 48px;
+  }
+
+  .rail {
+    --property-label-width: 104px;
+
+    padding: 24px 24px 40px;
+    border-left: 1px solid var(--border);
+  }
+}
+
+@container task-detail (width >= 1100px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+
+  .page .bar,
+  .head,
+  .body {
+    padding-left: 48px;
+  }
+
+  .head,
+  .body {
+    padding-right: 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .keyLink {
+    transition: none;
+  }
+}

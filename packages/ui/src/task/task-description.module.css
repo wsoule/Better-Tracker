@@ -1,0 +1,142 @@
+/* The description in the reading voice: plain text with its own line
+   breaks, clamped by line count rather than height so it never cuts a line
+   in half. */
+
+.wrap {
+  min-width: 0;
+}
+
+/* plaintext: every line break starts a paragraph that picks its own
+   direction from its first strong character, so an Arabic or Hebrew line
+   in an English description reads right to left (and aligns right). */
+.text {
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* A host-rendered body: only the reading voice and wrapping are set. */
+.content {
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.clamped {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: var(--clamp-lines, 12);
+  overflow: hidden;
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 16px;
+  margin-top: 10px;
+}
+
+.toggle {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground);
+  border-bottom: 1px solid currentcolor;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .toggle:hover {
+    color: var(--accent);
+  }
+}
+
+.source {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.empty {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.empty + .source {
+  margin-top: 6px;
+  margin-left: 0;
+}
+
+/* One line, not a panel: the accent key says it failed, the follow-up is
+   the AlertStrip's underlined mono action. */
+.error {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline-faint);
+  border-bottom: 1px solid var(--hairline-faint);
+}
+
+.errorKey {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.errorText {
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.retry {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid currentcolor;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.retry:focus-visible {
+  color: var(--accent-hover);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .retry:hover {
+    color: var(--accent-hover);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toggle,
+  .retry {
+    transition: none;
+  }
+}

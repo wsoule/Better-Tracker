@@ -2,11 +2,15 @@
   border-top: 1px solid var(--hairline-faint);
 }
 
+/* --property-label-width lets a narrow container (the task view's rail)
+   give the values more room; --property-align: baseline pins each label to
+   its value's first line when values run to several lines (a note under
+   the value). */
 .row {
   display: grid;
-  grid-template-columns: 136px minmax(0, 1fr);
+  grid-template-columns: var(--property-label-width, 136px) minmax(0, 1fr);
   column-gap: 14px;
-  align-items: center;
+  align-items: var(--property-align, center);
   min-height: 38px;
   border-bottom: 1px solid var(--hairline-faint);
 }
@@ -54,7 +58,9 @@
 
 @media (width <= 640px) {
   .row {
-    grid-template-columns: 112px minmax(0, 1fr);
+    grid-template-columns:
+      min(var(--property-label-width, 112px), 112px)
+      minmax(0, 1fr);
     column-gap: 10px;
   }
 }

@@ -1,0 +1,95 @@
+/* One mono line, cut with an ellipsis. A crumb list is a flex row in
+   which only the earlier crumbs shrink: the last one (usually the key)
+   keeps its full width, so a phone reads "BEACON… / SEARCH… / ENG-24"
+   rather than losing the key. Under 260px of trail the earlier crumbs
+   step aside entirely, like Dispatch's pane chrome. */
+
+.trail {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.crumbs {
+  container: task-crumbs / inline-size;
+}
+
+.list {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+}
+
+/* Each earlier crumb keeps room for its separator and an ellipsis. */
+.item {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: baseline;
+  min-width: 3.4em;
+  overflow: hidden;
+}
+
+.item:first-child {
+  min-width: 2em;
+}
+
+.item:last-child {
+  flex-shrink: 0;
+  min-width: 0;
+  max-width: 100%;
+}
+
+@container task-crumbs (width < 260px) {
+  .item:not(:last-child) {
+    display: none;
+  }
+
+  .item:last-child .sep {
+    display: none;
+  }
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sep {
+  flex: none;
+  margin: 0 8px;
+  color: var(--grey-2);
+}
+
+.link {
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+
+.link:focus-visible {
+  color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .link:hover {
+    color: var(--accent);
+  }
+}
+
+.current {
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link {
+    transition: none;
+  }
+}

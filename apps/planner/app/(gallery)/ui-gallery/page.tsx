@@ -29,6 +29,11 @@ export default function GalleryIndex() {
           </a>
         </p>
         <p className="empty">
+          <a className="accentLink" href="/ui-gallery/task">
+            Task · task detail drawer and page, relations, description, activity
+          </a>
+        </p>
+        <p className="empty">
           <a className="accentLink" href="/ui-gallery/shell">
             Shell · app frame, command palette, toasts, slide-over, skeletons
           </a>

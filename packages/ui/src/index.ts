@@ -206,3 +206,37 @@ export type {
   MermaidSourceProps,
   UpstreamChain,
 } from './graph/types';
+
+// ---- task family (src/task): the detail view of one task (issue) — the
+// TaskDetail sheet (drawer or page layout), TaskSlideOver around it, and
+// the parts a host can reuse on their own: description, relation list,
+// activity ledger, section heading and property value. Read-only or
+// editable is the host's call (values are nodes). Props are typed in
+// ./task/types.
+export { TaskCrumbs } from './task/task-crumbs';
+export { TaskActivityList } from './task/task-activity-list';
+export { TaskDescription } from './task/task-description';
+export { TaskDetail } from './task/task-detail';
+export { TaskPropertyValue } from './task/task-property-value';
+export { TaskRelationList } from './task/task-relation-list';
+export { TaskDetailSection } from './task/task-section';
+export { TaskSlideOver } from './task/task-slide-over';
+export { DEFAULT_TASK_LABELS } from './task/shared';
+export type {
+  TaskActivityItem,
+  TaskActivityListProps,
+  TaskCrumbsProps,
+  TaskDescriptionData,
+  TaskDescriptionProps,
+  TaskDetailAlert,
+  TaskDetailLabels,
+  TaskDetailLayout,
+  TaskDetailProps,
+  TaskDetailSectionProps,
+  TaskDetailStatus,
+  TaskPropertyValueProps,
+  TaskRelation,
+  TaskRelationListProps,
+  TaskRelations,
+  TaskSlideOverProps,
+} from './task/types';

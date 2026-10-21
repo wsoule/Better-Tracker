@@ -1,0 +1,151 @@
+/* Gallery-only composition for /ui-gallery/task: page furniture around the
+   package components, built from the same tokens. */
+
+.lede {
+  max-width: 76ch;
+  margin-top: -1px;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 8px;
+  margin-top: -1px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+}
+
+.note {
+  margin-top: -1px;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* The page layout draws its own 1px frame; it shares the bar's edge. */
+.pageSlot {
+  margin-top: -1px;
+}
+
+.states {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px 24px;
+  margin-top: 24px;
+}
+
+.state {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stateLabel {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* A pane like Dispatch's split view: the view draws its own header. */
+.pane {
+  flex: 1 1 auto;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+/* The editable host's stand-ins for Dispatch's editors: a borderless
+   title field in the heading's own voice, and picker buttons that read as
+   values with a hairline under them. */
+.titleInput {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--grey-3);
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .titleInput:hover {
+    border-bottom-color: var(--grey-3);
+  }
+
+  .picker:hover {
+    color: var(--accent);
+    border-bottom-color: currentcolor;
+  }
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rendered {
+  padding-left: 18px;
+  list-style: square;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.rendered strong {
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker {
+    transition: none;
+  }
+}
+
+@media (width <= 1100px) {
+  .states {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (width <= 768px) {
+  .lede,
+  .controls,
+  .note {
+    padding: 12px 14px;
+  }
+}

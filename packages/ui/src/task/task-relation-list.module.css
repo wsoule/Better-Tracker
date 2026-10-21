@@ -1,0 +1,213 @@
+/* Related tasks as a small register: one 1px ink frame, faint hairlines
+   between rows, and the register hover that swaps paper and ink locally
+   (gated off touch).
+
+   The list owns the columns (glyph, key, title, and the remove button
+   when a row has one); items and rows take them through subgrid, so the
+   key column is as wide as the longest key ("PLATFORM-10417" beside
+   "ENG-24") and every title starts at the same x. The glyph track is
+   max-content, not 13px: a subgrid hands the row's padding to its edge
+   items as margin, and a fixed track would push the glyph into the key. */
+
+.list {
+  display: grid;
+  grid-template-columns: max-content minmax(60px, max-content) minmax(0, 1fr);
+  column-gap: 10px;
+  border: 1px solid var(--border);
+}
+
+.removable {
+  grid-template-columns: max-content minmax(60px, max-content) minmax(
+      0,
+      1fr
+    ) auto;
+}
+
+.item {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.item + .item {
+  border-top: 1px solid var(--hairline-faint);
+}
+
+/* The fallback track list is for engines without subgrid. */
+.row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: 13px minmax(60px, max-content) minmax(0, 1fr);
+  grid-template-columns: subgrid;
+  gap: 4px 10px;
+  align-items: baseline;
+  width: 100%;
+  padding: 10px 14px;
+  text-align: left;
+  background: var(--background);
+  color: var(--foreground);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Pinned to the title's first line (13.5px x 1.4), not the row's centre,
+   so a wrapped title never pulls the glyph down. */
+.glyph {
+  display: inline-flex;
+  align-self: start;
+  margin-top: 3px;
+}
+
+.key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.title {
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  grid-column: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* State, assignee and context run as one line of text so they wrap like
+   a sentence, the separators staying inline. */
+.facts {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.dot {
+  color: var(--grey-2);
+}
+
+.state {
+  white-space: nowrap;
+}
+
+.accent {
+  color: var(--accent);
+}
+
+/* A blocker that has landed no longer holds anything back. */
+.resolved .title {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.resolved .glyph {
+  color: var(--muted);
+}
+
+/* The unlink button: its own cell at the row's right, ruled off. */
+.removable .row {
+  grid-column: 1 / 4;
+}
+
+.remove {
+  grid-column: 4;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  align-self: stretch;
+  border-left: 1px solid var(--hairline-faint);
+  background: var(--background);
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+
+.remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .remove:hover {
+    color: var(--accent);
+  }
+}
+
+.empty {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.interactive:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.interactive:focus-visible,
+.interactive:active {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --muted: var(--muted-inverse);
+  --ink-soft: var(--ink-soft-inverse);
+  --grey-3: var(--hairline-inverse);
+  --border: var(--paper);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .interactive:hover {
+    --background: var(--ink);
+    --foreground: var(--paper);
+    --muted: var(--muted-inverse);
+    --ink-soft: var(--ink-soft-inverse);
+    --grey-3: var(--hairline-inverse);
+    --border: var(--paper);
+  }
+}
+
+@media (width <= 640px) {
+  .list {
+    grid-template-columns: max-content minmax(52px, max-content) minmax(0, 1fr);
+    column-gap: 8px;
+  }
+
+  .removable {
+    grid-template-columns: max-content minmax(52px, max-content) minmax(
+        0,
+        1fr
+      ) auto;
+  }
+
+  .row {
+    column-gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .remove {
+    width: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row,
+  .remove {
+    transition: none;
+  }
+}

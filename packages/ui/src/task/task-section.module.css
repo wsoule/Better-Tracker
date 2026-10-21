@@ -1,0 +1,51 @@
+/* A section of the task view: the drawer's mono subhead register (10px,
+   700, +0.14em) with the count and note in the quieter mono voice. */
+
+.section {
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-height: 20px;
+  margin-bottom: 10px;
+}
+
+/* Inline text: the count follows the title like a word, and a long host
+   title wraps instead of pushing the meta note off the row. margin: 0
+   because a deeply nested view puts its sections at h5 or h6, which the
+   base reset does not cover. */
+.title {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--foreground);
+}
+
+.count {
+  margin-left: 8px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.meta {
+  margin-left: auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-align: right;
+  text-transform: uppercase;
+  color: var(--muted);
+}

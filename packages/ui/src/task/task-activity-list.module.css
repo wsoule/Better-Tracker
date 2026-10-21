@@ -1,0 +1,171 @@
+/* A hairline ledger: a mono date column, then a 1px rail threaded through
+   square marks (the Mark idiom: filled ink, filled accent, hollow grey). */
+
+.list {
+  display: flex;
+  flex-direction: column;
+}
+
+.item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px 9px minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: start;
+  padding-bottom: 14px;
+}
+
+.item:last-child {
+  padding-bottom: 0;
+}
+
+/* The rail: from this mark down to the next one. */
+.item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  top: 12px;
+  bottom: -5px;
+  left: calc(64px + 14px + 4px);
+  width: 1px;
+  background: var(--grey-3);
+}
+
+.at {
+  padding-top: 3px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* Sits on the label's first line (13.5px x 1.45). */
+.mark {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border: 1px solid var(--foreground);
+  background: var(--foreground);
+}
+
+.accent .mark {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.muted .mark {
+  border-color: var(--grey-3);
+  background: var(--background);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.label {
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.accent .label {
+  color: var(--accent);
+}
+
+.muted .label {
+  color: var(--muted);
+}
+
+.detail {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.link {
+  border-bottom: 1px solid currentcolor;
+  transition: color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .link:hover {
+    color: var(--accent);
+  }
+}
+
+.more {
+  margin-top: 12px;
+  margin-left: calc(64px + 14px + 9px + 14px);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground);
+  border-bottom: 1px solid currentcolor;
+  transition: color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .more:hover {
+    color: var(--accent);
+  }
+}
+
+.empty {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+@media (width <= 640px) {
+  .item {
+    grid-template-columns: 9px minmax(0, 1fr);
+    grid-template-areas:
+      'mark at'
+      'mark main';
+    gap: 2px 12px;
+  }
+
+  .at {
+    grid-area: at;
+    padding-top: 0;
+  }
+
+  .mark {
+    grid-area: mark;
+    margin-top: 2px;
+  }
+
+  .main {
+    grid-area: main;
+  }
+
+  .item:not(:last-child)::after {
+    top: 9px;
+    bottom: -2px;
+    left: 4px;
+  }
+
+  .more {
+    margin-left: 21px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link,
+  .more {
+    transition: none;
+  }
+}
