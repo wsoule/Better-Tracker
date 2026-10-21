@@ -795,19 +795,20 @@ Engine decisions made while building it (binding for callers):
   `TICK_TIMEOUT_MINUTES` at lease − stale − 1 = 14, so a dead tick started its
   allocation run at most 14 minutes after its claim, and that run is stale by
   claim + 44, before the claim can be taken over (claim + 45). A daily run that
-  does find an allocation run in progress (a PM's run from the web app) fails
-  with `conflict`, gives the day back, and a later tick runs the job. Killed
-  during warnings: memory was not saved yet, so every notice is planned again;
-  nobody is sent a second digest that day (a recipient with a row today counts
-  as `alreadySent`, including a `pending` row, whose send may have reached
-  Slack). What the dead run's delivered digests carried counts as told; the
-  notices of the recipient whose send was in flight keep their old memory and
-  are offered again the next day. A run that outlives its lease and completes
-  anyway finds its claim gone: `finishJob` returns false and it logs a warning.
-  The lease must be longer than any daily run can live plus
-  `ALLOCATION_RUN_STALE_MINUTES`; hence the worker's cap above, which applies to
-  the manual `daily`, `allocate`, `warn` and `sync` commands too (§9), so a
-  manual run is never taken over while it is still working either.
+  does find an allocation run in progress (a manual `allocate` or a PM's run
+  from the web app, still going or killed, that started less than
+  `ALLOCATION_RUN_STALE_MINUTES` ago) fails with `conflict`, gives the day back,
+  and a later tick runs the job. Killed during warnings: memory was not saved
+  yet, so every notice is planned again; nobody is sent a second digest that day
+  (a recipient with a row today counts as `alreadySent`, including a `pending`
+  row, whose send may have reached Slack). What the dead run's delivered digests
+  carried counts as told; the notices of the recipient whose send was in flight
+  keep their old memory and are offered again the next day. A run that outlives
+  its lease and completes anyway finds its claim gone: `finishJob` returns false
+  and it logs a warning. The lease must be longer than any daily run can live
+  plus `ALLOCATION_RUN_STALE_MINUTES`; hence the worker's cap above, which
+  applies to the manual `daily`, `allocate`, `warn` and `sync` commands too
+  (§9), so a manual run is never taken over while it is still working either.
 - A live run in which every assignment failed is `failed`; a comment that fails
   after a successful assignment leaves the entry `applied` with an error and the
   run `partial`. Stale reasons: `not_found`, `closed`, `now_assigned`,
@@ -1023,7 +1024,7 @@ LINEAR" strip at the top of the content column.
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
   UTC): for each installed workspace, if the local time in its timezone is at or
   past `DAILY_RUN_AT` (default `08:00`) and today's daily job is unclaimed (or
-  its claim was abandoned by a tick that died, past the engine's lease),
+  its claim was abandoned by a run that died, past the engine's lease),
   `runDaily` (which syncs first); otherwise a plain `fullSync` (the periodic
   resync that heals milestone/relation drift, since Linear has no webhooks for
   those). Then `cleanup`. Closes the store and exits. A hard timeout

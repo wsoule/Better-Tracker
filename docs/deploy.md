@@ -378,7 +378,7 @@ tick FAILED (1 of 2 workspaces) — org-1: synced (…), daily due at 08:00 Amer
 - a workspace failed;
 - housekeeping failed;
 - the worker could not start (bad configuration, database unreachable);
-- the tick timed out.
+- the run hit its `TICK_TIMEOUT_MINUTES` limit (any command except `migrate`).
 
 `2` is a usage error. One workspace failing never stops the others. A workspace
 counts as failed when its job throws, or when an allocation run ends `failed` or
@@ -428,13 +428,14 @@ offers one: **verify this in your workspace**.
   next two or three ticks report `daily already ran`. After that the next tick
   takes the day over and runs the whole job again (logged as
   `took over a stale job claim`), normally 45 to 60 minutes after the killed run
-  started. An allocation run the dead run had started is closed as crashed by
-  then (30 minutes after it started; logged as
-  `marked stale allocation run as failed`), so it does not block the takeover.
-- If another allocation run is in progress when the daily job starts (a PM
-  started one from the web app), the job fails with
-  `An allocation run is already in progress` (exit 1), gives the day back, and a
-  later tick runs it.
+  started. If the dead run had started an allocation run, that run is more than
+  30 minutes old by then, so the takeover closes it as crashed (logged as
+  `marked stale allocation run as failed`) instead of being blocked by it.
+- If another allocation run is in progress when the daily job starts, the job
+  fails with `An allocation run is already in progress` (exit 1), gives the day
+  back, and a later tick runs it. That run can be an `allocate` run by hand (or
+  a PM's run from the web app) that is still going, or one that was killed or
+  timed out: a run counts as in progress until 30 minutes after it started.
 - What the re-run does: issues the dead tick already assigned are skipped as
   already assigned (never assigned or commented twice; a comment it had not
   posted yet stays missing). Nobody gets a second digest that day, not even
