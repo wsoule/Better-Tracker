@@ -1,31 +1,69 @@
-# TypeScript Monorepo Template
+# Milestone Planner
 
-Starter template for new projects, derived from the
-[Pierre](https://github.com/pierredotco) open-source monorepo. It keeps the
-toolchain — pnpm workspaces with a catalog, [moon](https://moonrepo.dev) as task
-runner, [proto](https://moonrepo.dev/docs/proto) for tool version pins,
-oxlint/oxfmt/stylelint, Bun's test runner, CI, and agent instructions — without
-any product source code.
+A planning layer over Linear that **does the allocation and the noticing**:
 
-## Start
+- **My week**: every person sees their open issues grouped by milestone and
+  sorted by due date, with issues the tool just assigned to them marked "new —
+  given to you because you lead <project>".
+- **Timeline** for PMs: one lane per project, grouped by initiative, with
+  milestone bars you can drag to change the date in Linear. Each milestone shows
+  its rubric status (target date, "done means…", project lead, at least one
+  issue). Banners list projects with no lead, milestones with no date, and
+  issues with no milestone.
+- **Dependency graph**: which milestones and issues block which, mermaid-style.
+  It highlights chains that end in an unassigned or overdue issue, blockers in
+  other projects, and cycles. "Copy Mermaid" exports the graph.
+- **Auto-allocation** (daily, dry run first): unassigned issues in a project's
+  _next_ milestone go to the project lead and move from Backlog to Todo, with a
+  Linear comment saying why. If a next milestone is invalid or stuck, allocation
+  stops for that project and says so loudly. It never skips ahead to a later
+  milestone.
+- **One-week warnings**: when a milestone is at risk or overdue, the lead and
+  the configured watchers get one Slack digest per day.
+
+Linear stays the source of truth. The only writes are an issue's assignee and
+state, an issue comment, a milestone's target date, and a project's lead. The
+product design is in
+[`docs/design/`](docs/design/2026-10-21-milestone-planner-design.md). The build
+spec is [`docs/architecture.md`](docs/architecture.md). Deployment steps are in
+[`docs/deploy.md`](docs/deploy.md).
+
+## Try it without Linear
+
+Demo mode runs against a fictional, in-memory workspace. Every screen works,
+including dragging dates and allocation runs:
 
 ```bash
-proto use        # install pinned bun, pnpm, node, moon
 pnpm install
-moon run root:format root:lint
-moonx template:build
-moonx template:test
-moonx template:typecheck
+scripts/build-all.sh --skip-planner
+cd apps/planner && LINEAR_FIXTURE=1 ./node_modules/.bin/next dev
+# open http://localhost:3000 and pick a demo user
 ```
 
 ## Layout
 
-- `packages/template` — placeholder library wired into the full pipeline (tsdown
-  build, bun test, TypeScript 7 typecheck). Rename or copy it to start real
-  work; new libraries go under `packages/`, new apps under `apps/`.
-- `moon.yml` — root project (repo-wide lint/format/clean/worktree tasks). Keep
-  its `dependsOn` list in sync with dist-producing packages.
-- `.moon/tasks/` — shared task definitions inherited by every project.
-- `.agents/skills/` — agent-facing conventions; `AGENTS.md` is the entry point.
-- `scripts/` — worktree manager (`wt.ts`), dev-server helpers; see
-  `scripts/README.md`.
+```
+apps/planner    Next.js app (pages, OAuth, webhooks, PM edits)
+apps/worker     scheduled jobs CLI (tick = resync + daily allocation/warnings)
+packages/core   pure domain rules and view models (heavily tested)
+packages/linear Linear GraphQL gateway, OAuth, webhook verification, demo workspace
+packages/store  Postgres persistence (PGlite locally and in tests)
+packages/notify Slack DM digests and the outbox
+packages/engine orchestration used by both apps
+packages/logger structured JSON logs
+```
+
+This repo derives from the Pierre TypeScript monorepo template. It uses pnpm
+workspaces with a catalog, moon tasks, proto pins, oxlint/oxfmt/stylelint and
+Bun tests. `AGENTS.md` and `.agents/skills/` describe the conventions.
+
+```bash
+proto use          # install pinned bun, pnpm, node, moon
+pnpm install
+moon run root:format root:lint
+moonx :build :typecheck :test
+moonx planner:dev --ignore-ci-checks
+```
+
+When moon cannot download its toolchain plugins, run the tools directly as
+described in `AGENTS.md`, or use `scripts/build-all.sh`.

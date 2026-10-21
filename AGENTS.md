@@ -1,4 +1,19 @@
-# TypeScript Monorepo Template
+# Milestone Planner (TypeScript monorepo)
+
+## Project
+
+- The product design is `docs/design/2026-10-21-milestone-planner-design.md`.
+  The binding build spec (domain rules, package contracts, routes, design
+  system) is `docs/architecture.md`; read the relevant section before changing
+  behavior, and update it in the same change when a rule moves.
+- Linear is the source of truth. The tool writes only an issue's assignee and
+  state, an issue comment, a milestone's target date, and a project's lead. Do
+  not add other Linear writes without changing the design doc first.
+- Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
+  workspace). Tests never call real Linear or Slack.
+- The UI follows the wsoule/Analytics `competitors-site` design system
+  (`docs/architecture.md` §8.2): tokens in `apps/planner/app/globals.css`, one
+  accent, hairlines, no radius or shadows.
 
 ## Agent Environment
 
@@ -20,7 +35,7 @@ Most local moon tasks (formatters, worktree management) are configured with
 harnesses. Tasks connected to the build graph (dev servers, prod serves, e2e
 variants, publish guards) stay CI-skipped — run those with
 `moonx <target> --ignore-ci-checks`, e.g.
-`moonx template:dev --ignore-ci-checks`. For non-moon commands that CI-gate
+`moonx planner:dev --ignore-ci-checks`. For non-moon commands that CI-gate
 themselves, unset the var: `CI= pnpm publish --dry-run`.
 
 ## Toolchain
