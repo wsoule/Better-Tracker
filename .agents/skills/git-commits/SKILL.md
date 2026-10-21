@@ -94,7 +94,7 @@ Include a wrapped commit body for ordinary source changes:
 
 ```bash
 git commit -F - <<'COMMIT'
-fix(template): Keep scroll focus stable
+fix(planner): Keep scroll focus stable
 
 Scroll a long diff with the keyboard, then press an arrow key: the
 selection jumps to a row other than the one highlighted.

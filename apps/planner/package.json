@@ -1,0 +1,23 @@
+{
+  "name": "@better-tracker/planner",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Milestone Planner web app: My week, PM timeline, dependency graph, run log, settings, Linear OAuth and webhooks.",
+  "type": "module",
+  "dependencies": {
+    "@better-tracker/core": "workspace:*",
+    "@better-tracker/engine": "workspace:*",
+    "@better-tracker/logger": "workspace:*",
+    "@dagrejs/dagre": "catalog:",
+    "next": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "typescript": "catalog:"
+  }
+}

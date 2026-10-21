@@ -17,7 +17,12 @@ language: 'typescript'
 # dist (exactly like typecheck), so the root project depends on every
 # dist-producing package and lint orders itself after their builds.
 dependsOn:
-  - 'template'
+  - 'core'
+  - 'engine'
+  - 'linear'
+  - 'logger'
+  - 'notify'
+  - 'store'
 
 workspace:
   inheritedTasks:

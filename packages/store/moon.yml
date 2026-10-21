@@ -1,0 +1,8 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# Postgres persistence (pg in production, PGlite for local dev and tests) for tool-owned data and the Linear mirror.
+# Inherits build/dev from the tsdown tag and test/typecheck from the shared
+# bun-common tasks.
+language: 'typescript'
+layer: 'library'
+tags: ['tsdown']

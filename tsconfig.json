@@ -3,7 +3,28 @@
   "files": [],
   "references": [
     {
-      "path": "packages/template/tsconfig.json"
+      "path": "packages/core/tsconfig.json"
+    },
+    {
+      "path": "packages/engine/tsconfig.json"
+    },
+    {
+      "path": "packages/linear/tsconfig.json"
+    },
+    {
+      "path": "packages/logger/tsconfig.json"
+    },
+    {
+      "path": "packages/notify/tsconfig.json"
+    },
+    {
+      "path": "packages/store/tsconfig.json"
+    },
+    {
+      "path": "apps/planner/tsconfig.json"
+    },
+    {
+      "path": "apps/worker/tsconfig.json"
     }
   ]
 }

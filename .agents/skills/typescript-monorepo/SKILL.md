@@ -21,15 +21,15 @@ strict.
 
 ## Adding a Package
 
-Copy `packages/template` and wire the copy into four places. Example for a new
-library `@template/utils`:
+Copy an existing library package (e.g. `packages/logger`) and wire the copy
+into four places. Example for a new library `@better-tracker/utils`:
 
 ```bash
-cp -r packages/template packages/utils
+cp -r packages/logger packages/utils
 rm -rf packages/utils/dist packages/utils/node_modules packages/utils/*.tsbuildinfo
 ```
 
-1. `packages/utils/package.json` — set `"name": "@template/utils"`.
+1. `packages/utils/package.json` — set `"name": "@better-tracker/utils"`.
 2. `packages/utils/moon.yml` — keep `language`, `layer`, and `tags`; shared
    tasks come from `.moon/tasks/*.yml` via tags or project language. The moon
    project id is the directory name (`utils`), so tasks run as
@@ -47,9 +47,9 @@ follow the same steps under `apps/`.
 
 Cross-package imports resolve through the dependency's published `dist`, not
 through TypeScript project references, and moon builds dependencies first via
-`deps: ['^:build']`. So when `@template/app` imports `@template/utils`:
+`deps: ['^:build']`. So when `@better-tracker/planner` imports `@better-tracker/utils`:
 
-- Add `"@template/utils": "workspace:*"` to the consumer's `package.json` and
+- Add `"@better-tracker/utils": "workspace:*"` to the consumer's `package.json` and
   run `pnpm install`. moon infers the project dependency from it.
 - Do not add a `references` entry between the two package tsconfigs.
 

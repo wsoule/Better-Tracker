@@ -42,6 +42,8 @@
     ".next",
     ".source",
     ".vercel",
-    "*.patch"
+    "*.patch",
+    "packages/linear/schema/linear.graphql",
+    "docs/design/**"
   ]
 }

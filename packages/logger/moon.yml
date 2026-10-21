@@ -1,0 +1,8 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# Structured JSON logger shared by every Better Tracker process.
+# Inherits build/dev from the tsdown tag and test/typecheck from the shared
+# bun-common tasks.
+language: 'typescript'
+layer: 'library'
+tags: ['tsdown']

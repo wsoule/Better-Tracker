@@ -1,0 +1,21 @@
+{
+  "name": "@better-tracker/logger",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Structured JSON logger shared by every Better Tracker process.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "devDependencies": {
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
+  }
+}

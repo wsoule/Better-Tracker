@@ -1,17 +1,21 @@
 {
-  "name": "@template/template",
+  "name": "@better-tracker/worker",
   "version": "0.0.0",
   "private": true,
+  "description": "Scheduled jobs CLI: daily sync, auto-allocation and one-week warnings; periodic resync; migrations.",
   "type": "module",
-  "sideEffects": false,
   "main": "./dist/index.js",
-  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     }
+  },
+  "dependencies": {
+    "@better-tracker/core": "workspace:*",
+    "@better-tracker/engine": "workspace:*",
+    "@better-tracker/logger": "workspace:*"
   },
   "devDependencies": {
     "tsdown": "catalog:",

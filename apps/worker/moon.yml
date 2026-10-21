@@ -1,0 +1,8 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# Scheduled jobs CLI (Railway cron runs `node apps/worker/dist/index.js tick`).
+# Inherits build/dev from the tsdown tag and test/typecheck from the shared
+# bun-common tasks.
+language: 'typescript'
+layer: 'application'
+tags: ['tsdown']
