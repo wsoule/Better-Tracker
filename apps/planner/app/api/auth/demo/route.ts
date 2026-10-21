@@ -1,0 +1,64 @@
+import { after } from 'next/server';
+import { z } from 'zod';
+
+import {
+  authErrorLocation,
+  isSecureUrl,
+  readCookie,
+  redirectWithCookies,
+  SESSION_COOKIE,
+  sessionCookie,
+} from '../../../../lib/auth-cookies';
+import { authErrorCode, signOutQuietly } from '../../../../lib/auth-flow';
+import { jsonError, rejectCrossOrigin } from '../../../../lib/origin';
+import { getEngine } from '../../../../lib/runtime';
+
+const demoForm = z.object({ userId: z.string().trim().min(1).max(200) });
+
+/**
+ * POST /api/auth/demo (form field userId): demo mode only (404 elsewhere),
+ * same-origin only. Signs in as a fictional person, ends the session it
+ * replaces, and opens My week with a 303. Failures go back to the picker
+ * with ?auth_error=<code>.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const engine = await getEngine();
+  if (engine.mode !== 'fixture') {
+    return jsonError(404, 'not_found', 'Demo sign-in is off on this server.');
+  }
+  const refused = rejectCrossOrigin(request, engine.config.appUrl);
+  if (refused !== null) return refused;
+
+  let fields: Record<string, unknown>;
+  try {
+    fields = Object.fromEntries((await request.formData()).entries());
+  } catch {
+    return redirectWithCookies(authErrorLocation('invalid_request'));
+  }
+  const parsed = demoForm.safeParse(fields);
+  if (!parsed.success) {
+    return redirectWithCookies(authErrorLocation('invalid_request'));
+  }
+
+  try {
+    const result = await engine.devSignIn(parsed.data.userId);
+    const previous = readCookie(request, SESSION_COOKIE);
+    if (previous !== undefined && previous !== result.sessionToken) {
+      after(() => signOutQuietly(engine, previous));
+    }
+    return redirectWithCookies('/week', [
+      sessionCookie(result.sessionToken, result.session.expiresAt, {
+        secure: isSecureUrl(engine.config.appUrl),
+        nowMs: Date.now(),
+      }),
+    ]);
+  } catch (error) {
+    // The engine's `invalid` here means "a deactivated person or the app
+    // user": give it its own code, since `invalid` alone reads as "sign-in
+    // is unavailable on this server".
+    const code = authErrorCode(error, 'demo_signin');
+    return redirectWithCookies(
+      authErrorLocation(code === 'invalid' ? 'demo_inactive' : code)
+    );
+  }
+}

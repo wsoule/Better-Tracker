@@ -802,12 +802,53 @@ require same-origin `Origin` (or `Sec-Fetch-Site: same-origin`) and JSON bodies
 validated with zod. `returnTo` must be a relative path. Every page/route
 resolves the actor server-side; the UI never decides permissions.
 
-### 8.2 Visual language (Analytics `competitors-site` + `DESIGN.md`)
+Auth and frame details (decided while building `apps/planner`; binding):
 
-The one deliberate departure from Analytics is the accent: purple `#9747ff`
-(pressed `#7f36f0`) instead of its orange, at the owner's request. Like the
-orange it is one value in both themes: 4.51:1 against white paper and for white
-text on a purple fill, 4.25:1 against the dark paper.
+- `mp_oauth` is scoped to `Path=/api/auth`. `returnTo` must start with exactly
+  one `/` (never `//` or `/\`), contain no control characters or spaces
+  (browsers strip them, turning `/\t/x` into `//x`) and resolve to the same
+  origin; anything else becomes `/week`. Non-ASCII characters are
+  percent-encoded (UTF-8), because the callback's `Location` header must be a
+  byte string. It is checked when signing the cookie and again after verifying
+  it.
+- Every callback outcome clears `mp_oauth`. Failures land on
+  `/?auth_error=<code>`: the engine's `EngineAuthError`/`EngineInputError`
+  codes, `linear_<kind>`, `oauth_expired` (missing, tampered or expired cookie),
+  `oauth_state`, `oauth_code`, `access_denied`, `sign_in_first`
+  (install/grant_write without a session), `session_secret`, `invalid_request`
+  or `internal` (logged). The demo sign-in reports the engine's `invalid` (a
+  deactivated person or the app user) as `demo_inactive`. A signed-in visitor
+  sees the error on `/` instead of being sent to `/week`. A sign-in that
+  replaces a session ends the old one in `after()`.
+- `SESSION_SECRET` (≥ 32 chars) is required in real mode; without it the OAuth
+  routes log the misconfiguration and redirect with `session_secret`. Demo mode
+  uses a per-process random secret.
+- `POST /api/webhooks/linear` reads at most 5 MiB of raw body (413), answers a
+  bare 400 for a bad signature, a stale timestamp or a malformed payload, 503
+  while `LINEAR_WEBHOOK_SECRET` is unset, and 200 (dropped) for verified event
+  types the engine does not use, so Linear never disables the webhook over them.
+- `GET /api/health` has no engine ping to call: it boots the engine (store
+  opened and migrated) and reads `listWorkspaceIds()`; failure is 503
+  `{ ok: false, db: 'error' }`.
+- `GET /api/palette` returns `{ projects, milestones, issues }`, each entry
+  `{ id, label, hint, href, external, status?, statusLabel? }`; issues are the
+  person's open My week issues and open in Linear in a new tab.
+- Unmatched page URLs render `(app)/not-found.tsx` inside the frame (a
+  `[...missing]` catch-all, since the two root layouts leave Next without a
+  single root 404); like every `(app)` page it streams under
+  `(app)/loading.tsx`, so `redirect()`/`notFound()` there are client-side (meta
+  refresh / `noindex`, status 200). Unmatched `/api/*` paths answer a JSON 404.
+- `app/global-error.tsx` is the styled last resort when a root layout throws
+  (the engine cannot start or read the session: database unreachable,
+  configuration incomplete), which `(app)/error.tsx` does not wrap: the
+  signed-out bar, the error digest and a retry. `/setup` offers no reinstall in
+  demo mode (there is no OAuth there).
+- Engine errors are recognised by `name` + `code` as well as by class
+  (`lib/engine-errors.ts`): the process-wide engine cached on `globalThis` may
+  come from another route bundle's copy of the package, where `instanceof`
+  fails.
+
+### 8.2 Visual language (Analytics `competitors-site` + `DESIGN.md`)
 
 The one deliberate departure from Analytics is the accent: purple `#9747ff`
 (pressed `#7f36f0`) instead of its orange, at the owner's request. Like the

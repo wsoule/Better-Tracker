@@ -1,6 +1,4 @@
 import {
-  EngineAuthError,
-  EngineInputError,
   isLinearApiError,
   type Actor,
   type Engine,
@@ -8,6 +6,7 @@ import {
 import { createLogger } from '@better-tracker/logger';
 import type { ZodType } from 'zod';
 
+import { engineAuthCode, engineInputCode } from './engine-errors';
 import { jsonError, rejectCrossOrigin } from './origin';
 import { getRequestContext } from './session';
 
@@ -15,16 +14,22 @@ export { jsonError, rejectCrossOrigin };
 
 const logger = createLogger({ name: 'planner.http' });
 
-/** Maps engine and Linear errors to HTTP responses; logs the unexpected. */
+/**
+ * Maps engine and Linear errors to HTTP responses; logs the unexpected.
+ * Engine errors are recognised by name as well as class (lib/engine-errors:
+ * the cached engine may come from another bundle's copy of the package).
+ */
 export function errorResponse(error: unknown): Response {
-  if (error instanceof EngineAuthError) {
-    const status = error.code === 'not_signed_in' ? 401 : 403;
-    return jsonError(status, error.code, error.message);
+  const authCode = engineAuthCode(error);
+  if (authCode !== null) {
+    const status = authCode === 'not_signed_in' ? 401 : 403;
+    return jsonError(status, authCode, (error as Error).message);
   }
-  if (error instanceof EngineInputError) {
+  const inputCode = engineInputCode(error);
+  if (inputCode !== null) {
     const status =
-      error.code === 'not_found' ? 404 : error.code === 'conflict' ? 409 : 400;
-    return jsonError(status, error.code, error.message);
+      inputCode === 'not_found' ? 404 : inputCode === 'conflict' ? 409 : 400;
+    return jsonError(status, inputCode, (error as Error).message);
   }
   if (isLinearApiError(error)) {
     const status =
@@ -75,8 +80,8 @@ export async function requireApiActor(
   const { engine, actor } = await getRequestContext();
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     const refused = rejectCrossOrigin(request, engine.config.appUrl);
-    if (refused) return refused;
+    if (refused !== null) return refused;
   }
-  if (!actor) return jsonError(401, 'not_signed_in', 'Sign in first.');
+  if (actor === null) return jsonError(401, 'not_signed_in', 'Sign in first.');
   return { engine, actor };
 }

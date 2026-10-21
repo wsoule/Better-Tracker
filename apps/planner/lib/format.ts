@@ -45,7 +45,7 @@ const FULL_MONTHS = [
 
 function parts(date: string): { y: number; m: number; d: number } {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
-  if (!match) throw new Error(`Not a YYYY-MM-DD date: ${date}`);
+  if (match === null) throw new Error(`Not a YYYY-MM-DD date: ${date}`);
   return { y: Number(match[1]), m: Number(match[2]), d: Number(match[3]) };
 }
 

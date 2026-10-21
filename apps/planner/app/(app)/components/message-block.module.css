@@ -1,0 +1,38 @@
+.body {
+  border: 1px solid var(--border);
+  border-top: 0;
+  padding: 28px 18px 30px;
+}
+
+.headline {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.copy {
+  max-width: 64ch;
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+@media (width <= 768px) {
+  .body {
+    padding: 22px 14px 24px;
+  }
+
+  .headline {
+    font-size: 22px;
+  }
+}

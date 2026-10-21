@@ -2,20 +2,26 @@ import type { Actor, Engine } from '@better-tracker/engine';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
+import { SESSION_COOKIE } from './auth-cookies';
 import { getEngine } from './runtime';
 
 /** httpOnly cookie holding the opaque session token (only its hash is stored). */
-export const SESSION_COOKIE = 'mp_session';
+export { SESSION_COOKIE };
 
 export interface RequestContext {
   engine: Engine;
   actor: Actor | null;
 }
 
-/** Resolves the signed-in person for a page or route, if any. */
+/**
+ * Resolves the signed-in person for a page or route, if any. The cookie is
+ * read before the engine boots: cookies() marks the route dynamic, so
+ * `next build` never prerenders a page into an engine boot (which needs
+ * the runtime environment).
+ */
 export async function getRequestContext(): Promise<RequestContext> {
-  const engine = await getEngine();
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
+  const engine = await getEngine();
   const actor = await engine.authenticate(token);
   return { engine, actor };
 }
@@ -26,6 +32,6 @@ export async function requireActor(): Promise<{
   actor: Actor;
 }> {
   const { engine, actor } = await getRequestContext();
-  if (!actor) redirect('/');
+  if (actor === null) redirect('/');
   return { engine, actor };
 }

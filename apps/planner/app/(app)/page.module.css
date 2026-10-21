@@ -1,0 +1,44 @@
+/* The landing page's sign-in block: headline, lead copy and one primary
+   action (or, in demo mode, the register of people below it). */
+
+.signIn {
+  border: 1px solid var(--border);
+  border-top: 0;
+  padding: 28px 18px 30px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.lead {
+  max-width: 64ch;
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.actions {
+  margin-top: 20px;
+}
+
+.noticeActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (width <= 768px) {
+  .signIn {
+    padding: 22px 14px 24px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+}

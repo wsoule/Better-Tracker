@@ -7,9 +7,11 @@
   "dependencies": {
     "@better-tracker/core": "workspace:*",
     "@better-tracker/engine": "workspace:*",
+    "@better-tracker/linear": "workspace:*",
     "@better-tracker/logger": "workspace:*",
     "@better-tracker/ui": "workspace:*",
     "@dagrejs/dagre": "catalog:",
+    "lucide-react": "catalog:",
     "next": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

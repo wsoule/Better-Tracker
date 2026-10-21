@@ -27,12 +27,15 @@ export function statusLabel(status: MilestoneStatus): string {
 }
 
 /**
- * Mark for an assessed milestone. A milestone that fails the rubric but is
+ * Mark for an assessed milestone (or anything carrying its status and
+ * rubric, such as a TimelineBar). A milestone that fails the rubric but is
  * otherwise on track reads as "missing input" (hatched), because the
  * missing input is what needs action; overdue and at-risk keep their own
  * marks (they are more urgent) and the drawer lists the gaps.
  */
-export function assessmentMark(assessment: MilestoneAssessment): {
+export function assessmentMark(
+  assessment: Pick<MilestoneAssessment, 'status' | 'rubric'>
+): {
   status: UiStatus;
   label: string;
 } {

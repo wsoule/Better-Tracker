@@ -1,0 +1,60 @@
+/* /setup: a page head (title + receipts line) over one block. */
+
+.head {
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.receipts {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.panel {
+  border: 1px solid var(--border);
+  margin-top: -1px;
+  padding: 18px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.panel > .actions:not(:first-child) {
+  margin-top: 20px;
+}
+
+.note {
+  max-width: 64ch;
+  margin-top: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .panel {
+    padding: 14px;
+  }
+}

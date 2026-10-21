@@ -1,0 +1,19 @@
+.head {
+  display: grid;
+  gap: 12px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.rows {
+  border: 1px solid var(--border);
+  border-top: 0;
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+}
