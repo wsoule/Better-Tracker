@@ -393,11 +393,12 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   (deactivated leads must stay visible), `teams`, `workflowStates`,
   `initiatives`, `projects` (filter out completed/canceled via `status.type`),
   `projectMilestones`, `issues`, `issueRelations` (no filter arg; keep
-  `type == "blocks"`). Page with `first: 100` +
-  `pageInfo { hasNextPage endCursor }`; a page over Linear's max is rejected
-  loudly, so keep the constant in one place. Single queries are capped at 10,000
-  complexity points (connections multiply children by `first`), so nested
-  connections only select ids with a small explicit `first`.
+  `type == "blocks"`). Page with `first: 50` (Linear's documented default; its
+  maximum is not documented anywhere we could verify) +
+  `pageInfo { hasNextPage endCursor }`; keep the constant in one place. Single
+  queries are capped at 10,000 complexity points (connections multiply children
+  by `first`), so nested connections only select ids with a small explicit
+  `first`.
 - Issues fetched: `issues(filter: { project: { null: false } })` (open and
   closed, for progress) plus open issues without a project
   (`filter: { project: { null: true }, state: { type: { nin: ["completed", "canceled", "duplicate"] } } }`)
@@ -469,13 +470,22 @@ every workspace that installs it, routed by `organizationId`)
   (`webhookId` is the same for every delivery and must not be used).
 - Payload:
   `{ action, type, data, url, updatedFrom, createdAt, organizationId, webhookId, webhookTimestamp, actor }`;
-  actions `create`, `update`, `remove` (`remove` also means archived);
-  `OAuthApp` + `revoked` when an installation is revoked.
-- Resource types to subscribe: **Issue, Project, Initiative, User,
-  OAuthAuthorization**. There is **no ProjectMilestone and no IssueRelation
-  webhook**: milestone and relation changes are picked up by refetching on
-  Issue/Project events and by the periodic full resync (default every 15 minutes
-  from the worker).
+  actions `create`, `update`, `remove` (how archiving is delivered is not
+  documented; treat `remove` and an update with `archivedAt` set the same way:
+  refetch, which returns null for archived entities). Two non-entity payloads
+  exist in the schema: `OAuthAppWebhookPayload` (type `OAuthApp`,
+  `oauthClientId`, no `data`) — the app was revoked for the workspace → mark the
+  installation revoked; and `OAuthAuthorizationWebhookPayload` (type
+  `OAuthAuthorization`, `userId`, `activeTokensForUser`) — a user's
+  authorization changed → log only (a dead user token surfaces as a failed
+  refresh and the person signs in again).
+- Resource types to subscribe: **Issue, Project, Initiative, User** (plus
+  OAuthAuthorization if offered). Webhooks configured on the OAuth app cover the
+  teams the app was granted at install; private-team data outside that grant is
+  invisible to the app by design. There is **no ProjectMilestone and no
+  IssueRelation webhook**: milestone and relation changes are picked up by
+  refetching on Issue/Project events and by the periodic full resync (default
+  every 15 minutes from the worker).
 - Respond 200 within 5 s (Linear retries 1 min, 1 h, 6 h, then may disable the
   webhook), so the route only verifies and acks; processing runs in Next's
   `after()`.
@@ -644,29 +654,41 @@ must exist in the mirror.
 
 ## 8. Web app (apps/planner)
 
+Two references, one rule: **layout and interaction from Gr8r Studio
+(github.com/gr8rstudio/gr8r-studio), visual language from the Analytics
+`competitors-site` (wsoule/Analytics).** Gr8r decides where things go and how
+they behave (sidebar shell, topbar, command palette, grouped task lists, Gantt
+timeline, slide-over drawer, projects register, phone tab bar). Analytics
+decides how everything looks (paper/ink/one orange, hairlines, mono labels,
+hatched chrome, zero radius, no shadows). Gr8r's rounded cards, shadows, indigo
+accent and semantic hues are **not** used. Gr8r is a reference only; nothing is
+imported from it.
+
 ### 8.1 Routes
 
-| route                           | who                        | what                                                                                                               |
-| ------------------------------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `/`                             | all                        | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                            |
-| `/week`                         | signed in                  | My week; PMs may pass `?user=<id>`                                                                                 |
-| `/timeline`                     | signed in                  | PM timeline; `?milestone=<id>` opens the drawer, `?project=<id>` focuses a lane; edit controls only for PMs        |
-| `/graph`                        | signed in                  | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level                    |
-| `/runs`, `/runs/[id]`           | signed in                  | allocation run log; PMs get "Preview (dry run)" and "Run now"                                                      |
-| `/settings`                     | PMs (read-only for others) | modes, PMs, watchers, timezone, tuning, sync/webhook/Slack status, digest preview, notification history, audit log |
-| `/setup`                        | signed in                  | install the app into the workspace (admin)                                                                         |
-| `GET /api/auth/linear?intent=`  | —                          | starts OAuth (sets `mp_oauth` cookie)                                                                              |
-| `GET /api/auth/linear/callback` | —                          | finishes OAuth                                                                                                     |
-| `POST /api/auth/logout`         | —                          | ends session                                                                                                       |
-| `POST /api/auth/demo`           | fixture mode only          | demo sign-in                                                                                                       |
-| `POST /api/webhooks/linear`     | Linear                     | verify, ack 200, process in `after()`                                                                              |
-| `PATCH /api/milestones/[id]`    | PM                         | `{ targetDate?, weight?, doneMeans? }`                                                                             |
-| `PATCH /api/projects/[id]`      | PM                         | `{ leadId }`                                                                                                       |
-| `POST /api/runs`                | PM                         | `{ mode: 'dry_run' \| 'live' }`                                                                                    |
-| `POST /api/sync`                | PM                         | full resync                                                                                                        |
-| `POST /api/warnings/preview`    | PM                         | digests without sending                                                                                            |
-| `PATCH /api/settings`           | PM                         | settings patch                                                                                                     |
-| `GET /api/health`               | —                          | `{ ok, db }` for Railway healthchecks                                                                              |
+| route                           | who                        | what                                                                                                           |
+| ------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/`                             | all                        | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                        |
+| `/week`                         | signed in                  | My week (the landing screen); PMs may pass `?user=<id>`                                                        |
+| `/timeline`                     | signed in                  | Gantt timeline; `?milestone=<id>` opens the drawer, `?project=<id>` focuses a lane; edit controls only for PMs |
+| `/projects`                     | signed in                  | projects register: next milestone, status, progress, lead, allocation state                                    |
+| `/graph`                        | signed in                  | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level                |
+| `/runs`, `/runs/[id]`           | signed in                  | allocation run log; PMs get "Preview (dry run)" and "Run now"                                                  |
+| `/settings`                     | PMs (read-only for others) | modes, people, schedule, status, digest preview, notifications, audit                                          |
+| `/setup`                        | signed in                  | install the app into the workspace (admin)                                                                     |
+| `GET /api/palette`              | signed in                  | command-palette index (pages, projects, milestones, the user's open issues), fetched when the palette opens    |
+| `GET /api/auth/linear?intent=`  | —                          | starts OAuth (sets `mp_oauth` cookie)                                                                          |
+| `GET /api/auth/linear/callback` | —                          | finishes OAuth                                                                                                 |
+| `POST /api/auth/logout`         | —                          | ends session                                                                                                   |
+| `POST /api/auth/demo`           | fixture mode only          | demo sign-in                                                                                                   |
+| `POST /api/webhooks/linear`     | Linear                     | verify, ack 200, process in `after()`                                                                          |
+| `PATCH /api/milestones/[id]`    | PM                         | `{ targetDate?, weight?, doneMeans? }`                                                                         |
+| `PATCH /api/projects/[id]`      | PM                         | `{ leadId }`                                                                                                   |
+| `POST /api/runs`                | PM                         | `{ mode: 'dry_run' \| 'live' }`                                                                                |
+| `POST /api/sync`                | PM                         | full resync                                                                                                    |
+| `POST /api/warnings/preview`    | PM                         | digests without sending                                                                                        |
+| `PATCH /api/settings`           | PM                         | settings patch                                                                                                 |
+| `GET /api/health`               | —                          | `{ ok, db }` for Railway healthchecks                                                                          |
 
 Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
 `APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
@@ -676,23 +698,23 @@ require same-origin `Origin` (or `Sec-Fetch-Site: same-origin`) and JSON bodies
 validated with zod. `returnTo` must be a relative path. Every page/route
 resolves the actor server-side; the UI never decides permissions.
 
-### 8.2 Design system (from wsoule/Analytics `competitors-site` + `DESIGN.md`)
+### 8.2 Visual language (Analytics `competitors-site` + `DESIGN.md`)
 
-The UI reuses that site's system verbatim: tokens (`--paper`, `--ink`,
-`--background`, `--foreground`, `--border`, `--muted`, `--accent #ee5a24`,
-`--accent-hover`, `--on-accent`, `--ink-soft`, `--grey-2..4`,
-`--hairline-faint`, `--hatch`, `--tint`, the `*-inverse` set), light + dark via
-`html[data-theme]` with the pre-paint theme script, Geist + JetBrains Mono via
-`next/font/google`, body weight 300, zero radius, no shadows, 1px hairlines
-collapsed with `-1px` margins, 2px only for emphasis, the hatched chrome
-titlebar (`.block` / `.blockBar` / `.blockKey` / `.blockTitle` / `.blockMeta`),
-the sticky nav dock with orange registration marks that floods orange on hover,
-the grid tab strip (selected = ink fill, hover = orange flood), roster-style
+Tokens (`--paper`, `--ink`, `--background`, `--foreground`, `--border`,
+`--muted`, `--accent #ee5a24`, `--accent-hover`, `--on-accent`, `--ink-soft`,
+`--grey-2..4`, `--hairline-faint`, `--hatch`, `--tint`, the `*-inverse` set),
+light + dark via `html[data-theme]` with the pre-paint theme script, Geist +
+JetBrains Mono via `next/font/google`, body weight 300, zero radius, no shadows
+(overlays separate with a 1px ink border and a scrim derived from `--ink`, never
+blur), 1px hairlines collapsed with `-1px` margins, 2px only for emphasis, the
+hatched chrome titlebar (`.block` / `.blockBar` …), orange registration marks on
+the chrome, the grid tab strip (selected = ink fill, hover = orange flood),
 register rows whose hover swaps paper and ink tokens locally, the `Mark` square
-idiom, the 2px-accent explain drawer, mono uppercase micro-labels with positive
-tracking, `:focus-visible` orange outline, hover effects gated behind
+idiom, the 2px-accent explain panel, mono uppercase micro-labels with positive
+tracking, `:focus-visible` orange outline, hover floods gated behind
 `@media (hover: hover) and (min-width: 901px)`, and a designed
-`prefers-reduced-motion` state.
+`prefers-reduced-motion` state. Motion uses the Analytics curves
+(`--ease-out-quint` for drawers, `--ease-out-expo` for growth).
 
 Status uses only the system's own marks (no new hues — DESIGN.md §3):
 
@@ -704,43 +726,106 @@ Status uses only the system's own marks (no new hues — DESIGN.md §3):
 | overdue                              | filled accent square         |
 | unscheduled / empty / rubric-invalid | hatched square, muted border |
 
-The same states drive timeline bars (overdue = accent fill; at risk = 2px accent
-border; on track = ink border on paper; complete = ink fill; invalid = hatch +
-muted label listing what is missing).
+Where Gr8r uses a coloured status dot, priority bars, or a red/green number, the
+planner uses these marks, mono labels, and the accent only for "needs action"
+(overdue, unassigned, blocked, missing input).
 
-### 8.3 Pages
+### 8.3 Layout and interaction (from Gr8r Studio)
 
-- **My week**: hatched titlebar `01 · MY WEEK · <name> · <today>`; a stats strip
-  (open / this week / overdue / new); a legend row; sections as register blocks:
-  header `PROJECT › MILESTONE`, due date + days left, `completed/scope` with a
-  1px progress rule, status mark; rows: identifier (mono), title (sans),
-  priority label, state, "NEW — GIVEN TO YOU BECAUSE YOU LEAD <PROJECT>" chip in
-  accent; each row links to Linear. A divider separates "This week" from
-  "Later". Empty state is honest copy.
-- **Timeline**: banners first (no lead / no date / unplanned / blocked, each a
-  count that expands to a list). Then a drawing like the competitors Matrix:
-  sticky left column of lanes grouped by initiative, a date axis with week ticks
-  (mono 9.5px), today as a 1px accent vertical rule, bars positioned by date.
-  PMs drag a bar's right edge to change its date (snaps to days, shows the date
-  while dragging, PATCH on drop, optimistic with rollback + error notice), and
-  get controls in the drawer for weight, lead (select of active users), "done
-  means…". Clicking a bar opens the 2px-accent drawer: rubric checklist,
-  progress, risk reasons, issues table, "What does this wait on?" →
-  `/graph?milestone=<id>`. Below 900px the drawing becomes per-project cards
-  (like the Matrix cards fallback).
-- **Graph**: milestone/issue level tabs; SVG laid out with `@dagrejs/dagre`
-  (rankdir LR) on the server, rendered as hairline boxes with mono labels; risk
-  chains in accent, cycles dashed accent, cross-project edges dashed ink,
-  resolved edges faint; legend; click a node → side panel with links; "Copy
-  Mermaid" copies `toMermaid` output.
+- **Shell** (`app/components/shell/*`): a fixed left **sidebar** (252px) that is
+  the chrome zone — hatched background, 1px right hairline, orange registration
+  marks at its outer corners — containing: brand row (`MILESTONE PLANNER` mono +
+  workspace name + collapse button), primary nav (My week with a count of
+  this-week issues, Timeline, Projects, Graph, Runs), a `PROJECTS` section
+  listing active projects with the status mark of each project's next milestone
+  (click → `/timeline?project=<id>`), and a footer with Settings, the signed-in
+  user (PM chip), theme toggle and sign out. Active nav item = ink fill; hover =
+  orange flood. A 46px **topbar** (paper, bottom hairline): mono breadcrumb on
+  the left (`TIMELINE › ATLAS MIGRATION`), and on the right the "Search or jump
+  to… CTRL K" palette trigger. `[` collapses the sidebar to an icon rail (choice
+  remembered in localStorage).
+- **Phone (≤ 900px)**: sidebar becomes an off-canvas drawer opened from a topbar
+  menu button; a fixed bottom **tab bar** (My week / Timeline / Projects / Graph
+  / More) like Gr8r's phone layout; pages become single column.
+- **Command palette** (Ctrl/⌘ K, or the topbar trigger): centered 640px panel,
+  1px ink border, 2px accent top rule, scrim from `--ink`; sections
+  _Suggestions_ (PM: "Preview allocation (dry run)", "Resync from Linear";
+  everyone: "Switch theme"), _Jump to_ (projects, milestones, the user's open
+  issues by identifier — fetched from `/api/palette` on first open), and
+  _Navigation_ with two-key shortcuts (G W My week, G T Timeline, G P Projects,
+  G G Graph, G R Runs, G S Settings). ↑/↓ move, ↵ selects, Tab cycles sections,
+  Esc closes; fuzzy match on label + identifier. `?` opens a shortcuts sheet.
+- **Toasts**: bottom-right stack, 1px ink border (2px accent for errors), mono
+  label + one sentence, auto-dismiss after 4 s, `aria-live="polite"`; used after
+  saves, runs and copies.
+- **Loading**: `loading.tsx` per route renders hatched skeleton rows in the
+  page's real layout (Gr8r skeletons), not spinners.
+- **Slide-over drawer** (milestone details): opens from the right over the
+  content (no scrim on desktop, scrim on phone), 2px accent left rule, header
+  with `PROJECT / MILESTONE` breadcrumb and actions (open in Linear, copy link,
+  close), an alert strip when overdue ("Overdue by 3 days. Reschedule" focusing
+  the date field), then a Gr8r-style property list (label column + value
+  column): Status, Due date, Lead, Progress, Weight, Next milestone, Done
+  means…; then the rubric checklist, risk reasons, issues, and "Waits on".
+  Linkable via `?milestone=<id>`; Esc closes; focus is trapped while open and
+  returned on close.
+
+### 8.4 Pages
+
+- **My week** (Gr8r Home + My Tasks, one screen as §2 Goal 1 asks): header "Good
+  morning, Pat" (sans 26px/700) + a receipts line ("Wednesday, October 21 · 4
+  issues due this week · 1 milestone overdue"); a four-cell stats strip (Open
+  issues · this week, Overdue milestones, New to you, At risk in your projects)
+  in the stat-card idiom; then two columns. Main column: the list in Gr8r's
+  grouped-table form — column headers (Issue / Project / State / Priority /
+  Due), collapsible group rows per milestone (`PROJECT › MILESTONE`, due + days
+  left, `completed/scope` with a 1px progress rule, status mark), "THIS WEEK"
+  and "LATER" dividers, rows with identifier (mono), title, state, priority
+  label, and the accent chip "NEW — GIVEN TO YOU BECAUSE YOU LEAD <PROJECT>"; a
+  final "No milestone" group. Right column (Gr8r "Upcoming deadlines"):
+  milestones the user leads or has issues in, grouped Today / Tomorrow / This
+  week / Overdue; and "Needs attention" for projects the user leads that are
+  blocked (reason) or have unassigned next-milestone issues.
+- **Timeline** (Gr8r Timeline in the Matrix drawing style): banners first (no
+  lead / no date / unplanned / blocked, each a count that expands to a list). A
+  toolbar: project search, zoom **Weeks / Months** (segmented tab strip),
+  **Today** (scrolls to today), filters (initiative, only active, only at
+  risk/overdue), **Dependencies** toggle. The chart: a sticky left column of
+  lanes grouped by initiative (lane = project name, lead or `NO LEAD` in
+  accent), a two-row sticky header (month names; day/week ticks in mono 9.5px;
+  weekends shaded with `--tint`), today as a 1px accent vertical rule, a
+  "Milestones" summary row with a diamond (45°-rotated square mark) at each due
+  date like Gr8r, bars per milestone (start → due date) with a diamond at the
+  end, styled by status (overdue accent fill; at risk 2px accent border; on
+  track ink border; complete ink fill; rubric-invalid hatched with "MISSING:
+  …"), a `NEXT` tag on each lane's next milestone, `↑2` for a weight override.
+  With Dependencies on, milestone-level edges are drawn as 1px curved connectors
+  between bars (accent when on a risk chain), like Gr8r's dependency arrows. PMs
+  drag a bar's right edge to re-date (snaps to days, date tooltip, Esc cancels,
+  PATCH on drop, optimistic with rollback + toast); keyboard: focus the handle,
+  ←/→ ±1 day, ↵ commit. Clicking a bar opens the slide-over drawer. Below 900px:
+  per-project cards.
+- **Projects** (Gr8r Projects page, register form): one row per non-completed
+  project grouped by initiative: name + initiative, Linear status (mono chip),
+  next milestone (name, due, status mark), next-milestone progress bar
+  (`completed/scope`), lead or `NO LEAD`, allocation state (`ALLOCATING n` /
+  `BLOCKED: <reason>` in accent / `NOTHING TO DO` / `INACTIVE`), links to its
+  timeline lane and graph. Search + status filter in a toolbar.
+- **Graph**: level tabs (Milestones / Issues in <scope>); SVG laid out with
+  `@dagrejs/dagre` (rankdir LR) on the server, hairline boxes with mono labels;
+  risk chains in accent, cycles dashed accent, cross-project edges dashed ink,
+  resolved edges faint; legend; hover/focus highlights the upstream chain; click
+  a node → slide-over details; "Copy Mermaid" copies `toMermaid` output.
 - **Runs**: register of runs (mode chip DRY RUN / LIVE, trigger, counts); detail
   lists assigned / would assign / failed / stale / skipped / blocked grouped by
   project with reasons.
-- **Settings**: register rows per setting; mode switches use the Matrix switch
-  idiom (13px square glyph that fills accent).
+- **Settings** (Gr8r settings layout): a left sub-nav of sections (Modes,
+  People, Schedule, Status, Notifications, Audit) beside the section content;
+  rows per setting; mode switches use the Matrix switch idiom (13px square glyph
+  that fills accent).
 
 Fixture mode shows a permanent accent-bordered "DEMO DATA — NOT CONNECTED TO
-LINEAR" strip under the nav.
+LINEAR" strip at the top of the content column.
 
 ## 9. Worker (apps/worker)
 

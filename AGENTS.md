@@ -11,9 +11,11 @@
   not add other Linear writes without changing the design doc first.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace). Tests never call real Linear or Slack.
-- The UI follows the wsoule/Analytics `competitors-site` design system
-  (`docs/architecture.md` §8.2): tokens in `apps/planner/app/globals.css`, one
-  accent, hairlines, no radius or shadows.
+- UI: layout and interaction follow Gr8r Studio (sidebar shell, command palette,
+  grouped lists, Gantt timeline, slide-over drawer); the visual language follows
+  the wsoule/Analytics `competitors-site` design system (tokens in
+  `apps/planner/app/globals.css`, one accent, hairlines, no radius or shadows).
+  See `docs/architecture.md` §8.
 
 ## Agent Environment
 
