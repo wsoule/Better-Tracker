@@ -1,0 +1,403 @@
+// A minimal GraphQL client for Linear over plain fetch (no SDK at runtime).
+// It owns transport concerns only: auth header, retries with bounded backoff
+// (rate limits honour Linear's reset headers), and mapping every failure to a
+// LinearApiError kind the engine can act on. Tokens never reach the logs.
+
+import { LinearApiError } from './gateway';
+import {
+  arrayAt,
+  isRecord,
+  type JsonObject,
+  optionalObject,
+  optionalString,
+} from './json';
+
+export const LINEAR_GRAPHQL_ENDPOINT = 'https://api.linear.app/graphql';
+
+/** The fetch surface this package needs; the global fetch satisfies it. */
+export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
+
+/** Structural subset of @better-tracker/logger's Logger. */
+export interface LinearLogger {
+  debug(message: string, fields?: Record<string, unknown>): void;
+  info(message: string, fields?: Record<string, unknown>): void;
+  warn(message: string, fields?: Record<string, unknown>): void;
+  error(message: string, fields?: Record<string, unknown>): void;
+}
+
+export interface GraphqlClientOptions {
+  accessToken: string;
+  /** Defaults to the global fetch. */
+  fetch?: FetchLike;
+  /** Defaults to https://api.linear.app/graphql. */
+  endpoint?: string;
+  logger?: LinearLogger;
+  /** Injected in tests so retries do not really wait. */
+  sleep?: (ms: number) => Promise<void>;
+  /** Retries after the first attempt (default 3). */
+  maxRetries?: number;
+  /** Clock in epoch ms, for computing waits until rate-limit resets. */
+  now?: () => number;
+  /**
+   * Longest single wait for a rate-limit reset (default 60 s). A reset
+   * further away fails fast with `rate_limited` + `retryAt` instead of
+   * holding a request (or a webhook handler) open.
+   */
+  maxRateLimitWaitMs?: number;
+  /** Per-attempt timeout (default 30 s). */
+  timeoutMs?: number;
+}
+
+export interface GraphqlRequestOptions {
+  /**
+   * False for mutations that must not run twice (commentCreate): server and
+   * network failures are then not retried, because the first attempt may
+   * have been applied. Rate-limited requests are always retried since Linear
+   * rejects them before executing anything. Defaults to true.
+   */
+  idempotent?: boolean;
+}
+
+export interface GraphqlClient {
+  request<T>(
+    query: string,
+    variables?: Record<string, unknown>,
+    options?: GraphqlRequestOptions
+  ): Promise<T>;
+}
+
+/** One entry of a GraphQL `errors` array, narrowed. */
+export interface GraphqlErrorInfo {
+  message: string;
+  /** Response path, e.g. `["i3", "stateHistory"]` for an aliased field. */
+  path: (string | number)[];
+  /** `extensions.code`, e.g. RATELIMITED, INPUT_ERROR. */
+  code: string | null;
+  /** `extensions.type`, e.g. "ratelimited", "invalid input". */
+  type: string | null;
+  userPresentableMessage: string | null;
+}
+
+/**
+ * Attached as `cause` of a LinearApiError raised for GraphQL errors, so
+ * callers (e.g. aliased batches) can see which response paths failed.
+ */
+export class LinearGraphqlErrors extends Error {
+  readonly errors: readonly GraphqlErrorInfo[];
+
+  constructor(errors: readonly GraphqlErrorInfo[]) {
+    super(errors[0]?.message ?? 'GraphQL error');
+    this.name = 'LinearGraphqlErrors';
+    this.errors = errors;
+  }
+}
+
+const DEFAULT_MAX_RETRIES = 3;
+const DEFAULT_MAX_RATE_LIMIT_WAIT_MS = 60_000;
+const DEFAULT_TIMEOUT_MS = 30_000;
+const BACKOFF_BASE_MS = 500;
+const BACKOFF_CAP_MS = 8_000;
+/** Added to a reset wait so the retry lands after the window rolls over. */
+const RESET_MARGIN_MS = 250;
+
+const noopLogger: LinearLogger = {
+  debug: () => undefined,
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Exponential backoff for attempt 0, 1, 2… capped at BACKOFF_CAP_MS. */
+export function backoffMs(attempt: number): number {
+  return Math.min(BACKOFF_BASE_MS * 2 ** attempt, BACKOFF_CAP_MS);
+}
+
+// Pulls the operation name out of a document ("query Issue(…)" → "Issue")
+// so logs and errors say which call failed without echoing variables.
+export function operationName(query: string): string {
+  const match = /\b(query|mutation)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(query);
+  return match?.[2] ?? 'anonymous';
+}
+
+// Narrows a response body's `errors` array; anything that is not an object
+// with a message is skipped rather than trusted.
+export function parseGraphqlErrors(body: unknown): GraphqlErrorInfo[] {
+  if (!isRecord(body)) return [];
+  const out: GraphqlErrorInfo[] = [];
+  for (const raw of arrayAt(body, 'errors')) {
+    if (!isRecord(raw)) continue;
+    const extensions: JsonObject = optionalObject(raw, 'extensions') ?? {};
+    const path = arrayAt(raw, 'path').filter(
+      (part): part is string | number =>
+        typeof part === 'string' || typeof part === 'number'
+    );
+    out.push({
+      message: optionalString(raw, 'message') ?? 'Unknown GraphQL error',
+      path,
+      code: optionalString(extensions, 'code'),
+      type: optionalString(extensions, 'type'),
+      userPresentableMessage: optionalString(
+        extensions,
+        'userPresentableMessage'
+      ),
+    });
+  }
+  return out;
+}
+
+function hasCode(error: GraphqlErrorInfo, codes: readonly string[]): boolean {
+  return error.code !== null && codes.includes(error.code.toUpperCase());
+}
+
+function hasType(error: GraphqlErrorInfo, types: readonly string[]): boolean {
+  return error.type !== null && types.includes(error.type.toLowerCase());
+}
+
+/** Linear's rate-limit signal (the SDK checks both code and type). */
+export function isRateLimitError(error: GraphqlErrorInfo): boolean {
+  return hasCode(error, ['RATELIMITED']) || hasType(error, ['ratelimited']);
+}
+
+const NOT_FOUND_PATTERN = /\bentity not found\b|\bnot found\b|could not find/i;
+
+// Classifies GraphQL errors (data null) into the gateway's error kinds.
+// Not-found is checked before invalid input because Linear reports a
+// missing entity as an "invalid input" error whose message says so.
+export function classifyGraphqlErrors(
+  errors: readonly GraphqlErrorInfo[]
+): LinearApiError['kind'] {
+  if (errors.some(isRateLimitError)) return 'rate_limited';
+  if (
+    errors.some(
+      (e) =>
+        hasCode(e, ['AUTHENTICATION_ERROR', 'UNAUTHENTICATED']) ||
+        hasType(e, ['authentication error'])
+    )
+  ) {
+    return 'unauthorized';
+  }
+  if (
+    errors.some((e) => hasCode(e, ['FORBIDDEN']) || hasType(e, ['forbidden']))
+  )
+    return 'forbidden';
+  if (
+    errors.some(
+      (e) =>
+        hasCode(e, ['NOT_FOUND', 'ENTITY_NOT_FOUND']) ||
+        NOT_FOUND_PATTERN.test(e.message) ||
+        (e.userPresentableMessage !== null &&
+          NOT_FOUND_PATTERN.test(e.userPresentableMessage))
+    )
+  ) {
+    return 'not_found';
+  }
+  if (
+    errors.some(
+      (e) =>
+        hasCode(e, [
+          'INPUT_ERROR',
+          'BAD_USER_INPUT',
+          'GRAPHQL_VALIDATION_FAILED',
+          'GRAPHQL_PARSE_FAILED',
+        ]) || hasType(e, ['invalid input', 'user error'])
+    )
+  ) {
+    return 'invalid_input';
+  }
+  return 'graphql';
+}
+
+function parseEpochMs(value: string | null): number | null {
+  if (value === null || value.trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// When Linear says the exhausted limit resets, in epoch ms. Linear sends a
+// requests window and a complexity window; prefer the one whose `remaining`
+// is used up, else the latest reset either header gives.
+export function rateLimitResetMs(headers: Headers): number | null {
+  const windows = (['requests', 'complexity'] as const).map((kind) => ({
+    reset: parseEpochMs(headers.get(`x-ratelimit-${kind}-reset`)),
+    remaining: parseEpochMs(headers.get(`x-ratelimit-${kind}-remaining`)),
+  }));
+  const exhausted = windows.filter(
+    (w) => w.reset !== null && (w.remaining === null || w.remaining <= 0)
+  );
+  const pool = exhausted.length > 0 ? exhausted : windows;
+  let latest: number | null = null;
+  for (const w of pool) {
+    if (w.reset !== null && (latest === null || w.reset > latest)) {
+      latest = w.reset;
+    }
+  }
+  return latest;
+}
+
+async function readJsonBody(response: Response): Promise<unknown> {
+  try {
+    const text = await response.text();
+    return text === '' ? null : (JSON.parse(text) as unknown);
+  } catch {
+    return null;
+  }
+}
+
+function describeCause(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** Creates a client bound to one access token. */
+export function createGraphqlClient(
+  options: GraphqlClientOptions
+): GraphqlClient {
+  const fetchImpl: FetchLike = options.fetch ?? globalThis.fetch;
+  const endpoint = options.endpoint ?? LINEAR_GRAPHQL_ENDPOINT;
+  const logger = options.logger ?? noopLogger;
+  const sleep = options.sleep ?? defaultSleep;
+  const maxRetries = Math.max(0, options.maxRetries ?? DEFAULT_MAX_RETRIES);
+  const now = options.now ?? Date.now;
+  const maxRateLimitWaitMs =
+    options.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const authorization = `Bearer ${options.accessToken}`;
+
+  async function request<T>(
+    query: string,
+    variables: Record<string, unknown> = {},
+    requestOptions: GraphqlRequestOptions = {}
+  ): Promise<T> {
+    const op = operationName(query);
+    const idempotent = requestOptions.idempotent ?? true;
+    const body = JSON.stringify({ query, variables });
+
+    for (let attempt = 0; ; attempt++) {
+      const canRetry = attempt < maxRetries;
+      let response: Response;
+      try {
+        response = await fetchImpl(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+            Authorization: authorization,
+          },
+          body,
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+      } catch (cause) {
+        if (idempotent && canRetry) {
+          const waitMs = backoffMs(attempt);
+          logger.warn('linear request failed; retrying', {
+            operation: op,
+            attempt,
+            waitMs,
+            error: describeCause(cause),
+          });
+          await sleep(waitMs);
+          continue;
+        }
+        throw new LinearApiError(
+          'network',
+          `Linear ${op} request failed: ${describeCause(cause)}`,
+          { cause }
+        );
+      }
+
+      const status = response.status;
+      const json = await readJsonBody(response);
+      const errors = parseGraphqlErrors(json);
+
+      // Rate limiting arrives as HTTP 429, or HTTP 400 with RATELIMITED.
+      if (status === 429 || errors.some(isRateLimitError)) {
+        const resetMs = rateLimitResetMs(response.headers);
+        const retryAt =
+          resetMs === null ? null : new Date(resetMs).toISOString();
+        const waitMs =
+          resetMs === null
+            ? backoffMs(attempt)
+            : Math.max(0, resetMs - now()) + RESET_MARGIN_MS;
+        if (canRetry && waitMs <= maxRateLimitWaitMs) {
+          logger.warn('linear rate limited; waiting for reset', {
+            operation: op,
+            attempt,
+            waitMs,
+            retryAt,
+          });
+          await sleep(waitMs);
+          continue;
+        }
+        throw new LinearApiError(
+          'rate_limited',
+          `Linear rate limit reached during ${op}`,
+          { retryAt, cause: new LinearGraphqlErrors(errors) }
+        );
+      }
+
+      if (status === 401) {
+        throw new LinearApiError(
+          'unauthorized',
+          `Linear rejected the access token (${op})`
+        );
+      }
+      if (status === 403) {
+        throw new LinearApiError('forbidden', `Linear denied access to ${op}`);
+      }
+      if (status >= 500) {
+        if (idempotent && canRetry) {
+          const waitMs = backoffMs(attempt);
+          logger.warn('linear server error; retrying', {
+            operation: op,
+            status,
+            attempt,
+            waitMs,
+          });
+          await sleep(waitMs);
+          continue;
+        }
+        throw new LinearApiError(
+          'server',
+          `Linear ${op} failed with HTTP ${status}`
+        );
+      }
+
+      const data = isRecord(json) ? json['data'] : undefined;
+      const hasData = isRecord(data);
+
+      if (errors.length > 0 && !hasData) {
+        const kind = classifyGraphqlErrors(errors);
+        const first = errors[0];
+        const detail =
+          first === undefined
+            ? 'GraphQL error'
+            : (first.userPresentableMessage ?? first.message);
+        throw new LinearApiError(kind, `Linear ${op}: ${detail}`, {
+          cause: new LinearGraphqlErrors(errors),
+        });
+      }
+      if (!response.ok) {
+        throw new LinearApiError(
+          'graphql',
+          `Linear ${op} failed with HTTP ${status}`
+        );
+      }
+      if (!hasData) {
+        throw new LinearApiError('graphql', `Linear ${op} returned no data`);
+      }
+      if (errors.length > 0) {
+        // Partial success: nullable fields failed but data is usable.
+        logger.warn('linear returned partial data', {
+          operation: op,
+          errors: errors.map((e) => e.message),
+        });
+      }
+      return data as T;
+    }
+  }
+
+  return { request };
+}
