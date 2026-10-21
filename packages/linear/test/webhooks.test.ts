@@ -236,4 +236,53 @@ describe('parseWebhookEvent', () => {
       },
     });
   });
+
+  test('types the engine does not handle are a typed rejection', () => {
+    for (const type of ['Comment', 'Cycle', 'ProjectUpdate', 'Reaction']) {
+      expect(parseWebhookEvent(payload({ type }), NOW)).toEqual({
+        ok: false,
+        reason: 'unsupported_type',
+      });
+    }
+    for (const type of ['Issue', 'Project', 'Initiative', 'User']) {
+      expect(parseWebhookEvent(payload({ type }), NOW)).toMatchObject({
+        ok: true,
+        event: { type, entityId: 'iss-1' },
+      });
+    }
+  });
+
+  test('an entity event without data.id cannot be refetched: missing_fields', () => {
+    for (const data of [undefined, null, {}, { id: '' }, { id: 42 }]) {
+      expect(parseWebhookEvent(payload({ data }), NOW)).toEqual({
+        ok: false,
+        reason: 'missing_fields',
+      });
+    }
+  });
+
+  test('OAuthAuthorization (no data) is accepted with entityId null', () => {
+    const body = JSON.stringify({
+      action: 'updated',
+      type: 'OAuthAuthorization',
+      organizationId: 'org-1',
+      oauthClientId: 'client-123',
+      userId: 'user-9',
+      activeTokensForUser: 0,
+      createdAt: '2026-10-21T12:00:00.000Z',
+      webhookId: 'wh-1',
+      webhookTimestamp: NOW,
+    });
+    expect(parseWebhookEvent(body, NOW)).toEqual({
+      ok: true,
+      event: {
+        workspaceId: 'org-1',
+        type: 'OAuthAuthorization',
+        action: 'updated',
+        entityId: null,
+        webhookTimestamp: NOW,
+        updatedFrom: null,
+      },
+    });
+  });
 });

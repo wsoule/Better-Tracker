@@ -184,13 +184,18 @@ export function classifyGraphqlErrors(
     errors.some((e) => hasCode(e, ['FORBIDDEN']) || hasType(e, ['forbidden']))
   )
     return 'forbidden';
+  // Only a root-level error (no path, or the queried root/alias field)
+  // means the entity itself is missing. A "not found" from a nested field
+  // must not read as "gone", or the engine would drop a live entity from
+  // the mirror until the next resync.
   if (
     errors.some(
       (e) =>
-        hasCode(e, ['NOT_FOUND', 'ENTITY_NOT_FOUND']) ||
-        NOT_FOUND_PATTERN.test(e.message) ||
-        (e.userPresentableMessage !== null &&
-          NOT_FOUND_PATTERN.test(e.userPresentableMessage))
+        e.path.length <= 1 &&
+        (hasCode(e, ['NOT_FOUND', 'ENTITY_NOT_FOUND']) ||
+          NOT_FOUND_PATTERN.test(e.message) ||
+          (e.userPresentableMessage !== null &&
+            NOT_FOUND_PATTERN.test(e.userPresentableMessage)))
     )
   ) {
     return 'not_found';

@@ -200,6 +200,19 @@ function failedAliasIndexes(error: unknown): Set<number> | null {
   return indexes.size > 0 ? indexes : null;
 }
 
+function missingCursor(connection: string): LinearApiError {
+  return new LinearApiError(
+    'graphql',
+    `Linear said more ${connection} pages follow but sent no endCursor`
+  );
+}
+
+/** Extra pages of a nested connection, and whether they reached the end. */
+interface NestedPages {
+  nodes: JsonObject[];
+  complete: boolean;
+}
+
 interface AliasedBatchResult {
   /** Issue node per id that came back. */
   nodes: Map<string, JsonObject>;
@@ -223,7 +236,9 @@ export function createLinearGateway(
   });
 
   // Pages a root connection (`field` in the response) to the end, following
-  // pageInfo.endCursor. A repeated cursor aborts instead of looping forever.
+  // pageInfo.endCursor. A repeated cursor aborts instead of looping forever,
+  // and "more pages" without a cursor aborts instead of returning a cut-off
+  // list (the engine replaces the whole mirror with this result).
   async function fetchAllPages(
     query: string,
     field: string
@@ -238,7 +253,8 @@ export function createLinearGateway(
       );
       const page = readConnection(data[field], field);
       for (const node of page.nodes) nodes.push(node);
-      if (!page.hasNextPage || page.endCursor === null) return nodes;
+      if (!page.hasNextPage) return nodes;
+      if (page.endCursor === null) throw missingCursor(field);
       if (seenCursors.has(page.endCursor)) {
         throw new LinearApiError(
           'graphql',
@@ -251,8 +267,11 @@ export function createLinearGateway(
   }
 
   // Follows a nested connection of one entity (e.g. a project's milestones)
-  // after its first page, using a page query keyed by the entity id. Stops
-  // at `maxPages` or on a repeated cursor so a bad response cannot loop.
+  // after its first page, using a page query keyed by the entity id. Call it
+  // only when the first page said hasNextPage. Reads at most `maxPages`
+  // pages; `complete` is false when more remained, so callers that replace
+  // mirrored data can refuse a partial list. A repeated or missing cursor
+  // aborts so a bad response can neither loop nor truncate silently.
   async function fetchRemainingNested(
     pageQuery: string,
     root: string,
@@ -260,11 +279,12 @@ export function createLinearGateway(
     id: string,
     firstCursor: string | null,
     maxPages: number
-  ): Promise<JsonObject[]> {
+  ): Promise<NestedPages> {
     const nodes: JsonObject[] = [];
     const seenCursors = new Set<string>();
     let after = firstCursor;
-    for (let page = 0; after !== null && page < maxPages; page++) {
+    for (let page = 0; page < maxPages; page++) {
+      if (after === null) throw missingCursor(`${root}.${field}`);
       if (seenCursors.has(after)) {
         throw new LinearApiError(
           'graphql',
@@ -279,9 +299,38 @@ export function createLinearGateway(
       const entity = requireObject(data, root, root);
       const connection = readConnection(entity[field], `${root}.${field}`);
       for (const node of connection.nodes) nodes.push(node);
-      after = connection.hasNextPage ? connection.endCursor : null;
+      if (!connection.hasNextPage) return { nodes, complete: true };
+      after = connection.endCursor;
     }
-    return nodes;
+    return { nodes, complete: false };
+  }
+
+  // Every remaining page of a nested list whose result replaces mirrored
+  // data (a project's milestones, an issue's relations): a partial list
+  // would make the engine delete the entries it did not see, so hitting
+  // the page cap is an error rather than a silent cut.
+  async function fetchAllNested(
+    pageQuery: string,
+    root: string,
+    field: string,
+    id: string,
+    firstCursor: string | null
+  ): Promise<JsonObject[]> {
+    const result = await fetchRemainingNested(
+      pageQuery,
+      root,
+      field,
+      id,
+      firstCursor,
+      MAX_NESTED_PAGES
+    );
+    if (!result.complete) {
+      throw new LinearApiError(
+        'graphql',
+        `Linear ${root}.${field} has more than ${MAX_NESTED_PAGES} extra pages`
+      );
+    }
+    return result.nodes;
   }
 
   // Runs one aliased batch (`i0: issue(id: $id0) …`). When Linear rejects
@@ -360,7 +409,7 @@ export function createLinearGateway(
             connection.endCursor,
             MAX_EXTRA_HISTORY_PAGES
           );
-          started = currentSpanStart(more);
+          started = currentSpanStart(more.nodes);
         } catch (error) {
           if (!isQueryFailure(error)) throw error;
         }
@@ -374,27 +423,47 @@ export function createLinearGateway(
       needHistory,
       buildIssueHistoryBatchQuery
     );
+    const skipped = [...history.failed];
     for (const [id, node] of history.nodes) {
-      const connection = readConnection(node['history'], 'Issue.history');
-      let latest = latestStateChangeEntry(connection.nodes);
-      if (connection.hasNextPage) {
-        const more = await fetchRemainingNested(
-          ISSUE_HISTORY_PAGE_QUERY,
-          'issue',
-          'history',
-          id,
-          connection.endCursor,
-          MAX_EXTRA_HISTORY_PAGES
-        );
-        latest = maxIso(latest, latestStateChangeEntry(more));
-      }
-      if (latest !== null) out.set(id, latest);
+      const latest = await latestFromHistory(id, node);
+      if (latest === null) skipped.push(id);
+      else out.set(id, latest);
     }
-    if (history.failed.length > 0) {
+    if (skipped.length > 0) {
       logger.debug('linear issues skipped in state-change lookup', {
-        issueIds: history.failed,
+        issueIds: skipped,
       });
     }
+  }
+
+  // The newest state change in one issue's Issue.history, reading extra
+  // pages when needed. The order of history entries is undocumented, so a
+  // history longer than the pages read (or a page that fails) gives no
+  // answer rather than a possibly stale one: the caller then keeps the
+  // timestamp approximation instead of making the issue look stalled.
+  async function latestFromHistory(
+    id: string,
+    node: JsonObject
+  ): Promise<IsoDateTime | null> {
+    const connection = readConnection(node['history'], 'Issue.history');
+    const latest = latestStateChangeEntry(connection.nodes);
+    if (!connection.hasNextPage) return latest;
+    let more: NestedPages;
+    try {
+      more = await fetchRemainingNested(
+        ISSUE_HISTORY_PAGE_QUERY,
+        'issue',
+        'history',
+        id,
+        connection.endCursor,
+        MAX_EXTRA_HISTORY_PAGES
+      );
+    } catch (error) {
+      if (!isQueryFailure(error)) throw error;
+      return null;
+    }
+    if (!more.complete) return null;
+    return maxIso(latest, latestStateChangeEntry(more.nodes));
   }
 
   // Wraps a single-entity read: Linear answers a missing id with an
@@ -550,23 +619,21 @@ export function createLinearGateway(
       );
       const [moreOwned, moreInverse] = await Promise.all([
         owned.hasNextPage
-          ? fetchRemainingNested(
+          ? fetchAllNested(
               ISSUE_RELATIONS_PAGE_QUERY,
               'issue',
               'relations',
               issueId,
-              owned.endCursor,
-              MAX_NESTED_PAGES
+              owned.endCursor
             )
           : Promise.resolve([]),
         inverse.hasNextPage
-          ? fetchRemainingNested(
+          ? fetchAllNested(
               ISSUE_INVERSE_RELATIONS_PAGE_QUERY,
               'issue',
               'inverseRelations',
               issueId,
-              inverse.endCursor,
-              MAX_NESTED_PAGES
+              inverse.endCursor
             )
           : Promise.resolve([]),
       ]);
@@ -594,13 +661,12 @@ export function createLinearGateway(
         'Project.projectMilestones'
       );
       const rest = first.hasNextPage
-        ? await fetchRemainingNested(
+        ? await fetchAllNested(
             PROJECT_MILESTONES_PAGE_QUERY,
             'project',
             'projectMilestones',
             id,
-            first.endCursor,
-            MAX_NESTED_PAGES
+            first.endCursor
           )
         : [];
       return {

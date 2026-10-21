@@ -202,6 +202,25 @@ describe('fetchWorkspace', () => {
       LinearApiError
     );
   });
+
+  test('hasNextPage without an endCursor aborts instead of truncating', async () => {
+    // A cut-off list would make the engine drop every issue it did not see.
+    const handlers = emptyWorkspaceHandlers();
+    handlers['ProjectIssues'] = () =>
+      dataResponse({
+        issues: {
+          nodes: [issueNode('1')],
+          pageInfo: { hasNextPage: true, endCursor: null },
+        },
+      });
+    const { gateway, calls } = gatewayWith(handlers);
+    const error = await caught(gateway.fetchWorkspace());
+    expect(error).toBeInstanceOf(LinearApiError);
+    expect(error).toMatchObject({ kind: 'graphql' });
+    expect(calls.filter((c) => c.operation === 'ProjectIssues')).toHaveLength(
+      1
+    );
+  });
 });
 
 describe('fetchLastStateChanges', () => {
@@ -449,6 +468,85 @@ describe('fetchLastStateChanges', () => {
     ]);
   });
 
+  // No open state span for `a`, so the lookup falls back to history, whose
+  // pages are served by `historyPage(after)`.
+  function historyOnly(
+    first: unknown,
+    historyPage: (after: string) => unknown
+  ): Record<string, GraphqlHandler> {
+    return {
+      IssueStateSpans: spansHandler({ a: [] }),
+      IssueStateHistory: () =>
+        dataResponse({ i0: { id: 'a', history: first } }),
+      IssueHistoryPage: (variables) =>
+        dataResponse({
+          issue: { id: 'a', history: historyPage(String(variables['after'])) },
+        }),
+    };
+  }
+
+  test('a multi-page history returns the newest state change across pages', async () => {
+    const { gateway, calls } = gatewayWith(
+      historyOnly(
+        connection(
+          [{ createdAt: '2026-10-02T00:00:00.000Z', toStateId: 's1' }],
+          'h1'
+        ),
+        () =>
+          connection([
+            { createdAt: '2026-10-09T00:00:00.000Z', toStateId: 's2' },
+          ])
+      )
+    );
+    expect(await gateway.fetchLastStateChanges(['a'])).toEqual(
+      new Map([['a', '2026-10-09T00:00:00.000Z']])
+    );
+    expect(calls.map((c) => c.operation)).toEqual([
+      'IssueStateSpans',
+      'IssueStateHistory',
+      'IssueHistoryPage',
+    ]);
+  });
+
+  test('a history longer than the pages read gives no answer, not a stale one', async () => {
+    // The order of history entries is undocumented, so the newest change
+    // may sit on a page that was never read.
+    let page = 0;
+    const { gateway, calls } = gatewayWith(
+      historyOnly(
+        connection(
+          [{ createdAt: '2026-09-01T00:00:00.000Z', toStateId: 's1' }],
+          'h0'
+        ),
+        () => {
+          page += 1;
+          return connection(
+            [{ createdAt: '2026-09-02T00:00:00.000Z', toStateId: null }],
+            `h${page}`
+          );
+        }
+      )
+    );
+    expect(await gateway.fetchLastStateChanges(['a'])).toEqual(new Map());
+    // The first page plus the bounded number of extra pages, then it stops.
+    expect(calls.filter((c) => c.operation === 'IssueHistoryPage').length).toBe(
+      4
+    );
+  });
+
+  test('a history page without a cursor skips that issue only', async () => {
+    const { gateway } = gatewayWith(
+      historyOnly(
+        {
+          nodes: [{ createdAt: '2026-09-01T00:00:00.000Z', toStateId: 's1' }],
+          pageInfo: { hasNextPage: true, endCursor: null },
+        },
+        () => connection([])
+      )
+    );
+    expect(await gateway.fetchLastStateChanges(['a'])).toEqual(new Map());
+  });
+
   test('a repeated nested cursor aborts', async () => {
     const { gateway } = gatewayWith({
       Project: () =>
@@ -579,6 +677,60 @@ describe('single-entity reads', () => {
       'IssueRelationsForIssue',
       'IssueRelationsPage',
     ]);
+  });
+
+  test('fetchIssueRelations refuses a nested page that has no cursor', async () => {
+    // The engine replaces every relation touching the issue with this list,
+    // so a cut-off list would delete relations.
+    const { gateway, calls } = gatewayWith({
+      IssueRelationsForIssue: () =>
+        dataResponse({
+          issue: {
+            id: 'a',
+            relations: connection([relationNode('r1', 'blocks', 'a', 'b')]),
+            inverseRelations: {
+              nodes: [relationNode('r2', 'blocks', 'z', 'a')],
+              pageInfo: { hasNextPage: true, endCursor: null },
+            },
+          },
+        }),
+    });
+    expect(await caught(gateway.fetchIssueRelations('a'))).toMatchObject({
+      kind: 'graphql',
+    });
+    expect(calls.map((c) => c.operation)).toEqual(['IssueRelationsForIssue']);
+  });
+
+  test('fetchProject refuses a milestone list longer than the page cap', async () => {
+    let page = 0;
+    const { gateway, calls } = gatewayWith({
+      Project: () =>
+        dataResponse({
+          project: {
+            ...projectNode('proj-1'),
+            archivedAt: null,
+            projectMilestones: connection([milestoneNode('ms-0')], 'm0'),
+          },
+        }),
+      ProjectMilestonesPage: () => {
+        page += 1;
+        return dataResponse({
+          project: {
+            id: 'proj-1',
+            projectMilestones: connection(
+              [milestoneNode(`ms-${page}`)],
+              `m${page}`
+            ),
+          },
+        });
+      },
+    });
+    expect(await caught(gateway.fetchProject('proj-1'))).toMatchObject({
+      kind: 'graphql',
+    });
+    // Bounded: it stops at the cap instead of paging forever.
+    const pages = calls.filter((c) => c.operation === 'ProjectMilestonesPage');
+    expect(pages.length).toBe(100);
   });
 
   test('fetchProject returns the project with every page of milestones', async () => {

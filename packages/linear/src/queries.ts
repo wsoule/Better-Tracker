@@ -7,11 +7,17 @@
 // connections page with PAGE_SIZE and nested connections select ids only
 // with a small explicit `first`.
 
-/** Page size for root connections (within Linear's per-page limit). */
-export const PAGE_SIZE = 100;
+/**
+ * Page size for root connections: 50, Linear's documented default (its
+ * maximum is not documented, architecture §4.1).
+ */
+export const PAGE_SIZE = 50;
 /** Page size for connections nested inside single-entity queries. */
 export const NESTED_PAGE_SIZE = 50;
-/** `first` for a project's initiative and team id lists. */
+/**
+ * `first` for a project's initiative and team id lists. They select
+ * `pageInfo { hasNextPage }` so mapProject can log when a list is cut off.
+ */
 export const PROJECT_REF_PAGE_SIZE = 10;
 /** Issues per aliased state-change lookup. */
 export const STATE_CHANGE_BATCH_SIZE = 20;
@@ -72,8 +78,14 @@ fragment ProjectFields on Project {
   targetDate
   lead { id }
   status { type name }
-  initiatives(first: ${PROJECT_REF_PAGE_SIZE}) { nodes { id } }
-  teams(first: ${PROJECT_REF_PAGE_SIZE}) { nodes { id } }
+  initiatives(first: ${PROJECT_REF_PAGE_SIZE}) {
+    nodes { id }
+    pageInfo { hasNextPage }
+  }
+  teams(first: ${PROJECT_REF_PAGE_SIZE}) {
+    nodes { id }
+    pageInfo { hasNextPage }
+  }
 }`;
 
 const MILESTONE_FIELDS = `

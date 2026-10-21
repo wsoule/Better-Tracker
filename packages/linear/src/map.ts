@@ -145,14 +145,31 @@ function optionalTimelessDate(obj: JsonObject, key: string): IsoDate | null {
   return TIMELESS_DATE.exec(raw)?.[1] ?? null;
 }
 
-/** Ids of a nested `{ nodes { id } }` connection. */
-function connectionIds(obj: JsonObject, key: string, entity: string): string[] {
+// Ids of a nested `{ nodes { id } pageInfo { hasNextPage } }` connection.
+// These lists are fetched with a small `first` (complexity budget), so a
+// longer list is logged instead of being cut off silently.
+function connectionIds(
+  obj: JsonObject,
+  key: string,
+  entity: string,
+  logger: LinearLogger | undefined,
+  entityId: string
+): string[] {
   const value = obj[key];
   if (value === undefined || value === null) return [];
+  const page = readConnection(value, `${entity}.${key}`);
   const ids: string[] = [];
-  for (const node of readConnection(value, `${entity}.${key}`).nodes) {
+  for (const node of page.nodes) {
     const id = optionalString(node, 'id');
     if (id !== null) ids.push(id);
+  }
+  if (page.hasNextPage) {
+    logger?.warn('linear id list truncated; only the first page is kept', {
+      entity,
+      field: key,
+      id: entityId,
+      kept: ids.length,
+    });
   }
   return ids;
 }
@@ -261,8 +278,8 @@ export function mapProject(value: unknown, logger?: LinearLogger): Project {
     sortOrder: optionalNumber(node, 'sortOrder') ?? 0,
     statusType: mapProjectStatusType(statusType, logger, id),
     statusName: optionalString(status, 'name') ?? statusType,
-    initiativeIds: connectionIds(node, 'initiatives', 'Project'),
-    teamIds: connectionIds(node, 'teams', 'Project'),
+    initiativeIds: connectionIds(node, 'initiatives', 'Project', logger, id),
+    teamIds: connectionIds(node, 'teams', 'Project', logger, id),
     startDate: optionalTimelessDate(node, 'startDate'),
     targetDate: optionalTimelessDate(node, 'targetDate'),
   };

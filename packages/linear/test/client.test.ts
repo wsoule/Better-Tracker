@@ -531,4 +531,19 @@ describe('client helpers', () => {
     );
     expect(classifyGraphqlErrors([e('weird')])).toBe('graphql');
   });
+
+  test('only a root-level error means the entity is missing', () => {
+    const at = (path: (string | number)[]) => ({
+      message: 'Entity not found',
+      path,
+      code: 'INPUT_ERROR',
+      type: null,
+      userPresentableMessage: null,
+    });
+    expect(classifyGraphqlErrors([at(['issue'])])).toBe('not_found');
+    expect(classifyGraphqlErrors([at(['i3'])])).toBe('not_found');
+    expect(classifyGraphqlErrors([at(['issue', 'projectMilestone'])])).toBe(
+      'invalid_input'
+    );
+  });
 });

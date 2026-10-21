@@ -564,6 +564,20 @@ describe('fixture gateway', () => {
     });
   });
 
+  test('the plain actor form from architecture §4 works: user id or "app"', async () => {
+    const { store } = setup();
+    const app = createFixtureGateway(store, 'app');
+    const ben = createFixtureGateway(store, 'user-ben');
+    expect((await app.whoAmI()).user.id).toBe(FIXTURE_APP_USER_ID);
+    expect((await ben.whoAmI()).user.id).toBe('user-ben');
+    await app.createComment('iss-eng-12', 'by the app');
+    await ben.createComment('iss-eng-12', 'by ben');
+    expect(store.comments.map((c) => c.authorId)).toEqual([
+      FIXTURE_APP_USER_ID,
+      'user-ben',
+    ]);
+  });
+
   test('reads are deep copies', async () => {
     const { store, app } = setup();
     const workspace = await app.fetchWorkspace();

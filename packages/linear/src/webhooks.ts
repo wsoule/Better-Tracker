@@ -18,6 +18,28 @@ import {
 /** Default freshness window, matching Linear's SDK. */
 export const WEBHOOK_TOLERANCE_MS = 60_000;
 
+/**
+ * Entity payload types the engine refetches (architecture §4.1: the app
+ * subscribes to Issue, Project, Initiative and User). Their events must
+ * carry `data.id`.
+ */
+export const WEBHOOK_ENTITY_TYPES: readonly string[] = [
+  'Issue',
+  'Project',
+  'Initiative',
+  'User',
+];
+
+/**
+ * Non-entity payloads the engine handles: the app was revoked for the
+ * workspace (OAuthApp) or a user's authorization changed
+ * (OAuthAuthorization). Neither has `data`.
+ */
+export const WEBHOOK_APP_TYPES: readonly string[] = [
+  'OAuthApp',
+  'OAuthAuthorization',
+];
+
 const HEX_SHA256 = /^[0-9a-f]{64}$/i;
 
 function toBytes(rawBody: string | Uint8Array): Uint8Array {
@@ -53,7 +75,7 @@ export interface LinearWebhookEvent {
   type: string;
   /** create, update, remove, revoked, … */
   action: string;
-  /** `data.id`; null for events without data (OAuthApp revoked). */
+  /** `data.id` for entity events; null for OAuthApp / OAuthAuthorization. */
   entityId: string | null;
   webhookTimestamp: number;
   /** Previous values of changed fields on update events. */
@@ -64,13 +86,19 @@ export type WebhookParseResult =
   | { ok: true; event: LinearWebhookEvent }
   | {
       ok: false;
-      reason: 'invalid_json' | 'missing_fields' | 'stale_timestamp';
+      reason:
+        | 'invalid_json'
+        | 'missing_fields'
+        | 'stale_timestamp'
+        | 'unsupported_type';
     };
 
 /**
  * Parses a verified webhook body. Rejects bodies that are not JSON objects,
- * lack organizationId/type/action/webhookTimestamp, or whose timestamp is
- * more than `toleranceMs` away from `nowMs` (either direction).
+ * lack organizationId/type/action/webhookTimestamp (or `data.id` on an
+ * entity event), whose timestamp is more than `toleranceMs` away from
+ * `nowMs` (either direction), or whose type the engine does not handle
+ * (Comment, Cycle, … when the app is subscribed to more than it needs).
  */
 export function parseWebhookEvent(
   rawBody: string,
@@ -101,14 +129,22 @@ export function parseWebhookEvent(
     return { ok: false, reason: 'stale_timestamp' };
   }
 
+  const isEntity = WEBHOOK_ENTITY_TYPES.includes(type);
+  if (!isEntity && !WEBHOOK_APP_TYPES.includes(type)) {
+    return { ok: false, reason: 'unsupported_type' };
+  }
   const data = optionalObject(body, 'data');
+  const entityId = data === null ? null : optionalString(data, 'id');
+  if (isEntity && (entityId === null || entityId === '')) {
+    return { ok: false, reason: 'missing_fields' };
+  }
   return {
     ok: true,
     event: {
       workspaceId,
       type,
       action,
-      entityId: data === null ? null : optionalString(data, 'id'),
+      entityId: isEntity ? entityId : null,
       webhookTimestamp,
       updatedFrom: optionalObject(body, 'updatedFrom'),
     },

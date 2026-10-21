@@ -142,6 +142,31 @@ describe('project status', () => {
   });
 });
 
+describe('project id lists', () => {
+  test('a cut-off initiative or team list is kept and logged, not silent', () => {
+    const { logger, lines } = recordingLogger();
+    const project = mapProject(
+      projectNode('p1', {
+        initiatives: {
+          nodes: [{ id: 'i1' }],
+          pageInfo: { hasNextPage: true },
+        },
+        teams: { nodes: [{ id: 't1' }], pageInfo: { hasNextPage: false } },
+      }),
+      logger
+    );
+    expect(project.initiativeIds).toEqual(['i1']);
+    expect(project.teamIds).toEqual(['t1']);
+    expect(lines).toEqual([
+      {
+        level: 'warn',
+        message: 'linear id list truncated; only the first page is kept',
+        fields: { entity: 'Project', field: 'initiatives', id: 'p1', kept: 1 },
+      },
+    ]);
+  });
+});
+
 describe('approximateLastStateChangeAt', () => {
   test('is the latest of created/started/completed/canceled', () => {
     expect(

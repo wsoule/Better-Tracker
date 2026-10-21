@@ -5,12 +5,19 @@
 
 import { describe, expect, test } from 'bun:test';
 import {
+  type ArgumentNode,
   buildSchema,
+  type FragmentDefinitionNode,
   getNamedType,
+  type GraphQLNamedType,
   type GraphQLSchema,
+  isInterfaceType,
+  isLeafType,
+  isObjectType,
   Kind,
   NoDeprecatedCustomRule,
   parse,
+  type SelectionSetNode,
   specifiedRules,
   TypeInfo,
   validate,
@@ -69,6 +76,131 @@ function connectionsWithoutFirst(source: string): string[] {
   return missing;
 }
 
+// Connection fields that do not select `pageInfo { hasNextPage }`: without
+// it a list longer than `first` is cut off with no way to notice.
+function connectionsWithoutPageInfo(source: string): string[] {
+  const typeInfo = new TypeInfo(schema);
+  const missing: string[] = [];
+  const document = parse(source);
+  const fragments = new Map<string, FragmentDefinitionNode>();
+  for (const d of document.definitions) {
+    if (d.kind === Kind.FRAGMENT_DEFINITION) fragments.set(d.name.value, d);
+  }
+  // Fields selected directly in a set, following fragment spreads.
+  const selectedFields = (set: SelectionSetNode): SelectionSetNode[] => {
+    const out: SelectionSetNode[] = [set];
+    for (const sel of set.selections) {
+      if (sel.kind === Kind.FRAGMENT_SPREAD) {
+        const fragment = fragments.get(sel.name.value);
+        if (fragment !== undefined) {
+          out.push(...selectedFields(fragment.selectionSet));
+        }
+      } else if (sel.kind === Kind.INLINE_FRAGMENT) {
+        out.push(...selectedFields(sel.selectionSet));
+      }
+    }
+    return out;
+  };
+  visit(
+    document,
+    visitWithTypeInfo(typeInfo, {
+      Field(node) {
+        const type = typeInfo.getType();
+        if (type === null || node.selectionSet === undefined) return;
+        if (getNamedType(type)?.name.endsWith('Connection') !== true) return;
+        const pageInfo = selectedFields(node.selectionSet)
+          .flatMap((set) => set.selections)
+          .find(
+            (sel) => sel.kind === Kind.FIELD && sel.name.value === 'pageInfo'
+          );
+        const hasNextPage =
+          pageInfo?.kind === Kind.FIELD &&
+          (pageInfo.selectionSet?.selections ?? []).some(
+            (sel) => sel.kind === Kind.FIELD && sel.name.value === 'hasNextPage'
+          );
+        if (!hasNextPage) missing.push(node.name.value);
+      },
+    })
+  );
+  return missing;
+}
+
+// A conservative estimate of Linear's query complexity (architecture §4.1,
+// Linear's rate-limit docs): 0.1 per scalar, 1 per object, and a
+// connection multiplies everything under it (pageInfo included, which
+// over-counts) by `first`, 50 when absent. Linear rejects queries over
+// 10,000 points.
+function estimateComplexity(
+  source: string,
+  variables: Record<string, number>
+): number {
+  const document = parse(source);
+  const fragments = new Map<string, FragmentDefinitionNode>();
+  let operation: SelectionSetNode | null = null;
+  let operationType: GraphQLNamedType | null | undefined = null;
+  for (const d of document.definitions) {
+    if (d.kind === Kind.FRAGMENT_DEFINITION) fragments.set(d.name.value, d);
+    if (d.kind === Kind.OPERATION_DEFINITION) {
+      operation = d.selectionSet;
+      operationType =
+        d.operation === 'mutation'
+          ? schema.getMutationType()
+          : schema.getQueryType();
+    }
+  }
+  const firstOf = (args: readonly ArgumentNode[] | undefined): number => {
+    const value = args?.find((a) => a.name.value === 'first')?.value;
+    if (value?.kind === Kind.INT) return Number(value.value);
+    if (value?.kind === Kind.VARIABLE) {
+      const bound = variables[value.name.value];
+      if (bound === undefined) throw new Error(`unbound $${value.name.value}`);
+      return bound;
+    }
+    return 50;
+  };
+  const cost = (set: SelectionSetNode, type: GraphQLNamedType): number => {
+    let total = 0;
+    for (const sel of set.selections) {
+      if (sel.kind === Kind.FRAGMENT_SPREAD) {
+        const fragment = fragments.get(sel.name.value);
+        const on = schema.getType(fragment?.typeCondition.name.value ?? '');
+        if (fragment === undefined || on === undefined) {
+          throw new Error(`unknown fragment ${sel.name.value}`);
+        }
+        total += cost(fragment.selectionSet, on);
+        continue;
+      }
+      if (sel.kind === Kind.INLINE_FRAGMENT) {
+        total += cost(sel.selectionSet, type);
+        continue;
+      }
+      if (!isObjectType(type) && !isInterfaceType(type)) {
+        throw new Error(`cannot select ${sel.name.value} on ${type.name}`);
+      }
+      const field = type.getFields()[sel.name.value];
+      if (field === undefined) throw new Error(`unknown ${sel.name.value}`);
+      const named = getNamedType(field.type);
+      if (isLeafType(named) || sel.selectionSet === undefined) {
+        total += 0.1;
+        continue;
+      }
+      const children = cost(sel.selectionSet, named);
+      total += named.name.endsWith('Connection')
+        ? 1 + firstOf(sel.arguments) * children
+        : 1 + children;
+    }
+    return total;
+  };
+  if (
+    operation === null ||
+    operationType === null ||
+    operationType === undefined
+  ) {
+    throw new Error('no operation');
+  }
+  return Math.ceil(cost(operation, operationType));
+}
+
 describe('queries.ts against the Linear schema', () => {
   test('there is a document for every gateway operation', () => {
     const names = documents.map(([name]) => name);
@@ -118,10 +250,31 @@ describe('queries.ts against the Linear schema', () => {
     test(`${name} gives every connection an explicit first`, () => {
       expect(connectionsWithoutFirst(source)).toEqual([]);
     });
+
+    test(`${name} selects pageInfo.hasNextPage on every connection`, () => {
+      expect(connectionsWithoutPageInfo(source)).toEqual([]);
+    });
+
+    test(`${name} stays well under 10,000 complexity points`, () => {
+      // Half the hard limit leaves room for Linear's own accounting.
+      expect(
+        estimateComplexity(source, { first: queries.PAGE_SIZE })
+      ).toBeLessThan(5_000);
+    });
   }
 
+  test('the complexity estimate counts connections by first', () => {
+    // The connection object (1) + 50 × (a user: 1 + 7 scalars × 0.1, and
+    // pageInfo: 1 + 2 × 0.1) = 1 + 50 × 2.9 = 146.
+    expect(estimateComplexity(queries.USERS_QUERY, { first: 50 })).toBe(146);
+    expect(
+      estimateComplexity(queries.USERS_QUERY, { first: 100 })
+    ).toBeGreaterThan(estimateComplexity(queries.USERS_QUERY, { first: 50 }));
+  });
+
   test('root connections page with PAGE_SIZE through $first', () => {
-    expect(queries.PAGE_SIZE).toBe(100);
+    // Linear's documented default; its maximum is not documented (§4.1).
+    expect(queries.PAGE_SIZE).toBe(50);
     for (const doc of [
       queries.USERS_QUERY,
       queries.TEAMS_QUERY,

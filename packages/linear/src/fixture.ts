@@ -1403,8 +1403,20 @@ export interface FixtureStore {
   now: () => Date;
 }
 
-/** Who a fixture gateway acts as (actor=app install, or a signed-in human). */
+/**
+ * Who a fixture gateway acts as (actor=app install, or a signed-in human).
+ * createFixtureGateway also takes the plain form architecture §4 names:
+ * a user id, or the string `'app'`.
+ */
 export type FixtureActor = { kind: 'app' } | { kind: 'user'; userId: string };
+
+// The user id a fixture actor writes as: the app user for actor=app.
+function fixtureActorUserId(actor: FixtureActor | string): string {
+  if (typeof actor === 'string') {
+    return actor === 'app' ? FIXTURE_APP_USER_ID : actor;
+  }
+  return actor.kind === 'app' ? FIXTURE_APP_USER_ID : actor.userId;
+}
 
 /** A fresh store over a fresh workspace; stores never share data. */
 export function createFixtureStore(today: IsoDate): FixtureStore {
@@ -1441,9 +1453,9 @@ const TIMELESS_DATE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export function createFixtureGateway(
   store: FixtureStore,
-  actor: FixtureActor
+  actor: FixtureActor | string
 ): LinearGateway {
-  const actorUserId = actor.kind === 'app' ? FIXTURE_APP_USER_ID : actor.userId;
+  const actorUserId = fixtureActorUserId(actor);
 
   function findIssue(id: string): Issue | undefined {
     return store.data.issues.find((issue) => issue.id === id);
