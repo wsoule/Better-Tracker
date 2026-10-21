@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "AGENT": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(moon run *)",
+      "Bash(moon tasks *)",
+      "Bash(moon query *)",
+      "Bash(moonx *)",
+      "Bash(pnpm install *)",
+      "Bash(pnpm outdated *)",
+      "Bash(pnpm why *)",
+      "Bash(bun test *)",
+      "Bash(oxfmt *)",
+      "Bash(oxlint *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git show *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-file.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

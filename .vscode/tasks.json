@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "moon: build",
+      "type": "shell",
+      "command": "moon",
+      "args": ["run", ":build"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "moon: test",
+      "type": "shell",
+      "command": "moon",
+      "args": ["run", ":test"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    },
+    {
+      "label": "moon: typecheck",
+      "type": "shell",
+      "command": "moon",
+      "args": ["run", ":typecheck"],
+      "problemMatcher": []
+    },
+    {
+      "label": "moon: format + lint",
+      "type": "shell",
+      "command": "moon",
+      "args": ["run", "root:format", "root:lint"],
+      "problemMatcher": []
+    }
+  ]
+}

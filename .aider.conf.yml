@@ -1,0 +1,2 @@
+# Aider does not read AGENTS.md on its own; load it as read-only context.
+read: AGENTS.md

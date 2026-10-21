@@ -1,0 +1,51 @@
+packages:
+  - packages/*
+  - apps/*
+
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - '@types/bun'
+  - '@moonrepo/cli'
+  - '@moonrepo/core-linux-arm64-gnu'
+  - '@moonrepo/core-linux-arm64-musl'
+  - '@moonrepo/core-linux-x64-gnu'
+  - '@moonrepo/core-linux-x64-musl'
+  - '@moonrepo/core-macos-arm64'
+  - '@moonrepo/core-macos-x64'
+  - '@moonrepo/core-windows-x64-msvc'
+  - '@oxc-project/types'
+  - '@rolldown/binding-android-arm-eabi'
+  - '@rolldown/binding-android-arm64'
+  - '@rolldown/binding-darwin-arm64'
+  - '@rolldown/binding-darwin-x64'
+  - '@rolldown/binding-freebsd-x64'
+  - '@rolldown/binding-linux-arm-gnueabihf'
+  - '@rolldown/binding-linux-arm64-gnu'
+  - '@rolldown/binding-linux-arm64-musl'
+  - '@rolldown/binding-linux-ppc64-gnu'
+  - '@rolldown/binding-linux-s390x-gnu'
+  - '@rolldown/binding-linux-x64-gnu'
+  - '@rolldown/binding-linux-x64-musl'
+  - '@rolldown/binding-openharmony-arm64'
+  - '@rolldown/binding-wasm32-wasi'
+  - '@rolldown/binding-win32-arm64-msvc'
+  - '@rolldown/binding-win32-x64-msvc'
+  - 'rolldown'
+
+catalog:
+  '@moonrepo/cli': '2.5.6'
+  '@types/bun': '1.4.2'
+  'lint-staged': '17.5.1'
+  'oxfmt': '0.70.0'
+  'oxlint': '1.85.0'
+  'oxlint-tsgolint': '7.0.2002'
+  'postcss-html': '2.0.0'
+  'stylelint': '17.15.0'
+  'stylelint-config-standard': '40.0.0'
+  'tsdown': '0.23.0'
+  'typescript': '7.0.2'
+
+overrides:
+  '@rolldown/binding-wasm32-wasi>@napi-rs/wasm-runtime': '1.1.5'
+  '@tybys/wasm-util': '0.10.2'
+  'typescript': 'catalog:'
