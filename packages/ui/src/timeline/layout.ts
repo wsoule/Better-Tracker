@@ -84,8 +84,11 @@ export interface SummaryPoint {
   end: string;
   x: number;
   bars: TimelineBar[];
-  /** The most urgent status among them. */
+  /** The most urgent status among them, counting only bars of active
+   * lanes when there are any (an inactive lane is never loud). */
   status: UiStatus;
+  /** Every bar here belongs to a muted (inactive) lane: drawn in greys. */
+  muted: boolean;
   /** Max label width before the next diamond; null = diamond only. */
   labelRoom: number | null;
 }
@@ -398,29 +401,34 @@ export function computeLayout(input: LayoutInput): TimelineLayout {
 /* The MILESTONES row (Gr8r's milestone lane): one diamond per due date,
    same-day milestones merged, each label allowed only the room up to the
    next diamond so labels never overlap; cramped ones show the diamond
-   alone (the full list is in its tooltip). */
+   alone (the full list is in its tooltip). A muted (inactive) lane's
+   milestone never makes a diamond loud: the status comes from the active
+   lanes' bars on that day, and a day with only muted bars is muted. */
 function summaryPoints(
   geometries: BarGeometry[],
   scale: TimeScale
 ): SummaryPoint[] {
-  const byEnd = new Map<string, TimelineBar[]>();
+  const byEnd = new Map<string, BarGeometry[]>();
   for (const g of geometries) {
     const list = byEnd.get(g.bar.end);
-    if (list === undefined) byEnd.set(g.bar.end, [g.bar]);
-    else list.push(g.bar);
+    if (list === undefined) byEnd.set(g.bar.end, [g]);
+    else list.push(g);
   }
   const ends = [...byEnd.keys()].sort();
   const points: SummaryPoint[] = ends.map((end) => {
     const list = byEnd.get(end) ?? [];
+    const active = list.filter((g) => !g.laneMuted);
+    const ranked = active.length > 0 ? active : list;
     let status: UiStatus = 'done';
-    for (const bar of list) {
+    for (const { bar } of ranked) {
       if (STATUS_RANK[bar.status] < STATUS_RANK[status]) status = bar.status;
     }
     return {
       end,
       x: centerXForDate(end, scale),
-      bars: list,
+      bars: list.map((g) => g.bar),
       status,
+      muted: active.length === 0,
       labelRoom: null,
     };
   });

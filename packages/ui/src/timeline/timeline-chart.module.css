@@ -164,6 +164,9 @@
   max-height: var(--timeline-max-height, calc(100vh - 220px));
   border: 1px solid var(--border);
   overscroll-behavior-x: contain;
+  /* Revealed under a sticky host topbar (--nav-h), not behind it. */
+  scroll-margin-top: calc(var(--nav-h, 0px) + 12px);
+  scroll-margin-bottom: 12px;
 }
 
 .canvas {
@@ -330,6 +333,11 @@
   );
 }
 
+/* Only inactive (muted) lanes are due that day: greys, never loud. */
+.m_muted {
+  border-color: var(--grey-3);
+}
+
 .pointLabel {
   min-width: 0;
   overflow: hidden;
@@ -341,6 +349,10 @@
   text-transform: uppercase;
   white-space: nowrap;
   transition: color 0.15s ease;
+}
+
+.pointMuted .pointLabel {
+  color: var(--muted);
 }
 
 @media (hover: hover) and (width >= 901px) {

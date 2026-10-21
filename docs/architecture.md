@@ -972,13 +972,46 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   drag a bar's right edge to re-date (snaps to days, date tooltip, Esc cancels,
   PATCH on drop, optimistic with rollback + toast); keyboard: focus the handle,
   ←/→ ±1 day, ↵ commit. Clicking a bar opens the slide-over drawer. Below 900px:
-  per-project cards.
+  per-project cards. Built while wiring it (binding):
+  - The toolbar state is mirrored to the URL in place (`?q=`, `?initiative=`,
+    `?active=1`, `?risk=1`, `?zoom=months`, `?deps=1`; Dependencies start off,
+    Weeks is the default zoom), and every link the page builds (lane names,
+    banner rows, "waits on") keeps it. "Only at risk / overdue" keeps projects
+    with an at-risk or overdue dated milestone.
+  - Re-dating and the lead are Linear writes: handles and those drawer fields
+    only for PMs with Linear write access (a read-only PM sees a one-line notice
+    linking `/api/auth/linear?intent=grant_write&returnTo=/timeline`). Weight
+    and "done means…" need only `isPm`. Complete milestones have no drag handle.
+    Every open milestone failing the rubric carries its "Missing: …" line,
+    overdue and at-risk ones included (their marks stay).
+  - The drawer opens on click with a skeleton and fills when the server answers
+    `?milestone=`; an id the mirror lacks closes it and shows a "Not found"
+    notice. A lane focused by `?project=` is scrolled into the page too (chart
+    and phone card).
+  - The drawer's "Next milestone" cell says what that means for allocation: on
+    the project's next milestone, "Allocation stopped · <reason>" in the accent
+    when the project is blocked (or a quiet "Inactive project" note); on any
+    other milestone, which one is next. A deactivated lead is loud in the Lead
+    cell and named as deactivated in the met "Project lead" check.
+  - An inactive (muted) lane is never loud anywhere: its bars, its phone card
+    rows and the "Milestones" summary diamonds (a day with only inactive
+    milestones is drawn in greys; a shared day takes the active lanes' status).
+  - `PATCH /api/milestones/[id]` needs at least one of `targetDate`
+    (`YYYY-MM-DD` or null), `weight` (integer or null), `doneMeans` (string or
+    null), no other keys; it applies the date first, then weight, then "done
+    means…", stopping at the first engine error. Malformed bodies are 400s
+    before the engine is called.
 - **Projects** (Gr8r Projects page, register form): one row per non-completed
   project grouped by initiative: name + initiative, Linear status (mono chip),
   next milestone (name, due, status mark), next-milestone progress bar
-  (`completed/scope`), lead or `NO LEAD`, allocation state (`ALLOCATING n` /
-  `BLOCKED: <reason>` in accent / `NOTHING TO DO` / `INACTIVE`), links to its
-  timeline lane and graph. Search + status filter in a toolbar.
+  (`completed/scope`), lead or `NO LEAD`, allocation state chip (`ALLOCATING n`
+  / `BLOCKED: <reason>` filled accent with the missing rubric items under it /
+  `NOTHING TO DO` / `NO OPEN MILESTONE` / `INACTIVE`), links to its timeline
+  lane (the row), graph and Linear. Search + status filter (All / Blocked / At
+  risk = next milestone at risk or overdue / Inactive) in a toolbar, mirrored to
+  `?q=` and `?filter=` so a filtered register can be linked; the register also
+  follows the URL when it changes under it (back/forward, a link to `/projects`
+  while filtered).
 - **Graph**: level tabs (Milestones / Issues in <scope>); SVG laid out with
   `@dagrejs/dagre` (rankdir LR) on the server, hairline boxes with mono labels;
   risk chains in accent, cycles dashed accent, cross-project edges dashed ink,

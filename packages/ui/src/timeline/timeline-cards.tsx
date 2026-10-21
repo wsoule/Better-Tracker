@@ -4,7 +4,9 @@ import {
   memo,
   type NamedExoticComponent,
   type ReactElement,
+  useEffect,
   useMemo,
+  useRef,
 } from 'react';
 
 import StatusMark from '../components/status-mark';
@@ -49,6 +51,19 @@ function TimelineCardsImpl({
   focusLaneId,
   onOpenBar,
 }: TimelineCardsProps): ReactElement {
+  // The focused lane's card is scrolled into the page when the lane is
+  // focused (first paint included), as the chart does for its lane row.
+  // While the chart is showing, the cards are display: none and nothing
+  // moves.
+  const focusedCard = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const el = focusedCard.current;
+    if (focusLaneId === undefined || el === null) return;
+    if (typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'start' });
+    }
+  }, [focusLaneId]);
+
   // Bars per lane with optimistic dates applied, sorted by due date.
   const sorted = useMemo(() => {
     const out = new Map<string, TimelineBar[]>();
@@ -79,9 +94,14 @@ function TimelineCardsImpl({
           </h3>
           {group.lanes.map((lane) => {
             const bars = sorted.get(lane.id) ?? [];
+            // An inactive lane is drawn in greys: no accent mark, receipts
+            // or date, whatever its milestones' status.
+            const loud = lane.muted !== true;
             return (
               <article
                 key={lane.id}
+                ref={lane.id === focusLaneId ? focusedCard : undefined}
+                data-lane-id={lane.id}
                 className={cx(
                   styles.card,
                   lane.muted === true ? styles.cardMuted : undefined,
@@ -113,55 +133,60 @@ function TimelineCardsImpl({
                   <p className={styles.none}>No milestones</p>
                 ) : (
                   <ul className={styles.rows}>
-                    {bars.map((bar) => (
-                      <li key={bar.id}>
-                        <button
-                          type="button"
-                          className={cx(
-                            styles.row,
-                            bar.id === selectedBarId
-                              ? styles.rowSelected
-                              : undefined
-                          )}
-                          aria-label={describeMilestone(bar, today).join(', ')}
-                          aria-current={
-                            bar.id === selectedBarId ? 'true' : undefined
-                          }
-                          onClick={() => onOpenBar(bar.id)}
-                        >
-                          <StatusMark
-                            status={
-                              lane.muted === true ? 'on_track' : bar.status
-                            }
-                            label={bar.statusLabel}
-                          />
-                          <span className={styles.rowBody}>
-                            <span className={styles.rowName}>{bar.label}</span>
-                            <span
-                              className={cx(
-                                styles.rowMeta,
-                                bar.missing !== undefined ||
-                                  bar.status === 'overdue'
-                                  ? styles.rowMetaAccent
-                                  : undefined
-                              )}
-                            >
-                              {receipts(bar)}
-                            </span>
-                          </span>
-                          <span
+                    {bars.map((bar) => {
+                      const metaLoud =
+                        loud &&
+                        (bar.missing !== undefined || bar.status === 'overdue');
+                      const dueLoud = loud && bar.status === 'overdue';
+                      return (
+                        <li key={bar.id}>
+                          <button
+                            type="button"
                             className={cx(
-                              styles.rowDue,
-                              bar.status === 'overdue'
-                                ? styles.rowDueAccent
+                              styles.row,
+                              bar.id === selectedBarId
+                                ? styles.rowSelected
                                 : undefined
                             )}
+                            aria-label={describeMilestone(bar, today).join(
+                              ', '
+                            )}
+                            aria-current={
+                              bar.id === selectedBarId ? 'true' : undefined
+                            }
+                            onClick={() => onOpenBar(bar.id)}
                           >
-                            {formatDay(bar.end)}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
+                            <StatusMark
+                              status={loud ? bar.status : 'on_track'}
+                              label={bar.statusLabel}
+                            />
+                            <span className={styles.rowBody}>
+                              <span className={styles.rowName}>
+                                {bar.label}
+                              </span>
+                              <span
+                                className={cx(
+                                  styles.rowMeta,
+                                  metaLoud ? styles.rowMetaAccent : undefined
+                                )}
+                                data-tone={metaLoud ? 'accent' : 'default'}
+                              >
+                                {receipts(bar)}
+                              </span>
+                            </span>
+                            <span
+                              className={cx(
+                                styles.rowDue,
+                                dueLoud ? styles.rowDueAccent : undefined
+                              )}
+                              data-tone={dueLoud ? 'accent' : 'default'}
+                            >
+                              {formatDay(bar.end)}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
                     {lane.undated.map((chip) => (
                       <li key={chip.id}>
                         <button

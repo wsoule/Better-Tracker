@@ -1,0 +1,434 @@
+/* Timeline page furniture around the package components: the header, the
+   banner stack, the chart's toolbar inputs, and the drawer's contents
+   (edit fields, issue list, waits-on list). Built only from the shared
+   tokens; the chart, notices, drawer and property list style themselves. */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.receipts {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* ---- banners ---------------------------------------------------------- */
+
+/* Accent notices collapse onto one 2px rule, like a ruled table. */
+.notices {
+  display: flex;
+  flex-direction: column;
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 48px;
+}
+
+.notices > * + * {
+  margin-top: -2px;
+}
+
+.bannerList {
+  display: flex;
+  flex-direction: column;
+  margin-top: 10px;
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.bannerList[hidden] {
+  display: none;
+}
+
+.bannerItem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hairline-faint);
+}
+
+.bannerLink {
+  font-weight: 500;
+  color: var(--foreground);
+  border-bottom: 1px solid var(--hairline-faint);
+}
+
+.bannerDetail {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.bannerIssues {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+
+.issueKeyLink {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--accent);
+  border-bottom: 1px solid currentcolor;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .bannerLink:hover,
+  .issueKeyLink:hover {
+    color: var(--accent-hover);
+    border-bottom-color: currentcolor;
+  }
+}
+
+/* ---- chart + toolbar ---------------------------------------------------- */
+
+.chartWrap {
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 48px 72px;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.search {
+  width: 220px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 4px 10px;
+}
+
+.select {
+  min-height: 28px;
+  padding: 4px 28px 4px 10px;
+  max-width: 100%;
+}
+
+.count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---- drawer ------------------------------------------------------------- */
+
+.drawerLoading {
+  padding-top: 6px;
+}
+
+.alert {
+  margin-bottom: 18px;
+}
+
+.subhead {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 28px 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.subheadMeta {
+  margin-left: auto;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.para {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.reasons {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--accent);
+}
+
+.note {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--muted);
+}
+
+.accentNote {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--accent);
+}
+
+.accent {
+  color: var(--accent);
+}
+
+.accentMono {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  width: 100%;
+}
+
+/* Edit fields sit in the property list's value column. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+}
+
+.fieldRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dateInput,
+.weightInput {
+  min-height: 32px;
+  padding: 4px 8px;
+}
+
+.weightInput {
+  width: 96px;
+}
+
+.leadSelect {
+  min-height: 32px;
+  min-width: 0;
+  width: 220px;
+  max-width: 100%;
+  padding: 4px 28px 4px 8px;
+}
+
+.selectAccent {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Grows with the text where the browser can (one line of up to 280
+   characters wraps to several on a phone), instead of scrolling inside
+   two rows. */
+.doneArea {
+  min-height: 60px;
+  field-sizing: content;
+}
+
+/* Issues: a hairline register; each row opens the issue in Linear. */
+.issues {
+  border: 1px solid var(--border);
+}
+
+.issues > li + li {
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.issue {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 4px 12px;
+  padding: 9px 14px;
+  color: var(--foreground);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.issueKey {
+  grid-row: span 2;
+  padding-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.issueTitle {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.issueMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.issueState {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.issueClosed .issueTitle {
+  color: var(--muted);
+}
+
+/* Register-row hover: paper and ink swap locally. */
+@media (hover: hover) and (width >= 901px) {
+  .issue:hover {
+    background: var(--foreground);
+    color: var(--background);
+  }
+
+  .issue:hover .issueKey,
+  .issue:hover .issueTitle,
+  .issue:hover .issueMeta,
+  .issue:hover .accent {
+    color: var(--background);
+  }
+}
+
+.editNote {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.drawerEmpty {
+  margin-top: 0;
+}
+
+.waits {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+}
+
+.waits > li + li {
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.waitLink {
+  display: block;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  color: var(--ink-soft);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .waitLink:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+.graphLink {
+  margin-top: 12px;
+}
+
+/* ---- loading ------------------------------------------------------------ */
+
+.skeletonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+}
+
+.skeletonToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 10px 18px;
+  border: 1px solid var(--border);
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .notices {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .chartWrap {
+    margin-top: 20px;
+    padding: 0 16px 56px;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  .filters {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .issue {
+    transition: none;
+  }
+}

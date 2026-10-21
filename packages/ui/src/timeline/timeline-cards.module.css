@@ -50,6 +50,7 @@
 .card {
   margin-top: -1px;
   border: 1px solid var(--border);
+  scroll-margin-top: calc(var(--nav-h, 0px) + 12px);
 }
 
 /* The lane named in ?project= gets the 2px emphasis rule. */

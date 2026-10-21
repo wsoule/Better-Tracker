@@ -591,6 +591,60 @@ describe('phone cards and empty state', () => {
     );
   });
 
+  test('an inactive lane draws its cards in greys, overdue or not', () => {
+    const quiet: TimelineGroup[] = [
+      {
+        id: 'g',
+        label: 'Paused work',
+        lanes: [
+          {
+            id: 'p-fjord',
+            label: 'Fjord analytics',
+            muted: true,
+            bars: [
+              {
+                id: 'm-dash',
+                label: 'Dashboards',
+                start: '2026-10-01',
+                end: '2026-10-16',
+                status: 'overdue',
+                statusLabel: 'Overdue',
+                missing: 'MISSING: ISSUES',
+              },
+            ],
+            undated: [],
+          },
+          {
+            id: 'p-live',
+            label: 'Live project',
+            bars: [
+              {
+                id: 'm-live',
+                label: 'Launch',
+                start: '2026-10-01',
+                end: '2026-10-16',
+                status: 'overdue',
+                statusLabel: 'Overdue',
+              },
+            ],
+            undated: [],
+          },
+        ],
+      },
+    ];
+    const { container } = renderChart({ groups: quiet });
+    const muted = container.querySelector('article[data-lane-id="p-fjord"]');
+    const live = container.querySelector('article[data-lane-id="p-live"]');
+    if (muted === null || live === null) throw new Error('no cards');
+    const tones = (card: Element) =>
+      [...card.querySelectorAll('button [data-tone]')].map((el) =>
+        el.getAttribute('data-tone')
+      );
+    // Receipts line, then the due date.
+    expect(tones(muted)).toEqual(['default', 'default']);
+    expect(tones(live)).toEqual(['accent', 'accent']);
+  });
+
   test('no lanes renders the empty copy instead of a chart', () => {
     const { getByText, queryByRole } = render(
       <TimelineChart
@@ -605,5 +659,59 @@ describe('phone cards and empty state', () => {
     );
     expect(getByText('Nothing on the timeline')).toBeTruthy();
     expect(queryByRole('region')).toBeNull();
+  });
+});
+
+describe('focused lane', () => {
+  // Records which elements were asked to scroll into the page's view.
+  function spyScrollIntoView() {
+    const original = Element.prototype.scrollIntoView;
+    const calls: { el: Element; options: unknown }[] = [];
+    Element.prototype.scrollIntoView = function (this: Element, options) {
+      calls.push({ el: this, options });
+    };
+    return {
+      calls,
+      restore: () => {
+        Element.prototype.scrollIntoView = original;
+      },
+    };
+  }
+
+  test('a lane focused from outside brings the chart and its phone card into view', () => {
+    const spy = spyScrollIntoView();
+    try {
+      const { getByRole, container } = renderChart({ focusLaneId: 'p-ledger' });
+      const region = getByRole('region', { name: /^Timeline/ });
+      const card = container.querySelector('article[data-lane-id="p-ledger"]');
+      expect(card).not.toBeNull();
+      const byChart = spy.calls.find((c) => c.el === region);
+      const byCard = spy.calls.find((c) => c.el === card);
+      expect(spy.calls).toHaveLength(2);
+      expect(byChart?.options).toEqual({ block: 'nearest', inline: 'nearest' });
+      expect(byCard?.options).toEqual({ block: 'start' });
+    } finally {
+      spy.restore();
+    }
+  });
+
+  test('changing the focus reveals the new lane; a selected bar alone does not move the page', () => {
+    const spy = spyScrollIntoView();
+    try {
+      const { rerender, props, container } = renderChart({
+        selectedBarId: 'm-cutover',
+      });
+      expect(spy.calls).toHaveLength(0);
+      rerender(<TimelineChart {...props} focusLaneId="p-atlas" />);
+      const card = container.querySelector('article[data-lane-id="p-atlas"]');
+      // The cards' effect runs before the chart's (children first).
+      expect(spy.calls.map((c) => c.el.tagName).sort()).toEqual([
+        'ARTICLE',
+        'DIV',
+      ]);
+      expect(spy.calls.some((c) => c.el === card)).toBe(true);
+    } finally {
+      spy.restore();
+    }
   });
 });

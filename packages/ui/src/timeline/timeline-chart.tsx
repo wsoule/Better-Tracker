@@ -130,6 +130,16 @@ function scrollLaneIntoView(el: HTMLElement, lane: LaneRow): void {
   el.scrollTop = Math.max(0, lane.top + lane.height / 2 - visible / 2);
 }
 
+/* Brings the chart itself into the page's view (block: nearest, so a chart
+   already on screen does not move), for a lane focused from outside
+   (?project=). The chart's own scroll position is set separately. A
+   hidden chart (the phone cards are showing) does not move the page. */
+function revealInPage(el: HTMLElement): void {
+  if (typeof el.scrollIntoView === 'function') {
+    el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+}
+
 /* ---- rows ------------------------------------------------------------- */
 
 const SummaryRowView = memo(function SummaryRowView({
@@ -161,13 +171,19 @@ const SummaryRowView = memo(function SummaryRowView({
           return (
             <span
               key={point.end}
-              className={styles.point}
+              className={cx(
+                styles.point,
+                point.muted ? styles.pointMuted : undefined
+              )}
               style={{ left: point.x }}
               title={tip}
               onClick={() => onOpen(first.id)}
             >
               <span
-                className={cx(styles.pointMark, styles[`m_${point.status}`])}
+                className={cx(
+                  styles.pointMark,
+                  point.muted ? styles.m_muted : styles[`m_${point.status}`]
+                )}
               />
               {point.labelRoom === null ? null : (
                 <span
@@ -615,7 +631,10 @@ export function TimelineChart({
     if (x !== null) scrollTrackTo(el, x, 'auto');
     const laneKey = bar?.laneId ?? laneId;
     const lane = laneKey === undefined ? undefined : current.lanes.get(laneKey);
-    if (lane !== undefined) scrollLaneIntoView(el, lane);
+    if (lane !== undefined) {
+      scrollLaneIntoView(el, lane);
+      if (bar === undefined) revealInPage(el);
+    }
     onScroll();
   }, [onScroll]);
 
@@ -659,7 +678,10 @@ export function TimelineChart({
     const el = scrollerRef.current;
     if (el === null || focusLaneId === undefined) return;
     const lane = latest.current.layout.lanes.get(focusLaneId);
-    if (lane !== undefined) scrollLaneIntoView(el, lane);
+    if (lane !== undefined) {
+      scrollLaneIntoView(el, lane);
+      revealInPage(el);
+    }
   }, [focusLaneId]);
 
   /* ---- render ---- */

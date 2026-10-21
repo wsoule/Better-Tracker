@@ -253,6 +253,35 @@ describe('bar geometry', () => {
     // One day apart (32px) leaves no room for a label before the next.
     expect(summary.points[0]?.labelRoom).toBeNull();
     expect(summary.points[1]?.labelRoom).not.toBeNull();
+    expect(summary.points.map((p) => p.muted)).toEqual([false, false]);
+  });
+
+  test('an inactive (muted) lane never makes a summary diamond loud', () => {
+    const quiet = (id: string, bars: TimelineBar[]): TimelineLane => ({
+      ...lane(id, bars),
+      muted: true,
+    });
+    const layout = layoutOf([
+      {
+        id: 'g',
+        label: 'G',
+        lanes: [
+          lane('a', [bar('a1', '2026-10-19', '2026-10-23', 'on_track')]),
+          quiet('b', [
+            bar('b1', '2026-10-19', '2026-10-23', 'overdue'),
+            bar('b2', '2026-10-23', '2026-10-30', 'at_risk'),
+          ]),
+        ],
+      },
+    ]);
+    const summary = layout.rows[0];
+    if (summary?.kind !== 'summary') throw new Error('no summary row');
+    // Same day as an active lane's milestone: the active one decides.
+    expect(summary.points[0]?.status).toBe('on_track');
+    expect(summary.points[0]?.muted).toBe(false);
+    expect(summary.points[0]?.bars.map((b) => b.id)).toEqual(['a1', 'b1']);
+    // Only the muted lane is due that day: drawn muted.
+    expect(summary.points[1]?.muted).toBe(true);
   });
 });
 
