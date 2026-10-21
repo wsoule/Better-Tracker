@@ -37,6 +37,8 @@ tsconfig.tsbuildinfo
 .omx/
 .agents/ignore/
 .env.worktree
+# Local PGlite data (planner dev server, worker in dev)
+.data/
 
 # moon (generated per-clone/worktree state)
 .moon/cache/

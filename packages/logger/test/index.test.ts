@@ -45,7 +45,7 @@ describe('createLogger', () => {
       nested: { refresh_token: 'r', clientSecret: 's', tokenCount: 3 },
       headers: { authorization: 'Bearer x', cookie: 'mp_session=1' },
     });
-    const data = lines[0]!.data;
+    const data = lines[0].data;
     expect(data.accessToken).toBe('[redacted]');
     expect(data.nested).toEqual({
       refresh_token: '[redacted]',
@@ -63,7 +63,7 @@ describe('createLogger', () => {
     const cyclic: Record<string, unknown> = { a: 1 };
     cyclic.self = cyclic;
     logger.error('failed', { err: new Error('boom'), cyclic });
-    const data = lines[0]!.data as {
+    const data = lines[0].data as {
       err: { name: string; message: string };
       cyclic: { self: string };
     };
@@ -75,7 +75,7 @@ describe('createLogger', () => {
   test('child loggers bind fields', () => {
     const { logger, lines } = capture();
     logger.child({ workspaceId: 'w1' }).child({ runId: 'r1' }).info('run');
-    expect(lines[0]!.data.workspaceId).toBe('w1');
-    expect(lines[0]!.data.runId).toBe('r1');
+    expect(lines[0].data.workspaceId).toBe('w1');
+    expect(lines[0].data.runId).toBe('r1');
   });
 });

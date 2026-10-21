@@ -89,9 +89,12 @@ triage included); `openTriage`. Shown as `completed/scope`.
 `resolveDoneMeans(milestone, meta)`:
 
 1. `meta.doneMeans` (trimmed, non-empty) → source `planner`.
-2. Otherwise the first line of `milestone.description` matching
-   `/^\s*done means\b[\s:—–-]*(.+)$/i` → source `linear_description`, text is
-   the capture group (lets teams author it in Linear).
+2. Otherwise the first line of `milestone.description` that, after dropping a
+   leading markdown list/blockquote/heading marker, matches
+   `/^[\s*_]*done means\b[\s:—–*_-]*([^\s:—–*_-].*)$/i` → source
+   `linear_description`, text is the capture group with trailing emphasis
+   removed (lets teams author it in Linear, including `**Done means:** …`). A
+   bare "Done means:" with nothing after it does not count.
 3. Otherwise `{ text: null, source: null }`.
 
 ### 2.4 Rubric (§6.7)
@@ -164,12 +167,12 @@ per-project "unplanned" bucket.
 
 Evaluated daily for milestones in active projects:
 
-| condition                                          | kind               | key                                        |
-| -------------------------------------------------- | ------------------ | ------------------------------------------ |
-| status overdue                                     | `overdue`          | `overdue:<targetDate>`                     |
-| rubric invalid and `0 <= daysLeft <= warnLeadDays` | `invalid_due_soon` | `invalid:<targetDate>:<gaps>`              |
-| status at_risk                                     | `at_risk`          | `at_risk:<targetDate>`                     |
-| anything else                                      | —                  | `ok:<status>` (remembered, never notified) |
+| condition                                                         | kind               | key                                        |
+| ----------------------------------------------------------------- | ------------------ | ------------------------------------------ |
+| status overdue                                                    | `overdue`          | `overdue:<targetDate>`                     |
+| rubric invalid, not complete, and `0 <= daysLeft <= warnLeadDays` | `invalid_due_soon` | `invalid:<targetDate>:<gaps>`              |
+| status at_risk                                                    | `at_risk`          | `at_risk:<targetDate>`                     |
+| anything else                                                     | —                  | `ok:<status>` (remembered, never notified) |
 
 Overdue wins over invalid, invalid over at_risk (an invalid milestone due soon
 is reported as invalid with its risk reasons attached).

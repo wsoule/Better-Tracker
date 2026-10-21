@@ -24,7 +24,7 @@
       {
         "allowSeparatedGroups": true,
         "ignoreDeclarationSort": true,
-        "ignoreMemberSort": false,
+        "ignoreMemberSort": true,
         "ignoreCase": true
       }
     ],
