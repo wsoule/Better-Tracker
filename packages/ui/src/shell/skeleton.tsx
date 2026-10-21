@@ -89,7 +89,11 @@ export function SkeletonRows({
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className={styles.row} aria-hidden="true">
           <Skeleton width={13} height={13} />
-          <Skeleton width={`${38 + ((i * 13) % 30)}%`} height={10} />
+          <Skeleton
+            width={`${38 + ((i * 13) % 30)}%`}
+            height={10}
+            className={styles.line}
+          />
           <span className={styles.spacer} />
           <Skeleton width={54} height={16} className={styles.chip} />
           <Skeleton width={38} height={10} className={styles.chip} />

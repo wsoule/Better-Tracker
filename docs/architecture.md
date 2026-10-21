@@ -932,15 +932,28 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   issues due this week · 1 milestone overdue"); a four-cell stats strip (Open
   issues · this week, Overdue milestones, New to you, At risk in your projects)
   in the stat-card idiom; then two columns. Main column: the list in Gr8r's
-  grouped-table form — column headers (Issue / Project / State / Priority /
-  Due), collapsible group rows per milestone (`PROJECT › MILESTONE`, due + days
-  left, `completed/scope` with a 1px progress rule, status mark), "THIS WEEK"
-  and "LATER" dividers, rows with identifier (mono), title, state, priority
-  label, and the accent chip "NEW — GIVEN TO YOU BECAUSE YOU LEAD <PROJECT>"; a
-  final "No milestone" group. Right column (Gr8r "Upcoming deadlines"):
-  milestones the user leads or has issues in, grouped Today / Tomorrow / This
-  week / Overdue; and "Needs attention" for projects the user leads that are
-  blocked (reason) or have unassigned next-milestone issues.
+  grouped-table form — column headers (Issue / State / Priority / Due; no
+  Project column, because every group heading names the project and beside the
+  deadlines panel a fifth column left titles unreadably narrow), collapsible
+  group rows per milestone (`PROJECT › MILESTONE`, due + days left,
+  `completed/scope` with a 1px progress rule, status mark), "THIS WEEK" (always
+  shown once anything is open) and "LATER" dividers, rows with identifier
+  (mono), title, state, priority label, and the accent chip "NEW — GIVEN TO YOU
+  BECAUSE YOU LEAD <PROJECT>"; a final "No milestone" divider with one group per
+  project (`PROJECT › Issues without a milestone`, linking to
+  `/timeline?project=`; a completed or canceled project has no lane, so its
+  group is not a link), then "Issues without a project or milestone". "At risk
+  in your projects" counts the milestones of projects the person leads whose
+  status is at risk or overdue (§2.5) — a blocked project whose next milestone
+  is on track is not at risk; it appears under "Needs attention" with its
+  reason. The two columns sit side by side only while the content area (not the
+  viewport) is at least 1040px wide; below that the deadlines and attention
+  panels stack under the list. Right column (Gr8r "Upcoming deadlines"):
+  milestones the user leads or has issues in, grouped Overdue / Today / Tomorrow
+  / This week (up to 6 days out); and "Needs attention" for projects the user
+  leads that are blocked (reason) or have unassigned next-milestone issues. PMs
+  get a person picker (`?user=<id>`, honoured on the server for PMs only and
+  only for people in the mirror).
 - **Timeline** (Gr8r Timeline in the Matrix drawing style): banners first (no
   lead / no date / unplanned / blocked, each a count that expands to a list). A
   toolbar: project search, zoom **Weeks / Months** (segmented tab strip),

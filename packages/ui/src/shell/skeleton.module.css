@@ -19,6 +19,13 @@
   animation: drift 1.6s linear infinite;
 }
 
+/* SkeletonRows' title line: it gives way first in a narrow column (a
+   side panel), so the fixed-width chips never push the row past its box. */
+.line {
+  flex: 0 1 auto;
+  min-width: 24px;
+}
+
 @keyframes drift {
   to {
     background-position: 8px 0;

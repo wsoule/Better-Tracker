@@ -1,0 +1,143 @@
+/* Projects page furniture around the package components: the header, the
+   search/filter toolbar, one block per initiative, and the cell contents
+   (milestone name with its mark, end-cell links). Built only from the
+   shared tokens. */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.receipts {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.toolbarWrap,
+.blocks {
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 48px;
+}
+
+.blocks + .blocks {
+  margin-top: 32px;
+}
+
+.collapse > * + * {
+  margin-top: -1px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 18px;
+  border: 1px solid var(--border);
+}
+
+.search {
+  width: 260px;
+  max-width: 100%;
+}
+
+.count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.milestone {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-weight: 400;
+}
+
+.milestoneName {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.accentText {
+  color: var(--accent);
+}
+
+.dash {
+  font-family: var(--font-mono);
+  color: var(--muted);
+}
+
+/* End-cell links sit above the row's stretched link (the register lifts
+   links inside cells). */
+.links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px 14px;
+}
+
+/* Loading skeleton: header lines and the toolbar's height. */
+.skeletonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .toolbarWrap,
+  .blocks {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .blocks + .blocks {
+    margin-top: 24px;
+  }
+
+  .toolbar {
+    padding: 10px 14px;
+  }
+
+  .search {
+    width: 100%;
+  }
+
+  .count {
+    margin-left: 0;
+  }
+
+  .links {
+    justify-content: flex-start;
+  }
+}

@@ -176,6 +176,41 @@ describe('Register', () => {
     expect(ext.getAttribute('target')).toBe('_blank');
   });
 
+  test('stacks by viewport width, or by its own width with stackWithin', () => {
+    const rows = (
+      <RegisterRow>
+        <RegisterCell>Atlas</RegisterCell>
+      </RegisterRow>
+    );
+    const byViewport = render(
+      <Register label="Viewport" columns="1fr" stackBelow={700}>
+        {rows}
+      </Register>
+    );
+    const viewportRoot = byViewport.container.firstElementChild;
+    expect(viewportRoot?.getAttribute('data-stack')).toBe('viewport-700');
+    cleanup();
+
+    const byWidth = render(
+      <Register
+        label="Container"
+        columns="1fr"
+        stackBelow={700}
+        stackWithin={1000}
+        stackedColumns="repeat(auto-fill, minmax(150px, 1fr))"
+      >
+        {rows}
+      </Register>
+    );
+    const root = byWidth.container.firstElementChild as HTMLElement | null;
+    // stackWithin wins over stackBelow: the root is the query container
+    // (CSS module class names are empty under Bun, so data-stack is read).
+    expect(root?.getAttribute('data-stack')).toBe('container-1000');
+    expect(root?.style.getPropertyValue('--register-stacked-cols')).toBe(
+      'repeat(auto-fill, minmax(150px, 1fr))'
+    );
+  });
+
   test('callback rows are buttons; selected rows are marked current', () => {
     const onActivate = mock(() => {});
     const view = render(

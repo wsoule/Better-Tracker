@@ -327,8 +327,14 @@ export interface RegisterProps {
   /** Accessible name of the list. */
   label: string;
   children: ReactNode;
-  /** Rows stack into cards below this width (px). Default 900. */
+  /** Rows stack into cards below this viewport width (px). Default 900. */
   stackBelow?: 700 | 900;
+  /** Stack by the register's own width instead of the viewport's: rows
+   * become cards while the register is narrower than this (px). Use it
+   * inside a sidebar shell, where the content column is far narrower than
+   * the window, or for a wide (many-column) register. Overrides
+   * stackBelow. */
+  stackWithin?: 700 | 900 | 1000;
   /** grid-template-columns of a stacked card; the first cell (the row's
    * subject) spans the full width. Default two equal columns. */
   stackedColumns?: string;

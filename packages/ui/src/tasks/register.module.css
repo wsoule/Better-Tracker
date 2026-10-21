@@ -322,6 +322,169 @@
   }
 }
 
+/* ---- stacked by the register's own width (stackWithin) ---------------
+   The same card layout as above, keyed to the register's width through a
+   container query, for registers inside a sidebar shell (where the
+   viewport overstates the room) and for wide many-column registers. The
+   root is the container, so these rules reach its header, rows and cells. */
+
+.container {
+  container: register / inline-size;
+}
+
+@container register (width < 700px) {
+  .within700 .header {
+    display: none;
+  }
+
+  .within700 .header + .list {
+    margin-top: 0;
+  }
+
+  .within700 .row {
+    grid-template-columns: var(--register-stacked-cols);
+    gap: 12px 16px;
+    align-items: start;
+    padding: 12px 14px;
+  }
+
+  .within700 .row > .cell:first-of-type {
+    grid-column: 1 / -1;
+  }
+
+  .within700 .rowAccent {
+    padding-left: 13px;
+  }
+
+  .within700 .end {
+    align-items: flex-start;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .within700.hasHeader .cellLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .within700 .row > .cell:first-of-type .cellLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@container register (width < 900px) {
+  .within900 .header {
+    display: none;
+  }
+
+  .within900 .header + .list {
+    margin-top: 0;
+  }
+
+  .within900 .row {
+    grid-template-columns: var(--register-stacked-cols);
+    gap: 12px 16px;
+    align-items: start;
+    padding: 12px 14px;
+  }
+
+  .within900 .row > .cell:first-of-type {
+    grid-column: 1 / -1;
+  }
+
+  .within900 .rowAccent {
+    padding-left: 13px;
+  }
+
+  .within900 .end {
+    align-items: flex-start;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .within900.hasHeader .cellLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .within900 .row > .cell:first-of-type .cellLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+@container register (width < 1000px) {
+  .within1000 .header {
+    display: none;
+  }
+
+  .within1000 .header + .list {
+    margin-top: 0;
+  }
+
+  .within1000 .row {
+    grid-template-columns: var(--register-stacked-cols);
+    gap: 12px 16px;
+    align-items: start;
+    padding: 12px 14px;
+  }
+
+  .within1000 .row > .cell:first-of-type {
+    grid-column: 1 / -1;
+  }
+
+  .within1000 .rowAccent {
+    padding-left: 13px;
+  }
+
+  .within1000 .end {
+    align-items: flex-start;
+    justify-self: start;
+    text-align: left;
+  }
+
+  .within1000.hasHeader .cellLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    overflow: visible;
+    clip-path: none;
+    white-space: normal;
+  }
+
+  .within1000 .row > .cell:first-of-type .cellLabel {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .row {
     transition: none;

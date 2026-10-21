@@ -1,0 +1,145 @@
+/* My week page furniture around the package components: the greeting
+   header, the two-column grid (task table + deadlines/attention), and the
+   PM's person picker. Built only from the shared tokens. */
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px 24px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.headText {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.receipts {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.body {
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+/* The columns follow the space the shell leaves (sidebar open, collapsed
+   to the rail, or gone on phones), not the viewport. */
+.columns {
+  container-type: inline-size;
+  margin-top: 24px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+/* The table's column header sticks under the shell's topbar. */
+.main {
+  --task-sticky-top: var(--nav-h, 0px);
+
+  min-width: 0;
+}
+
+.side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+  min-width: 0;
+}
+
+/* Side by side once the task table keeps a readable title column. */
+@container (width >= 1040px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+
+/* Stacked under the table: deadlines and attention share a row. */
+@container (700px <= width < 1040px) {
+  .side {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.collapse > * + * {
+  margin-top: -1px;
+}
+
+.picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.picker[data-pending] {
+  opacity: 0.6;
+}
+
+.pickerLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+
+.pickerSelect {
+  min-width: 220px;
+  max-width: 100%;
+}
+
+/* Loading skeleton: the header's two lines. */
+.skeletonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+}
+
+@media (width <= 768px) {
+  .head {
+    padding: 0 16px;
+    margin-top: 20px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .body {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .picker {
+    width: 100%;
+  }
+
+  .pickerSelect {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}

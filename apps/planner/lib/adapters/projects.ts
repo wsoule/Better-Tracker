@@ -1,0 +1,312 @@
+import {
+  BLOCK_REASON_LABEL,
+  missingLine,
+  type ProjectAllocationPlan,
+  type ProjectStatusType,
+  type TimelineBar,
+  type TimelineLane,
+  type TimelineView,
+} from '@better-tracker/core';
+import type {
+  ChipTone,
+  SegmentedOption,
+  UiStatus,
+  UiTone,
+} from '@better-tracker/ui';
+
+import { dueLabel, plural } from '../format';
+import { assessmentMark } from './status';
+
+// The projects register (architecture §8.4): one row per lane of the
+// engine's TimelineView (every project that is not completed or canceled),
+// grouped by initiative in timeline order. Each row carries the project's
+// Linear status, its next milestone (due, mark, progress), its lead, and
+// what the allocation plan would do with it. Pure functions over plain
+// data, shared by the server page and the client island that filters.
+
+export type ProjectFilterId = 'all' | 'blocked' | 'at_risk' | 'inactive';
+
+export const PROJECT_FILTER_IDS: readonly ProjectFilterId[] = [
+  'all',
+  'blocked',
+  'at_risk',
+  'inactive',
+];
+
+const FILTER_LABEL: Record<ProjectFilterId, string> = {
+  all: 'All',
+  blocked: 'Blocked',
+  at_risk: 'At risk',
+  inactive: 'Inactive',
+};
+
+/** Linear's default status names, used when the mirror has no name. */
+const STATUS_TYPE_LABEL: Record<ProjectStatusType, string> = {
+  backlog: 'Backlog',
+  planned: 'Planned',
+  started: 'In Progress',
+  paused: 'Paused',
+  completed: 'Completed',
+  canceled: 'Canceled',
+};
+
+export interface ProjectNextMilestone {
+  id: string;
+  name: string;
+  href: string;
+  /** "Oct 18 · 3 days overdue", "No target date". */
+  dueLabel: string;
+  dueTone: UiTone;
+  status: UiStatus;
+  statusLabel: string;
+  done: number;
+  total: number;
+  progressTone: 'default' | 'accent';
+}
+
+export interface ProjectAllocationCell {
+  /** "Allocating 2", "Blocked: Project has no lead", "Nothing to do"… */
+  label: string;
+  /** Mono line under it, e.g. "missing: done means…". */
+  detail?: string;
+  /** Chip tone: accent = blocked (needs action), muted = nothing applies. */
+  tone: 'default' | 'muted' | 'accent';
+}
+
+export interface ProjectRowModel {
+  id: string;
+  name: string;
+  initiative: string;
+  linearStatus: string;
+  linearStatusTone: ChipTone;
+  /** Allocation and warnings apply to this project. */
+  active: boolean;
+  next: ProjectNextMilestone | null;
+  /** null renders "No lead" in the accent. */
+  lead: string | null;
+  allocation: ProjectAllocationCell;
+  rowTone: 'default' | 'accent' | 'muted';
+  /** The filters (other than "all") this row matches. */
+  tags: ProjectFilterId[];
+  timelineHref: string;
+  graphHref: string;
+  linearUrl: string;
+  /** Lower-cased words the search box matches against. */
+  searchText: string;
+}
+
+export interface ProjectGroupModel {
+  /** Initiative id, or "none" for "No initiative". */
+  id: string;
+  name: string;
+  rows: ProjectRowModel[];
+}
+
+export interface ProjectsPageModel {
+  groups: ProjectGroupModel[];
+  /** SegmentedControl options with counts: All / Blocked / At risk / Inactive. */
+  filters: SegmentedOption[];
+  total: number;
+  receipts: string;
+}
+
+/**
+ * The status mark of a timeline bar, through the planner's one mapping
+ * (assessmentMark): a bar carries the same status and rubric as the
+ * assessment it came from, so on-track-but-invalid reads as hatched.
+ */
+export function barMark(bar: TimelineBar): {
+  status: UiStatus;
+  label: string;
+} {
+  return assessmentMark(bar);
+}
+
+/**
+ * Accent when the progress itself needs action: the milestone is overdue,
+ * or there is more work left than time left (behind pace).
+ */
+export function progressTone(bar: TimelineBar): 'default' | 'accent' {
+  return bar.status === 'overdue' || bar.reasons.includes('behind_pace')
+    ? 'accent'
+    : 'default';
+}
+
+/** What the allocation plan says about a project, as register copy. */
+export function allocationCell(
+  plan: ProjectAllocationPlan | null
+): ProjectAllocationCell {
+  if (plan === null) return { label: 'Not evaluated', tone: 'muted' };
+  switch (plan.outcome) {
+    case 'allocate':
+      return { label: `Allocating ${plan.actions.length}`, tone: 'default' };
+    case 'blocked': {
+      const reason =
+        plan.blockReason === null
+          ? 'Blocked'
+          : `Blocked: ${BLOCK_REASON_LABEL[plan.blockReason]}`;
+      return plan.gaps.length > 0
+        ? { label: reason, detail: missingLine(plan.gaps), tone: 'accent' }
+        : { label: reason, tone: 'accent' };
+    }
+    case 'nothing_to_do':
+      return { label: 'Nothing to do', tone: 'default' };
+    case 'no_open_milestone':
+      return { label: 'No open milestone', tone: 'muted' };
+    case 'inactive':
+      return { label: 'Inactive', tone: 'muted' };
+  }
+}
+
+function nextMilestone(
+  lane: TimelineLane,
+  today: string
+): ProjectNextMilestone | null {
+  const bar = [...lane.bars, ...lane.undated].find((b) => b.isNext);
+  if (bar === undefined) return null;
+  const mark = barMark(bar);
+  return {
+    id: bar.milestoneId,
+    name: bar.name,
+    href: `/timeline?milestone=${encodeURIComponent(bar.milestoneId)}`,
+    dueLabel: dueLabel(bar.end, bar.daysLeft, today),
+    dueTone: bar.status === 'overdue' || bar.end === null ? 'accent' : 'muted',
+    status: mark.status,
+    statusLabel: mark.label,
+    done: bar.progress.completed,
+    total: bar.progress.scope,
+    progressTone: progressTone(bar),
+  };
+}
+
+function toRow(
+  lane: TimelineLane,
+  initiative: string,
+  today: string,
+  statusNames: ReadonlyMap<string, string>
+): ProjectRowModel {
+  const next = nextMilestone(lane, today);
+  const allocation = allocationCell(lane.allocation);
+  const blocked = lane.allocation?.outcome === 'blocked';
+  const atRisk =
+    next !== null && (next.status === 'overdue' || next.status === 'at_risk');
+  const tags: ProjectFilterId[] = [];
+  if (blocked) tags.push('blocked');
+  if (atRisk) tags.push('at_risk');
+  if (!lane.active) tags.push('inactive');
+  const linearStatus =
+    statusNames.get(lane.projectId) ?? STATUS_TYPE_LABEL[lane.statusType];
+  return {
+    id: lane.projectId,
+    name: lane.name,
+    initiative,
+    linearStatus,
+    linearStatusTone: lane.active ? 'default' : 'muted',
+    active: lane.active,
+    next,
+    lead: lane.leadName,
+    allocation,
+    rowTone: blocked ? 'accent' : lane.active ? 'default' : 'muted',
+    tags,
+    timelineHref: `/timeline?project=${encodeURIComponent(lane.projectId)}`,
+    graphHref: `/graph?project=${encodeURIComponent(lane.projectId)}`,
+    linearUrl: lane.url,
+    searchText: [
+      lane.name,
+      initiative,
+      linearStatus,
+      lane.leadName ?? 'no lead',
+      next?.name ?? '',
+      allocation.label,
+    ]
+      .join(' ')
+      .toLowerCase(),
+  };
+}
+
+/** Accepts a `?filter=` value; anything unknown means "all". */
+export function parseProjectFilter(value: unknown): ProjectFilterId {
+  const raw = Array.isArray(value) ? (value[0] as unknown) : value;
+  return PROJECT_FILTER_IDS.find((id) => id === raw) ?? 'all';
+}
+
+/** Longest search the register accepts from a URL. */
+export const PROJECT_QUERY_MAX = 200;
+
+/**
+ * The search and filter a /projects query string asks for (`?q=`,
+ * `?filter=`), as the client island reads them when the URL changes under
+ * it (back/forward, a link to /projects). Unknown filters mean "all".
+ */
+export function parseProjectsSearch(params: {
+  get(name: string): string | null;
+}): { query: string; filter: ProjectFilterId } {
+  return {
+    query: (params.get('q') ?? '').slice(0, PROJECT_QUERY_MAX),
+    filter: parseProjectFilter(params.get('filter') ?? undefined),
+  };
+}
+
+/**
+ * The rows that match a search and a filter, still grouped (groups left
+ * empty are dropped). Every whitespace-separated word of the query must
+ * appear in the row's name, initiative, status, lead or next milestone.
+ */
+export function filterProjectGroups(
+  groups: readonly ProjectGroupModel[],
+  query: string,
+  filter: ProjectFilterId
+): ProjectGroupModel[] {
+  const words = query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((w) => w !== '');
+  const result: ProjectGroupModel[] = [];
+  for (const group of groups) {
+    const rows = group.rows.filter(
+      (row) =>
+        (filter === 'all' || row.tags.includes(filter)) &&
+        words.every((word) => row.searchText.includes(word))
+    );
+    if (rows.length > 0) result.push({ ...group, rows });
+  }
+  return result;
+}
+
+/** Everything the /projects page renders, from the timeline view. */
+export function buildProjectsPage(input: {
+  timeline: TimelineView;
+  /** Linear's project status names (e.g. "In Progress") by project id. */
+  statusNames: ReadonlyMap<string, string>;
+}): ProjectsPageModel {
+  const { timeline, statusNames } = input;
+  const groups: ProjectGroupModel[] = timeline.groups.map((group) => ({
+    id: group.initiativeId ?? 'none',
+    name: group.name,
+    rows: group.lanes.map((lane) =>
+      toRow(lane, group.name, timeline.today, statusNames)
+    ),
+  }));
+  const rows = groups.flatMap((group) => group.rows);
+  const count = (id: ProjectFilterId) =>
+    id === 'all'
+      ? rows.length
+      : rows.filter((row) => row.tags.includes(id)).length;
+  const active = rows.filter((row) => row.active).length;
+  const receipts = [
+    plural(rows.length, 'project'),
+    `${active} active`,
+    `${count('blocked')} blocked`,
+    `${count('at_risk')} at risk or overdue`,
+  ].join(' · ');
+  return {
+    groups,
+    filters: PROJECT_FILTER_IDS.map((id) => ({
+      id,
+      label: FILTER_LABEL[id],
+      count: count(id),
+    })),
+    total: rows.length,
+    receipts,
+  };
+}

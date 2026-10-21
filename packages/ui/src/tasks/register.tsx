@@ -11,11 +11,19 @@ import type {
   RegisterRowProps,
 } from './types';
 
+/* Container-query classes per stackWithin threshold. */
+const WITHIN_CLASS: Record<700 | 900 | 1000, string | undefined> = {
+  700: styles.within700,
+  900: styles.within900,
+  1000: styles.within1000,
+};
+
 /* The Roster register as a layout: a list of hairline rows sharing one
    grid template (and an optional mono header row), collapsed on -1px
-   margins. Used for Projects, Runs and Settings. Below `stackBelow` the
-   rows become cards (subject cell on top, the rest on `stackedColumns`)
-   and each cell shows its own micro-label,
+   margins. Used for Projects, Runs and Settings. Below `stackBelow` (a
+   viewport width) or `stackWithin` (the register's own width, through a
+   container query) the rows become cards (subject cell on top, the rest
+   on `stackedColumns`) and each cell shows its own micro-label,
    which the header otherwise carries (the labels stay readable to
    assistive tech either way, because the header itself is decorative). */
 export function Register({
@@ -24,16 +32,28 @@ export function Register({
   label,
   children,
   stackBelow = 900,
+  stackWithin,
   stackedColumns = 'minmax(0, 1fr) minmax(0, 1fr)',
 }: RegisterProps) {
   const hasHeader = header !== undefined && header.length > 0;
+  const stackClass =
+    stackWithin === undefined
+      ? stackBelow === 700
+        ? styles.stack700
+        : styles.stack900
+      : cx(styles.container, WITHIN_CLASS[stackWithin]);
   return (
     <div
       className={cx(
         styles.register,
         hasHeader ? styles.hasHeader : undefined,
-        stackBelow === 700 ? styles.stack700 : styles.stack900
+        stackClass
       )}
+      data-stack={
+        stackWithin === undefined
+          ? `viewport-${stackBelow}`
+          : `container-${stackWithin}`
+      }
       style={
         {
           '--register-cols': columns,
