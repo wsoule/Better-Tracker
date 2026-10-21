@@ -580,7 +580,7 @@ questions that need a live test.
   can establish freshness. timestamp =
   this.parseBodyAsWebhookPayload(rawBody)?.webhookTimestamp; if (timestamp ===
   undefined || timestamp === null) { throw new Error("Missing webhook
-  timestam…  
+  timestam…
   _Source (source-code, high):_
   https://raw.githubusercontent.com/linear/linear/master/packages/sdk/src/webhooks/client.ts
   _Verifier:_ CONFIRMED verbatim. Lines 328-355 and the constants at L11-14
@@ -592,6 +592,7 @@ questions that need a live test.
   only import is Node `crypto`.
   (https://github.com/linear/linear/blob/67791e535db585eedc5c7b7805f43d4e8af5d2b9/packages/sdk/src/webhooks/client.ts#L328-L355)
 
+  ```
 - **What secret signs the webhook?**  
   Workspace webhooks use the per-webhook signing secret, `Webhook.secret`. The
   schema says: "A secret token used to sign webhook payloads with HMAC-SHA256
