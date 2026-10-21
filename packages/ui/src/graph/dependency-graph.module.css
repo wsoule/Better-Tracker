@@ -440,7 +440,7 @@ div.node {
 }
 
 /* On the ink fill the overdue mark and the accent chip go back to the
-   accent: the overdue flood's white-on-orange swap would read as a
+   accent: the overdue flood's white-on-accent swap would read as a
    paper square (invisible on dark ink). */
 .node.selected .glyph.overdue,
 .node.selected .tagAccent {

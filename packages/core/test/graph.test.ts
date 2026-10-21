@@ -544,12 +544,12 @@ describe('toMermaid', () => {
         '  n0 --> n1',
         '  n2 -.-> n1',
         '  n3 --> n0',
-        '  classDef risk stroke:#ee5a24,stroke-width:2px',
-        '  classDef cycle stroke:#ee5a24,stroke-dasharray:5 3',
+        '  classDef risk stroke:#9747ff,stroke-width:2px',
+        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  class n0,n1 risk',
         '  class n3 external',
-        '  linkStyle 0 stroke:#ee5a24',
+        '  linkStyle 0 stroke:#9747ff',
         '',
       ].join('\n')
     );
@@ -574,8 +574,8 @@ describe('toMermaid', () => {
         n1["Beta"]
         n0 -->|3| n1
         n1 --> n0
-        classDef risk stroke:#ee5a24,stroke-width:2px
-        classDef cycle stroke:#ee5a24,stroke-dasharray:5 3
+        classDef risk stroke:#9747ff,stroke-width:2px
+        classDef cycle stroke:#9747ff,stroke-dasharray:5 3
         classDef external stroke-dasharray:3 3,opacity:0.7
         class n0,n1 cycle
       "
@@ -593,8 +593,8 @@ describe('toMermaid', () => {
     ).toBe(
       [
         'flowchart LR',
-        '  classDef risk stroke:#ee5a24,stroke-width:2px',
-        '  classDef cycle stroke:#ee5a24,stroke-dasharray:5 3',
+        '  classDef risk stroke:#9747ff,stroke-width:2px',
+        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '',
       ].join('\n')

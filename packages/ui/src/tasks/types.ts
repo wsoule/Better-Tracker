@@ -47,7 +47,7 @@ export interface ButtonAsLinkProps extends ButtonCommonProps {
 
 export type ButtonProps = ButtonAsButtonProps | ButtonAsLinkProps;
 
-/** default = ink outline, muted = grey idle chip, accent = orange fill
+/** default = ink outline, muted = grey idle chip, accent = filled with the accent
  * ("needs action"), inverse = ink fill (the stronger claim). */
 export type ChipTone = 'default' | 'muted' | 'accent' | 'inverse';
 

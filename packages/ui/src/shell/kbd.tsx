@@ -6,7 +6,7 @@ import type { KbdKeysProps, KbdProps } from './types';
 
 /* A key cap in the machine voice: mono, square, a 1px border drawn in
    currentColor so it rides every surface (muted on paper, white on the
-   orange flood, paper on an ink-filled row). */
+   accent flood, paper on an ink-filled row). */
 export function Kbd({ children, className }: KbdProps): ReactNode {
   return <kbd className={cx(styles.kbd, className)}>{children}</kbd>;
 }

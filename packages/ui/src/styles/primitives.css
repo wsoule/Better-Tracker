@@ -55,7 +55,7 @@
 }
 
 /* Buttons: 2px is emphasis, so a button is a 2px-bordered mono label that
-   floods orange on hover. The primary variant starts as an ink slab. */
+   floods the accent on hover. The primary variant starts as an ink slab. */
 .button,
 .buttonPrimary {
   display: inline-flex;

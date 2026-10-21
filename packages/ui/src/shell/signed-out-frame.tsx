@@ -6,8 +6,8 @@ import styles from './signed-out-frame.module.css';
 import type { SignedOutFrameProps } from './types';
 
 /* The frame for signed-out pages (sign in, errors): the Analytics nav bar
-   itself — a hatched, bordered strip with orange registration marks at its
-   four corners that floods orange on hover — carrying only the brand and
+   itself — a hatched, bordered strip with accent registration marks at its
+   four corners that floods the accent on hover — carrying only the brand and
    the theme toggle, above a centred content column. */
 export default function SignedOutFrame({
   appName,

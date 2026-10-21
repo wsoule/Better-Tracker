@@ -763,10 +763,10 @@ Two references, one rule: **layout and interaction from Gr8r Studio
 `competitors-site` (wsoule/Analytics).** Gr8r decides where things go and how
 they behave (sidebar shell, topbar, command palette, grouped task lists, Gantt
 timeline, slide-over drawer, projects register, phone tab bar). Analytics
-decides how everything looks (paper/ink/one orange, hairlines, mono labels,
-hatched chrome, zero radius, no shadows). Gr8r's rounded cards, shadows, indigo
-accent and semantic hues are **not** used. Gr8r is a reference only; nothing is
-imported from it.
+decides how everything looks (paper/ink/one purple accent, hairlines, mono
+labels, hatched chrome, zero radius, no shadows). Gr8r's rounded cards, shadows,
+indigo accent and semantic hues are **not** used. Gr8r is a reference only;
+nothing is imported from it.
 
 ### 8.1 Routes
 
@@ -804,20 +804,30 @@ resolves the actor server-side; the UI never decides permissions.
 
 ### 8.2 Visual language (Analytics `competitors-site` + `DESIGN.md`)
 
+The one deliberate departure from Analytics is the accent: purple `#9747ff`
+(pressed `#7f36f0`) instead of its orange, at the owner's request. Like the
+orange it is one value in both themes: 4.51:1 against white paper and for white
+text on a purple fill, 4.25:1 against the dark paper.
+
+The one deliberate departure from Analytics is the accent: purple `#9747ff`
+(pressed `#7f36f0`) instead of its orange, at the owner's request. Like the
+orange it is one value in both themes: 4.51:1 against white paper and for white
+text on a purple fill, 4.25:1 against the dark paper.
+
 Tokens (`--paper`, `--ink`, `--background`, `--foreground`, `--border`,
-`--muted`, `--accent #ee5a24`, `--accent-hover`, `--on-accent`, `--ink-soft`,
-`--grey-2..4`, `--hairline-faint`, `--hatch`, `--tint`, the `*-inverse` set),
-light + dark via `html[data-theme]` with the pre-paint theme script, Geist +
-JetBrains Mono via `next/font/google`, body weight 300, zero radius, no shadows
-(overlays separate with a 1px ink border and a scrim derived from `--ink`, never
-blur), 1px hairlines collapsed with `-1px` margins, 2px only for emphasis, the
-hatched chrome titlebar (`.block` / `.blockBar` …), orange registration marks on
-the chrome, the grid tab strip (selected = ink fill, hover = orange flood),
-register rows whose hover swaps paper and ink tokens locally, the `Mark` square
-idiom, the 2px-accent explain panel, mono uppercase micro-labels with positive
-tracking, `:focus-visible` orange outline, hover floods gated behind
-`@media (hover: hover) and (min-width: 901px)`, and a designed
-`prefers-reduced-motion` state. Motion uses the Analytics curves
+`--muted`, `--accent #9747ff`, `--accent-hover #7f36f0`, `--on-accent`,
+`--ink-soft`, `--grey-2..4`, `--hairline-faint`, `--hatch`, `--tint`, the
+`*-inverse` set), light + dark via `html[data-theme]` with the pre-paint theme
+script, Geist + JetBrains Mono via `next/font/google`, body weight 300, zero
+radius, no shadows (overlays separate with a 1px ink border and a scrim derived
+from `--ink`, never blur), 1px hairlines collapsed with `-1px` margins, 2px only
+for emphasis, the hatched chrome titlebar (`.block` / `.blockBar` …), accent
+registration marks on the chrome, the grid tab strip (selected = ink fill, hover
+= accent flood), register rows whose hover swaps paper and ink tokens locally,
+the `Mark` square idiom, the 2px-accent explain panel, mono uppercase
+micro-labels with positive tracking, `:focus-visible` accent outline, hover
+floods gated behind `@media (hover: hover) and (min-width: 901px)`, and a
+designed `prefers-reduced-motion` state. Motion uses the Analytics curves
 (`--ease-out-quint` for drawers, `--ease-out-expo` for growth).
 
 Status uses only the system's own marks (no new hues — DESIGN.md §3):
@@ -837,14 +847,14 @@ planner uses these marks, mono labels, and the accent only for "needs action"
 ### 8.3 Layout and interaction (from Gr8r Studio)
 
 - **Shell** (`app/components/shell/*`): a fixed left **sidebar** (252px) that is
-  the chrome zone — hatched background, 1px right hairline, orange registration
+  the chrome zone — hatched background, 1px right hairline, accent registration
   marks at its outer corners — containing: brand row (`MILESTONE PLANNER` mono +
   workspace name + collapse button), primary nav (My week with a count of
   this-week issues, Timeline, Projects, Graph, Runs), a `PROJECTS` section
   listing active projects with the status mark of each project's next milestone
   (click → `/timeline?project=<id>`), and a footer with Settings, the signed-in
   user (PM chip), theme toggle and sign out. Active nav item = ink fill; hover =
-  orange flood. A 46px **topbar** (paper, bottom hairline): mono breadcrumb on
+  accent flood. A 46px **topbar** (paper, bottom hairline): mono breadcrumb on
   the left (`TIMELINE › ATLAS MIGRATION`), and on the right the "Search or jump
   to… CTRL K" palette trigger. `[` collapses the sidebar to an icon rail (choice
   remembered in localStorage).

@@ -55,7 +55,7 @@
   border-color: var(--background);
 }
 
-/* On the orange fill the mark's own accent must turn white, or an overdue
+/* On the accent fill the mark's own accent must turn white, or an overdue
    mark would vanish into the chip. Scoped to the mark so the chip's fill
    still resolves the real accent. */
 .accent .mark {

@@ -8,7 +8,7 @@ import type { SwitchProps } from './types';
 /* The Matrix switch idiom: a 13px square glyph that fills accent when on,
    beside a mono label (and an optional sans note). The whole line is the
    control, role=switch with aria-checked, so Space/Enter and click toggle
-   it natively; hover and focus turn the label orange. */
+   it natively; hover and focus turn the label to the accent. */
 export function Switch({
   checked,
   defaultChecked = false,

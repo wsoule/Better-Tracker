@@ -34,7 +34,7 @@ export interface ShellNavItem {
   count?: number;
   /** Spoken after the label instead of the bare number ("4 issues this week"). */
   countLabel?: string;
-  /** `accent` turns the count into an orange chip: it needs action. */
+  /** `accent` turns the count into an accent chip: it needs action. */
   countTone?: UiTone;
   current?: boolean;
   /** Display-only key sequence shown on hover, e.g. ['G', 'W']. */

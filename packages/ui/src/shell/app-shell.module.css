@@ -1,6 +1,6 @@
 /* The app frame. Gr8r decides where things go (252px sidebar, 46px topbar,
    30px nav rhythm, phone drawer + tab bar); Analytics decides how they look
-   (hatched chrome, hairlines, mono labels, ink fill for current, orange
+   (hatched chrome, hairlines, mono labels, ink fill for current, accent
    flood on hover, registration marks). The page scrolls the document, so
    position: sticky keeps working for every page under the topbar. */
 
@@ -15,7 +15,7 @@
   --shell-gutter: 48px;
   /* .block's scroll-margin clears the topbar instead of the site nav. */
   --nav-h: var(--shell-topbar-h);
-  /* The accent resolved here, so a hover flood can still paint orange
+  /* The accent resolved here, so a hover flood can still paint the accent
      after it locally retints --accent to white for the marks inside. */
   --shell-flood: var(--accent);
 
@@ -247,7 +247,7 @@
   color: var(--muted);
 }
 
-/* An accent count needs action: an orange chip, square like a Mark. */
+/* An accent count needs action: an accent chip, square like a Mark. */
 .countAccent {
   display: grid;
   place-items: center;

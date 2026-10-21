@@ -224,7 +224,7 @@
 }
 
 /* The header answers hover with the flat-surface wash (the Evidence
-   disclosure); the title link turns orange. */
+   disclosure); the title link takes the accent. */
 @media (hover: hover) and (width >= 901px) {
   .groupRow:hover {
     background: var(--tint);

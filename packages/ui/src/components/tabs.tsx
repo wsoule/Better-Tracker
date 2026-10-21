@@ -5,7 +5,7 @@ import { type CSSProperties, type ReactNode, useRef, useState } from 'react';
 import styles from './tabs.module.css';
 
 /* Client-side tab strip from the competitors site: a grid of bordered tabs,
-   selected = ink fill, hover = orange flood, arrow-key roving focus. */
+   selected = ink fill, hover = accent flood, arrow-key roving focus. */
 export type TabItem = { id: string; label: string; content: ReactNode };
 
 export default function Tabs({ items }: { items: TabItem[] }) {

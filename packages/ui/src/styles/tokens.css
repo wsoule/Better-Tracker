@@ -1,6 +1,7 @@
 /* Analytics competitors-site token block, reset and block chrome, verbatim
-   (wsoule/Analytics). The host app must also set html[data-theme] before
-   first paint (see THEME_SCRIPT in src/lib/theme.ts). */
+   (wsoule/Analytics), except the accent: purple instead of Analytics'
+   orange. The host app must also set html[data-theme] before first paint
+   (see THEME_SCRIPT in src/lib/theme.ts). */
 
 /* ============================================================================
    TOKENS: the source of truth.
@@ -19,9 +20,9 @@
   --foreground: var(--ink); /* ink */
   --border: #000000; /* every hairline */
   --muted: #595959; /* secondary text */
-  --accent: #ee5a24; /* the one orange */
-  --accent-hover: #c8430f; /* pressed / darker orange */
-  --on-accent: #ffffff; /* text sitting on an orange fill, both themes */
+  --accent: #9747ff; /* the one purple */
+  --accent-hover: #7f36f0; /* pressed / darker purple */
+  --on-accent: #ffffff; /* text sitting on a purple fill, both themes */
 
   /* derived, named by job, not by lightness */
   --ink-soft: #1a1a1a; /* strong body copy, one step off full ink */
@@ -62,7 +63,7 @@
 }
 
 /* The same brutalist system printed in negative: near-black paper, off-white
-   ink, identical orange. Full-contrast inversions glare, so ink is #ededed and
+   ink, identical purple. Full-contrast inversions glare, so ink is #ededed and
    paper is #0f0f0f. The faint values are stepped UP: light lines on dark ground
    read weaker than the reverse. */
 html[data-theme='dark'] {

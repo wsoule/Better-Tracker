@@ -4,7 +4,7 @@ import { cx } from './class-names';
 import type { ChipProps } from './types';
 
 /* The Roster category chip: a mono uppercase label in a 1px box. Tone is
-   the only variable: ink outline, grey idle, orange fill for "needs
+   the only variable: ink outline, grey idle, accent fill for "needs
    action", ink fill for the stronger claim. A leading status mark rides the
    chip's local tokens, so it stays legible on the filled tones. */
 export function Chip({

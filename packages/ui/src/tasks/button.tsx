@@ -6,7 +6,7 @@ import { cx } from './class-names';
 import type { ButtonProps } from './types';
 
 /* The system's button: a mono uppercase label in a square box that floods
-   orange on hover (gated off touch). 2px is emphasis, so primary and
+   the accent on hover (gated off touch). 2px is emphasis, so primary and
    secondary carry a 2px rule; quiet is the bare label for toolbars; danger
    has no red to reach for, so it is the accent as an outline. With href it
    renders through the host's <Link>, so it can sit in any router. */

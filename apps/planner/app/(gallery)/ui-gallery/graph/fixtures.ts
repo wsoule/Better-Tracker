@@ -421,8 +421,8 @@ export function toMermaid(fixture: GraphFixture): string {
     if (edge.kind === 'risk') risk.push(i);
   });
   lines.push(
-    '  classDef risk stroke:#ee5a24,stroke-width:2px',
-    '  classDef cycle stroke:#ee5a24,stroke-dasharray:5 3',
+    '  classDef risk stroke:#9747ff,stroke-width:2px',
+    '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3'
   );
   const classed = (test: (node: GraphNodeData) => boolean) =>
@@ -441,7 +441,7 @@ export function toMermaid(fixture: GraphFixture): string {
   if (cycleNodes !== '') lines.push(`  class ${cycleNodes} cycle`);
   if (externalNodes !== '') lines.push(`  class ${externalNodes} external`);
   if (risk.length > 0) {
-    lines.push(`  linkStyle ${risk.join(',')} stroke:#ee5a24`);
+    lines.push(`  linkStyle ${risk.join(',')} stroke:#9747ff`);
   }
   return lines.join('\n');
 }

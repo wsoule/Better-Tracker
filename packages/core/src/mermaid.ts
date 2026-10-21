@@ -76,8 +76,8 @@ export function toMermaid(graph: DependencyGraph): string {
   }
 
   lines.push(
-    '  classDef risk stroke:#ee5a24,stroke-width:2px',
-    '  classDef cycle stroke:#ee5a24,stroke-dasharray:5 3',
+    '  classDef risk stroke:#9747ff,stroke-width:2px',
+    '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3,opacity:0.7'
   );
   const classes: [string, (node: GraphNode) => boolean][] = [
@@ -92,7 +92,7 @@ export function toMermaid(graph: DependencyGraph): string {
     if (ids.length > 0) lines.push(`  class ${ids.join(',')} ${name}`);
   }
   if (riskEdges.length > 0) {
-    lines.push(`  linkStyle ${riskEdges.join(',')} stroke:#ee5a24`);
+    lines.push(`  linkStyle ${riskEdges.join(',')} stroke:#9747ff`);
   }
   return `${lines.join('\n')}\n`;
 }

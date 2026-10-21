@@ -14,8 +14,9 @@
 - UI: layout and interaction follow Gr8r Studio (sidebar shell, command palette,
   grouped lists, Gantt timeline, slide-over drawer); the visual language follows
   the wsoule/Analytics `competitors-site` design system (tokens in
-  `apps/planner/app/globals.css`, one accent, hairlines, no radius or shadows).
-  See `docs/architecture.md` §8.
+  `packages/ui/src/styles/tokens.css`, one accent, hairlines, no radius or
+  shadows). The accent is purple (`#9747ff`), not Analytics' orange. See
+  `docs/architecture.md` §8.
 
 ## Agent Environment
 
