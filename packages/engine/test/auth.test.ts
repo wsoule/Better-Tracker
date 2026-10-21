@@ -23,7 +23,9 @@ import {
   openTestStore,
   recordingChannel,
   recordingLogger,
+  START,
   TEST_CONFIG,
+  type TestClock,
   rejection,
 } from './helpers';
 
@@ -44,14 +46,18 @@ const OTHER_APP: FakeIdentity = {
   workspace: OTHER,
 };
 
+/** Linear's expires_in (86,399 s) counted from START. */
+const TOKEN_EXPIRY = '2026-10-22T14:59:59.000Z';
+
+let clock: TestClock;
 let store: Store;
 let engine: Engine;
 let fake: FakeLinear;
 let lines: string[];
 
 beforeEach(async () => {
-  // Real time: token expiries come from Linear's expires_in + Date.now().
-  const clock = createClock(new Date().toISOString());
+  // A fixed clock: token expiries are counted from the engine's clock.
+  clock = createClock(START);
   store = await openTestStore(clock);
   fake = createFakeLinear();
   const logs = recordingLogger();
@@ -79,6 +85,10 @@ afterEach(async () => {
   expect(output).not.toContain(OAUTH.clientSecret);
   await engine.close();
 });
+
+function at(offsetMs: number): string {
+  return new Date(clock.now().getTime() + offsetMs).toISOString();
+}
 
 async function signIn(
   identity: FakeIdentity,
@@ -148,9 +158,9 @@ describe('finishSignIn', () => {
     expect(result.session.tokens.accessToken).toBe('');
     expect(result.session.tokens.refreshToken).toBeNull();
     expect(result.session.tokens.scopes).toEqual(['read']);
-    const days =
-      (Date.parse(result.session.expiresAt) - Date.now()) / 86_400_000;
-    expect(Math.round(days)).toBe(30);
+    expect(result.session.expiresAt).toBe('2026-11-20T15:00:00.000Z');
+    // The Linear token's expiry is counted from the engine's clock.
+    expect(result.session.tokens.expiresAt).toBe(TOKEN_EXPIRY);
 
     const actor = await engine.authenticate(result.sessionToken);
     expect(actor?.isPm).toBe(false);
@@ -159,7 +169,7 @@ describe('finishSignIn', () => {
     // The real tokens are stored (encrypted) for PM edits.
     const stored = await store.getSession(
       result.sessionToken,
-      new Date().toISOString()
+      clock.now().toISOString()
     );
     expect(stored?.tokens.accessToken).toMatch(/^lin_access_/);
   });
@@ -291,7 +301,7 @@ describe('finishInstall', () => {
 describe('signOut', () => {
   test('deletes the session and revokes its refresh token', async () => {
     const { token } = await signIn(PAT);
-    const stored = await store.getSession(token, new Date().toISOString());
+    const stored = await store.getSession(token, clock.now().toISOString());
     await engine.signOut(token);
     expect(await engine.authenticate(token)).toBeNull();
     expect(fake.revoked).toEqual([
@@ -326,10 +336,10 @@ describe('authenticate', () => {
       tokens: {
         accessToken: 'a-old',
         refreshToken: 'r-old',
-        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        expiresAt: at(60_000),
         scopes: ['read', 'write'],
       },
-      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      expiresAt: at(86_400_000),
     });
     const [a, b] = await Promise.all([
       engine.authenticate(token),
@@ -338,12 +348,10 @@ describe('authenticate', () => {
     expect(a?.session.userId).toBe('u-pat');
     expect(b?.canWriteLinear).toBe(true);
     expect(fake.refreshCalls).toEqual(['r-old']);
-    const stored = await store.getSession(token, new Date().toISOString());
+    const stored = await store.getSession(token, clock.now().toISOString());
     expect(stored?.tokens.accessToken).toMatch(/^lin_access_/);
     expect(stored?.tokens.refreshToken).toMatch(/^lin_refresh_/);
-    expect(Date.parse(stored?.tokens.expiresAt ?? '')).toBeGreaterThan(
-      Date.now() + 86_000_000
-    );
+    expect(stored?.tokens.expiresAt).toBe(TOKEN_EXPIRY);
   });
 
   test('a dead user grant ends the session', async () => {
@@ -355,13 +363,13 @@ describe('authenticate', () => {
       tokens: {
         accessToken: 'a-old',
         refreshToken: 'r-dead',
-        expiresAt: new Date(Date.now() - 1000).toISOString(),
+        expiresAt: at(-1000),
         scopes: ['read'],
       },
-      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      expiresAt: at(86_400_000),
     });
     expect(await engine.authenticate(token)).toBeNull();
-    expect(await store.getSession(token, new Date().toISOString())).toBeNull();
+    expect(await store.getSession(token, clock.now().toISOString())).toBeNull();
     expect(
       lines.some(
         (l) => l.includes('invalid_grant') && l.includes('"level":"error"')
@@ -379,14 +387,14 @@ describe('authenticate', () => {
       tokens: {
         accessToken: 'a-old',
         refreshToken: 'r-ok',
-        expiresAt: new Date(Date.now() + 1000).toISOString(),
+        expiresAt: at(1000),
         scopes: ['read'],
       },
-      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      expiresAt: at(86_400_000),
     });
     const actor = await engine.authenticate(token);
     expect(actor?.session.userId).toBe('u-pat');
-    const stored = await store.getSession(token, new Date().toISOString());
+    const stored = await store.getSession(token, clock.now().toISOString());
     expect(stored?.tokens.refreshToken).toBe('r-ok');
   });
 });
@@ -408,7 +416,7 @@ describe('deactivated people', () => {
         issues: [],
         relations: [],
       },
-      new Date().toISOString()
+      clock.now().toISOString()
     );
   }
 
@@ -426,7 +434,7 @@ describe('deactivated people', () => {
     await mirrorPeople([{ ...PAT.user, active: false }, SAM.user]);
     expect(await engine.authenticate(pat.token)).toBeNull();
     // The session is gone for good, not just hidden.
-    expect(await store.getSession(pat.token, new Date().toISOString())).toBe(
+    expect(await store.getSession(pat.token, clock.now().toISOString())).toBe(
       null
     );
   });

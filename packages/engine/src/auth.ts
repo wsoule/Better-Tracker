@@ -11,6 +11,7 @@
 // - Signing out deletes the session and revokes its Linear refresh token
 //   (best effort): Linear may auto-revoke a user's oldest tokens once they
 //   hold more than 10 for one app, so abandoned tokens must not pile up.
+//   cleanup() does the same for sessions that expired (cleanup.ts).
 
 import { defaultSettings, type User } from '@better-tracker/core';
 import {
@@ -102,6 +103,29 @@ function storedTokens(tokens: TokenSet, intent: OAuthIntent): StoredTokens {
   };
 }
 
+/**
+ * Revokes a Linear grant the engine no longer keeps (a signed-out or
+ * expired session, a refused sign-in): its refresh token when it has one,
+ * else its access token. Best effort: reports a failure instead of
+ * throwing, and the caller logs the outcome (never the tokens).
+ */
+export async function revokeGrant(
+  rt: EngineRuntime,
+  oauth: OAuthClientConfig,
+  tokens: Pick<StoredTokens, 'accessToken' | 'refreshToken'>
+): Promise<{ ok: true } | { ok: false; error: unknown }> {
+  try {
+    if (tokens.refreshToken !== null) {
+      await revokeToken(oauth, tokens.refreshToken, 'refresh_token', rt.fetch);
+    } else {
+      await revokeToken(oauth, tokens.accessToken, 'access_token', rt.fetch);
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error };
+  }
+}
+
 // Revokes a token Linear just issued when the engine refuses to keep it
 // (wrong user, wrong workspace), so a rejected grant does not linger.
 async function discardTokens(
@@ -110,14 +134,11 @@ async function discardTokens(
   tokens: TokenSet,
   log: Logger
 ): Promise<void> {
-  try {
-    if (tokens.refreshToken !== null) {
-      await revokeToken(oauth, tokens.refreshToken, 'refresh_token', rt.fetch);
-    } else {
-      await revokeToken(oauth, tokens.accessToken, 'access_token', rt.fetch);
-    }
-  } catch (error) {
-    log.warn('could not revoke a rejected Linear token', { error });
+  const revoked = await revokeGrant(rt, oauth, tokens);
+  if (!revoked.ok) {
+    log.warn('could not revoke a rejected Linear token', {
+      error: revoked.error,
+    });
   }
 }
 
@@ -131,7 +152,9 @@ async function exchangeAndIdentify(
   if (typeof input.code !== 'string' || input.code === '') {
     throw new EngineInputError('invalid', 'The authorization code is missing.');
   }
-  const tokens = await exchangeCode(oauth, input, rt.fetch);
+  const tokens = await exchangeCode(oauth, input, rt.fetch, {
+    now: () => rt.clock().getTime(),
+  });
   try {
     const identity = await createLinearGateway({
       accessToken: tokens.accessToken,
@@ -447,25 +470,13 @@ export async function signOut(
     userId: session.userId,
     op: 'signout',
   });
-  try {
-    if (session.tokens.refreshToken !== null) {
-      await revokeToken(
-        rt.config.oauth,
-        session.tokens.refreshToken,
-        'refresh_token',
-        rt.fetch
-      );
-    } else {
-      await revokeToken(
-        rt.config.oauth,
-        session.tokens.accessToken,
-        'access_token',
-        rt.fetch
-      );
-    }
+  const revoked = await revokeGrant(rt, rt.config.oauth, session.tokens);
+  if (revoked.ok) {
     log.info('signed out and revoked the Linear token');
-  } catch (error) {
-    log.warn('signed out, but revoking the Linear token failed', { error });
+  } else {
+    log.warn('signed out, but revoking the Linear token failed', {
+      error: revoked.error,
+    });
   }
 }
 

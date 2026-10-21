@@ -13,6 +13,7 @@ import {
   signOut,
   startOAuth,
 } from './auth';
+import { cleanup } from './cleanup';
 import { runDaily } from './daily';
 import { loadWorkspace } from './load';
 import {
@@ -33,9 +34,6 @@ import {
 } from './views';
 import { runWarnings } from './warning-run';
 import { handleWebhook } from './webhooks';
-
-/** How long webhook delivery ids are kept for dedupe. */
-const WEBHOOK_RETENTION_MS = 7 * 86_400_000;
 
 /** Builds the engine over its dependencies (store, Linear, channel, …). */
 export function createEngine(deps: EngineDeps): Engine {
@@ -109,18 +107,7 @@ export function createEngine(deps: EngineDeps): Engine {
       setMilestoneDoneMeans(rt, actor, milestoneId, text),
     updateSettings: (actor, patch) => updateSettings(rt, actor, patch),
 
-    cleanup: async () => {
-      const now = rt.clock();
-      const expiredSessions = await deps.store.deleteExpiredSessions(
-        now.toISOString()
-      );
-      // Linear retries a delivery for about six hours; a week of delivery
-      // ids is far more than dedupe needs.
-      const oldDeliveries = await deps.store.pruneWebhookDeliveries(
-        new Date(now.getTime() - WEBHOOK_RETENTION_MS).toISOString()
-      );
-      deps.logger.info('cleanup finished', { expiredSessions, oldDeliveries });
-    },
+    cleanup: () => cleanup(rt),
     now: () => rt.nowIso(),
     close: () => deps.store.close(),
   };

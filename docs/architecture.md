@@ -372,6 +372,9 @@ The allocation comment (§7.4) is exactly:
   returns the newest entry whose `toStateId` is set.
 - `oauth.ts`: `buildAuthorizeUrl`, `exchangeCode`, `refreshTokens`,
   `revokeToken`, PKCE helpers (`createPkcePair`). Details in §4.2.
+  `exchangeCode` and `refreshTokens` take an optional last argument
+  `{ now?: () => number }` (epoch ms, default `Date.now`) that `expires_in` is
+  counted from; the engine passes its own clock.
 - `webhooks.ts`: `verifyWebhookSignature(rawBody, header, secret)` (constant
   time) and `parseWebhookEvent(json, nowMs)` → normalized
   `{ workspaceId, type, action, entityId, webhookTimestamp }` or a typed
@@ -503,11 +506,19 @@ transaction and recorded in `schema_migrations`; `migrate()` takes
 
 Tables (all keyed by `workspace_id`):
 
-- `installations` — app actor tokens (encrypted), app user id, installer.
+- `installations` — app actor tokens (encrypted), app user id, installer,
+  `revoked_at` (set when the app has no working grant any more: Linear sent the
+  `OAuthApp` revoked webhook, or the engine's refresh was rejected; a reinstall
+  clears it).
 - `sessions` — `token_hash` (SHA-256 of the cookie token), user, the user's
   Linear tokens (encrypted), expiry.
 - `settings` — `data jsonb` (WorkspaceSettings).
-- `milestone_meta` — weight, done_means, updated_by/at.
+- `milestone_meta` — weight, done_means, updated_by/at. PM edits go through
+  `updateMilestoneMetaField(workspaceId, milestoneId, 'weight' | 'doneMeans', value, updatedBy, at)`,
+  which inserts the row or updates **only that column** plus
+  `updated_by`/`updated_at` (`INSERT … ON CONFLICT DO UPDATE SET <column>, …`)
+  and returns the row, so two processes editing the two fields never overwrite
+  each other. `upsertMilestoneMeta` (whole row) is for seeding.
 - `mirror_entities` — `(workspace_id, kind, id) pk, data jsonb, synced_at`.
 - `sync_state` — `version bigint` (bumped on every mirror write), last full sync
   time/status/error, last webhook time.
@@ -524,6 +535,19 @@ Token encryption: AES-256-GCM, key = 32 bytes from `TOKEN_ENCRYPTION_KEY`
 (base64), random 12-byte IV per value, stored as `v1:<iv>:<tag>:<ciphertext>`
 (base64url). Session cookie tokens are 32 random bytes (base64url); only their
 SHA-256 hash is stored.
+
+Session cleanup: `deleteExpiredSessions(now)` deletes and counts;
+`takeExpiredSessions(now, limit)` deletes up to `limit` expired sessions (oldest
+expiry first, `FOR UPDATE SKIP LOCKED` so a session mid-refresh is left for the
+next call) and returns them with their decrypted tokens, so the caller can
+revoke them. A row whose tokens no longer decrypt is deleted, logged and left
+out of the result.
+
+Errors: `withSessionLock` / `withInstallationLock` reject with the exported
+`StoreNotFoundError` (`kind: 'session' | 'installation'`, `id`) when the row
+does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
+`instanceof` and falls back to `name === 'StoreNotFoundError'` plus a string
+`kind` (another bundled copy of the store).
 
 ## 6. Notifications (packages/notify)
 
@@ -643,10 +667,19 @@ missing/invalid variable), `EngineAuthError`, `EngineInputError`,
   before returning.
 - Real `LinearProvider`: loads the installation/session tokens, refreshes when
   `expiresAt` is within 5 minutes (under the row lock, re-reading inside the
-  lock so only one process refreshes), and returns
-  `createLinearGateway({ accessToken })`. A revoked installation or an
-  `invalid_grant` refresh → `EngineAuthError('not_installed')` (workspace) or
-  `EngineAuthError('not_signed_in')` (session), logged at error.
+  lock so only one process refreshes; the new expiry is counted on the
+  provider's `now` clock), and returns `createLinearGateway({ accessToken })`. A
+  revoked installation or an `invalid_grant` refresh →
+  `EngineAuthError('not_installed')` (workspace) or
+  `EngineAuthError('not_signed_in')` (session), logged at error. A dead
+  installation grant (`invalid_grant`, or an expired token without a refresh
+  token) is also recorded with `markInstallationRevoked(workspaceId, now)` once
+  the row lock is released, after re-reading the row: a reinstall saved in
+  between (different tokens) is left alone. From then on Settings and `/setup`
+  see `revokedAt`, `listWorkspaceIds` skips the workspace (the worker stops
+  retrying it every tick) and `forApp` fails fast without calling Linear. A
+  session or installation row missing at lock time (`StoreNotFoundError`) maps
+  to `not_signed_in` / `not_installed`.
 
 Validation done by the engine (never trust the client): dates via
 `isValidIsoDate`; lead must be an active, non-app mirrored user or null; weight
@@ -680,8 +713,18 @@ Engine decisions made while building it (binding for callers):
 - People the mirror shows as deactivated in Linear (or app users) are signed out
   by `authenticate` (session deleted), as sign-in refuses them too.
 - PM edits and `updateSettings` require an active installation (`not_installed`
-  otherwise). Weight and "done means…" edits of one milestone run one at a time
-  in-process (the store upserts the whole meta row).
+  otherwise). Weight and "done means…" edits write only their own column
+  (`updateMilestoneMetaField`), so edits of the two fields of one milestone from
+  different web instances both stick. They still run one at a time per milestone
+  within a process, so each audit entry's `before` is the value the previous
+  edit left (across instances `before` is best effort).
+- **A dead installation grant is recorded as `revokedAt`**, not as a separate
+  auth-error field: every consumer already reads `revokedAt` as "reinstall
+  needed" (`listWorkspaceIds`, `requireInstallation`, sign-in's `needsInstall`,
+  `finishInstall`'s lockout rule) and a reinstall clears it, so no migration or
+  second flag is needed. `revokedAt` therefore means "the app has no working
+  Linear grant", whether Linear revoked it or a refresh was rejected; the
+  rejection is in the error logs.
 - `handleWebhook` treats a blank `deliveryId` as none (no dedupe), and the
   public `runAllocation` always syncs first (only `runDaily` reuses its sync).
 - `runDaily` syncs once: its allocation run reuses that sync.
@@ -699,9 +742,19 @@ Engine decisions made while building it (binding for callers):
 - Webhook processing errors resolve as `'processed'` with the error recorded on
   the delivery. Removals of entities the mirror never had write nothing.
 - Additive API: `EngineDeps.fetch` (OAuth calls), `Engine.close()`,
-  `createEngineFromEnv(env, { logger, now, fetch, channel })`; `cleanup()` also
-  prunes webhook deliveries older than 7 days. Demo mode never uses
-  `DATABASE_URL` or Slack.
+  `createEngineFromEnv(env, { logger, now, fetch, channel })`. Demo mode never
+  uses `DATABASE_URL` or Slack.
+- `cleanup()` resolves with `CleanupResult`
+  `{ expiredSessions, revokedTokens, revokeFailures, oldDeliveries }` (also
+  logged as `cleanup finished`). Real mode takes expired sessions with
+  `takeExpiredSessions` in batches of 50 (at most 500 per run; the rest wait for
+  the next tick) and revokes each one's Linear grant (refresh token, else access
+  token), because Linear may auto-revoke a user's oldest tokens past about 10
+  per app. Revocation is best effort: a failure is logged at warn and counted,
+  never fails cleanup. Demo mode only deletes (`deleteExpiredSessions`). Webhook
+  delivery records older than 30 days (`WEBHOOK_RETENTION_DAYS`) are pruned:
+  dedupe needs only Linear's ~6 h retry window, the rest keeps each delivery's
+  processing error around to investigate.
 
 ## 8. Web app (apps/planner)
 

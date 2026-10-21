@@ -1,12 +1,23 @@
-import { addDays } from '@better-tracker/core';
+import { addDays, type MilestoneMeta } from '@better-tracker/core';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
-import { type Actor, EngineAuthError, EngineInputError } from '../src/index';
+import {
+  type Actor,
+  createEngine,
+  type Engine,
+  EngineAuthError,
+  EngineInputError,
+} from '../src/index';
 import {
   actorFor,
   createDemoHarness,
   type DemoHarness,
+  fixtureProvider,
   type GatewayWrapper,
+  recordingChannel,
+  recordingLogger,
+  storeWith,
+  TEST_CONFIG,
   WORKSPACE_ID,
 } from './helpers';
 
@@ -435,6 +446,59 @@ describe('edits run as the PM, only while installed', () => {
       expect((await own.store.getSettings(WORKSPACE_ID))?.warningsMode).toBe(
         'preview'
       );
+    } finally {
+      await own.close();
+    }
+  });
+
+  test('two web instances editing different fields of one milestone both stick', async () => {
+    const own = await createDemoHarness();
+    try {
+      const ana = await actorFor(own, 'user-ana');
+      // Each instance reads the meta row, then waits until the other has
+      // read it too, so both writes start from the same old row: a
+      // whole-row upsert would drop one of the two fields.
+      let readers = 0;
+      let bothRead = (): void => undefined;
+      const barrier = new Promise<void>((resolve) => {
+        bothRead = resolve;
+      });
+      const instance = (): Engine =>
+        createEngine({
+          store: storeWith(own.store, {
+            listMilestoneMeta: async (
+              workspaceId
+            ): Promise<MilestoneMeta[]> => {
+              const rows = await own.store.listMilestoneMeta(workspaceId);
+              readers += 1;
+              if (readers === 2) bothRead();
+              await Promise.race([
+                barrier,
+                new Promise((resolve) => setTimeout(resolve, 2000)),
+              ]);
+              return rows;
+            },
+          }),
+          linear: fixtureProvider(own.fixture),
+          channel: recordingChannel(),
+          logger: recordingLogger().logger,
+          config: TEST_CONFIG,
+          now: own.clock.now,
+        });
+      const [first, second] = [instance(), instance()];
+      await Promise.all([
+        first.setMilestoneWeight(ana, 'ms-harbor-1', 9),
+        second.setMilestoneDoneMeans(ana, 'ms-harbor-1', 'v3 is live.'),
+      ]);
+      expect(readers).toBe(2);
+      const meta = (await own.store.listMilestoneMeta(WORKSPACE_ID)).find(
+        (m) => m.milestoneId === 'ms-harbor-1'
+      );
+      expect(meta).toMatchObject({
+        weight: 9,
+        doneMeans: 'v3 is live.',
+        updatedBy: 'user-ana',
+      });
     } finally {
       await own.close();
     }

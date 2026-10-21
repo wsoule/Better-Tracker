@@ -132,6 +132,20 @@ export interface DailyResult {
   warnings: WarningRunResult | null;
 }
 
+/** What one cleanup() pass did (also logged as "cleanup finished"). */
+export interface CleanupResult {
+  /** Expired sessions deleted. */
+  expiredSessions: number;
+  /**
+   * Of those, sessions whose Linear grant was revoked, and revocations
+   * that failed (best effort; always 0 in demo mode, which has no grants).
+   */
+  revokedTokens: number;
+  revokeFailures: number;
+  /** Webhook delivery records older than the retention window, deleted. */
+  oldDeliveries: number;
+}
+
 export type OAuthIntent = 'signin' | 'install' | 'grant_write';
 
 export interface OAuthStart {
@@ -287,8 +301,12 @@ export interface Engine {
     patch: Partial<Omit<WorkspaceSettings, 'workspaceId'>>
   ): Promise<WorkspaceSettings>;
 
-  /** Housekeeping for the worker: expired sessions etc. */
-  cleanup(): Promise<void>;
+  /**
+   * Housekeeping for the worker: deletes expired sessions (revoking their
+   * Linear grants, best effort) and webhook delivery records older than
+   * 30 days. Additive: resolves with the counts.
+   */
+  cleanup(): Promise<CleanupResult>;
   now(): IsoDateTime;
   /**
    * Additive: closes the store the engine was built with (the worker exits

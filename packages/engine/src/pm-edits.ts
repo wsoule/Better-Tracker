@@ -8,7 +8,6 @@ import {
   type IsoDate,
   isValidIsoDate,
   type Milestone,
-  type MilestoneMeta,
   type Project,
   type Snapshot,
 } from '@better-tracker/core';
@@ -215,9 +214,11 @@ type MetaChange =
   | { field: 'doneMeans'; value: string | null };
 
 // Writes one tool-owned field of a milestone's meta, keeping the other.
-// Unchanged values write nothing (no audit noise). The store upserts the
-// whole row, so edits of one milestone run one at a time: a weight and a
-// "done means…" saved together must not overwrite each other.
+// Unchanged values write nothing (no audit noise). The store writes only
+// that column, so a weight and a "done means…" saved at the same time, even
+// by two web instances, both stick. Edits of one milestone still run one
+// at a time in this process so each audit entry's "before" is the value
+// the previous edit left.
 async function updateMeta(
   rt: EngineRuntime,
   actor: Actor,
@@ -231,7 +232,8 @@ async function updateMeta(
   );
 }
 
-// The read-modify-write behind updateMeta (run under its per-milestone key).
+// Reads the current value (for the unchanged check and the audit's
+// "before"), then writes just the changed field.
 async function writeMeta(
   rt: EngineRuntime,
   actor: Actor,
@@ -242,18 +244,17 @@ async function writeMeta(
   const existing = (await rt.store.listMilestoneMeta(workspaceId)).find(
     (meta) => meta.milestoneId === milestoneId
   );
-  const next: MilestoneMeta = {
-    milestoneId,
-    weight: existing?.weight ?? null,
-    doneMeans: existing?.doneMeans ?? null,
-    updatedAt: rt.nowIso(),
-    updatedBy: actor.session.userId,
-  };
-  const before = next[change.field];
+  const before = existing?.[change.field] ?? null;
   if (before === change.value) return;
-  if (change.field === 'weight') next.weight = change.value;
-  else next.doneMeans = change.value;
-  await rt.store.upsertMilestoneMeta(workspaceId, next);
+  const at = rt.nowIso();
+  await rt.store.updateMilestoneMetaField(
+    workspaceId,
+    milestoneId,
+    change.field,
+    change.value,
+    actor.session.userId,
+    at
+  );
   await rt.store.appendAudit({
     workspaceId,
     actorUserId: actor.session.userId,
@@ -262,7 +263,7 @@ async function writeMeta(
     subjectId: milestoneId,
     before,
     after: change.value,
-    at: next.updatedAt,
+    at,
   });
   rt.logger.info('milestone meta changed', {
     workspaceId,

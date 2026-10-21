@@ -185,10 +185,11 @@ export async function requireInstallation(
       `${rt.config.appName} is not installed in this Linear workspace yet.`
     );
   }
+  // revokedAt: uninstalled in Linear, or its grant stopped refreshing.
   if (installation.revokedAt !== null) {
     throw new EngineAuthError(
       'not_installed',
-      `${rt.config.appName} was uninstalled from this Linear workspace; an admin must install it again.`
+      `${rt.config.appName} lost its access to this Linear workspace (uninstalled, or its authorization stopped working); an admin must install it again.`
     );
   }
   return installation;

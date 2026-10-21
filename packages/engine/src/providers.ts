@@ -4,7 +4,10 @@
 // last 24 h and refresh tokens rotate (the old pair stops working), so a
 // refresh happens 5 minutes before expiry, single-flight under the store's
 // row lock, and re-reads the tokens inside the lock: when another process
-// already refreshed, its tokens are used instead of refreshing again.
+// already refreshed, its tokens are used instead of refreshing again. A
+// grant Linear rejects (invalid_grant) is dead for good: a session must
+// sign in again, and the installation is marked revoked so it shows as
+// needing a reinstall and the worker stops trying it.
 //
 // The fixture provider serves in-memory gateways over one shared
 // FixtureStore, so demo-mode writes from the app actor and from signed-in
@@ -21,7 +24,12 @@ import {
   refreshTokens,
 } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
-import type { Session, Store, StoredTokens } from '@better-tracker/store';
+import {
+  isStoreNotFoundError,
+  type Session,
+  type Store,
+  type StoredTokens,
+} from '@better-tracker/store';
 
 import { EngineAuthError, type LinearProvider } from './types';
 
@@ -58,6 +66,7 @@ export function needsRefresh(
 // Error codes per token owner: a dead installation needs a reinstall, a
 // dead session needs the person to sign in again.
 type TokenOwner = 'installation' | 'session';
+
 const DEAD_TOKEN_CODE: Record<TokenOwner, EngineAuthError['code']> = {
   installation: 'not_installed',
   session: 'not_signed_in',
@@ -67,6 +76,18 @@ const DEAD_TOKEN_MESSAGE: Record<TokenOwner, string> = {
     'The Linear authorization for this workspace no longer works; an admin must install the app again.',
   session: 'Your Linear sign-in expired. Sign in again.',
 };
+
+/**
+ * Thrown by refresh() when the grant itself is dead (invalid_grant, or an
+ * expired token with no refresh token): the owner's EngineAuthError, marked
+ * so forApp can tell it from "already revoked" and record the reinstall.
+ */
+class DeadGrantError extends EngineAuthError {}
+
+// Whether two token sets are the same grant (both credentials equal).
+function sameGrant(a: StoredTokens, b: StoredTokens): boolean {
+  return a.accessToken === b.accessToken && a.refreshToken === b.refreshToken;
+}
 
 /** The real provider over stored OAuth tokens. */
 export function createLinearProvider(
@@ -86,7 +107,7 @@ export function createLinearProvider(
   ): Promise<StoredTokens> {
     if (tokens.refreshToken === null) {
       log.error('linear token expired and has no refresh token', { owner });
-      throw new EngineAuthError(
+      throw new DeadGrantError(
         DEAD_TOKEN_CODE[owner],
         DEAD_TOKEN_MESSAGE[owner]
       );
@@ -95,7 +116,9 @@ export function createLinearProvider(
       const fresh = await refreshTokens(
         options.oauth,
         tokens.refreshToken,
-        options.fetch
+        options.fetch,
+        // Expiry counted on the provider's clock, not the wall clock.
+        { now: () => clock().getTime() }
       );
       log.info('refreshed linear tokens', {
         owner,
@@ -111,12 +134,45 @@ export function createLinearProvider(
     } catch (error) {
       if (isInvalidGrant(error)) {
         log.error('linear refresh token rejected (invalid_grant)', { owner });
-        throw new EngineAuthError(
+        throw new DeadGrantError(
           DEAD_TOKEN_CODE[owner],
           DEAD_TOKEN_MESSAGE[owner]
         );
       }
       throw error;
+    }
+  }
+
+  // Records a dead installation grant as revoked, so Settings and /setup
+  // show that a reinstall is needed and the worker (listWorkspaceIds skips
+  // revoked installations) stops retrying it every tick. Runs after the
+  // row lock is released (the lock's transaction owns PGlite's only
+  // connection), so it re-reads the row first: when a reinstall saved a
+  // new grant in between, that grant is left alone. Never throws: the
+  // caller's EngineAuthError is what matters.
+  async function markDeadInstallation(
+    workspaceId: string,
+    dead: StoredTokens,
+    log: Logger
+  ): Promise<void> {
+    try {
+      const current = await options.store.getInstallation(workspaceId);
+      if (
+        current === null ||
+        current.revokedAt !== null ||
+        !sameGrant(current.tokens, dead)
+      ) {
+        return;
+      }
+      await options.store.markInstallationRevoked(
+        workspaceId,
+        clock().toISOString()
+      );
+      log.error(
+        'linear installation grant is dead; marked for reinstall and skipped until then'
+      );
+    } catch (error) {
+      log.error('could not mark the dead linear installation', { error });
     }
   }
 
@@ -149,23 +205,46 @@ export function createLinearProvider(
       }
       let tokens = installation.tokens;
       if (needsRefresh(tokens, clock(), marginMs)) {
-        tokens = await options.store.withInstallationLock(
-          workspaceId,
-          async (locked) => {
-            if (locked.revokedAt !== null) {
-              throw new EngineAuthError(
-                'not_installed',
-                DEAD_TOKEN_MESSAGE.installation
-              );
+        // The grant the refresh tried, when Linear said it is dead (a
+        // holder, since the lock callback sets it).
+        const failed: { dead: StoredTokens | null } = { dead: null };
+        try {
+          tokens = await options.store.withInstallationLock(
+            workspaceId,
+            async (locked) => {
+              if (locked.revokedAt !== null) {
+                throw new EngineAuthError(
+                  'not_installed',
+                  DEAD_TOKEN_MESSAGE.installation
+                );
+              }
+              // Another process may have refreshed while we waited.
+              if (!needsRefresh(locked.tokens, clock(), marginMs)) {
+                return { result: locked.tokens };
+              }
+              try {
+                const fresh = await refresh(locked.tokens, 'installation', log);
+                return { result: fresh, tokens: fresh };
+              } catch (error) {
+                if (error instanceof DeadGrantError) {
+                  failed.dead = locked.tokens;
+                }
+                throw error;
+              }
             }
-            // Another process may have refreshed while we waited.
-            if (!needsRefresh(locked.tokens, clock(), marginMs)) {
-              return { result: locked.tokens };
-            }
-            const fresh = await refresh(locked.tokens, 'installation', log);
-            return { result: fresh, tokens: fresh };
+          );
+        } catch (error) {
+          if (failed.dead !== null) {
+            await markDeadInstallation(workspaceId, failed.dead, log);
           }
-        );
+          if (isStoreNotFoundError(error, 'installation')) {
+            throw new EngineAuthError(
+              'not_installed',
+              'The app is not installed in this Linear workspace.'
+            );
+          }
+          throw error;
+        }
       }
       return gateway(tokens.accessToken, log);
     },
@@ -179,13 +258,11 @@ export function createLinearProvider(
         userId: session.userId,
         actor: 'user',
       });
-      let entered = false;
       let tokens: StoredTokens;
       try {
         tokens = await options.store.withSessionLock(
           session.id,
           async (locked) => {
-            entered = true;
             if (!needsRefresh(locked.tokens, clock(), marginMs)) {
               return { result: locked.tokens };
             }
@@ -194,13 +271,9 @@ export function createLinearProvider(
           }
         );
       } catch (error) {
-        // The store throws before calling us when the row is gone (signed
-        // out elsewhere, or expired and cleaned up).
-        if (
-          !entered &&
-          error instanceof Error &&
-          error.message.startsWith('No session')
-        ) {
+        // The store throws StoreNotFoundError before calling us when the
+        // row is gone (signed out elsewhere, or expired and cleaned up).
+        if (isStoreNotFoundError(error, 'session')) {
           throw new EngineAuthError('not_signed_in', 'Sign in again.');
         }
         throw error;

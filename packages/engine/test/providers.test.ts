@@ -2,10 +2,15 @@ import {
   createFixtureStore,
   type OAuthClientConfig,
 } from '@better-tracker/linear';
-import type { Installation, Store } from '@better-tracker/store';
+import {
+  type Installation,
+  type Store,
+  StoreNotFoundError,
+} from '@better-tracker/store';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
 import {
+  createEngine,
   createFixtureLinearProvider,
   createLinearProvider,
   EngineAuthError,
@@ -22,8 +27,13 @@ import {
 import {
   createClock,
   openTestStore,
+  recordingChannel,
   recordingLogger,
   rejection,
+  START,
+  storeWith,
+  TEST_CONFIG,
+  type TestClock,
 } from './helpers';
 
 const OAUTH: OAuthClientConfig = {
@@ -36,16 +46,27 @@ const APP: FakeIdentity = {
   workspace: ACME,
 };
 
+/** Linear's expires_in (86,399 s) counted from START. */
+const REFRESHED_EXPIRY = '2026-10-22T14:59:59.000Z';
+
+// A fixed clock: token expiries come from the provider's clock, never the
+// wall clock.
+let clock: TestClock;
 let store: Store;
 let fake: FakeLinear;
 let provider: LinearProvider;
 let lines: string[];
+let logger: ReturnType<typeof recordingLogger>['logger'];
+
+function at(offsetMs: number): string {
+  return new Date(clock.now().getTime() + offsetMs).toISOString();
+}
 
 function installation(
   expiresInMs: number | null,
   refreshToken: string | null
 ): Installation {
-  const now = new Date().toISOString();
+  const now = clock.now().toISOString();
   return {
     workspaceId: 'org-acme',
     workspaceName: 'Acme',
@@ -56,10 +77,7 @@ function installation(
     tokens: {
       accessToken: 'a-current',
       refreshToken,
-      expiresAt:
-        expiresInMs === null
-          ? null
-          : new Date(Date.now() + expiresInMs).toISOString(),
+      expiresAt: expiresInMs === null ? null : at(expiresInMs),
       scopes: ['read', 'write'],
     },
     createdAt: now,
@@ -67,19 +85,26 @@ function installation(
   };
 }
 
+// The real provider over `over` (the test store by default).
+function providerOver(over: Store): LinearProvider {
+  return createLinearProvider({
+    store: over,
+    oauth: OAUTH,
+    logger,
+    now: clock.now,
+    fetch: fake.fetch,
+  });
+}
+
 beforeEach(async () => {
-  const clock = createClock(new Date().toISOString());
+  clock = createClock(START);
   store = await openTestStore(clock);
   fake = createFakeLinear();
   fake.addAccessToken('a-current', APP);
   const logs = recordingLogger();
   lines = logs.lines;
-  provider = createLinearProvider({
-    store,
-    oauth: OAUTH,
-    logger: logs.logger,
-    fetch: fake.fetch,
-  });
+  logger = logs.logger;
+  provider = providerOver(store);
 });
 afterEach(async () => {
   expect(lines.join('\n')).not.toMatch(
@@ -127,9 +152,8 @@ describe('real provider: installation tokens', () => {
     expect(saved?.tokens.accessToken).toBe('lin_access_1');
     expect(saved?.tokens.refreshToken).toBe('lin_refresh_1');
     expect(saved?.tokens.scopes).toEqual(['read', 'write']);
-    expect(Date.parse(saved?.tokens.expiresAt ?? '')).toBeGreaterThan(
-      Date.now() + 86_000_000
-    );
+    // expires_in counted from the provider's clock.
+    expect(saved?.tokens.expiresAt).toBe(REFRESHED_EXPIRY);
 
     // Both callers act with the new token.
     await first.whoAmI();
@@ -141,7 +165,7 @@ describe('real provider: installation tokens', () => {
     expect(fake.refreshCalls).toEqual(['r-old']);
   });
 
-  test('invalid_grant means the app must be reinstalled', async () => {
+  test('invalid_grant marks the installation for reinstall and stops retrying', async () => {
     fake.addRefreshToken('r-old', APP, { invalid: true });
     await store.saveInstallation(installation(-1000, 'r-old'));
     let caught: unknown;
@@ -157,10 +181,36 @@ describe('real provider: installation tokens', () => {
         (l) => l.includes('"level":"error"') && l.includes('invalid_grant')
       )
     ).toBe(true);
-    // The stored tokens are untouched.
-    expect((await store.getInstallation('org-acme'))?.tokens.accessToken).toBe(
-      'a-current'
-    );
+    expect(
+      lines.some(
+        (l) =>
+          l.includes('"level":"error"') &&
+          l.includes('marked for reinstall') &&
+          l.includes('"workspaceId":"org-acme"')
+      )
+    ).toBe(true);
+    // Recorded as revoked (what Settings and /setup show); the stored
+    // tokens themselves are untouched.
+    const saved = await store.getInstallation('org-acme');
+    expect(saved?.revokedAt).toBe(START);
+    expect(saved?.tokens.accessToken).toBe('a-current');
+
+    // Later calls fail fast without asking Linear again, and the worker
+    // no longer lists the workspace.
+    expect(await rejection(provider.forApp('org-acme'))).toMatchObject({
+      code: 'not_installed',
+    });
+    expect(fake.refreshCalls).toEqual(['r-old']);
+    const engine = createEngine({
+      store,
+      linear: provider,
+      channel: recordingChannel(),
+      logger,
+      config: { ...TEST_CONFIG, oauth: OAUTH },
+      now: clock.now,
+      fetch: fake.fetch,
+    });
+    expect(await engine.listWorkspaceIds()).toEqual([]);
   });
 
   test('an expired token without a refresh token cannot be used', async () => {
@@ -168,6 +218,50 @@ describe('real provider: installation tokens', () => {
     expect(await rejection(provider.forApp('org-acme'))).toMatchObject({
       code: 'not_installed',
     });
+    expect((await store.getInstallation('org-acme'))?.revokedAt).toBe(START);
+  });
+
+  test('a reinstall saved while the dead grant was refreshing is kept', async () => {
+    fake.addRefreshToken('r-old', APP, { invalid: true });
+    await store.saveInstallation(installation(-1000, 'r-old'));
+    const reinstalled: Installation = {
+      ...installation(3_600_000, 'r-new'),
+      tokens: {
+        accessToken: 'a-new',
+        refreshToken: 'r-new',
+        expiresAt: at(3_600_000),
+        scopes: ['read', 'write'],
+      },
+    };
+    // The admin's reinstall was waiting on the row lock and commits right
+    // after the failed refresh released it.
+    const racing = storeWith(store, {
+      withInstallationLock: async (workspaceId, fn) => {
+        try {
+          return await store.withInstallationLock(workspaceId, fn);
+        } catch (error) {
+          await store.saveInstallation(reinstalled);
+          throw error;
+        }
+      },
+    });
+    expect(
+      await rejection(providerOver(racing).forApp('org-acme'))
+    ).toMatchObject({ code: 'not_installed' });
+    const saved = await store.getInstallation('org-acme');
+    expect(saved?.revokedAt).toBeNull();
+    expect(saved?.tokens.refreshToken).toBe('r-new');
+  });
+
+  test('an installation row gone at lock time reads as not installed', async () => {
+    await store.saveInstallation(installation(-1000, 'r-old'));
+    const vanished = storeWith(store, {
+      withInstallationLock: (workspaceId) =>
+        Promise.reject(new StoreNotFoundError('installation', workspaceId)),
+    });
+    expect(
+      await rejection(providerOver(vanished).forApp('org-acme'))
+    ).toMatchObject({ name: 'EngineAuthError', code: 'not_installed' });
   });
 
   test('a network failure during refresh is not mistaken for a dead grant', async () => {
@@ -178,9 +272,10 @@ describe('real provider: installation tokens', () => {
       name: 'OAuthError',
       code: 'network_error',
     });
-    expect((await store.getInstallation('org-acme'))?.tokens.refreshToken).toBe(
-      'r-old'
-    );
+    const saved = await store.getInstallation('org-acme');
+    expect(saved?.tokens.refreshToken).toBe('r-old');
+    // A transient failure never marks the grant dead.
+    expect(saved?.revokedAt).toBeNull();
   });
 
   test('missing or revoked installations are not installed', async () => {
@@ -188,7 +283,7 @@ describe('real provider: installation tokens', () => {
       code: 'not_installed',
     });
     await store.saveInstallation(installation(3_600_000, 'r-old'));
-    await store.markInstallationRevoked('org-acme', new Date().toISOString());
+    await store.markInstallationRevoked('org-acme', clock.now().toISOString());
     expect(await rejection(provider.forApp('org-acme'))).toMatchObject({
       code: 'not_installed',
     });
@@ -205,10 +300,10 @@ describe('real provider: session tokens', () => {
       tokens: {
         accessToken: 'a-user',
         refreshToken: 'r-user',
-        expiresAt: new Date(Date.now() - 1).toISOString(),
+        expiresAt: at(-1),
         scopes: ['read', 'write'],
       },
-      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      expiresAt: at(86_400_000),
     });
     const redacted = {
       ...session,
@@ -218,6 +313,8 @@ describe('real provider: session tokens', () => {
     await gateway.whoAmI();
     expect(fake.refreshCalls).toEqual(['r-user']);
     expect(fake.graphqlTokens).toEqual(['lin_access_1']);
+    const [row] = await store.takeExpiredSessions(at(86_400_000), 1);
+    expect(row?.tokens.expiresAt).toBe(REFRESHED_EXPIRY);
   });
 
   test('a dead grant or a deleted session means signing in again', async () => {
@@ -229,10 +326,10 @@ describe('real provider: session tokens', () => {
       tokens: {
         accessToken: 'a-user',
         refreshToken: 'r-dead',
-        expiresAt: new Date(Date.now() - 1).toISOString(),
+        expiresAt: at(-1),
         scopes: ['read'],
       },
-      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      expiresAt: at(86_400_000),
     });
     expect(await rejection(provider.forSession(session))).toMatchObject({
       code: 'not_signed_in',
@@ -241,6 +338,42 @@ describe('real provider: session tokens', () => {
     expect(await rejection(provider.forSession(session))).toMatchObject({
       code: 'not_signed_in',
     });
+  });
+
+  test('a missing session is recognised by its error type, not its message', async () => {
+    const { session } = await store.createSession({
+      workspaceId: 'org-acme',
+      userId: 'u-pat',
+      userName: 'Pat',
+      tokens: {
+        accessToken: 'a-user',
+        refreshToken: 'r-user',
+        expiresAt: at(3_600_000),
+        scopes: ['read'],
+      },
+      expiresAt: at(86_400_000),
+    });
+    const failing = (error: Error): LinearProvider =>
+      providerOver(
+        storeWith(store, {
+          withSessionLock: () => Promise.reject(error),
+        })
+      );
+    // A StoreNotFoundError from another bundled copy of the store (only
+    // its name and kind match) still means "sign in again"…
+    const foreign = Object.assign(new Error('session row vanished'), {
+      name: 'StoreNotFoundError',
+      kind: 'session',
+    });
+    expect(await rejection(failing(foreign).forSession(session))).toMatchObject(
+      { name: 'EngineAuthError', code: 'not_signed_in' }
+    );
+    // …while an unrelated failure that happens to say "No session" is
+    // passed through untouched.
+    const unrelated = new Error('No session pool available');
+    expect(await rejection(failing(unrelated).forSession(session))).toBe(
+      unrelated
+    );
   });
 });
 
@@ -261,7 +394,7 @@ describe('fixture provider', () => {
         expiresAt: null,
         scopes: ['read', 'write'],
       },
-      expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      expiresAt: at(86_400_000),
     });
     const ben = await fixtureProvider.forSession(session);
     expect((await ben.whoAmI()).user.id).toBe('user-ben');

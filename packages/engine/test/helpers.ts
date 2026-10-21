@@ -240,6 +240,24 @@ export async function actorFor(
   return actor;
 }
 
+/**
+ * `base` with some methods replaced: every other member is forwarded to the
+ * real store (bound to it), so a test can make one call misbehave or wait.
+ */
+export function storeWith(base: Store, overrides: Partial<Store>): Store {
+  return new Proxy(base, {
+    get(target, prop) {
+      if (typeof prop === 'string' && Object.hasOwn(overrides, prop)) {
+        return overrides[prop as keyof Store];
+      }
+      const value: unknown = Reflect.get(target, prop, target);
+      return typeof value === 'function'
+        ? (value as (...args: unknown[]) => unknown).bind(target)
+        : value;
+    },
+  });
+}
+
 /** The fixture issue with `id`, or a thrown error. */
 export function fixtureIssue(fixture: FixtureStore, id: string): Issue {
   const issue = fixture.data.issues.find((i) => i.id === id);
