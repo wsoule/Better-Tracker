@@ -81,7 +81,10 @@ function classifyMilestone(
   if (status === 'overdue') {
     return { kind: 'overdue', key: `overdue:${target}` };
   }
+  // A complete milestone has nothing left to act on, so a rubric gap on it
+  // (e.g. it never got a "done means…") is not worth a warning (§4: no spam).
   if (
+    status !== 'complete' &&
     !rubric.valid &&
     daysLeft !== null &&
     daysLeft >= 0 &&

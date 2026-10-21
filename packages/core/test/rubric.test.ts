@@ -96,6 +96,30 @@ describe('resolveDoneMeans', () => {
       { text: 'beta is live', source: 'linear_description' },
     ],
     [
+      'markdown bold label',
+      null,
+      '**Done means:** shipped to all teams',
+      { text: 'shipped to all teams', source: 'linear_description' },
+    ],
+    [
+      'markdown list item',
+      null,
+      'Context first.\n- Done means: invoices export to CSV',
+      { text: 'invoices export to CSV', source: 'linear_description' },
+    ],
+    [
+      'emphasised outcome',
+      null,
+      '> Done means: **beta is live**',
+      { text: 'beta is live', source: 'linear_description' },
+    ],
+    [
+      'bold label with nothing after it',
+      null,
+      '**Done means:**',
+      { text: null, source: null },
+    ],
+    [
       'no separator',
       null,
       'Done means the beta is live',
@@ -126,6 +150,15 @@ describe('resolveDoneMeans', () => {
       { text: null, source: null },
     ],
     ['empty outcome', null, 'Done means:   ', { text: null, source: null }],
+    // The separator alone is not an outcome (it used to resolve to ":").
+    ['bare colon', null, 'Done means:', { text: null, source: null }],
+    ['bare dash', null, 'Done means —', { text: null, source: null }],
+    [
+      'a bare heading line is skipped for a later outcome',
+      null,
+      'Done means:\nDone means: beta is live',
+      { text: 'beta is live', source: 'linear_description' },
+    ],
     ['no description', null, null, { text: null, source: null }],
   ])('%s', (_name, plannerText, description, expected) => {
     const m = milestone('m1', 'p1', { description });

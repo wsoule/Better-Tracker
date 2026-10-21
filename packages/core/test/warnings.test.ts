@@ -329,6 +329,18 @@ describe('planWarnings: invalid_due_soon', () => {
     expect(kinds.includes('invalid_due_soon')).toBe(notified);
   });
 
+  test('a complete milestone is never reported as invalid', () => {
+    const data = oneMilestone(
+      day(3),
+      [
+        issue('a', { assigneeId: 'ana', stateId: STATE.done }),
+        issue('b', { assigneeId: 'ana', stateId: STATE.done }),
+      ],
+      { description: null }
+    );
+    expect(milestoneNotices(warn(data))).toEqual([]);
+  });
+
   test('an empty milestone due soon is invalid (no issues)', () => {
     const [notice] = milestoneNotices(warn(oneMilestone(day(2), [])));
     expect(notice).toMatchObject({

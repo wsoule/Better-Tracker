@@ -54,6 +54,24 @@ describe('addDays', () => {
   test('rejects a malformed date', () => {
     expect(() => addDays('2026-13-01', 1)).toThrow(RangeError);
   });
+
+  test.each([Number.NaN, Number.POSITIVE_INFINITY])(
+    'rejects a non-finite count (%d) instead of returning NaN-NaN-NaN',
+    (days) => {
+      expect(() => addDays('2026-10-21', days)).toThrow(RangeError);
+    }
+  );
+
+  test('truncates fractional counts toward zero', () => {
+    expect(addDays('2026-10-21', 1.9)).toBe('2026-10-22');
+    expect(addDays('2026-10-21', -1.9)).toBe('2026-10-20');
+  });
+
+  test('two-digit years stay in their own century', () => {
+    // Date.UTC would read year 50 as 1950.
+    expect(addDays('0050-01-01', 1)).toBe('0050-01-02');
+    expect(addDays('0099-12-31', 1)).toBe('0100-01-01');
+  });
 });
 
 describe('diffDays', () => {
@@ -71,6 +89,10 @@ describe('diffDays', () => {
     expect(diffDays(later, earlier)).toBe(expected);
   });
 
+  test('two-digit years count real days', () => {
+    expect(diffDays('0100-01-01', '0099-12-31')).toBe(1);
+  });
+
   test('is the inverse of addDays', () => {
     for (let n = -400; n <= 400; n += 37) {
       expect(diffDays(addDays('2026-10-21', n), '2026-10-21')).toBe(n);
@@ -83,6 +105,8 @@ describe('isValidIsoDate', () => {
     ['2026-10-21', true],
     ['2028-02-29', true],
     ['2027-02-29', false],
+    // Year 0 is a leap year in the proleptic Gregorian calendar (1900 is not).
+    ['0000-02-29', true],
     ['2026-04-31', false],
     ['2026-00-10', false],
     ['2026-10-00', false],

@@ -47,6 +47,15 @@ function calendarFormatter(timeZone: string): Intl.DateTimeFormat {
   return formatter;
 }
 
+// UTC-midnight epoch milliseconds of year/month index/day. Date.UTC reads
+// years 0–99 as 1900–1999, so the year is set with setUTCFullYear instead,
+// which keeps every four-digit year exact.
+function utcDateMs(year: number, monthIndex: number, day: number): number {
+  const date = new Date(0);
+  date.setUTCFullYear(year, monthIndex, day);
+  return date.getTime();
+}
+
 // Parses `YYYY-MM-DD` into its numeric parts, or null when the string is not
 // a real calendar date (e.g. `2026-02-30`).
 function parseDateParts(
@@ -59,7 +68,7 @@ function parseDateParts(
   const day = Number(match[3]);
   if (month < 1 || month > 12 || day < 1) return null;
   // Day 0 of the next month is the last day of this month.
-  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const lastDay = new Date(utcDateMs(year, month, 0)).getUTCDate();
   if (day > lastDay) return null;
   return { year, month, day };
 }
@@ -71,7 +80,7 @@ function utcMidnight(value: IsoDate): number {
   if (parts === null) {
     throw new RangeError(`Not a calendar date (YYYY-MM-DD): ${value}`);
   }
-  return Date.UTC(parts.year, parts.month - 1, parts.day);
+  return utcDateMs(parts.year, parts.month - 1, parts.day);
 }
 
 // Formats UTC-midnight epoch milliseconds back into `YYYY-MM-DD`.
@@ -96,8 +105,14 @@ export function todayIn(timeZone: string, now: Date): IsoDate {
   return `${year.padStart(4, '0')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 }
 
-/** `date` plus `days` calendar days (negative goes back). */
+/**
+ * `date` plus `days` calendar days (negative goes back; fractions are
+ * truncated). Throws RangeError for a malformed date or a non-finite count.
+ */
 export function addDays(date: IsoDate, days: number): IsoDate {
+  if (!Number.isFinite(days)) {
+    throw new RangeError(`Not a finite number of days: ${days}`);
+  }
   return formatUtcDate(utcMidnight(date) + Math.trunc(days) * DAY_MS);
 }
 

@@ -1,7 +1,7 @@
 // View models for the three screens (§2.11): My week, the PM timeline, and
 // the milestone drawer. Plain data, ready to serialize to the client.
 
-import { addDays, DAY_MS, elapsedMs } from './dates';
+import { addDays, DAY_MS, elapsedMs, isValidIsoDate } from './dates';
 import {
   compareIssues,
   compareMilestones,
@@ -68,7 +68,8 @@ function recentAllocationsFor(
  * My week (§7.1): one section per milestone holding the user's open issues,
  * in milestone display order, rows in issue order, then a final "No
  * milestone" section. A row is marked new when a live allocation gave it to
- * this user within `newBadgeDays` and it is still theirs.
+ * this user within `newBadgeDays` and it is still theirs. Totals count
+ * issues, except `overdue`, which counts overdue milestones.
  */
 export function buildWeekView(input: {
   snapshot: Snapshot;
@@ -171,11 +172,14 @@ export function buildWeekView(input: {
     });
   }
 
+  // open, thisWeek and new count the user's issues; overdue counts the
+  // overdue milestones they have open issues in (§8.4: "Overdue milestones",
+  // "1 milestone overdue").
   const totals = { open: 0, thisWeek: 0, overdue: 0, new: 0 };
   for (const section of sections) {
     totals.open += section.rows.length;
     if (section.thisWeek) totals.thisWeek += section.rows.length;
-    if (section.status === 'overdue') totals.overdue += section.rows.length;
+    if (section.status === 'overdue') totals.overdue += 1;
     for (const row of section.rows) {
       if (row.newBecauseLeadOf !== null) totals.new += 1;
     }
@@ -248,6 +252,11 @@ export function buildTimelineView(input: {
       project.leadId === null ? undefined : snapshot.users.get(project.leadId);
     const bars: TimelineBar[] = [];
     const undated: TimelineBar[] = [];
+    // A malformed project start is ignored, like a malformed milestone date.
+    const projectStart =
+      project.startDate !== null && isValidIsoDate(project.startDate)
+        ? project.startDate
+        : null;
     let previousDate: IsoDate | null = null;
     for (const milestone of snapshot.milestonesByProject.get(project.id) ??
       []) {
@@ -257,7 +266,7 @@ export function buildTimelineView(input: {
         // Undated bars have no previous-date anchor; they start where the
         // project (or the window) does.
         undated.push(
-          toBar(milestone, ctx, assessment, project.startDate ?? windowStart)
+          toBar(milestone, ctx, assessment, projectStart ?? windowStart)
         );
         banners.milestonesWithoutDate.push({
           milestoneId: milestone.id,
@@ -266,7 +275,7 @@ export function buildTimelineView(input: {
           projectName: project.name,
         });
       } else {
-        const start = previousDate ?? project.startDate ?? windowStart;
+        const start = previousDate ?? projectStart ?? windowStart;
         bars.push(toBar(milestone, ctx, assessment, start));
         previousDate = end;
       }

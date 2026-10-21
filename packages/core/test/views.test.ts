@@ -207,6 +207,31 @@ describe('buildWeekView', () => {
     });
   });
 
+  test('overdue counts milestones, not the issues in them (§8.4)', () => {
+    const evaluated = evaluate(
+      workspace({
+        users: [user('lead'), user('ana')],
+        projects: [project('pA')],
+        milestones: [
+          milestone('late1', 'pA', { targetDate: day(-3) }),
+          milestone('late2', 'pA', { targetDate: day(-1) }),
+        ],
+        issues: [
+          ana('a', { projectId: 'pA', milestoneId: 'late1' }),
+          ana('b', { projectId: 'pA', milestoneId: 'late1' }),
+          ana('c', { projectId: 'pA', milestoneId: 'late1' }),
+          ana('d', { projectId: 'pA', milestoneId: 'late2' }),
+        ],
+      })
+    );
+    const view = buildWeekView({
+      ...evaluated,
+      userId: 'ana',
+      recentAllocations: [],
+    });
+    expect(view.totals).toEqual({ open: 4, thisWeek: 4, overdue: 2, new: 0 });
+  });
+
   test('a weight override reorders sections but overdue stays on top', () => {
     const view = week('ana', { mLater: 3 });
     expect(view.sections.map((s) => s.milestoneId)).toEqual([
@@ -375,6 +400,36 @@ describe('buildTimelineView', () => {
     ]);
     expect(lanes.get('pLoose')?.bars.map((b) => [b.start, b.end])).toEqual([
       [day(3), day(3)],
+    ]);
+  });
+
+  test('a malformed project start date falls back to the window start', () => {
+    const ev = evaluate(
+      workspace({
+        projects: [project('pBad', { startDate: '2026-02-30' })],
+        milestones: [
+          milestone('undated', 'pBad', { targetDate: null }),
+          milestone('dated', 'pBad', { targetDate: day(5) }),
+        ],
+        issues: [
+          issue('i', {
+            projectId: 'pBad',
+            milestoneId: 'dated',
+            assigneeId: 'lead',
+          }),
+        ],
+      })
+    );
+    const timeline = buildTimelineView({
+      ...ev,
+      allocationPlan: planAllocation(ev.snapshot, ev.ctx, ev.assessments),
+    });
+    const lane = timeline.groups[0]?.lanes[0];
+    expect(lane?.bars.map((b) => [b.start, b.end])).toEqual([
+      [day(-14), day(5)],
+    ]);
+    expect(lane?.undated.map((b) => [b.start, b.end])).toEqual([
+      [day(-14), null],
     ]);
   });
 

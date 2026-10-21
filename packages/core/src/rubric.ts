@@ -13,12 +13,22 @@ import type {
   Snapshot,
 } from './types';
 
-const DONE_MEANS_LINE = /^\s*done means\b[\s:—–-]*(.+)$/i;
+// The §2.3 pattern, except the outcome must start with a non-separator
+// character. With the spec's `(.+)` a bare "Done means:" or "Done means —"
+// backtracks and captures the separator itself (":" or "—") as the outcome.
+// Emphasis markers count as separators so "**Done means:** shipped" and
+// "Done means: **shipped**" both yield "shipped".
+const DONE_MEANS_LINE = /^[\s*_]*done means\b[\s:—–*_-]*([^\s:—–*_-].*)$/i;
+
+// Linear descriptions are markdown: drop a leading list bullet, numbered
+// list marker, blockquote or heading marker before matching.
+const MARKDOWN_PREFIX = /^\s*(?:(?:[-*+]|\d+[.)])\s+|>\s*|#{1,6}\s+)*/;
 
 /**
  * Where a milestone's "done means…" outcome comes from: the planner's own
  * field first, else the first line of the Linear description that starts
- * with "Done means" (so teams can author it in Linear), else nothing.
+ * with "Done means" followed by an outcome (so teams can author it in
+ * Linear), else nothing.
  */
 export function resolveDoneMeans(
   m: Milestone,
@@ -28,8 +38,8 @@ export function resolveDoneMeans(
   if (own !== '') return { text: own, source: 'planner' };
   if (m.description !== null) {
     for (const line of m.description.split(/\r?\n/)) {
-      const match = DONE_MEANS_LINE.exec(line);
-      const text = match?.[1]?.trim() ?? '';
+      const match = DONE_MEANS_LINE.exec(line.replace(MARKDOWN_PREFIX, ''));
+      const text = (match?.[1] ?? '').replace(/[*_\s]+$/, '').trim();
       if (text !== '') return { text, source: 'linear_description' };
     }
   }

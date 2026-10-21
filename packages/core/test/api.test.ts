@@ -76,6 +76,34 @@ describe('public API (docs/architecture.md §3)', () => {
   });
 });
 
+describe('defaultSettings', () => {
+  test('starts safe: dry run, preview, default tuning', () => {
+    expect(core.defaultSettings('ws-1', 'America/Chicago')).toEqual({
+      workspaceId: 'ws-1',
+      pmUserIds: [],
+      watcherUserIds: [],
+      allocationMode: 'dry_run',
+      warningsMode: 'preview',
+      timezone: 'America/Chicago',
+      tuning: core.DEFAULT_TUNING,
+    });
+  });
+
+  test('editing one workspace in place never changes the defaults', () => {
+    const settings = core.defaultSettings('ws-1', 'UTC');
+    settings.tuning.activeProjectStatuses.push('paused');
+    settings.tuning.warnLeadDays = 3;
+    expect(core.DEFAULT_TUNING.activeProjectStatuses).toEqual([
+      'planned',
+      'started',
+    ]);
+    expect(core.DEFAULT_TUNING.warnLeadDays).toBe(7);
+    expect(
+      core.defaultSettings('ws-2', 'UTC').tuning.activeProjectStatuses
+    ).toEqual(['planned', 'started']);
+  });
+});
+
 describe('labels', () => {
   test('plain copy for every status, reason, block reason and priority', () => {
     expect(STATUS_LABEL).toEqual({
