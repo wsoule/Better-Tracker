@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 
 import { openPgliteSql, openPgSql, type Sql } from '../src/db';
+import { isStoreNotFoundError, StoreNotFoundError } from '../src/errors';
 import { createSqlStore } from '../src/store';
 import type { MirrorEntity, NewRunEntry, Store } from '../src/types';
 import {
@@ -189,12 +190,25 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         );
         expect(failed.message).toBe('invalid_grant');
         expect(await store.getInstallation(ws)).toEqual(saved);
+        const absent = newWorkspaceId();
+        let called = false;
         const missing = await rejection(
-          store.withInstallationLock(newWorkspaceId(), () =>
-            Promise.resolve({ result: 1 })
-          )
+          store.withInstallationLock(absent, () => {
+            called = true;
+            return Promise.resolve({ result: 1 });
+          })
         );
         expect(missing.message).toMatch(/No installation/);
+        // Typed, so callers never match on the message.
+        expect(missing).toBeInstanceOf(StoreNotFoundError);
+        expect(missing).toMatchObject({
+          name: 'StoreNotFoundError',
+          kind: 'installation',
+          id: absent,
+        });
+        expect(isStoreNotFoundError(missing, 'installation')).toBe(true);
+        expect(isStoreNotFoundError(missing, 'session')).toBe(false);
+        expect(called).toBe(false);
       });
 
       test('concurrent refreshers are serialized by the row lock', async () => {
@@ -342,6 +356,109 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           store.withSessionLock('missing', () => Promise.resolve({ result: 1 }))
         );
         expect(missing.message).toMatch(/No session/);
+        expect(missing).toBeInstanceOf(StoreNotFoundError);
+        expect(missing).toMatchObject({ kind: 'session', id: 'missing' });
+        expect(isStoreNotFoundError(missing, 'session')).toBe(true);
+      });
+
+      test('takeExpiredSessions deletes and returns expired sessions with their tokens', async () => {
+        // A 2019 era no other test uses, so a shared database only holds
+        // this test's expired rows.
+        const ws = newWorkspaceId();
+        const make = (suffix: string, expiresAt: string) =>
+          store.createSession({
+            workspaceId: ws,
+            userId: `u-${suffix}`,
+            userName: suffix,
+            tokens: tokens(suffix),
+            expiresAt,
+          });
+        const third = await make('third', '2019-03-01T00:00:00.000Z');
+        const first = await make('first', '2019-01-01T00:00:00.000Z');
+        const second = await make('second', '2019-02-01T00:00:00.000Z');
+        const live = await make('live', '2099-01-01T00:00:00.000Z');
+        const now = '2019-06-01T00:00:00.000Z';
+
+        // Oldest first, at most `limit`, real (decrypted) tokens.
+        const batch = await store.takeExpiredSessions(now, 2);
+        expect(batch).toEqual([first.session, second.session]);
+        expect(batch[0]?.tokens.refreshToken).toBe('lin_oauth_refresh_first');
+        const rest = await store.takeExpiredSessions(now, 10);
+        expect(rest.filter((s) => s.workspaceId === ws)).toEqual([
+          third.session,
+        ]);
+        expect(await store.takeExpiredSessions(now, 10)).toEqual([]);
+        const remaining = await sql.query<{ id: string }>(
+          'SELECT id FROM sessions WHERE workspace_id = $1',
+          [ws]
+        );
+        expect(remaining.map((row) => row.id)).toEqual([live.session.id]);
+        expect(await store.takeExpiredSessions(now, Number.NaN)).toEqual([]);
+        await store.deleteSession(live.token);
+      });
+
+      test('takeExpiredSessions drops rows it cannot decrypt and skips locked ones', async () => {
+        const ws = newWorkspaceId();
+        const otherKey = Buffer.alloc(32, 3).toString('base64');
+        const foreign = createSqlStore(sql, { encryptionKey: otherKey });
+        await foreign.createSession({
+          workspaceId: ws,
+          userId: 'u-old-key',
+          userName: 'Old key',
+          tokens: tokens('old-key'),
+          expiresAt: '2019-01-01T00:00:00.000Z',
+        });
+        const readable = await store.createSession({
+          workspaceId: ws,
+          userId: 'u-ana',
+          userName: 'Ana Lead',
+          tokens: tokens('readable'),
+          expiresAt: '2019-01-02T00:00:00.000Z',
+        });
+        const now = '2019-06-01T00:00:00.000Z';
+        const taken = await store.takeExpiredSessions(now, 10);
+        expect(taken.filter((s) => s.workspaceId === ws)).toEqual([
+          readable.session,
+        ]);
+        const left = await sql.query<{ id: string }>(
+          'SELECT id FROM sessions WHERE workspace_id = $1',
+          [ws]
+        );
+        expect(left).toEqual([]);
+
+        // A session held by withSessionLock (a refresh in flight) is left
+        // for a later call instead of being waited for. PGlite has one
+        // connection, so only a real Postgres can show the skip.
+        if (label.includes('PGlite')) return;
+        const locked = await store.createSession({
+          workspaceId: ws,
+          userId: 'u-ana',
+          userName: 'Ana Lead',
+          tokens: tokens('locked'),
+          expiresAt: '2019-01-03T00:00:00.000Z',
+        });
+        let release = (): void => undefined;
+        const held = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let entered = (): void => undefined;
+        const inside = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const holding = store.withSessionLock(locked.session.id, async () => {
+          entered();
+          await held;
+          return { result: null };
+        });
+        await inside;
+        const whileLocked = await store.takeExpiredSessions(now, 10);
+        expect(whileLocked.filter((s) => s.workspaceId === ws)).toEqual([]);
+        release();
+        await holding;
+        const after = await store.takeExpiredSessions(now, 10);
+        expect(after.filter((s) => s.workspaceId === ws)).toEqual([
+          locked.session,
+        ]);
       });
     });
 
@@ -384,6 +501,82 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         await store.upsertMilestoneMeta(ws, bumped);
         expect(await store.listMilestoneMeta(ws)).toEqual([alpha, bumped]);
         expect(await store.listMilestoneMeta(newWorkspaceId())).toEqual([]);
+      });
+
+      test('updateMilestoneMetaField writes only its own column', async () => {
+        const ws = newWorkspaceId();
+        // A missing row is inserted with the other field null.
+        const created = await store.updateMilestoneMetaField(
+          ws,
+          'm-alpha',
+          'weight',
+          5,
+          'u-ana',
+          '2026-10-21T09:00:00.000Z'
+        );
+        expect(created).toEqual({
+          milestoneId: 'm-alpha',
+          weight: 5,
+          doneMeans: null,
+          updatedAt: '2026-10-21T09:00:00.000Z',
+          updatedBy: 'u-ana',
+        });
+        // Two writers that each read the row before the other wrote: the
+        // second write keeps the first one's field (no whole-row upsert).
+        await store.updateMilestoneMetaField(
+          ws,
+          'm-alpha',
+          'doneMeans',
+          'the old cluster is off',
+          'u-bo',
+          '2026-10-21T09:01:00.000Z'
+        );
+        const both = await store.updateMilestoneMetaField(
+          ws,
+          'm-alpha',
+          'weight',
+          -2,
+          'u-ana',
+          '2026-10-21T09:02:00.000Z'
+        );
+        expect(both).toEqual({
+          milestoneId: 'm-alpha',
+          weight: -2,
+          doneMeans: 'the old cluster is off',
+          updatedAt: '2026-10-21T09:02:00.000Z',
+          updatedBy: 'u-ana',
+        });
+        const cleared = await store.updateMilestoneMetaField(
+          ws,
+          'm-alpha',
+          'doneMeans',
+          null,
+          'u-bo',
+          '2026-10-21T09:03:00.000Z'
+        );
+        expect(cleared).toMatchObject({ weight: -2, doneMeans: null });
+        expect(await store.listMilestoneMeta(ws)).toEqual([cleared]);
+
+        // Values must match the field; nothing is written otherwise.
+        for (const [field, value] of [
+          ['weight', '12'],
+          ['weight', Number.NaN],
+          ['doneMeans', 3],
+          ['nope', 1],
+        ] as const) {
+          const error = await rejection(
+            store.updateMilestoneMetaField(
+              ws,
+              'm-alpha',
+              field as 'weight',
+              value,
+              'u-ana',
+              '2026-10-21T09:04:00.000Z'
+            )
+          );
+          expect(error).toBeInstanceOf(TypeError);
+        }
+        expect(await store.listMilestoneMeta(ws)).toEqual([cleared]);
       });
     });
 

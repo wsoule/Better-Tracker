@@ -53,6 +53,9 @@ export interface Session {
   expiresAt: IsoDateTime;
 }
 
+/** The tool-owned milestone fields updateMilestoneMetaField can write. */
+export type MilestoneMetaField = 'weight' | 'doneMeans';
+
 export interface NewSession {
   workspaceId: string;
   userId: string;
@@ -213,6 +216,8 @@ export interface Store {
    * Runs fn while holding a row lock on the installation, so two processes
    * never refresh (and rotate) the same refresh token concurrently. fn's
    * returned tokens, if any, are persisted before the lock is released.
+   * Rejects with StoreNotFoundError (kind 'installation') when there is no
+   * installation row, without calling fn.
    */
   withInstallationLock<T>(
     workspaceId: string,
@@ -227,19 +232,49 @@ export interface Store {
     session: NewSession
   ): Promise<{ token: string; session: Session }>;
   getSession(token: string, now: IsoDateTime): Promise<Session | null>;
-  /** Same locking contract as withInstallationLock, for user tokens. */
+  /**
+   * Same locking contract as withInstallationLock, for user tokens
+   * (StoreNotFoundError kind 'session' when the session row is gone).
+   */
   withSessionLock<T>(
     sessionId: string,
     fn: (session: Session) => Promise<{ result: T; tokens?: StoredTokens }>
   ): Promise<T>;
   deleteSession(token: string): Promise<void>;
+  /** Deletes every expired session without reading it; returns the count. */
   deleteExpiredSessions(now: IsoDateTime): Promise<number>;
+  /**
+   * Additive: deletes up to `limit` expired sessions (oldest expiry first)
+   * and returns them with their decrypted Linear tokens, so the caller can
+   * revoke those tokens. Rows locked by a concurrent refresh are skipped
+   * (taken by a later call). A row whose tokens no longer decrypt (another
+   * TOKEN_ENCRYPTION_KEY) is deleted, logged and left out of the result, so
+   * fewer than `limit` sessions can come back while more remain.
+   */
+  takeExpiredSessions(now: IsoDateTime, limit: number): Promise<Session[]>;
 
   // --- settings and tool-owned milestone data ------------------------------
   getSettings(workspaceId: string): Promise<WorkspaceSettings | null>;
   saveSettings(settings: WorkspaceSettings): Promise<void>;
   listMilestoneMeta(workspaceId: string): Promise<MilestoneMeta[]>;
+  /** Writes the whole meta row (both fields); seeding and imports. */
   upsertMilestoneMeta(workspaceId: string, meta: MilestoneMeta): Promise<void>;
+  /**
+   * Additive: sets one tool-owned field of a milestone's meta (inserting
+   * the row when missing, with the other field null) and returns the row
+   * as stored. Only that column, updated_by and updated_at are written, so
+   * concurrent edits of the two fields from different processes never
+   * overwrite each other. `value` must match the field: a finite
+   * number or null for weight, a string or null for doneMeans.
+   */
+  updateMilestoneMetaField(
+    workspaceId: string,
+    milestoneId: string,
+    field: MilestoneMetaField,
+    value: number | string | null,
+    updatedBy: string,
+    at: IsoDateTime
+  ): Promise<MilestoneMeta>;
 
   // --- Linear mirror ------------------------------------------------------
   /**

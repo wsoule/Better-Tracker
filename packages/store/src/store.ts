@@ -38,12 +38,14 @@ import {
   type SqlLogger,
   type SqlParam,
 } from './db';
+import { StoreNotFoundError } from './errors';
 import { runMigrations } from './migrations';
 import type {
   AllocationRun,
   AuditEntry,
   Installation,
   LoadedMirror,
+  MilestoneMetaField,
   MirrorEntity,
   MirrorKind,
   MirrorRef,
@@ -270,6 +272,54 @@ const ENTRY_COLUMNS = `e.run_id, e.seq, e.action, e.outcome, e.project_id,
 const NOTIFICATION_COLUMNS = `id, workspace_id,
   to_char(day, 'YYYY-MM-DD') AS day, recipient_id, channel, status, digest,
   error, created_at`;
+
+const MILESTONE_META_COLUMNS = `milestone_id, weight, done_means, updated_at,
+  updated_by`;
+
+// One statement per tool-owned meta field (never built from input): insert
+// the row with only that field set, or update only that column plus the
+// updated_by/updated_at stamp, so an edit of the other field made by
+// another process in between is kept.
+const UPDATE_META_FIELD_SQL: Record<MilestoneMetaField, string> = {
+  weight: `INSERT INTO milestone_meta (workspace_id, milestone_id, weight,
+      updated_at, updated_by)
+    VALUES ($1, $2, $3::double precision, $4::timestamptz, $5)
+    ON CONFLICT (workspace_id, milestone_id) DO UPDATE SET
+      weight = EXCLUDED.weight, updated_at = EXCLUDED.updated_at,
+      updated_by = EXCLUDED.updated_by
+    RETURNING ${MILESTONE_META_COLUMNS}`,
+  doneMeans: `INSERT INTO milestone_meta (workspace_id, milestone_id,
+      done_means, updated_at, updated_by)
+    VALUES ($1, $2, $3::text, $4::timestamptz, $5)
+    ON CONFLICT (workspace_id, milestone_id) DO UPDATE SET
+      done_means = EXCLUDED.done_means, updated_at = EXCLUDED.updated_at,
+      updated_by = EXCLUDED.updated_by
+    RETURNING ${MILESTONE_META_COLUMNS}`,
+};
+
+// Checks that a meta field value has the field's type before it is bound
+// (a string must never reach the weight column, where Postgres would cast
+// "12" to a number).
+function checkMetaValue(
+  field: MilestoneMetaField,
+  value: number | string | null
+): void {
+  if (!Object.hasOwn(UPDATE_META_FIELD_SQL, field)) {
+    throw new TypeError(`Unknown milestone meta field ${String(field)}`);
+  }
+  if (value === null) return;
+  const ok =
+    field === 'weight'
+      ? typeof value === 'number' && Number.isFinite(value)
+      : typeof value === 'string';
+  if (!ok) {
+    throw new TypeError(
+      field === 'weight'
+        ? 'Milestone weight must be a finite number or null'
+        : '"Done means…" must be a string or null'
+    );
+  }
+}
 
 /** Which WorkspaceData array each mirror kind lives in, in load order. */
 const MIRROR_FIELDS = {
@@ -696,7 +746,7 @@ class SqlStore implements Store {
       );
       const row = rows[0];
       if (row === undefined) {
-        throw new Error(`No installation for workspace ${workspaceId}`);
+        throw new StoreNotFoundError('installation', workspaceId);
       }
       const { result, tokens } = await fn(this.installationFromRow(row));
       if (tokens !== undefined) {
@@ -777,7 +827,7 @@ class SqlStore implements Store {
       );
       const row = rows[0];
       if (row === undefined) {
-        throw new Error(`No session ${sessionId}`);
+        throw new StoreNotFoundError('session', sessionId);
       }
       const { result, tokens } = await fn(this.sessionFromRow(row));
       if (tokens !== undefined) {
@@ -806,6 +856,47 @@ class SqlStore implements Store {
     return rows.length;
   }
 
+  /**
+   * One DELETE … RETURNING over the oldest expired rows. SKIP LOCKED leaves
+   * a row alone while withSessionLock holds it (a refresh in flight) and
+   * lets two cleaners run at once without taking the same session twice.
+   * Tokens are decrypted per row so one unreadable row (encrypted with
+   * another key) cannot hide the others' tokens.
+   */
+  async takeExpiredSessions(
+    now: IsoDateTime,
+    limit: number
+  ): Promise<Session[]> {
+    const rows = await this.sql.query<SessionRow>(
+      `DELETE FROM sessions WHERE id IN (
+         SELECT id FROM sessions WHERE expires_at <= $1::timestamptz
+         ORDER BY expires_at, id LIMIT $2::int
+         FOR UPDATE SKIP LOCKED)
+       RETURNING ${SESSION_COLUMNS}`,
+      [now, sqlLimit(limit)]
+    );
+    const sessions: Session[] = [];
+    for (const row of rows) {
+      try {
+        sessions.push(this.sessionFromRow(row));
+      } catch (error) {
+        this.logger?.warn(
+          'deleted an expired session whose tokens could not be decrypted',
+          { sessionId: row.id, workspaceId: row.workspace_id, error }
+        );
+      }
+    }
+    // RETURNING has no defined order; hand them back oldest first (UTC ISO
+    // strings sort by time).
+    return sessions.sort((a, b) => {
+      if (a.expiresAt !== b.expiresAt) {
+        return a.expiresAt < b.expiresAt ? -1 : 1;
+      }
+      if (a.id === b.id) return 0;
+      return a.id < b.id ? -1 : 1;
+    });
+  }
+
   // --- settings and milestone meta ----------------------------------------------
 
   async getSettings(workspaceId: string): Promise<WorkspaceSettings | null> {
@@ -832,11 +923,31 @@ class SqlStore implements Store {
 
   async listMilestoneMeta(workspaceId: string): Promise<MilestoneMeta[]> {
     const rows = await this.sql.query<MilestoneMetaRow>(
-      `SELECT milestone_id, weight, done_means, updated_at, updated_by
+      `SELECT ${MILESTONE_META_COLUMNS}
        FROM milestone_meta WHERE workspace_id = $1 ORDER BY milestone_id`,
       [workspaceId]
     );
     return rows.map(milestoneMetaFromRow);
+  }
+
+  async updateMilestoneMetaField(
+    workspaceId: string,
+    milestoneId: string,
+    field: MilestoneMetaField,
+    value: number | string | null,
+    updatedBy: string,
+    at: IsoDateTime
+  ): Promise<MilestoneMeta> {
+    checkMetaValue(field, value);
+    const rows = await this.sql.query<MilestoneMetaRow>(
+      UPDATE_META_FIELD_SQL[field],
+      [workspaceId, milestoneId, value, at, updatedBy]
+    );
+    const row = rows[0];
+    if (row === undefined) {
+      throw new Error('Milestone meta upsert returned no row');
+    }
+    return milestoneMetaFromRow(row);
   }
 
   async upsertMilestoneMeta(

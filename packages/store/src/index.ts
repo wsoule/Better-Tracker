@@ -3,6 +3,11 @@
 // and in tests).
 export * from './types';
 export {
+  isStoreNotFoundError,
+  StoreNotFoundError,
+  type StoreNotFoundKind,
+} from './errors';
+export {
   createSqlStore,
   openSql,
   openStore,
