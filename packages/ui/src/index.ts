@@ -132,3 +132,36 @@ export type {
   ToastKind,
   ToastProviderProps,
 } from './shell/types';
+
+// ---- timeline family (src/timeline): the Gr8r Gantt in the Matrix
+// drawing style (architecture §8.4 Timeline) — TimelineChart plus the pure
+// date↔x helpers it is built on. Props are typed in ./timeline/types.
+export {
+  addDays,
+  centerXForDate,
+  createScale,
+  dateForX,
+  dayIndex,
+  daysBetween,
+  dayTicks,
+  formatDay,
+  formatDayLong,
+  isoForDayIndex,
+  monthSpans,
+  snapDays,
+  type TimeScale,
+  weekendSpans,
+  weekTicks,
+  xForDate,
+} from './timeline/dates';
+export { TimelineChart } from './timeline/timeline-chart';
+export type {
+  TimelineBar,
+  TimelineChartProps,
+  TimelineDependency,
+  TimelineGroup,
+  TimelineLane,
+  TimelineLegendItem,
+  TimelineUndated,
+  TimelineZoom,
+} from './timeline/types';

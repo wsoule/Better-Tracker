@@ -33,6 +33,11 @@ export default function GalleryIndex() {
             Shell · app frame, command palette, toasts, slide-over, skeletons
           </a>
         </p>
+        <p className="empty">
+          <a className="accentLink" href="/ui-gallery/timeline">
+            Timeline · Gantt chart, re-dating, dependencies, phone cards
+          </a>
+        </p>
       </div>
     </main>
   );

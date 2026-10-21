@@ -92,7 +92,7 @@
   opacity: 0.45;
 }
 
-@media (hover: hover) {
+@media (hover: hover) and (width >= 901px) {
   .button:not(:disabled):hover,
   .buttonPrimary:not(:disabled):hover {
     background: var(--accent);

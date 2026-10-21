@@ -1,0 +1,637 @@
+/* The timeline chart: Gr8r's Gantt (sticky lane column, two-row header,
+   milestones row, bars, connectors) drawn as one Matrix-style drawing:
+   hairline boxes collapsed on -1px margins, mono micro-labels, the accent
+   only for "needs action". The lane column width arrives as
+   --timeline-lane-width (set on .root from LANE_WIDTH in layout.ts); the
+   header height comes inline from HEADER_HEIGHT. Stacking inside the body:
+   grid 0, connectors 1, bars 2, diamonds/handles 3, tips 4, lane column 5,
+   header 6, corner 7. */
+
+.root {
+  min-width: 0;
+}
+
+/* ---- toolbar -------------------------------------------------------- */
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 18px;
+  border: 1px solid var(--border);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+}
+
+.toolbarEnd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-left: auto;
+}
+
+/* ---- legend + live line --------------------------------------------- */
+
+.legendRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 28px;
+  min-height: 40px;
+  margin-top: -1px;
+  padding: 9px 18px;
+  border: 1px solid var(--border);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legendLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Mini bars, one per status, drawn like the real thing. */
+.swatch {
+  display: block;
+  width: 22px;
+  height: 12px;
+  border: 1px solid var(--border);
+  background: var(--background);
+}
+
+.s_overdue {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.s_at_risk {
+  border: 2px solid var(--accent);
+}
+
+.s_done {
+  background: var(--foreground);
+}
+
+.s_missing {
+  border-color: var(--muted);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--muted) 0,
+    var(--muted) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+.legendDiamond {
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin: 0 2px;
+  border: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+.live {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-left: auto;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+/* An empty live line is collapsed out of the row, never display: none: a
+   live region must stay rendered (in the accessibility tree) before it
+   speaks, or screen readers miss the first message. Absolute positioning
+   also takes it out of the flex gap. */
+.live:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+.liveKey {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.liveError .liveKey {
+  color: var(--accent);
+}
+
+.empty {
+  margin-top: -1px;
+}
+
+/* ---- the drawing ---------------------------------------------------- */
+
+/* One scroll container for both axes: header (top) and lane column (left)
+   stick inside it, so nothing needs scroll syncing. */
+.scroller {
+  position: relative;
+  margin-top: -1px;
+  overflow: auto;
+  max-height: var(--timeline-max-height, calc(100vh - 220px));
+  border: 1px solid var(--border);
+  overscroll-behavior-x: contain;
+}
+
+.canvas {
+  position: relative;
+}
+
+.head {
+  position: sticky;
+  z-index: 6;
+  top: 0;
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+
+.corner {
+  position: sticky;
+  z-index: 7;
+  left: 0;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  width: var(--timeline-lane-width, 264px);
+  padding: 0 16px 9px;
+  border-right: 1px solid var(--border);
+  background: var(--background);
+}
+
+.cornerLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.cornerSub {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+
+.body {
+  position: relative;
+}
+
+.row {
+  position: relative;
+  display: flex;
+}
+
+.laneCell {
+  position: sticky;
+  z-index: 5;
+  left: 0;
+  display: flex;
+  flex: none;
+  align-items: center;
+  width: var(--timeline-lane-width, 264px);
+  padding: 0 16px;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--hairline-faint);
+  background: var(--background);
+}
+
+.track {
+  position: relative;
+  flex: 1 1 auto;
+  border-bottom: 1px solid var(--hairline-faint);
+}
+
+/* ---- milestones summary row ----------------------------------------- */
+
+/* A chrome zone (hatched like a titlebar): the at-a-glance diamonds. */
+.summaryRow .laneCell,
+.summaryRow .track {
+  border-bottom-color: var(--border);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+.summaryCell {
+  gap: 10px;
+}
+
+.summaryGlyph {
+  width: 9px;
+  height: 9px;
+  margin: 0 2px;
+  border: 1px solid var(--border);
+  background: var(--foreground);
+  transform: rotate(45deg);
+}
+
+.summaryLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.summaryCount {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.point {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: 20px;
+  margin: -10px 0 0 -6px;
+  cursor: pointer;
+}
+
+.pointMark {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  transform: rotate(45deg) scale(0.83);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.m_done {
+  background: var(--foreground);
+}
+
+.m_at_risk {
+  border: 2px solid var(--accent);
+}
+
+.m_overdue {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.m_missing {
+  border-color: var(--muted);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--muted) 0,
+    var(--muted) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+.pointLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .point:hover {
+    z-index: 3;
+  }
+
+  .point:hover .pointLabel {
+    color: var(--accent);
+  }
+
+  .point:hover .pointMark {
+    border-color: var(--accent);
+  }
+}
+
+/* ---- initiative rows ------------------------------------------------ */
+
+/* Ink above and below; the row overlaps the previous row's bottom line by
+   1px (layout.ts subtracts it) so the drawing never doubles a line. */
+.groupRow {
+  margin-top: -1px;
+}
+
+.groupRow .laneCell,
+.groupRow .track {
+  border-top: 1px solid var(--border);
+  border-bottom-color: var(--border);
+}
+
+.groupRow .track {
+  background: var(--tint);
+}
+
+.groupCell {
+  gap: 12px;
+  background: var(--background);
+  background-image: linear-gradient(var(--tint), var(--tint));
+}
+
+.groupLabel {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.groupCount {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+/* ---- lanes ---------------------------------------------------------- */
+
+.laneText {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.laneName {
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+a.laneName:focus-visible {
+  color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  a.laneName:hover {
+    color: var(--accent);
+  }
+}
+
+.laneSubLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+
+.laneSub,
+.laneEdges {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.laneSub {
+  color: var(--muted);
+}
+
+.laneSubAccent {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.laneEdges {
+  color: var(--grey-2);
+}
+
+.laneMuted .laneName {
+  color: var(--muted);
+}
+
+/* The lane named in ?project=: a 2px accent rule (emphasis, spent once)
+   down the label cell's left edge and a tint along its track. */
+.laneFocus .laneCell {
+  background-image: linear-gradient(var(--accent), var(--accent));
+  background-repeat: no-repeat;
+  background-size: 2px 100%;
+}
+
+.laneFocus .laneName {
+  color: var(--accent);
+}
+
+.laneFocus .track {
+  background: var(--tint);
+}
+
+/* ---- undated chips -------------------------------------------------- */
+
+.undated {
+  position: absolute;
+  z-index: 2;
+  top: 15px;
+  display: flex;
+  gap: 8px;
+}
+
+.chip {
+  scroll-margin: 60px 24px 12px calc(var(--timeline-lane-width, 264px) + 24px);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px dashed var(--muted);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.chipNote {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.chipSelected {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .chip:hover {
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .chip:hover .chipNote {
+    color: var(--on-accent);
+  }
+}
+
+/* ---- dependency connectors ------------------------------------------ */
+
+.connectors {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: var(--timeline-lane-width, 264px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.edge path {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-linecap: square;
+}
+
+.edge .edgeHead {
+  stroke-linecap: butt;
+  stroke-linejoin: miter;
+}
+
+.edgeRisk path {
+  stroke: var(--accent);
+}
+
+/* The waiting milestone is due before its blocker: a scheduling conflict,
+   dashed so it reads without a new hue. */
+.edgeConflict path:first-child {
+  stroke-dasharray: 3 3;
+}
+
+.edgeSelected path {
+  stroke: var(--foreground);
+  stroke-width: 1.5;
+}
+
+.edgeSelected.edgeRisk path {
+  stroke: var(--accent);
+}
+
+/* ---- phone ---------------------------------------------------------- */
+
+@media (width <= 900px) {
+  .scroller,
+  .controls,
+  .legend {
+    display: none;
+  }
+
+  /* With no host slots the toolbar holds only the (hidden) chart
+     controls: no empty bordered strip above the cards. */
+  .toolbar:has(> .controls:only-child) {
+    display: none;
+  }
+
+  /* Nothing to say and no legend at this width: no empty bordered row.
+     Collapsed like .live:empty above (not display: none) so the live
+     regions inside stay ready to speak. */
+  .legendRow:has(.live:empty + .live:empty) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    border: 0;
+  }
+
+  .toolbar,
+  .legendRow {
+    padding: 10px 14px;
+  }
+
+  .toolbarEnd {
+    margin-left: 0;
+  }
+
+  .live {
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pointMark,
+  .pointLabel,
+  .laneName,
+  .chip {
+    transition: none;
+  }
+}

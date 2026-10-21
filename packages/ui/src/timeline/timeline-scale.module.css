@@ -1,0 +1,157 @@
+/* The two-row time header (Gr8r's months + day/week ticks) in the Matrix
+   register: mono labels, 1px ink month boundaries, faint tick rules, and
+   the TODAY rule in the one accent. */
+
+.scale {
+  position: relative;
+  flex: none;
+  height: 52px;
+}
+
+.months,
+.ticks {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.months {
+  top: 0;
+  height: 28px;
+}
+
+.ticks {
+  top: 28px;
+  height: 24px;
+  border-top: 1px solid var(--hairline-faint);
+}
+
+/* clip, not hidden, so the sticky name inside still sticks to the chart. */
+.month {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  overflow: clip;
+  border-left: 1px solid var(--border);
+}
+
+.month:first-child {
+  border-left: 0;
+}
+
+/* The name sticks just inside the lane column while its month is partly
+   scrolled away (8px past the lane column). */
+.monthLabel {
+  position: sticky;
+  left: calc(var(--timeline-lane-width, 264px) + 8px);
+  display: inline-block;
+  padding: 9px 10px 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  border-left: 1px solid var(--hairline-faint);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.tick:first-child {
+  border-left: 0;
+}
+
+.weekTick {
+  justify-items: start;
+  padding-left: 8px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.weekend {
+  background: var(--tint);
+}
+
+.todayTick {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* A flag hung on the rule: accent fill, on-accent mono caps. */
+.todayFlag {
+  position: absolute;
+  z-index: 1;
+  bottom: 25px;
+  padding: 2px 5px 1px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.todayRule {
+  position: absolute;
+  z-index: 1;
+  top: 28px;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--accent);
+}
+
+/* ---- grid layer behind the rows ------------------------------------- */
+
+.grid {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: var(--timeline-lane-width, 264px);
+  pointer-events: none;
+}
+
+.weekendBand {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--tint);
+}
+
+.weekRule,
+.monthRule {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--hairline-faint);
+}
+
+.monthRule {
+  background: var(--grey-3);
+}
+
+.todayLine {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  margin-left: -0.5px;
+  background: var(--accent);
+}

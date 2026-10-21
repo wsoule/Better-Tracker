@@ -1,0 +1,609 @@
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  within,
+} from '@testing-library/react';
+import { afterEach, describe, expect, mock, test } from 'bun:test';
+
+import {
+  TimelineChart,
+  type TimelineChartProps,
+  type TimelineGroup,
+  UiLinkProvider,
+  type UiLinkProps,
+} from '../src/index';
+
+afterEach(cleanup);
+
+const GROUPS: TimelineGroup[] = [
+  {
+    id: 'ini-payments',
+    label: 'Payments platform',
+    lanes: [
+      {
+        id: 'p-atlas',
+        label: 'Atlas migration',
+        href: '/timeline?project=p-atlas',
+        sublabel: 'Pat Lee',
+        bars: [
+          {
+            id: 'm-rehearsal',
+            label: 'Cutover rehearsal',
+            start: '2026-10-08',
+            end: '2026-10-19',
+            status: 'overdue',
+            statusLabel: 'Overdue',
+            progressLabel: '4/7',
+            tags: ['NEXT'],
+            editable: true,
+          },
+          {
+            id: 'm-cutover',
+            label: 'Cutover',
+            start: '2026-10-19',
+            end: '2026-11-06',
+            status: 'on_track',
+            statusLabel: 'On track',
+          },
+        ],
+        undated: [
+          {
+            id: 'm-pricing',
+            label: 'Pricing page',
+            status: 'missing',
+            statusLabel: 'No target date',
+          },
+        ],
+      },
+      {
+        id: 'p-ledger',
+        label: 'Ledger API',
+        sublabel: 'No lead',
+        sublabelTone: 'accent',
+        bars: [
+          {
+            id: 'm-v2',
+            label: 'v2 endpoints',
+            start: '2026-09-28',
+            end: '2026-11-02',
+            status: 'missing',
+            statusLabel: 'Missing input',
+            missing: 'MISSING: DONE MEANS',
+            editable: true,
+          },
+        ],
+        undated: [],
+      },
+    ],
+  },
+];
+
+function renderChart(overrides: Partial<TimelineChartProps> = {}) {
+  const props: TimelineChartProps = {
+    today: '2026-10-21',
+    windowStart: '2026-09-21',
+    windowEnd: '2027-01-17',
+    zoom: 'weeks',
+    groups: GROUPS,
+    onOpenBar: () => {},
+    ...overrides,
+  };
+  const utils = render(<TimelineChart {...props} />);
+  // The phone cards render the same milestones (hidden by CSS above
+  // 900px), so chart queries are scoped to the chart's region.
+  const chart = within(utils.getByRole('region', { name: /^Timeline/ }));
+  return { ...utils, chart, props };
+}
+
+/** A promise whose settling the test controls. */
+function deferred() {
+  let resolve: () => void = () => {};
+  let reject: (error: Error) => void = () => {};
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flush() {
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+}
+
+describe('bars', () => {
+  test('are buttons named with status, due date and receipts', () => {
+    const onOpenBar = mock((_id: string) => {});
+    const { chart } = renderChart({ onOpenBar });
+    const rehearsal = chart.getByRole('button', {
+      name: 'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, NEXT',
+    });
+    expect(rehearsal.tagName).toBe('BUTTON');
+    expect(rehearsal.getAttribute('type')).toBe('button');
+    fireEvent.click(rehearsal);
+    expect(onOpenBar).toHaveBeenCalledWith('m-rehearsal');
+
+    expect(
+      chart.getByRole('button', {
+        name: 'v2 endpoints, Missing input, due Mon, Nov 2, MISSING: DONE MEANS',
+      })
+    ).toBeTruthy();
+  });
+
+  test('mark the selected bar as current', () => {
+    const { chart } = renderChart({ selectedBarId: 'm-cutover' });
+    const cutover = chart.getByRole('button', { name: /^Cutover, On track/ });
+    expect(cutover.getAttribute('aria-current')).toBe('true');
+  });
+
+  test('undated milestones are chips that open too', () => {
+    const onOpenBar = mock((_id: string) => {});
+    const { chart } = renderChart({ onOpenBar });
+    fireEvent.click(
+      chart.getByRole('button', {
+        name: 'Pricing page, No target date, no due date',
+      })
+    );
+    expect(onOpenBar).toHaveBeenCalledWith('m-pricing');
+  });
+
+  test('lanes are labelled groups whose names route through the host link', () => {
+    function HostLink({ children, ...rest }: UiLinkProps) {
+      return (
+        <a {...rest} data-host-link="">
+          {children}
+        </a>
+      );
+    }
+    const { getByRole } = render(
+      <UiLinkProvider link={HostLink}>
+        <TimelineChart
+          today="2026-10-21"
+          windowStart="2026-09-21"
+          windowEnd="2027-01-17"
+          zoom="weeks"
+          groups={GROUPS}
+          onOpenBar={() => {}}
+        />
+      </UiLinkProvider>
+    );
+    const chart = within(getByRole('region', { name: /^Timeline/ }));
+    const lane = chart.getByRole('group', { name: 'Ledger API, No lead' });
+    expect(lane).toBeTruthy();
+    const link = chart.getByRole('link', { name: 'Atlas migration' });
+    expect(link.getAttribute('href')).toBe('/timeline?project=p-atlas');
+    expect(link.hasAttribute('data-host-link')).toBe(true);
+  });
+});
+
+describe('keyboard re-dating', () => {
+  test('←/→ move a day, Shift a week; Enter saves through onRedate', async () => {
+    const save = deferred();
+    const onRedate = mock((_id: string, _end: string) => save.promise);
+    const { chart, getByRole } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    expect(handle.getAttribute('aria-valuetext')).toBe('Mon, Oct 19');
+
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    fireEvent.keyDown(handle, { key: 'ArrowRight', shiftKey: true });
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(handle.getAttribute('aria-valuetext')).toContain('Tue, Oct 27');
+    expect(onRedate).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    await flush();
+    expect(onRedate).toHaveBeenCalledTimes(1);
+    expect(onRedate).toHaveBeenCalledWith('m-rehearsal', '2026-10-27');
+
+    // Optimistic: the bar already says the new date while saving.
+    const moved = chart.getByRole('button', { name: /^Cutover rehearsal/ });
+    expect(moved.getAttribute('aria-label')).toContain('due Tue, Oct 27');
+    expect(moved.getAttribute('aria-label')).toContain('saving');
+    expect(getByRole('status').textContent).toContain(
+      'Moving Cutover rehearsal'
+    );
+
+    save.resolve();
+    await flush();
+    expect(moved.getAttribute('aria-label')).not.toContain('saving');
+    expect(moved.getAttribute('aria-label')).toContain('due Tue, Oct 27');
+    expect(getByRole('status').textContent).toContain(
+      'Cutover rehearsal is now due Tue, Oct 27'
+    );
+  });
+
+  test('a rejected save rolls the bar back and says why', async () => {
+    const onRedate = mock((_id: string, _end: string) =>
+      Promise.reject(new Error('Linear refused the change'))
+    );
+    const { chart, getByRole } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.keyDown(handle, { key: 'ArrowRight', shiftKey: true });
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    await flush();
+    await flush();
+
+    expect(onRedate).toHaveBeenCalledWith('m-rehearsal', '2026-10-26');
+    const bar = chart.getByRole('button', { name: /^Cutover rehearsal/ });
+    expect(bar.getAttribute('aria-label')).toContain('due Mon, Oct 19');
+    expect(bar.getAttribute('aria-label')).not.toContain('saving');
+    const alert = getByRole('alert').textContent ?? '';
+    expect(alert).toContain('Could not move Cutover rehearsal.');
+    expect(alert).toContain('Linear refused the change.');
+    expect(alert).toContain('restored to Mon, Oct 19');
+    expect(handle.getAttribute('aria-valuetext')).toBe('Mon, Oct 19');
+  });
+
+  test('Esc cancels without saving; blur discards too', () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { chart } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(handle.getAttribute('aria-valuetext')).toContain('Tue, Oct 20');
+    fireEvent.keyDown(handle, { key: 'Escape' });
+    expect(handle.getAttribute('aria-valuetext')).toBe('Mon, Oct 19');
+    fireEvent.keyDown(handle, { key: 'Enter' });
+
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    fireEvent.blur(handle);
+    expect(handle.getAttribute('aria-valuetext')).toBe('Mon, Oct 19');
+    expect(onRedate).not.toHaveBeenCalled();
+  });
+
+  test('the due date clamps to the bar start and the window end', () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { chart } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    for (let i = 0; i < 4; i++) {
+      fireEvent.keyDown(handle, { key: 'ArrowLeft', shiftKey: true });
+    }
+    expect(handle.getAttribute('aria-valuetext')).toContain('Thu, Oct 8');
+    for (let i = 0; i < 30; i++) {
+      fireEvent.keyDown(handle, { key: 'ArrowRight', shiftKey: true });
+    }
+    expect(handle.getAttribute('aria-valuetext')).toContain(
+      'Sun, Jan 17, 2027'
+    );
+  });
+
+  test('read-only charts and non-editable bars have no handle', () => {
+    const readOnly = renderChart();
+    expect(readOnly.chart.queryAllByRole('slider')).toHaveLength(0);
+    cleanup();
+    const { chart } = renderChart({ onRedate: () => Promise.resolve() });
+    expect(
+      chart.getAllByRole('slider').map((s) => s.getAttribute('aria-label'))
+    ).toEqual(['Due date of Cutover rehearsal', 'Due date of v2 endpoints']);
+  });
+});
+
+describe('optimistic dates and the host’s data', () => {
+  const props = (groups: TimelineGroup[], extra = {}): TimelineChartProps => ({
+    today: '2026-10-21',
+    windowStart: '2026-09-21',
+    windowEnd: '2027-01-17',
+    zoom: 'weeks',
+    groups,
+    onOpenBar: () => {},
+    ...extra,
+  });
+
+  /** GROUPS with m-rehearsal due on `end` (a host refetch). */
+  function withRehearsalEnd(end: string): TimelineGroup[] {
+    return GROUPS.map((g) => ({
+      ...g,
+      lanes: g.lanes.map((l) => ({
+        ...l,
+        bars: l.bars.map((b) => (b.id === 'm-rehearsal' ? { ...b, end } : b)),
+      })),
+    }));
+  }
+
+  const rehearsal = (container: HTMLElement) =>
+    within(container)
+      .getByRole('region', { name: /^Timeline/ })
+      .querySelector('[data-bar-id="m-rehearsal"] button')
+      ?.getAttribute('aria-label') ?? '';
+
+  test('a confirmed move holds until the host’s data moves, then the host wins', async () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { container, rerender } = render(
+      <TimelineChart {...props(GROUPS, { onRedate })} />
+    );
+    const handle = within(container).getAllByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    })[0];
+    if (handle === undefined) throw new Error('no handle');
+    fireEvent.keyDown(handle, { key: 'ArrowRight', shiftKey: true });
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    await flush();
+    await flush();
+    // Saved, host has not refetched yet: the new date stays.
+    expect(rehearsal(container)).toContain('due Mon, Oct 26');
+
+    // A refetch with a different date (someone moved it in Linear): the
+    // host's date wins and the override is gone for good.
+    rerender(
+      <TimelineChart {...props(withRehearsalEnd('2026-10-30'), { onRedate })} />
+    );
+    expect(rehearsal(container)).toContain('due Fri, Oct 30');
+    rerender(
+      <TimelineChart {...props(withRehearsalEnd('2026-10-19'), { onRedate })} />
+    );
+    expect(rehearsal(container)).toContain('due Mon, Oct 19');
+  });
+
+  test('a rejected second move restores the first, confirmed one', async () => {
+    let fail = false;
+    const onRedate = mock((_id: string, _end: string) =>
+      fail ? Promise.reject(new Error('Nope')) : Promise.resolve()
+    );
+    const { chart, getByRole } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    await flush();
+    await flush();
+    fail = true;
+    fireEvent.keyDown(handle, { key: 'ArrowRight', shiftKey: true });
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    await flush();
+    await flush();
+    expect(onRedate.mock.calls.map((c) => c[1])).toEqual([
+      '2026-10-20',
+      '2026-10-27',
+    ]);
+    expect(handle.getAttribute('aria-valuetext')).toBe('Tue, Oct 20');
+    expect(getByRole('alert').textContent).toContain(
+      'Due date restored to Tue, Oct 20.'
+    );
+  });
+
+  test('the handle ignores keys while its save is in flight', async () => {
+    const save = deferred();
+    const onRedate = mock((_id: string, _end: string) => save.promise);
+    const { chart } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    await flush();
+    expect(handle.getAttribute('aria-disabled')).toBe('true');
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    fireEvent.keyDown(handle, { key: 'Enter' });
+    await flush();
+    expect(onRedate).toHaveBeenCalledTimes(1);
+    save.resolve();
+    await flush();
+    expect(handle.getAttribute('aria-disabled')).toBeNull();
+  });
+
+  test('Home and End jump to the bar start and the window end', () => {
+    const { chart } = renderChart({ onRedate: () => Promise.resolve() });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.keyDown(handle, { key: 'End' });
+    expect(handle.getAttribute('aria-valuetext')).toContain(
+      'Sun, Jan 17, 2027'
+    );
+    expect(handle.getAttribute('aria-valuenow')).toBe(
+      handle.getAttribute('aria-valuemax')
+    );
+    fireEvent.keyDown(handle, { key: 'Home' });
+    expect(handle.getAttribute('aria-valuetext')).toContain('Thu, Oct 8');
+    expect(handle.getAttribute('aria-valuenow')).toBe('0');
+  });
+});
+
+describe('announcements and spoken text', () => {
+  test('the live regions are rendered, empty, before anything is said', () => {
+    const { getByRole } = renderChart({ legend: false });
+    expect(getByRole('status').textContent).toBe('');
+    expect(getByRole('alert').textContent).toBe('');
+  });
+
+  test('saved messages clear themselves after a while', async () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { chart, getByRole } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    const realSetTimeout = globalThis.setTimeout;
+    const timers: (() => void)[] = [];
+    globalThis.setTimeout = ((fn: () => void) => {
+      timers.push(fn);
+      return 0;
+    }) as unknown as typeof setTimeout;
+    try {
+      fireEvent.keyDown(handle, { key: 'ArrowRight' });
+      fireEvent.keyDown(handle, { key: 'Enter' });
+      await flush();
+      await flush();
+      expect(getByRole('status').textContent).toContain('is now due');
+      act(() => {
+        for (const run of timers.splice(0)) run();
+      });
+      expect(getByRole('status').textContent).toBe('');
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
+  test('edge cues are drawn, not read: the arrows are aria-hidden', () => {
+    const { chart } = renderChart({ windowStart: '2026-10-25' });
+    const atlas = chart.getByRole('group', {
+      name: 'Atlas migration, Pat Lee',
+    });
+    const cue = within(atlas).getByText(/earlier/);
+    expect(cue.textContent).toBe('◂ 1 earlier');
+    const arrow = cue.querySelector('[aria-hidden="true"]');
+    expect(arrow?.textContent?.trim()).toBe('◂');
+  });
+
+  test('the selected undated milestone is current in the phone cards too', () => {
+    const { container } = renderChart({ selectedBarId: 'm-pricing' });
+    const row = [...container.querySelectorAll('article button')].find(
+      (b) => b.getAttribute('aria-label')?.startsWith('Pricing page') === true
+    );
+    expect(row?.getAttribute('aria-current')).toBe('true');
+  });
+});
+
+describe('pointer re-dating', () => {
+  test('losing the pointer capture mid-drag cancels the drag', async () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { chart } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 3, clientX: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 3, clientX: 196 });
+    expect(handle.getAttribute('aria-valuetext')).toContain('Thu, Oct 22');
+    fireEvent(handle, new Event('lostpointercapture', { bubbles: true }));
+    fireEvent.pointerUp(handle, { pointerId: 3, clientX: 196 });
+    await flush();
+    expect(onRedate).not.toHaveBeenCalled();
+    expect(handle.getAttribute('aria-valuetext')).toBe('Mon, Oct 19');
+  });
+
+  test('dragging the handle snaps to whole days and saves on release', async () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { chart } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 130 }); // 0.94 day
+    expect(handle.getAttribute('aria-valuetext')).toContain('Tue, Oct 20');
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 164 }); // 2 days
+    expect(handle.getAttribute('aria-valuetext')).toContain('Wed, Oct 21');
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 164 });
+    await flush();
+    expect(onRedate).toHaveBeenCalledWith('m-rehearsal', '2026-10-21');
+  });
+
+  test('Esc mid-drag cancels; the release then does nothing', async () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { chart } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 7, clientX: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 7, clientX: 228 });
+    fireEvent.keyDown(handle, { key: 'Escape' });
+    fireEvent.pointerUp(handle, { pointerId: 7, clientX: 228 });
+    await flush();
+    expect(onRedate).not.toHaveBeenCalled();
+    expect(handle.getAttribute('aria-valuetext')).toBe('Mon, Oct 19');
+  });
+
+  test('a release where it started saves nothing', async () => {
+    const onRedate = mock((_id: string, _end: string) => Promise.resolve());
+    const { chart } = renderChart({ onRedate });
+    const handle = chart.getByRole('slider', {
+      name: 'Due date of Cutover rehearsal',
+    });
+    fireEvent.pointerDown(handle, { button: 0, pointerId: 2, clientX: 100 });
+    fireEvent.pointerMove(handle, { pointerId: 2, clientX: 110 });
+    fireEvent.pointerUp(handle, { pointerId: 2, clientX: 110 });
+    await flush();
+    expect(onRedate).not.toHaveBeenCalled();
+  });
+});
+
+describe('toolbar', () => {
+  test('the zoom switch reports the new zoom; no switch without a handler', () => {
+    const onZoomChange = mock((_zoom: string) => {});
+    const { getByRole } = renderChart({ onZoomChange });
+    fireEvent.click(getByRole('radio', { name: 'Months' }));
+    expect(onZoomChange).toHaveBeenCalledWith('months');
+    cleanup();
+    const plain = renderChart();
+    expect(plain.queryByRole('radiogroup', { name: 'Zoom' })).toBeNull();
+  });
+
+  test('dependencies toggle the connectors (uncontrolled)', () => {
+    const onShowDependenciesChange = mock((_show: boolean) => {});
+    const { getByRole, getByTestId, queryByTestId } = renderChart({
+      dependencies: [{ from: 'm-rehearsal', to: 'm-v2', onRiskChain: true }],
+      onShowDependenciesChange,
+    });
+    expect(
+      getByTestId('timeline-connectors').querySelectorAll('g')
+    ).toHaveLength(1);
+    const toggle = getByRole('switch', { name: /Dependencies/ });
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
+    expect(onShowDependenciesChange).toHaveBeenCalledWith(false);
+    expect(queryByTestId('timeline-connectors')).toBeNull();
+  });
+
+  test('a controlled showDependencies wins over clicks', () => {
+    const { getByRole, queryByTestId } = renderChart({
+      dependencies: [{ from: 'm-rehearsal', to: 'm-v2', onRiskChain: false }],
+      showDependencies: false,
+    });
+    expect(queryByTestId('timeline-connectors')).toBeNull();
+    fireEvent.click(getByRole('switch', { name: /Dependencies/ }));
+    expect(queryByTestId('timeline-connectors')).toBeNull();
+  });
+
+  test('the Today button is disabled when today is outside the window', () => {
+    const { getByRole } = renderChart({
+      windowStart: '2026-11-01',
+      windowEnd: '2026-12-31',
+    });
+    expect(
+      (getByRole('button', { name: 'Today' }) as HTMLButtonElement).disabled
+    ).toBe(true);
+  });
+});
+
+describe('phone cards and empty state', () => {
+  test('the card fallback lists every milestone with the same names', () => {
+    const { container } = renderChart();
+    const buttons = [...container.querySelectorAll('article button')];
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, NEXT',
+      'Cutover, On track, due Fri, Nov 6',
+      'Pricing page, No target date, no due date',
+      'v2 endpoints, Missing input, due Mon, Nov 2, MISSING: DONE MEANS',
+    ]);
+    expect(container.querySelectorAll('article [role="slider"]')).toHaveLength(
+      0
+    );
+  });
+
+  test('no lanes renders the empty copy instead of a chart', () => {
+    const { getByText, queryByRole } = render(
+      <TimelineChart
+        today="2026-10-21"
+        windowStart="2026-09-21"
+        windowEnd="2027-01-17"
+        zoom="weeks"
+        groups={[]}
+        onOpenBar={() => {}}
+        emptyLabel="Nothing on the timeline"
+      />
+    );
+    expect(getByText('Nothing on the timeline')).toBeTruthy();
+    expect(queryByRole('region')).toBeNull();
+  });
+});

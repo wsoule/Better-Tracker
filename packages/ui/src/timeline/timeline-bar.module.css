@@ -1,0 +1,425 @@
+/* A milestone bar in the Matrix drawing style: a 28px hairline box whose
+   fill says the status in the system's own marks (DESIGN.md §3): overdue =
+   accent fill, at risk = 2px accent rule, on track = ink rule on paper,
+   done = ink fill, missing input = hatched. A 45° square diamond marks the
+   due date at the bar's end. Stacking (inside the chart body): bars 2,
+   diamonds and handle 3, the live tip 4; the sticky lane column (5) and
+   header (6) cover them while scrolling. */
+
+.item {
+  position: absolute;
+  height: 28px;
+}
+
+/* scroll-margin keeps keyboard focus clear of the sticky lane column and
+   header when the browser scrolls a focused bar into view. */
+.bar {
+  scroll-margin: 60px 24px 12px calc(var(--timeline-lane-width, 264px) + 24px);
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 0 12px 0 9px;
+  /* clip, not hidden: hidden would make the bar a scroll container and
+     pin its sticky content to the bar instead of the chart. */
+  overflow: clip;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  text-align: left;
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Shrink-wrapped so it can slide: sticky never leaves the bar, so the
+   content moves right until it meets the bar's end. It sticks 10px past
+   the lane column (--timeline-lane-width, set by the chart from
+   LANE_WIDTH). It wraps onto a clipped second line, so in a narrow
+   bar the trailing receipts drop out whole before the name truncates. */
+.content {
+  position: sticky;
+  left: calc(var(--timeline-lane-width, 264px) + 10px);
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  align-items: center;
+  column-gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  overflow: hidden;
+}
+
+.label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 24px;
+}
+
+.progress,
+.tag,
+.missingLine,
+.cue {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.progress {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.tag {
+  padding: 1px 4px 0;
+  border: 1px solid currentcolor;
+  line-height: 12px;
+}
+
+.missingLine {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.cue {
+  font-size: 10px;
+  letter-spacing: 0;
+  color: var(--muted);
+  vertical-align: 1px;
+}
+
+.cueEnd {
+  margin-left: auto;
+}
+
+/* ---- status --------------------------------------------------------- */
+
+.on_track {
+  border-color: var(--border);
+}
+
+/* 2px is emphasis: at risk is the state that asks for action before the
+   date. The padding gives the extra pixel back so text does not shift. */
+.at_risk {
+  border: 2px solid var(--accent);
+  padding: 0 11px 0 8px;
+}
+
+.at_risk .progress {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.overdue {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.overdue .progress,
+.overdue .cue,
+.overdue .missingLine {
+  color: var(--on-accent);
+}
+
+.done {
+  border-color: var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.done .progress,
+.done .cue {
+  color: var(--muted-inverse);
+}
+
+/* Missing input (rubric-invalid): the blueprint hatch at mark strength,
+   a muted rule, and the missing line in the accent. */
+.missing {
+  border-color: var(--muted);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hairline-faint) 0,
+    var(--hairline-faint) 1px,
+    transparent 1px,
+    transparent 6px
+  );
+}
+
+/* An inactive project: greys only, never loud. */
+.muted {
+  border-color: var(--grey-3);
+  background: var(--background);
+  color: var(--muted);
+}
+
+.muted .progress,
+.muted .tag {
+  color: var(--grey-2);
+}
+
+.selected {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Hover is the Matrix wash: the --tint flood over the whole bar and the
+   name in the accent (the rowButton idiom), gated off touch. A fill flip
+   would make an on-track bar look done or overdue, so the status fill is
+   kept and only washed. The wash is layered over the opaque paper (never
+   swapped for it): --tint is translucent, and a see-through bar would show
+   the grid, the TODAY rule and the connectors running behind it. */
+@media (hover: hover) and (width >= 901px) {
+  .bar:hover {
+    background-image: linear-gradient(var(--tint), var(--tint));
+  }
+
+  .bar:hover .label {
+    color: var(--accent);
+  }
+
+  .done:hover {
+    background-color: var(--ink-soft);
+    background-image: none;
+  }
+
+  .overdue:hover {
+    border-color: var(--accent-hover);
+    background-color: var(--accent-hover);
+    background-image: none;
+  }
+
+  .overdue:hover .label {
+    color: var(--on-accent);
+  }
+
+  .missing:hover {
+    background-image:
+      linear-gradient(var(--tint), var(--tint)),
+      repeating-linear-gradient(
+        45deg,
+        var(--hairline-faint) 0,
+        var(--hairline-faint) 1px,
+        transparent 1px,
+        transparent 6px
+      );
+  }
+
+  .point:hover {
+    background: transparent;
+  }
+
+  .point:hover + .diamond {
+    outline: 1px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* A zero-length milestone is a Gantt milestone proper: no box, the
+   diamond alone (it still is the button, 12px wide, centred on it). */
+.point,
+.point.at_risk {
+  border-color: transparent;
+  background: transparent;
+}
+
+/* ---- the due-date diamond ------------------------------------------- */
+
+.diamond {
+  position: absolute;
+  z-index: 3;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  transform: rotate(45deg);
+  pointer-events: none;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.d_done {
+  background: var(--foreground);
+  border-color: var(--background);
+}
+
+.d_on_track {
+  background: var(--background);
+}
+
+.d_at_risk {
+  border: 2px solid var(--accent);
+}
+
+.d_overdue {
+  background: var(--accent);
+  border-color: var(--background);
+}
+
+.d_missing {
+  border-color: var(--muted);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--muted) 0,
+    var(--muted) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+.d_muted {
+  border-color: var(--grey-3);
+}
+
+/* ---- label outside a narrow bar ------------------------------------- */
+
+.outside {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: calc(100% + 14px);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.outsideMeta {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ---- the re-date handle --------------------------------------------- */
+
+/* A 10px hit area centred on the due date. Invisible at rest; on hover or
+   focus a 2px accent rule shows where the edge will move from. */
+.handle {
+  scroll-margin: 60px 24px 12px calc(var(--timeline-lane-width, 264px) + 24px);
+  position: absolute;
+  z-index: 3;
+  top: -4px;
+  width: 10px;
+  height: 36px;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 4px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.handle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.handle:focus-visible::before,
+.editing .handle::before {
+  opacity: 1;
+}
+
+.handleBusy {
+  cursor: progress;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .item:hover .handle::before {
+    opacity: 1;
+  }
+}
+
+/* The bar being re-dated paints above its neighbours (a drag past the
+   next milestone overlaps it) but stays under the sticky lane column. */
+.editing {
+  z-index: 4;
+}
+
+.editing .bar {
+  border-color: var(--accent);
+}
+
+.dragging,
+.dragging .bar {
+  cursor: ew-resize;
+}
+
+/* ---- live date tip -------------------------------------------------- */
+
+.tip {
+  position: absolute;
+  z-index: 4;
+  bottom: calc(100% + 7px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 2px;
+  transform: translateX(-50%);
+  border: 1px solid var(--foreground);
+  background: var(--foreground);
+  color: var(--background);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Secondary text ON a --foreground flood has its own token; the accent on
+   the dark theme's off-white flood would fall under 3:1 at 9.5px. */
+.tipNote {
+  color: var(--muted-inverse);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .diamond,
+  .handle::before {
+    transition: none;
+  }
+}
