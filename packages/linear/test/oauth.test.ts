@@ -176,6 +176,23 @@ describe('token endpoint', () => {
     });
   });
 
+  test('an injected clock dates expiresAt for exchange and refresh', async () => {
+    const { fetch } = scriptedFetch([
+      jsonResponse(tokenBody),
+      jsonResponse(tokenBody),
+    ]);
+    const now = (): number => Date.parse('2020-03-01T12:00:00.000Z');
+    const exchanged = await exchangeCode(
+      config,
+      { code: 'c', codeVerifier: 'v' },
+      fetch,
+      { now }
+    );
+    expect(exchanged.expiresAt).toBe('2020-03-02T11:59:59.000Z');
+    const refreshed = await refreshTokens(config, 'refresh-1', fetch, { now });
+    expect(refreshed.expiresAt).toBe('2020-03-02T11:59:59.000Z');
+  });
+
   test('missing expires_in / refresh_token become null', async () => {
     const { fetch } = scriptedFetch([
       jsonResponse({

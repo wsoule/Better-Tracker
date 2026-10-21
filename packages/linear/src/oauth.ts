@@ -211,11 +211,26 @@ function toTokenSet(body: unknown, nowMs: number, action: string): TokenSet {
   };
 }
 
+/** Optional settings for the token-endpoint calls. */
+export interface TokenRequestOptions {
+  /**
+   * Clock (epoch ms) that `expires_in` is counted from to compute
+   * `expiresAt`. Defaults to Date.now; the engine passes its own clock so
+   * expiries follow an injected test clock.
+   */
+  now?: () => number;
+}
+
+function nowMs(options: TokenRequestOptions): number {
+  return options.now === undefined ? Date.now() : options.now();
+}
+
 /** Exchanges an authorization code (with its PKCE verifier) for tokens. */
 export async function exchangeCode(
   config: OAuthClientConfig,
   input: { code: string; codeVerifier: string },
-  fetchImpl: FetchLike = globalThis.fetch
+  fetchImpl: FetchLike = globalThis.fetch,
+  options: TokenRequestOptions = {}
 ): Promise<TokenSet> {
   const body = await postForm(
     LINEAR_TOKEN_URL,
@@ -230,7 +245,7 @@ export async function exchangeCode(
     fetchImpl,
     'code exchange'
   );
-  return toTokenSet(body, Date.now(), 'code exchange');
+  return toTokenSet(body, nowMs(options), 'code exchange');
 }
 
 /**
@@ -241,7 +256,8 @@ export async function exchangeCode(
 export async function refreshTokens(
   config: OAuthClientConfig,
   refreshToken: string,
-  fetchImpl: FetchLike = globalThis.fetch
+  fetchImpl: FetchLike = globalThis.fetch,
+  options: TokenRequestOptions = {}
 ): Promise<TokenSet> {
   const body = await postForm(
     LINEAR_TOKEN_URL,
@@ -254,7 +270,7 @@ export async function refreshTokens(
     fetchImpl,
     'refresh'
   );
-  return toTokenSet(body, Date.now(), 'refresh');
+  return toTokenSet(body, nowMs(options), 'refresh');
 }
 
 /** Revokes an access or refresh token (sign-out, uninstall). */
