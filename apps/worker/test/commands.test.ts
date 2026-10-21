@@ -1,3 +1,5 @@
+import type { WorkspaceSettings } from '@better-tracker/core';
+import type { Engine } from '@better-tracker/engine';
 import { silentLogger } from '@better-tracker/logger';
 import { describe, expect, test } from 'bun:test';
 
@@ -8,6 +10,7 @@ import {
   oneLine,
   runCommand,
   summaryLine,
+  workerEngineFrom,
   type WorkspaceOutcome,
 } from '../src/commands';
 import { loadWorkerConfig } from '../src/config';
@@ -465,5 +468,36 @@ describe('runCommand: tick', () => {
     expect(result.notes).toEqual([
       'cleanup: 3 expired sessions (1 revocation failed), 1 old webhook delivery record',
     ]);
+  });
+});
+
+describe('workerEngineFrom', () => {
+  // An engine whose load() must not be called: reading the timezone may
+  // not sync a workspace (load syncs one that was never mirrored).
+  function engineWith(timezone: string): Engine {
+    const partial: Partial<Engine> = {
+      mode: 'fixture',
+      config: { defaultTimezone: 'Asia/Tokyo' } as Engine['config'],
+      load: () => Promise.reject(new Error('load() syncs; not allowed here')),
+      getSettings: (workspaceId) =>
+        Promise.resolve({ workspaceId, timezone } as WorkspaceSettings),
+    };
+    return partial as Engine;
+  }
+
+  test('reads the timezone from the settings, without loading', async () => {
+    expect(
+      await workerEngineFrom(engineWith('Europe/Berlin')).workspaceTimezone(
+        'ws-a'
+      )
+    ).toBe('Europe/Berlin');
+  });
+
+  test('an invalid saved timezone falls back to DEFAULT_TIMEZONE', async () => {
+    expect(
+      await workerEngineFrom(engineWith('Mars/Olympus')).workspaceTimezone(
+        'ws-a'
+      )
+    ).toBe('Asia/Tokyo');
   });
 });

@@ -49,8 +49,10 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
   return {
     mode: engine.mode,
     listWorkspaceIds: () => engine.listWorkspaceIds(),
+    // getSettings, not load(): load syncs a workspace that was never
+    // mirrored, and the tick decides on its own whether to sync.
     workspaceTimezone: async (workspaceId) => {
-      const { settings } = await engine.load(workspaceId);
+      const settings = await engine.getSettings(workspaceId);
       return isValidTimeZone(settings.timezone)
         ? settings.timezone
         : engine.config.defaultTimezone;

@@ -608,6 +608,10 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   re-indexes. Settings + milestone meta are read every call (small). Computes
   `today` (workspace tz), assessments, allocation plan. No mirror yet → runs
   `fullSync` first (if installed).
+- **getSettings(workspaceId)** (additive): the saved settings over the defaults,
+  exactly as `load` reports them, with no sync, no mirror read and no
+  installation check (the timezone as saved, even if invalid). The worker reads
+  each workspace's timezone with it on every tick.
 - **fullSync**: app gateway `fetchWorkspace()` → refine `lastStateChangeAt` via
   `fetchLastStateChanges` for open issues in milestones whose target date is
   within `warnLeadDays + stallDays` ahead or already past → bootstrap PMs and
@@ -1017,11 +1021,12 @@ Worker decisions made while building it (binding):
   later, until local midnight. On a fall-back day a repeated time counts from
   its first occurrence and stays due through the repeated hour; a time inside a
   spring-forward gap is due from the transition. The timezone is the saved
-  setting, or `DEFAULT_TIMEZONE` when that is invalid (as the engine does). The
-  tick passes the local date it decided on as `runDaily`'s `day`, so a run that
-  starts after local midnight still runs the day that was due. "Unclaimed" is
-  decided by `runDaily`'s own claim: a due tick whose `runDaily` returns
-  `ran: false` falls back to `fullSync`.
+  setting (read with `getSettings`, which never syncs), or `DEFAULT_TIMEZONE`
+  when that is invalid (as the engine does). The tick passes the local date it
+  decided on as `runDaily`'s `day`, so a run that starts after local midnight
+  still runs the day that was due. "Unclaimed" is decided by `runDaily`'s own
+  claim: a due tick whose `runDaily` returns `ran: false` falls back to
+  `fullSync`.
 - `DAILY_RUN_AT` is strict `HH:MM` (00:00–23:59); invalid worker variables exit
   1 before boot. A time later than one tick interval before midnight is logged
   as a warning (no tick may land before midnight).

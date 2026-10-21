@@ -223,6 +223,14 @@ export interface Engine {
 
   // --- reads ----------------------------------------------------------------
   load(workspaceId: string): Promise<LoadedWorkspace>;
+  /**
+   * Additive: the workspace's saved settings layered over the defaults
+   * (unconfigured workspaces get the defaults with DEFAULT_TIMEZONE), as
+   * load() reports them, but without syncing or reading the mirror and
+   * without requiring an installation. The timezone is returned as saved,
+   * even when invalid.
+   */
+  getSettings(workspaceId: string): Promise<WorkspaceSettings>;
   getWeekView(workspaceId: string, userId: string): Promise<WeekView>;
   getTimelineView(workspaceId: string): Promise<TimelineView>;
   getGraph(workspaceId: string, scope: GraphScope): Promise<DependencyGraph>;
