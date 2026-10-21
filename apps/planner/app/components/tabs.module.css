@@ -1,0 +1,61 @@
+.wrap {
+  margin-top: -1px;
+  margin-bottom: 64px;
+}
+
+.tablist {
+  display: grid;
+  grid-template-columns: repeat(var(--tab-count, 5), minmax(0, 1fr));
+}
+
+.tab {
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  margin-left: -1px;
+  background: var(--background);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: left;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.tab:first-child {
+  margin-left: 0;
+}
+
+.tab[aria-selected="true"] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+@media (hover: hover) {
+  .tab[aria-selected="false"]:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+.panel {
+  margin-top: -1px;
+}
+
+@media (max-width: 768px) {
+  .wrap {
+    margin-bottom: 48px;
+  }
+  .tablist {
+    grid-template-columns: repeat(min(var(--tab-count, 5), 3), minmax(0, 1fr));
+  }
+  .tab {
+    padding: 12px 10px;
+    font-size: 10px;
+    margin-top: -1px;
+  }
+  /* Each wrapped row starts flush: its first tab owns its left line. */
+  .tab:nth-child(3n + 1) {
+    margin-left: 0;
+  }
+}

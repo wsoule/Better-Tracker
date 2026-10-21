@@ -1,0 +1,463 @@
+/* ============================================================================
+   TOKENS: the source of truth.
+   Every ink in every module maps onto one of these, so the whole page flips to
+   dark by swapping this block. New colours are DERIVED, never invented.
+   ========================================================================== */
+
+:root {
+  /* constants: the two papers and inks, so a tile can swap them locally for a
+     hover flood without a cyclic variable reference */
+  --paper: #ffffff;
+  --ink: #000000;
+
+  /* core */
+  --background: var(--paper);   /* paper */
+  --foreground: var(--ink);     /* ink */
+  --border: #000000;       /* every hairline */
+  --muted: #595959;        /* secondary text */
+  --accent: #ee5a24;       /* the one orange */
+  --accent-hover: #c8430f; /* pressed / darker orange */
+  --on-accent: #ffffff;    /* text sitting on an orange fill, both themes */
+
+  /* derived, named by job, not by lightness */
+  --ink-soft: #1a1a1a;                   /* strong body copy, one step off full ink */
+  --grey-2: #8f8f8f;                     /* dim notes (no dark override: sits mid in both) */
+  --grey-3: #b3b3b3;                     /* faint furniture: idle chips, rules */
+  --grey-4: #d4d4d4;                     /* ghost */
+  --hairline-faint: rgba(0, 0, 0, 0.15); /* sub-weight rules */
+  --hatch: rgba(0, 0, 0, 0.06);          /* the blueprint diagonal-hatch texture */
+  --tint: rgba(0, 0, 0, 0.05);           /* hover wash on flat surfaces */
+  --hairline-inverse: rgba(255, 255, 255, 0.22); /* sub-weight rules ON a --foreground flood */
+  --muted-inverse: #a3a3a3;              /* secondary text ON a --foreground flood */
+  --ink-soft-inverse: #d2d2d2;           /* body copy ON a --foreground flood */
+  --hairline-on-accent: rgba(255, 255, 255, 0.28); /* sub-weight rules ON an --accent flood (both themes) */
+
+  /* three voices */
+  --font-sans: var(--font-geist), -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Helvetica, Arial, sans-serif;
+  --font-body: var(--font-sans);
+  --font-mono: var(--font-jetbrains), "Fira Code", Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+
+  /* furniture */
+  --nav-h: 80px;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The same brutalist system printed in negative: near-black paper, off-white
+   ink, identical orange. Full-contrast inversions glare, so ink is #ededed and
+   paper is #0f0f0f. The faint values are stepped UP: light lines on dark ground
+   read weaker than the reverse. */
+html[data-theme="dark"] {
+  --paper: #0f0f0f;
+  --ink: #ededed;
+  --border: #ededed;
+  --muted: #a3a3a3;
+  /* --accent, --accent-hover, --on-accent deliberately unchanged */
+
+  --ink-soft: #d2d2d2;
+  --grey-3: #565656;
+  --grey-4: #333333;
+  --hairline-faint: rgba(255, 255, 255, 0.22);
+  --hatch: rgba(255, 255, 255, 0.08);
+  --tint: rgba(255, 255, 255, 0.08);
+  --hairline-inverse: rgba(0, 0, 0, 0.18);
+  --muted-inverse: #595959;
+  --ink-soft-inverse: #1a1a1a;
+
+  color-scheme: dark;
+}
+
+/* ============================================================================
+   RESET
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  /* clip, NOT hidden: hidden silently turns the root into a scroll container
+     and breaks every position: sticky on the page. */
+  overflow-x: clip;
+  max-width: 100%;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-weight: 300;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+figure,
+blockquote,
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+}
+
+ul,
+ol {
+  list-style: none;
+}
+
+/* Links are undecorated by doctrine; affordance is supplied per component. */
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+img,
+svg {
+  display: block;
+}
+
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.skipLink {
+  position: absolute;
+  left: 12px;
+  top: -200px;
+  z-index: 200;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 1px solid var(--border);
+  padding: 10px 16px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.skipLink:focus {
+  top: 12px;
+}
+
+/* ============================================================================
+   DASHBOARD BLOCK CHROME
+   Every block on the page opens with the same hatched titlebar: the chrome
+   zone of a technical drawing, shared across modules so the page reads as
+   one register rather than six sections.
+   ========================================================================== */
+
+.block {
+  max-width: 1440px;
+  margin: 40px auto 0;
+  padding: 0 48px;
+  scroll-margin-top: calc(var(--nav-h) + 12px);
+}
+
+.blockBar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 42px;
+  padding: 0 18px;
+  border: 1px solid var(--border);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+.blockKey {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.blockTitle {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.blockMeta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .block {
+    padding: 0 16px;
+    margin-top: 32px;
+  }
+  .blockBar {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding: 10px 14px;
+  }
+  .blockMeta {
+    margin-left: 0;
+    flex-basis: 100%;
+    white-space: normal;
+  }
+}
+
+/* ============================================================================
+   SHARED PRIMITIVES (Milestone Planner)
+   Built only from the token block above and the system's own moves: mono
+   uppercase micro-labels, 1px hairlines, 2px reserved for emphasis, full-
+   surface floods on hover (gated off touch), zero radius, no shadows.
+   ========================================================================== */
+
+/* The page body under the nav: a stack of hairline blocks. */
+.page {
+  padding-bottom: 72px;
+}
+
+/* A mono, letterspaced key in the accent: the "01", "WHY", "NET" register. */
+.key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* Micro-label: the machine voice at small sizes. */
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Accent text link with a drawn underline (sources, "open in Linear"). */
+.accentLink {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.accentLink:hover,
+.accentLink:focus-visible {
+  color: var(--accent-hover);
+}
+
+/* Buttons: 2px is emphasis, so a button is a 2px-bordered mono label that
+   floods orange on hover. The primary variant starts as an ink slab. */
+.button,
+.buttonPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 2px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.button {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.buttonPrimary {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.button:disabled,
+.buttonPrimary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (hover: hover) {
+  .button:not(:disabled):hover,
+  .buttonPrimary:not(:disabled):hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* Inputs: hairline box, mono, square; focus uses the global accent ring. */
+.input,
+.select,
+.textarea {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 8px 10px;
+  min-height: 36px;
+}
+
+.textarea {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  width: 100%;
+  resize: vertical;
+}
+
+.select {
+  appearance: none;
+  padding-right: 28px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* A notice strip: 2px accent rule, mono key, body copy. Used for errors,
+   blocked states and the demo-mode banner. */
+.notice {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  border: 2px solid var(--accent);
+  padding: 12px 18px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  position: relative;
+  z-index: 1;
+}
+
+/* Hatched fill for anything incomplete or invalid (the blueprint texture). */
+.hatched {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+/* Empty states are honest copy in the mono register, not illustrations. */
+.empty {
+  border: 1px solid var(--border);
+  margin-top: -1px;
+  padding: 28px 18px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+
+@media (max-width: 768px) {
+  .notice {
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .buttonPrimary {
+    transition: none;
+  }
+}

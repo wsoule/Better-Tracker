@@ -1,0 +1,240 @@
+.dock {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 12px;
+  background: var(--background);
+}
+
+/* Chrome zone: the blueprint hatch marks it as non-content, the way hatching
+   marks a section cut in a technical drawing. */
+.bar {
+  position: relative;
+  max-width: 1400px;
+  margin: 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 0 20px;
+  border: 1px solid var(--border);
+  background-color: var(--background);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+  transition:
+    background-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+    color 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mark {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  pointer-events: none;
+  transition: opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mark::before,
+.mark::after {
+  content: "";
+  position: absolute;
+  background: var(--accent);
+}
+
+.mark::before {
+  left: 0;
+  top: 5px;
+  width: 11px;
+  height: 1px;
+}
+
+.mark::after {
+  top: 0;
+  left: 5px;
+  width: 1px;
+  height: 11px;
+}
+
+.tl {
+  top: -5px;
+  left: -5px;
+}
+.tr {
+  top: -5px;
+  right: -5px;
+}
+.bl {
+  bottom: -5px;
+  left: -5px;
+}
+.br {
+  bottom: -5px;
+  right: -5px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+}
+
+.brandName {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.brandRule {
+  width: 1px;
+  height: 16px;
+  background: currentColor;
+  opacity: 0.4;
+}
+
+.brandDoc {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--muted);
+}
+
+.links {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.link {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-bottom: 1px solid transparent;
+  padding-bottom: 2px;
+}
+
+.link:hover,
+.link:focus-visible,
+.link[aria-current="page"] {
+  border-bottom-color: currentColor;
+}
+
+/* The current section is the one place the strip spends the accent. */
+.link[aria-current="page"] {
+  color: var(--accent);
+}
+
+/* Right-hand group: who is signed in, sign out, theme. */
+.end {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.end form {
+  display: flex;
+}
+
+.user {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rev {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Hover floods the chrome orange: the site's own first demonstration of the
+   accent system. Gated off touch, where :hover would stick after a tap. */
+@media (hover: hover) and (min-width: 901px) {
+  .bar:hover {
+    background-color: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .bar:hover .brandDoc,
+  .bar:hover .rev,
+  .bar:hover .user,
+  .bar:hover .link[aria-current="page"] {
+    color: var(--on-accent);
+  }
+
+  .bar:hover .mark {
+    opacity: 0;
+  }
+}
+
+@media (max-width: 1100px) {
+  .rev,
+  .user {
+    display: none;
+  }
+  .links {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 860px) {
+  .brandDoc,
+  .brandRule {
+    display: none;
+  }
+  .links {
+    gap: 14px;
+  }
+  .link {
+    font-size: 10px;
+    letter-spacing: 0.08em;
+  }
+  .bar {
+    gap: 14px;
+    padding: 0 14px;
+  }
+}
+
+/* A 25-column document needs its contents reachable at phone width too, so
+   the link strip becomes a scroller rather than disappearing. */
+@media (max-width: 620px) {
+  .links {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    gap: 12px;
+    padding-right: 2px;
+  }
+  .links::-webkit-scrollbar {
+    display: none;
+  }
+  .links li {
+    flex: 0 0 auto;
+  }
+  .brandName {
+    font-size: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar,
+  .mark {
+    transition: none;
+  }
+}

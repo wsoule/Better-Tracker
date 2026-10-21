@@ -1,0 +1,46 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# Next.js app: My week, PM timeline, dependency graph, run log, settings,
+# Linear OAuth and webhooks. Workspace packages resolve through their built
+# dist, so every task that runs Next depends on `^:build`.
+language: 'typescript'
+layer: 'application'
+
+tasks:
+  # Port 3000 in the main clone, shifted by the worktree offset elsewhere
+  # (see scripts/README.md). run-dev.sh kills a stale server on the port.
+  dev:
+    script:
+      'PORT=$(( ${WORKTREE_PORT_OFFSET:-0} + 3000 )) && bash
+      ../../scripts/run-dev.sh "$PORT" -- next dev --port "$PORT"'
+    deps:
+      - '^:build'
+    options:
+      cache: false
+      persistent: true
+      runInCI: 'skip'
+      envFile: '/.env.worktree'
+
+  build:
+    command: 'next build'
+    deps:
+      - '^:build'
+    inputs:
+      - 'app/**/*'
+      - 'lib/**/*'
+      - 'public/**/*'
+      - 'next.config.ts'
+      - 'tsconfig.json'
+    outputs:
+      - '.next'
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+
+  start:
+    script: 'next start --port "${PORT:-3000}"'
+    deps:
+      - 'build'
+    options:
+      cache: false
+      persistent: true
+      runInCI: 'skip'

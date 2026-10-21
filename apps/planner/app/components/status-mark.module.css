@@ -1,0 +1,63 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  vertical-align: middle;
+}
+
+.mark {
+  display: block;
+  flex: 0 0 13px;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--border);
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.complete {
+  background: var(--foreground);
+}
+
+.on_track {
+  background: transparent;
+}
+
+/* 2px is emphasis: spent here because at-risk is the state that asks for
+   action before the date. */
+.at_risk {
+  border: 2px solid var(--accent);
+}
+
+.overdue {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.unscheduled,
+.empty {
+  border-color: var(--muted);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--muted) 0,
+    var(--muted) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+.text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mark {
+    transition: none;
+  }
+}
