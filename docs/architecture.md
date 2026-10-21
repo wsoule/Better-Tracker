@@ -805,9 +805,9 @@ Engine decisions made while building it (binding for callers):
   are offered again the next day. A run that outlives its lease and completes
   anyway finds its claim gone: `finishJob` returns false and it logs a warning.
   The lease must be longer than any daily run can live plus
-  `ALLOCATION_RUN_STALE_MINUTES`; hence the worker's cap above. The manual
-  `daily` command has no hard timeout, so one that ran past the lease could be
-  taken over by a tick (both runs are safe, the second is wasted work).
+  `ALLOCATION_RUN_STALE_MINUTES`; hence the worker's cap above, which applies to
+  the manual `daily`, `allocate`, `warn` and `sync` commands too (§9), so a
+  manual run is never taken over while it is still working either.
 - A live run in which every assignment failed is `failed`; a comment that fails
   after a successful assignment leaves the entry `applied` with an error and the
   run `partial`. Stale reasons: `not_found`, `closed`, `now_assigned`,
@@ -1061,14 +1061,20 @@ Worker decisions made while building it (binding):
   account); they are counted in the summary.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
-  `TICK_TIMEOUT_MINUTES`: at most 14 (`MAX_TICK_TIMEOUT_MINUTES`, derived from
-  the engine's constants: the 45-minute daily lease minus the 30-minute
-  stale-run threshold, minus a minute), so a tick always ends, and its
-  allocation run is stale, before another tick may take its daily claim over;
-  that also keeps it below the 15-minute cron interval. `serve` gives its boot,
-  each tick and its shutdown one budget each; SIGTERM/SIGINT let the current
-  tick finish, then the store is closed and `serve` exits 0; a second signal,
-  including one during that close, exits 1 at once.
+  `TICK_TIMEOUT_MINUTES`. The manual one-shot commands (`sync`, `daily`,
+  `allocate`, `warn`) get the same budget; on expiry each logs and prints the
+  stage it was stuck in (`booting`, `running <command>`, `closing the store`)
+  and exits 1. `TICK_TIMEOUT_MINUTES` is at most 14 (`MAX_TICK_TIMEOUT_MINUTES`,
+  derived from the engine's constants: the 45-minute daily lease minus the
+  30-minute stale-run threshold, minus a minute), so a run always ends, and its
+  allocation run is stale, before a tick may take its daily claim over; that
+  also keeps a tick below the 15-minute cron interval. `migrate` has no timeout:
+  it claims no daily job and starts no allocation run, and it is how an operator
+  applies a migration too long for one budget (every other command applies
+  pending migrations inside its own). `serve` gives its boot, each tick and its
+  shutdown one budget each; SIGTERM/SIGINT let the current tick finish, then the
+  store is closed and `serve` exits 0; a second signal, including one during
+  that close, exits 1 at once.
 - The CLI runs only when its module is the process's main script, resolved the
   way node resolves it (`node apps/worker tick` and `node apps/worker/dist tick`
   work too), so it can never load and silently do nothing.
@@ -1093,7 +1099,7 @@ Worker decisions made while building it (binding):
 | `PM_EMAILS`, `WATCHER_EMAILS`               | engine          | comma-separated bootstrap lists                                   |
 | `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed                                 |
 | `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
-| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit for one tick, minutes (default 10, at most 14)         |
+| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)    |
 | `SYNC_INTERVAL_MINUTES`                     | worker serve    | minutes between ticks (default 15)                                |
 | `PGLITE_DIR`                                | all             | PGlite directory when `DATABASE_URL` is unset (local dev only)    |
 | `SESSION_DAYS`                              | engine          | session lifetime in days (default 30)                             |

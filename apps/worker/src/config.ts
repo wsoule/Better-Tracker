@@ -27,13 +27,14 @@ export const DEFAULT_SYNC_INTERVAL_MINUTES = 15;
  * stale-run threshold, minus one minute of margin (45 − 30 − 1 = 14).
  *
  * Another tick takes over an unfinished daily claim once it is older than
- * the lease, so a tick holding the claim must be dead by then. The
- * takeover then starts its own allocation run, which the dead tick's run
- * blocks until it is ALLOCATION_RUN_STALE_MINUTES old. A tick that lives
- * at most this long started its allocation at most 14 minutes after its
- * claim, so that run is stale by claim + 44, before any takeover (after
- * claim + 45). It also keeps a tick shorter than the 15-minute cron
- * interval.
+ * the lease, so a run holding the claim (a tick or a manual `daily`) must
+ * be dead by then. The takeover then starts its own allocation run, which
+ * the dead run's one blocks until it is ALLOCATION_RUN_STALE_MINUTES old.
+ * A run that lives at most this long started its allocation at most 14
+ * minutes after its claim, so that run is stale by claim + 44, before any
+ * takeover (after claim + 45). It also keeps a tick shorter than the
+ * 15-minute cron interval, and every worker allocation run shorter than
+ * the stale-run threshold, so only a dead one is ever closed as stale.
  */
 export const MAX_TICK_TIMEOUT_MINUTES: number =
   DEFAULT_DAILY_LEASE_MINUTES - ALLOCATION_RUN_STALE_MINUTES - 1;
@@ -43,7 +44,11 @@ export interface WorkerConfig {
   /** `DAILY_RUN_AT` as given (`HH:MM`), validated. */
   dailyAt: string;
   dailyTime: DailyTime;
-  /** Hard limit for one tick (and for boot), in minutes. */
+  /**
+   * Hard limit, in minutes, for one run of tick or a manual command (boot
+   * and closing the store included), and for each of serve's boot, ticks
+   * and shutdown. migrate has none.
+   */
   tickTimeoutMinutes: number;
   /** serve: minutes between tick starts. */
   syncIntervalMinutes: number;

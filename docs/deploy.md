@@ -249,7 +249,8 @@ from the same Dockerfile.
   above 14, which also keeps it below 15: the daily job's claim may be taken
   over after 45 minutes, which must only happen to a tick that is dead and whose
   allocation run no longer blocks new ones (a run counts as crashed 30 minutes
-  after it started).
+  after it started). Commands run by hand get the same limit (see "Running jobs
+  by hand").
 
 - **Restart policy**: **Never**. The default is On Failure with up to 10
   restarts. Railway does not document how restarts interact with cron runs; its
@@ -405,10 +406,15 @@ it.
 - `serve`
 
 All of them take `[--workspace <id>]`, except `migrate`. They need the
-production variables and the private network. The verified way to run one is
-`railway cron run`, which runs the worker's configured `tick`. For anything
-else, temporarily change the worker's start command, or use a shell inside the
-service if your Railway plan offers one: **verify this in your workspace**.
+production variables and the private network. `sync`, `daily`, `allocate` and
+`warn` stop with exit 1 after `TICK_TIMEOUT_MINUTES`, like `tick`, naming the
+stage they were stuck in, so a manual run never overlaps a tick that takes over
+the daily job. `migrate` has no time limit: if a migration takes longer than one
+run's budget (every command applies pending migrations when it starts), apply it
+with `migrate`. The verified way to run one is `railway cron run`, which runs
+the worker's configured `tick`. For anything else, temporarily change the
+worker's start command, or use a shell inside the service if your Railway plan
+offers one: **verify this in your workspace**.
 
 **The daily job did not run.**
 
@@ -417,14 +423,14 @@ service if your Railway plan offers one: **verify this in your workspace**.
   timezone.
 - If the job fails with an error, its claim is released and the next tick (15
   minutes later) runs it again.
-- If a tick is killed or hits its timeout **in the middle of** the daily job,
-  its claim stays taken for a 45-minute lease, so the next two or three ticks
-  report `daily already ran`. After that the next tick takes the day over and
-  runs the whole job again (logged as `took over a stale job claim`), normally
-  45 to 60 minutes after the killed tick started. An allocation run the dead
-  tick had started is closed as crashed by then (30 minutes after it started;
-  logged as `marked stale allocation run as failed`), so it does not block the
-  takeover.
+- If a tick (or a `daily` run by hand) is killed or hits its timeout **in the
+  middle of** the daily job, its claim stays taken for a 45-minute lease, so the
+  next two or three ticks report `daily already ran`. After that the next tick
+  takes the day over and runs the whole job again (logged as
+  `took over a stale job claim`), normally 45 to 60 minutes after the killed run
+  started. An allocation run the dead run had started is closed as crashed by
+  then (30 minutes after it started; logged as
+  `marked stale allocation run as failed`), so it does not block the takeover.
 - If another allocation run is in progress when the daily job starts (a PM
   started one from the web app), the job fails with
   `An allocation run is already in progress` (exit 1), gives the day back, and a
