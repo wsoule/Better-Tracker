@@ -1,0 +1,673 @@
+/* The property picker. The trigger reads as the value it holds (a hairline
+   frame appears on hover, the accent ring on focus); the popover is a
+   square panel with a 1px ink frame and the overlays' 2px accent rule on
+   top, a mono search row, and a listbox whose active row is an ink fill
+   (the selected-tab idiom, as in the command palette). No radius, no
+   shadow. On phones it is a full-width bottom sheet over an ink scrim. */
+
+.root {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.triggerRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* The frame (hover, open, focus) is drawn around the value by a
+   pseudo-element a few pixels outside the button, so the value's text sits
+   exactly where a plain value's would and the row keeps its height. The
+   pseudo-element is part of the button, so the frame is clickable too. */
+.value::before,
+.mono::before {
+  content: '';
+  position: absolute;
+  inset: -4px -7px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.mono::before {
+  inset: -4px -6px;
+}
+
+.value:focus-visible,
+.mono:focus-visible {
+  outline: 0;
+}
+
+.value:focus-visible::before,
+.mono:focus-visible::before {
+  border: 2px solid var(--accent);
+}
+
+.value[aria-expanded='true']::before,
+.mono[aria-expanded='true']::before {
+  border-color: var(--border);
+}
+
+.trigger:disabled {
+  cursor: default;
+}
+
+.face {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.trigger[data-pending='true'] .face {
+  opacity: 0.55;
+}
+
+.faceMark {
+  display: inline-flex;
+  flex: none;
+}
+
+.faceText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* value: the property sheet's reading voice. */
+.value {
+  min-height: 20px;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+/* mono: the status line's voice; a state name never wraps. */
+.mono {
+  min-height: 16px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* quiet: a bare mono action, like the quiet button. */
+.quiet {
+  min-height: 24px;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--foreground);
+  transition: color 0.15s ease;
+}
+
+.quiet:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .value:not(:disabled, :focus-visible):hover::before,
+  .mono:not(:disabled, :focus-visible):hover::before {
+    border-color: var(--border);
+  }
+
+  .quiet:not(:disabled):hover {
+    color: var(--accent);
+  }
+}
+
+/* Touch has no hover to reveal the frame: a faint rule under the value
+   says "tap me". It stays inside the value's column (a wrapped list of
+   labels is as wide as the column). */
+@media (hover: none) {
+  .value::before,
+  .mono::before {
+    inset-inline: 0;
+  }
+
+  .value:not(:disabled)::before,
+  .mono:not(:disabled)::before {
+    border-bottom-color: var(--grey-3);
+  }
+}
+
+.placeholder {
+  color: var(--muted);
+}
+
+.placeholder.accent {
+  color: var(--accent);
+}
+
+.placeholder.plain {
+  color: inherit;
+}
+
+/* Multiple values as small square tokens in the chip voice. */
+.tokens {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.token {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 2px 6px;
+  border: 1px solid var(--grey-3);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.3;
+  text-transform: uppercase;
+  color: var(--foreground);
+}
+
+.tokenText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.saveError {
+  max-width: 40ch;
+}
+
+/* ---- the popover ------------------------------------------------------- */
+
+/* The layer resets the browser's popover box (it may sit in the top
+   layer); the panel inside draws everything. It is placed by script
+   through the custom properties and stays hidden until it has been. */
+.layer {
+  position: fixed;
+  inset: auto;
+  top: var(--picker-top, 0);
+  left: var(--picker-left, 0);
+  z-index: 80;
+  width: auto;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  overflow: visible;
+  background: transparent;
+  color: var(--foreground);
+  visibility: hidden;
+}
+
+.layer[data-placed='true'] {
+  visibility: visible;
+}
+
+.layer[data-side='above'] {
+  top: auto;
+  bottom: var(--picker-bottom, 0);
+}
+
+/* Inherits nothing from where the trigger sits (a right-aligned mono
+   section note, an uppercase status line): the panel sets its own voice. */
+.panel {
+  --picker-cap: 360px;
+
+  display: flex;
+  flex-direction: column;
+  width: clamp(264px, var(--picker-anchor-width, 264px), 400px);
+  max-width: calc(100vw - 16px);
+  max-height: min(
+    var(--picker-cap),
+    var(--picker-max-height, var(--picker-cap))
+  );
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--accent);
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 1.4;
+  text-align: start;
+  text-transform: none;
+  white-space: normal;
+  animation: rise 0.18s var(--ease-out-quint) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.searchRow {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.searchIcon {
+  flex: none;
+  color: var(--muted);
+}
+
+.input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+.input:focus-visible {
+  outline: 0;
+}
+
+.input::placeholder {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  height: 28px;
+  padding: 0 6px;
+  color: var(--muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.closeWord {
+  display: none;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .close:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+.scroll {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.list {
+  padding: 4px 0;
+}
+
+.list:empty {
+  display: none;
+}
+
+.option + .group,
+.group + .group {
+  margin-top: 4px;
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.groupTitle {
+  padding: 10px 12px 4px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 6px 12px;
+  background: var(--background);
+  color: var(--foreground);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* The active row: paper and ink swap locally, so marks, hints and the
+   check all invert from the same tokens. */
+.option[data-active='true'] {
+  --background: var(--ink);
+  --foreground: var(--paper);
+  --border: var(--paper);
+  --muted: var(--muted-inverse);
+  --ink-soft: var(--ink-soft-inverse);
+  --hairline-faint: var(--hairline-inverse);
+  --grey-3: var(--hairline-inverse);
+}
+
+.optionMark {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 16px;
+  width: 16px;
+  height: 16px;
+}
+
+.optionLabel {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hint {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.tick {
+  flex: none;
+}
+
+/* The multiple picker's box: the Checkbox primitive's 13px square,
+   hollow when off, the accent with an on-accent check when on. */
+.check {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 13px;
+  height: 13px;
+  border: 1px solid var(--border);
+}
+
+.check svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: var(--on-accent);
+  stroke-width: 1.6;
+  opacity: 0;
+}
+
+.check[data-checked='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.check[data-checked='true'] svg {
+  opacity: 1;
+}
+
+.disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.retryRow .optionLabel {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/* On the active fill the accent would be too faint: the row's own ink. */
+.retryRow[data-active='true'] .optionLabel {
+  color: inherit;
+}
+
+.statusRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* Loading is the blueprint hatch, never a spinner. */
+.loadingBar {
+  flex: none;
+  width: 40px;
+  height: 8px;
+  border: 1px solid var(--grey-3);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+
+.errorRow {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--hairline-faint);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.errorKey {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.errorText {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hints > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- phones: a bottom sheet -------------------------------------------- */
+
+@media (width <= 640px) {
+  .layer,
+  .layer[data-side='above'] {
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    background: color-mix(in srgb, var(--ink) 35%, transparent);
+  }
+
+  .panel {
+    width: 100%;
+    max-width: none;
+    max-height: min(78vh, 560px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    animation-name: sheet-in;
+    animation-duration: 0.28s;
+  }
+
+  .searchRow {
+    height: 48px;
+    padding-left: 16px;
+  }
+
+  /* 16px keeps iOS from zooming into the field. */
+  .input {
+    font-size: 16px;
+  }
+
+  .option {
+    min-height: 44px;
+    padding: 8px 16px;
+    font-size: 14px;
+  }
+
+  .groupTitle,
+  .statusRow,
+  .errorRow,
+  .foot {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .close {
+    height: 36px;
+    padding: 0 10px;
+  }
+
+  .closeKey {
+    display: none;
+  }
+
+  .closeWord {
+    display: inline;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--foreground);
+  }
+
+  .hints {
+    display: none;
+  }
+
+  .foot:has(> .hints:only-child) {
+    display: none;
+  }
+
+  /* A tap needs no active row: it is drawn once the arrow keys are used
+     (a phone with a keyboard). The tick still marks the current value. */
+  .list:not([data-keyboard='true']) .option[data-active='true'] {
+    --background: inherit;
+    --foreground: inherit;
+    --border: inherit;
+    --muted: inherit;
+    --ink-soft: inherit;
+    --hairline-faint: inherit;
+    --grey-3: inherit;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quiet,
+  .value::before,
+  .mono::before,
+  .close {
+    transition: none;
+  }
+
+  .panel {
+    animation: none;
+  }
+}

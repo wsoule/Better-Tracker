@@ -1,0 +1,153 @@
+/* Description and comment editing: the reading voice for the text, a 1px
+   ink box for the editor, and one mono bar under it (shortcut, count,
+   Cancel and Save). Square, no shadow. */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.view[data-pending='true'] {
+  opacity: 0.55;
+}
+
+/* Each line takes its own direction, as in the read-only description. */
+.text {
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+.empty {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px 14px;
+}
+
+.edit {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground);
+  border-bottom: 1px solid currentcolor;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.edit:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .edit:not(:disabled):hover {
+    color: var(--accent);
+  }
+}
+
+.input {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  resize: vertical;
+  unicode-bidi: plaintext;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.input::placeholder {
+  color: var(--muted);
+}
+
+.input[data-pending='true'] {
+  color: var(--muted);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--accent);
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  min-height: 28px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.armed {
+  color: var(--accent);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+.count[data-over='true'] {
+  color: var(--accent);
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* No hardware keyboard to speak of on a phone: the shortcut goes. */
+@media (width <= 640px) {
+  .hint {
+    display: none;
+  }
+
+  .input {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .edit {
+    transition: none;
+  }
+}

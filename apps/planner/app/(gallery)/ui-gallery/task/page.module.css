@@ -71,69 +71,43 @@
   background: var(--background);
 }
 
-/* The editable host's stand-ins for Dispatch's editors: a borderless
-   title field in the heading's own voice, and picker buttons that read as
-   values with a hairline under them. */
-.titleInput {
-  width: 100%;
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid transparent;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
+/* A mono note beside the editable task's drawer button. */
+.inlineNote {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  color: var(--muted);
 }
 
-.picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid var(--grey-3);
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  transition:
-    color 0.15s ease,
-    border-color 0.15s ease;
+/* Block 05: one cell per control state, framed like the drawer panes. */
+.cells {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
 }
 
-@media (hover: hover) and (width >= 901px) {
-  .titleInput:hover {
-    border-bottom-color: var(--grey-3);
-  }
-
-  .picker:hover {
-    color: var(--accent);
-    border-bottom-color: currentcolor;
-  }
-}
-
-.chips {
+.cell {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  min-width: 0;
 }
 
-.rendered {
-  padding-left: 18px;
-  list-style: square;
+.cellBody {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  background: var(--background);
   font-size: 13.5px;
-  line-height: 1.55;
   color: var(--ink-soft);
-}
-
-.rendered strong {
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .picker {
-    transition: none;
-  }
 }
 
 @media (width <= 1100px) {

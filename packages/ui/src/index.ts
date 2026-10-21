@@ -215,6 +215,7 @@ export type {
 // ./task/types.
 export { TaskCrumbs } from './task/task-crumbs';
 export { TaskActivityList } from './task/task-activity-list';
+export { TaskCommentList } from './task/task-comment-list';
 export { TaskDescription } from './task/task-description';
 export { TaskDetail } from './task/task-detail';
 export { TaskPropertyValue } from './task/task-property-value';
@@ -225,6 +226,9 @@ export { DEFAULT_TASK_LABELS } from './task/shared';
 export type {
   TaskActivityItem,
   TaskActivityListProps,
+  TaskComment,
+  TaskCommentListProps,
+  TaskCommentsData,
   TaskCrumbsProps,
   TaskDescriptionData,
   TaskDescriptionProps,
@@ -232,6 +236,7 @@ export type {
   TaskDetailLabels,
   TaskDetailLayout,
   TaskDetailProps,
+  TaskDetailSectionMeta,
   TaskDetailSectionProps,
   TaskDetailStatus,
   TaskPropertyValueProps,
@@ -240,3 +245,74 @@ export type {
   TaskRelations,
   TaskSlideOverProps,
 } from './task/types';
+
+// ---- edit family (src/edit): the controls an editable host puts into the
+// task view — PickerPopover and its property presets, the relation search,
+// the in-place title field, the description/comment editor and the date
+// field. Every control is controlled and saves through one contract: the
+// callback returns a promise; pending, then kept, or rolled back with the
+// error printed beside it. Props are typed in ./edit/types.
+export { DateField, isCompleteDate } from './edit/date-field';
+export { InlineTextField } from './edit/inline-text-field';
+export { PickerMarkView } from './edit/picker-mark';
+export { PickerPopover } from './edit/picker-popover';
+export {
+  type Placement,
+  type PlacementInput,
+  placePopover,
+} from './edit/position';
+export {
+  AssigneePicker,
+  EstimatePicker,
+  LabelPicker,
+  MilestonePicker,
+  PRIORITY_LABELS,
+  PriorityPicker,
+  ProjectPicker,
+  StatePicker,
+} from './edit/property-pickers';
+export {
+  saveErrorMessage,
+  type SaveControl,
+  useSaveControl,
+  valueKey,
+} from './edit/save-state';
+export {
+  DEFAULT_EDIT_LABELS,
+  filterOptions,
+  groupOptions,
+  initials,
+  isHexColor,
+  type OptionGroup,
+} from './edit/shared';
+export { TaskRelationPicker } from './edit/task-relation-picker';
+export { TextAreaEditor } from './edit/text-area-editor';
+export type {
+  AssigneePickerProps,
+  DateFieldProps,
+  EditLabels,
+  ErrorFormatter,
+  EstimateChoice,
+  EstimatePickerProps,
+  InlineTextFieldProps,
+  LabelChoice,
+  LabelPickerProps,
+  MilestonePickerProps,
+  MultiPickerProps,
+  PersonChoice,
+  PickerAppearance,
+  PickerMark,
+  PickerOption,
+  PickerPopoverProps,
+  PickerPresetBaseProps,
+  PlanChoice,
+  PriorityPickerProps,
+  ProjectPickerProps,
+  SaveResult,
+  SinglePickerProps,
+  StateChoice,
+  StatePickerProps,
+  TaskRelationPickerProps,
+  TaskSearchResult,
+  TextAreaEditorProps,
+} from './edit/types';

@@ -1,0 +1,86 @@
+/* The native date input in the system's input voice (mono, 1px ink box,
+   square) with a mono Clear action beside it. color-scheme comes from the
+   theme, so the browser's calendar follows light and dark. */
+
+.root {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 0;
+}
+
+.input {
+  min-height: 30px;
+  padding: 3px 8px;
+  border: 1px solid var(--grey-3);
+  border-radius: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  transition: border-color 0.15s ease;
+}
+
+.input:focus-visible {
+  border-color: var(--border);
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.input:disabled {
+  color: var(--muted);
+}
+
+.root[data-pending='true'] .input {
+  color: var(--muted);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .input:not(:disabled):hover {
+    border-color: var(--border);
+  }
+
+  .clear:not(:disabled):hover {
+    color: var(--accent);
+  }
+}
+
+.clear {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--foreground);
+  border-bottom: 1px solid currentcolor;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.clear:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .input,
+  .clear {
+    transition: none;
+  }
+}

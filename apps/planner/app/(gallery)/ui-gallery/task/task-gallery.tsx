@@ -3,11 +3,7 @@
 import {
   BlockBar,
   Button,
-  Chip,
-  PriorityGlyph,
-  StateGlyph,
   TaskDetail,
-  TaskDetailSection,
   type TaskRelation,
   TaskSlideOver,
   ToastProvider,
@@ -17,6 +13,7 @@ import {
 } from '@better-tracker/ui';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 
+import { EditableTaskDemo, EditControlsDemo } from './editable-task';
 import {
   DRAWER_TASKS,
   ENG_22,
@@ -183,157 +180,6 @@ function useRetryingDescription(): GalleryTask {
   };
 }
 
-/* What an editable host such as Dispatch passes: a title editor, a status
-   picker, pickers as property values, its own sections in the rail, an
-   unlink button on each relation it owns, and its own rendering of the
-   description. Edits stay in this component's state. */
-function EditableHostDemo() {
-  const { toast } = useToast();
-  const [title, setTitle] = useState('Typo tolerance');
-  const [blockedBy, setBlockedBy] = useState<TaskRelation[]>(
-    () => ENG_23.relations?.blockedBy ?? []
-  );
-  const picker = (what: string) => () =>
-    toast({
-      kind: 'info',
-      label: 'Picker',
-      message: `Would open the ${what} picker.`,
-    });
-  const unlink = (key: string) => {
-    setBlockedBy((list) => list.filter((item) => item.taskKey !== key));
-    toast({
-      kind: 'info',
-      label: 'Unlinked',
-      message: `${key} no longer blocks this task.`,
-    });
-  };
-  return (
-    <TaskDetail
-      taskKey="ENG-23"
-      title={title}
-      titleControl={
-        <input
-          className={css.titleInput}
-          aria-label="Task title"
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-        />
-      }
-      href={linearUrl('ENG-23')}
-      breadcrumb={[
-        { label: 'Beacon search', href: '/timeline?project=proj-beacon' },
-        { label: 'ENG-23' },
-      ]}
-      headerActions={<HeaderActions taskKey="ENG-23" />}
-      status={{
-        kind: 'started',
-        label: 'In Progress',
-        control: (
-          <button
-            type="button"
-            className={css.picker}
-            onClick={picker('status')}
-          >
-            <StateGlyph kind="started" size={13} />
-            In Progress
-          </button>
-        ),
-      }}
-      properties={[
-        {
-          id: 'assignee',
-          label: 'Assignee',
-          value: (
-            <button
-              type="button"
-              className={css.picker}
-              onClick={picker('assignee')}
-            >
-              Dev Patel
-            </button>
-          ),
-        },
-        {
-          id: 'priority',
-          label: 'Priority',
-          value: (
-            <button
-              type="button"
-              className={css.picker}
-              onClick={picker('priority')}
-            >
-              <PriorityGlyph priority={2} size={13} />
-              High
-            </button>
-          ),
-        },
-        {
-          id: 'estimate',
-          label: 'Estimate',
-          value: (
-            <button
-              type="button"
-              className={css.picker}
-              onClick={picker('estimate')}
-            >
-              3 points
-            </button>
-          ),
-        },
-      ]}
-      rail={
-        <TaskDetailSection
-          title="Labels"
-          headingLevel={4}
-          meta={
-            <Button variant="quiet" size="sm" onClick={picker('label')}>
-              Add
-            </Button>
-          }
-        >
-          <p className={css.chips}>
-            <Chip>search</Chip>
-            <Chip>backend</Chip>
-          </p>
-        </TaskDetailSection>
-      }
-      relations={{
-        blockedBy: blockedBy.map((item) => ({
-          ...item,
-          onRemove: () => unlink(item.taskKey),
-        })),
-        blocks: [],
-      }}
-      description={{
-        text: null,
-        content: (
-          <ul className={css.rendered}>
-            <li>
-              <strong>Fuzzy match</strong> queries one edit away from a known
-              term.
-            </li>
-            <li>Log the corrected form beside the original (see ENG-24).</li>
-          </ul>
-        ),
-        sourceLabel: 'Rendered by the host',
-      }}
-      activity={[
-        {
-          id: 'moved',
-          at: 'Oct 20',
-          label: (
-            <>
-              <strong>Dev Patel</strong> moved it to In Progress
-            </>
-          ),
-        },
-      ]}
-      layout="page"
-      headingLevel={3}
-    />
-  );
-}
-
 function GalleryBody({
   themeToggle,
   initialDrawerOpen,
@@ -343,11 +189,18 @@ function GalleryBody({
 }) {
   const [drawerKey, setDrawerKey] = useState('ENG-24');
   const [drawerOpen, setDrawerOpen] = useState(initialDrawerOpen);
+  // Block 04's drawer: opening either one closes the other.
+  const [editDrawerOpen, setEditDrawerOpen] = useState(false);
   const errorTask = useRetryingDescription();
 
   const openTask = useCallback((key: string) => {
     setDrawerKey(key);
     setDrawerOpen(true);
+    setEditDrawerOpen(false);
+  }, []);
+  const toggleEditDrawer = useCallback((open: boolean) => {
+    setEditDrawerOpen(open);
+    if (open) setDrawerOpen(false);
   }, []);
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   const drawerTask = withOpeners(DRAWER_TASKS[drawerKey] ?? ENG_24, openTask);
@@ -360,8 +213,9 @@ function GalleryBody({
           What opens when someone clicks a task: the issue&apos;s context that
           Linear does not show (its milestone and that milestone&apos;s status,
           what blocks it and what it blocks, why the planner gave it to this
-          person, how long it has sat in its state). Read-only in the planner;
-          every property value is a node, so a host can pass editors instead.
+          person, how long it has sat in its state). Every property value is a
+          node: read-only here, or the edit controls (block 04), which save
+          through the host with the signed-in person&apos;s own token.
         </p>
       </div>
 
@@ -377,7 +231,10 @@ function GalleryBody({
             variant={drawerOpen ? 'primary' : 'secondary'}
             size="sm"
             aria-expanded={drawerOpen}
-            onClick={() => setDrawerOpen((open) => !open)}
+            onClick={() => {
+              setDrawerOpen((open) => !open);
+              setEditDrawerOpen(false);
+            }}
           >
             {drawerOpen ? 'Close drawer' : 'Open drawer'}
           </Button>
@@ -452,15 +309,30 @@ function GalleryBody({
         <div className="blockBar">
           <span className="blockKey">04</span>
           <h2 id="editable-title" className="blockTitle">
-            Editable host · Dispatch-style composition
+            Editable task · the edit controls
           </h2>
           <span className="blockMeta">
-            titleControl · status.control · rail · onRemove · content
+            titleControl · status.control · pickers · sectionMeta · comments
           </span>
         </div>
-        <div className={css.pageSlot}>
-          <EditableHostDemo />
+        <EditableTaskDemo
+          headerActions={(key) => <HeaderActions taskKey={key} />}
+          drawer={editDrawerOpen}
+          setDrawer={toggleEditDrawer}
+        />
+      </section>
+
+      <section className="block" aria-labelledby="controls-title">
+        <div className="blockBar">
+          <span className="blockKey">05</span>
+          <h2 id="controls-title" className="blockTitle">
+            Edit controls · states
+          </h2>
+          <span className="blockMeta">
+            loading · failed · disabled · search · limits
+          </span>
         </div>
+        <EditControlsDemo />
       </section>
 
       <TaskSlideOver

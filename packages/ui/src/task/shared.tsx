@@ -31,6 +31,11 @@ export const DEFAULT_TASK_LABELS: TaskDetailLabels = {
   breadcrumb: 'Breadcrumb',
   opensInNewTab: 'opens in a new tab',
   remove: 'Remove',
+  comments: 'Comments',
+  noComments: 'No comments yet.',
+  loadingComments: 'Loading comments',
+  openComment: 'Open comment',
+  notSaved: 'Not saved',
 };
 
 /** True for absolute http(s) URLs: the tracker, not a host route. Those

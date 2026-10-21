@@ -1,0 +1,105 @@
+/* A line of text edited in place, in the voice of whatever holds it (the
+   task view's heading). At rest it is the text; hover draws a faint frame
+   (gated off touch), and the editor is the same text in a 1px ink box. */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.view {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  max-width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  text-align: start;
+  cursor: text;
+}
+
+/* The frame sits a few pixels outside the text (a pseudo-element, so the
+   heading keeps its exact position and the frame is still clickable). */
+.view::before {
+  content: '';
+  position: absolute;
+  inset: -3px -7px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s ease;
+}
+
+.view:focus-visible {
+  outline: 0;
+}
+
+.view:focus-visible::before {
+  border: 2px solid var(--accent);
+}
+
+.view:disabled {
+  cursor: default;
+}
+
+.text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.view[data-empty='true'] .text {
+  color: var(--muted);
+}
+
+.view[data-pending='true'] .text {
+  opacity: 0.55;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .view:not(:disabled):hover::before {
+    border-color: var(--grey-3);
+  }
+}
+
+.input {
+  display: block;
+  width: calc(100% + 14px);
+  min-width: 0;
+  margin: -3px -7px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  overflow: hidden;
+  resize: none;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--accent);
+}
+
+.error {
+  margin-top: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view::before {
+    transition: none;
+  }
+}

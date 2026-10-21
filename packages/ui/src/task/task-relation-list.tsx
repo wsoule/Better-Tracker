@@ -1,10 +1,10 @@
-import { X } from 'lucide-react';
 import type { MouseEvent, ReactNode } from 'react';
 
 import { Link } from '../lib/link';
 import { Chip } from '../tasks/chip';
 import { cx } from '../tasks/class-names';
 import { StateGlyph } from '../tasks/task-glyphs';
+import { RelationRemoveButton } from './relation-remove-button';
 import { DEFAULT_TASK_LABELS, isExternalHref } from './shared';
 import styles from './task-relation-list.module.css';
 import type { TaskRelation, TaskRelationListProps } from './types';
@@ -115,7 +115,8 @@ function RowBody({
  * modified click follows the link. Resolved blockers are struck through
  * and muted; tasks outside the viewer's scope carry a tag. A row with
  * onRemove gets a remove button beside it (a sibling, so no control nests
- * in another). The key column is as wide as the longest key in the list.
+ * in another); a promise it returns marks the row busy, and a rejection
+ * prints under the row. The key column is as wide as the longest key.
  * Not a client module: without callbacks it renders in a server component.
  */
 export function TaskRelationList({
@@ -128,6 +129,7 @@ export function TaskRelationList({
   unassignedLabel = DEFAULT_TASK_LABELS.unassigned,
   newTabLabel = DEFAULT_TASK_LABELS.opensInNewTab,
   removeLabel = DEFAULT_TASK_LABELS.remove,
+  notSavedLabel = DEFAULT_TASK_LABELS.notSaved,
 }: TaskRelationListProps): ReactNode {
   if (items.length === 0) {
     return <p className={styles.empty}>{emptyLabel}</p>;
@@ -204,15 +206,12 @@ export function TaskRelationList({
           >
             {row}
             {relation.onRemove !== undefined ? (
-              <button
-                type="button"
-                className={styles.remove}
-                aria-label={`${removeLabel} ${relation.taskKey}`}
-                title={`${removeLabel} ${relation.taskKey}`}
-                onClick={relation.onRemove}
-              >
-                <X size={14} strokeWidth={1.5} aria-hidden="true" />
-              </button>
+              <RelationRemoveButton
+                taskKey={relation.taskKey}
+                removeLabel={removeLabel}
+                notSavedLabel={notSavedLabel}
+                onRemove={relation.onRemove}
+              />
             ) : null}
           </li>
         );

@@ -1,0 +1,186 @@
+/* Comments as a hairline ledger: square ink initials, a mono byline, the
+   text in the reading voice. Bots and integrations go quiet. */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--hairline-faint);
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border: 1px solid var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  text-transform: uppercase;
+  color: var(--foreground);
+}
+
+.muted .avatar {
+  border-color: var(--grey-3);
+  color: var(--muted);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+}
+
+.author {
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
+}
+
+.muted .author {
+  color: var(--muted);
+}
+
+.dot {
+  color: var(--grey-2);
+}
+
+.at {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.link {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+
+.link:focus-visible {
+  color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .link:hover {
+    color: var(--accent);
+  }
+
+  .retry:hover {
+    color: var(--accent-hover);
+  }
+}
+
+/* As typed: line breaks kept, each line in its own direction. */
+.body {
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+.content {
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.muted .body,
+.muted .content {
+  color: var(--muted);
+}
+
+.empty {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.error {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--hairline-faint);
+  border-bottom: 1px solid var(--hairline-faint);
+}
+
+.errorKey {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.errorText {
+  min-width: 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.retry {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid currentcolor;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.retry:focus-visible {
+  color: var(--accent-hover);
+}
+
+/* The composer sits under the newest comment. */
+.composer {
+  margin-top: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link,
+  .retry {
+    transition: none;
+  }
+}

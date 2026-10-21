@@ -12,6 +12,8 @@ import {
   isExternalHref,
 } from './shared';
 import { TaskActivityList } from './task-activity-list';
+import { TaskCommentList } from './task-comment-list';
+import commentStyles from './task-comment-list.module.css';
 import { TaskCrumbs } from './task-crumbs';
 import { TaskDescription } from './task-description';
 import styles from './task-detail.module.css';
@@ -59,7 +61,9 @@ function TaskKey({
  * The content of a task (issue) view, in Gr8r's task-drawer order: a
  * hatched header bar (breadcrumb, actions), the title, a status line (state
  * and key), the alert stack, the host's property sheet and `rail` sections,
- * then Description, Blocked by, Blocks, Activity and any host sections.
+ * then Description, Blocked by, Blocks, Comments, Activity and any host
+ * sections. `sectionMeta` puts a host's controls (an "+ Add" relation
+ * picker, an Edit button) in those sections' headings.
  *
  * `layout="drawer"` is one column for a slide-over or split pane;
  * `layout="page"` puts the properties (and `rail`) in a right rail beside
@@ -86,6 +90,8 @@ export function TaskDetail({
   relations,
   onOpenRelation,
   description,
+  comments,
+  sectionMeta,
   activity,
   activityLimit,
   children,
@@ -185,6 +191,7 @@ export function TaskDetail({
         <TaskDetailSection
           title={labels.description}
           headingLevel={sectionLevel}
+          meta={sectionMeta?.description}
         >
           {/* Keyed by task: a drawer that swaps tasks starts each one
               collapsed. */}
@@ -206,6 +213,7 @@ export function TaskDetail({
             title={labels.blockedBy}
             headingLevel={sectionLevel}
             count={relations.blockedBy.length}
+            meta={sectionMeta?.blockedBy}
           >
             <TaskRelationList
               items={relations.blockedBy}
@@ -217,12 +225,14 @@ export function TaskDetail({
               unassignedLabel={labels.unassigned}
               newTabLabel={labels.opensInNewTab}
               removeLabel={labels.remove}
+              notSavedLabel={labels.notSaved}
             />
           </TaskDetailSection>
           <TaskDetailSection
             title={labels.blocks}
             headingLevel={sectionLevel}
             count={relations.blocks.length}
+            meta={sectionMeta?.blocks}
           >
             <TaskRelationList
               items={relations.blocks}
@@ -234,12 +244,49 @@ export function TaskDetail({
               unassignedLabel={labels.unassigned}
               newTabLabel={labels.opensInNewTab}
               removeLabel={labels.remove}
+              notSavedLabel={labels.notSaved}
             />
           </TaskDetailSection>
         </>
       ) : null}
+      {comments !== undefined ? (
+        <TaskDetailSection
+          title={labels.comments}
+          headingLevel={sectionLevel}
+          count={
+            comments.loading === true ||
+            (comments.error !== undefined &&
+              comments.error !== null &&
+              comments.error !== '')
+              ? undefined
+              : comments.items.length
+          }
+          meta={sectionMeta?.comments}
+        >
+          <TaskCommentList
+            items={comments.items}
+            label={labels.comments}
+            emptyLabel={labels.noComments}
+            loading={comments.loading}
+            loadingLabel={labels.loadingComments}
+            error={comments.error}
+            errorLabel={labels.error}
+            onRetry={comments.onRetry}
+            retryLabel={labels.retry}
+            openLabel={labels.openComment}
+            newTabLabel={labels.opensInNewTab}
+          />
+          {hasNode(comments.composer) ? (
+            <div className={commentStyles.composer}>{comments.composer}</div>
+          ) : null}
+        </TaskDetailSection>
+      ) : null}
       {activity !== undefined ? (
-        <TaskDetailSection title={labels.activity} headingLevel={sectionLevel}>
+        <TaskDetailSection
+          title={labels.activity}
+          headingLevel={sectionLevel}
+          meta={sectionMeta?.activity}
+        >
           <TaskActivityList
             key={taskKey}
             items={activity}

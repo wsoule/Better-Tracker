@@ -62,8 +62,10 @@ export interface TaskRelation {
       muted. */
   resolved?: boolean;
   /** Adds a remove button beside the row (an editable host's "unlink");
-      it is a sibling of the row's link or button, never inside it. */
-  onRemove?: () => void;
+      it is a sibling of the row's link or button, never inside it. A
+      returned promise marks the row pending until it settles, and a
+      rejection prints its message under the row. */
+  onRemove?: () => void | Promise<unknown>;
 }
 
 export interface TaskRelations {
@@ -124,6 +126,65 @@ export interface TaskDescriptionProps extends TaskDescriptionData {
   showLessLabel?: string;
 }
 
+/** One comment on the task, already worded and dated by the host. */
+export interface TaskComment {
+  id: string;
+  /** Who wrote it ("Ana Moreno", or an integration's name). */
+  author: string;
+  /** Display text for when ("Oct 14", "2 days ago"). */
+  at: string;
+  /** Machine-readable instant for <time dateTime>. */
+  dateTime?: string;
+  /** The text as stored (plain text or markdown source), printed as typed:
+      line breaks kept, nothing parsed. */
+  body: string;
+  /** A body the host renders itself (its markdown renderer) in place of
+      `body`. Whatever is safe here is the host's call. */
+  content?: ReactNode;
+  /** The comment in the tracker (opens in a new tab for http URLs). */
+  href?: string;
+  /** muted = written by a bot or an integration, not a person. */
+  tone?: 'default' | 'muted';
+}
+
+/** The task's comments, plus the box to add one. */
+export interface TaskCommentsData {
+  /** Oldest first, newest last (the composer sits under the newest). */
+  items: TaskComment[];
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
+  /** The new-comment box, e.g. <TextAreaEditor mode="compose" />. */
+  composer?: ReactNode;
+}
+
+export interface TaskCommentListProps {
+  items: TaskComment[];
+  /** Accessible name of the list. Default "Comments". */
+  label?: string;
+  emptyLabel?: string;
+  loading?: boolean;
+  loadingLabel?: string;
+  error?: string | null;
+  errorLabel?: string;
+  onRetry?: () => void;
+  retryLabel?: string;
+  /** Screen-reader name of a comment's link to the tracker. */
+  openLabel?: string;
+  newTabLabel?: string;
+}
+
+/** Right-aligned controls or notes in the heading of each built-in
+    section, e.g. a TaskRelationPicker ("+ Add") on Blocked by, or "From
+    Linear" on Comments. */
+export interface TaskDetailSectionMeta {
+  description?: ReactNode;
+  blockedBy?: ReactNode;
+  blocks?: ReactNode;
+  comments?: ReactNode;
+  activity?: ReactNode;
+}
+
 export interface TaskRelationListProps {
   items: TaskRelation[];
   /** Accessible name of the list ("Blocked by"). */
@@ -143,6 +204,8 @@ export interface TaskRelationListProps {
   /** Name of a row's remove button; the task key is appended ("Remove
       ENG-23"). Default "Remove". */
   removeLabel?: string;
+  /** Mono key of a failed removal's error line. Default "Not saved". */
+  notSavedLabel?: string;
 }
 
 export interface TaskActivityListProps {
@@ -199,6 +262,11 @@ export interface TaskDetailLabels {
   breadcrumb: string;
   opensInNewTab: string;
   remove: string;
+  comments: string;
+  noComments: string;
+  loadingComments: string;
+  openComment: string;
+  notSaved: string;
 }
 
 /** drawer = one column for a slide-over or split pane; page = main column
@@ -240,6 +308,12 @@ export interface TaskDetailProps {
   onOpenRelation?: (relation: TaskRelation) => void;
   /** Omit to leave out the section. */
   description?: TaskDescriptionData;
+  /** Omit to leave out the section. Drawn after Blocks, before
+      Activity, with the composer under the newest comment. */
+  comments?: TaskCommentsData;
+  /** Controls or notes in the built-in sections' headings (an "+ Add"
+      picker on Blocked by and Blocks). */
+  sectionMeta?: TaskDetailSectionMeta;
   /** Omit to leave out the section; newest first, or as given. */
   activity?: TaskActivityItem[];
   /** Items shown before "Show all N". */

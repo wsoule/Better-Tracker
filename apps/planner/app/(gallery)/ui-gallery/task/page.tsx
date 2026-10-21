@@ -9,8 +9,10 @@ export const metadata = { title: 'UI gallery · task' };
    props — TaskSlideOver (open on load; ?drawer=closed starts it shut), the
    page layout with its properties rail, and every state in drawer-layout
    panes: alerts, external and resolved relations, a long description, a
-   loading and a failed description, nothing related, a done task. No
-   engine; links say where they would have gone. */
+   loading and a failed description, nothing related, a done task; then
+   the editable task (the edit controls with fake 600 ms saves, the
+   estimate always failing) and each control's own states. No engine;
+   links say where they would have gone. */
 export default async function TaskGalleryPage({
   searchParams,
 }: {
