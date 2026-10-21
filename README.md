@@ -50,6 +50,7 @@ packages/linear Linear GraphQL gateway, OAuth, webhook verification, demo worksp
 packages/store  Postgres persistence (PGlite locally and in tests)
 packages/notify Slack DM digests and the outbox
 packages/engine orchestration used by both apps
+packages/ui     portable React task UI (shell, task table, timeline, graph), no Next.js
 packages/logger structured JSON logs
 ```
 

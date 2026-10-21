@@ -954,6 +954,41 @@ LINEAR" strip at the top of the content column.
 Exit code is non-zero when any workspace failed, so cron failures are loud.
 Every command runs migrations first (advisory-locked, idempotent).
 
+Worker decisions made while building it (binding):
+
+- **Due rule** (`decideDailyRun(now, timezone, dailyAt)` in
+  `apps/worker/src/schedule.ts`, pure): the daily run for local date D is due
+  from the first instant of D at which the wall clock shows `DAILY_RUN_AT` or
+  later, until local midnight. On a fall-back day a repeated time counts from
+  its first occurrence and stays due through the repeated hour; a time inside a
+  spring-forward gap is due from the transition. The timezone is the saved
+  setting, or `DEFAULT_TIMEZONE` when that is invalid (as the engine does).
+  "Unclaimed" is decided by `runDaily`'s own claim: a due tick whose `runDaily`
+  returns `ran: false` falls back to `fullSync`.
+- `DAILY_RUN_AT` is strict `HH:MM` (00:00–23:59); invalid worker variables exit
+  1 before boot. A time later than one tick interval before midnight is logged
+  as a warning (no tick may land before midnight).
+- **Exit codes**: `0` ok (including "no installed workspaces"); `1` when a
+  workspace failed (its job threw, or an allocation run ended `failed` or
+  `partial`), a workspace-independent step failed (listing workspaces,
+  `cleanup`), boot failed, or the hard timeout fired; `2` usage error (unknown
+  command/option, missing `--dry-run|--live`, an option that does not apply).
+  Undelivered digests do not fail a run (they include people with no Slack
+  account); they are counted in the summary.
+- `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
+  and closing the store together, so the process always ends within
+  `TICK_TIMEOUT_MINUTES` (keep it below the 15-minute cron interval). `serve`
+  gives its boot, each tick and its shutdown one budget each; SIGTERM/SIGINT let
+  the current tick finish, then the store is closed and `serve` exits 0; a
+  second signal, including one during that close, exits 1 at once.
+- The CLI runs only when its module is the process's main script, resolved the
+  way node resolves it (`node apps/worker tick` and `node apps/worker/dist tick`
+  work too), so it can never load and silently do nothing.
+- Manual `allocate` runs use trigger `manual` and no actor. Each command prints
+  one human summary line on stdout besides the JSON logs.
+- Demo mode logs a warning that `DATABASE_URL` is ignored and, without
+  `PGLITE_DIR`, that nothing (the daily claim included) survives the process.
+
 ## 10. Configuration
 
 | env                                         | used by         | meaning                                                           |
@@ -969,7 +1004,11 @@ Every command runs migrations first (advisory-locked, idempotent).
 | `DEFAULT_TIMEZONE`                          | all             | IANA zone for new workspaces (default `UTC`)                      |
 | `PM_EMAILS`, `WATCHER_EMAILS`               | engine          | comma-separated bootstrap lists                                   |
 | `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed                                 |
-| `SYNC_INTERVAL_MINUTES`, `DAILY_RUN_AT`     | worker serve    | scheduler                                                         |
+| `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
+| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit for one tick, minutes (default 10)                     |
+| `SYNC_INTERVAL_MINUTES`                     | worker serve    | minutes between ticks (default 15)                                |
+| `PGLITE_DIR`                                | all             | PGlite directory when `DATABASE_URL` is unset (local dev only)    |
+| `SESSION_DAYS`                              | engine          | session lifetime in days (default 30)                             |
 | `LOG_LEVEL`                                 | all             | debug/info/warn/error                                             |
 
 `packages/engine` exports `loadEngineConfigFromEnv(env)` and

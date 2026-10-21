@@ -37,6 +37,10 @@ tsconfig.tsbuildinfo
 .omx/
 .agents/ignore/
 .env.worktree
+# Local secrets (copy .env.example; the planner reads apps/planner/.env.local)
+.env
+.env.*
+!.env.example
 # Local PGlite data (planner dev server, worker in dev)
 .data/
 
