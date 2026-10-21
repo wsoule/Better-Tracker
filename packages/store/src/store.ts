@@ -1458,18 +1458,64 @@ class SqlStore implements Store {
 
   // --- scheduled jobs ---------------------------------------------------------------
 
+  /**
+   * One upsert: a fresh day inserts the claim; an existing claim is taken
+   * over only when unfinished and older than the lease (the WHERE is
+   * evaluated against the latest committed row, so of several concurrent
+   * takeovers exactly one updates it). The CTE reads the previous claim
+   * time for the log line.
+   */
   async claimJob(
     workspaceId: string,
     job: 'daily',
     day: IsoDate,
-    now: IsoDateTime
+    now: IsoDateTime,
+    options: { leaseMinutes?: number } = {}
+  ): Promise<boolean> {
+    const rows = await this.write<{ previous: DbTimestamp | null }>(
+      `WITH previous AS (
+         SELECT claimed_at FROM job_claims
+         WHERE workspace_id = $1 AND job = $2 AND day = $3::date
+       )
+       INSERT INTO job_claims (workspace_id, job, day, claimed_at)
+       VALUES ($1, $2, $3::date, $4::timestamptz)
+       ON CONFLICT (workspace_id, job, day) DO UPDATE SET
+         claimed_at = EXCLUDED.claimed_at, finished_at = NULL
+       WHERE job_claims.finished_at IS NULL
+         AND $5::double precision IS NOT NULL
+         AND job_claims.claimed_at
+           < EXCLUDED.claimed_at - ($5::double precision * interval '1 minute')
+       RETURNING (SELECT claimed_at FROM previous) AS previous`,
+      [workspaceId, job, day, now, options.leaseMinutes ?? null]
+    );
+    const row = rows[0];
+    if (row === undefined) {
+      return false;
+    }
+    if (row.previous !== null) {
+      this.logger?.warn('took over a stale job claim', {
+        workspaceId,
+        job,
+        day,
+        previousClaimedAt: toIso(row.previous),
+        leaseMinutes: options.leaseMinutes,
+      });
+    }
+    return true;
+  }
+
+  async finishJob(
+    workspaceId: string,
+    job: 'daily',
+    day: IsoDate,
+    input: { claimedAt: IsoDateTime; at: IsoDateTime }
   ): Promise<boolean> {
     const rows = await this.write<{ job: string }>(
-      `INSERT INTO job_claims (workspace_id, job, day, claimed_at)
-       VALUES ($1, $2, $3::date, $4::timestamptz)
-       ON CONFLICT (workspace_id, job, day) DO NOTHING
+      `UPDATE job_claims SET finished_at = $5::timestamptz
+       WHERE workspace_id = $1 AND job = $2 AND day = $3::date
+         AND claimed_at = $4::timestamptz AND finished_at IS NULL
        RETURNING job`,
-      [workspaceId, job, day, now]
+      [workspaceId, job, day, input.claimedAt, input.at]
     );
     return rows.length === 1;
   }
@@ -1477,11 +1523,15 @@ class SqlStore implements Store {
   async releaseJob(
     workspaceId: string,
     job: 'daily',
-    day: IsoDate
+    day: IsoDate,
+    claimedAt?: IsoDateTime
   ): Promise<void> {
     await this.write(
-      'DELETE FROM job_claims WHERE workspace_id = $1 AND job = $2 AND day = $3::date',
-      [workspaceId, job, day]
+      `DELETE FROM job_claims
+       WHERE workspace_id = $1 AND job = $2 AND day = $3::date
+         AND ($4::timestamptz IS NULL
+           OR (claimed_at = $4::timestamptz AND finished_at IS NULL))`,
+      [workspaceId, job, day, claimedAt ?? null]
     );
   }
 

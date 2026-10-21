@@ -14,7 +14,7 @@ import {
   type Sql,
 } from '../src/db';
 import { type Migration, MIGRATIONS, runMigrations } from '../src/migrations';
-import { openStore } from '../src/store';
+import { createSqlStore, openStore } from '../src/store';
 import { rejection, repeatableReadUrl, TEST_KEY } from './fixtures';
 
 const STARTUP_TIMEOUT = 60_000;
@@ -255,6 +255,34 @@ describe('runMigrations', () => {
     expect((await rejection(runMigrations(sql, unordered))).message).toMatch(
       /strictly increasing/
     );
+  });
+
+  test('migration 3 counts the claims made before leases as finished', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 2)
+      );
+      await fresh.query(
+        `INSERT INTO job_claims (workspace_id, job, day, claimed_at)
+         VALUES ('ws', 'daily', '2026-10-21', '2026-10-21T08:00:00Z')`
+      );
+      expect(await runMigrations(fresh)).toEqual([3]);
+      const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+      // A day an older version claimed stays claimed, lease or not.
+      expect(
+        await store.claimJob(
+          'ws',
+          'daily',
+          '2026-10-21',
+          '2026-10-21T20:00:00.000Z',
+          { leaseMinutes: 30 }
+        )
+      ).toBe(false);
+    } finally {
+      await fresh.close();
+    }
   });
 
   test('concurrent migrators apply each migration once', async () => {

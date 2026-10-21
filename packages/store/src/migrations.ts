@@ -199,6 +199,16 @@ const NOTIFICATION_PENDING: readonly string[] = [
   'CREATE INDEX IF NOT EXISTS webhook_deliveries_received_idx ON webhook_deliveries (received_at)',
 ];
 
+// Job claims become leases: finished_at is set when the job completes, and
+// an unfinished claim older than the caller's lease belongs to a process
+// that died mid-run, so another claimer may take it over. Claims made
+// before this migration kept their day taken for good, so they count as
+// finished (never taken over).
+const JOB_CLAIM_LEASE: readonly string[] = [
+  'ALTER TABLE job_claims ADD COLUMN finished_at timestamptz',
+  'UPDATE job_claims SET finished_at = claimed_at WHERE finished_at IS NULL',
+];
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', statements: INITIAL_SCHEMA },
   {
@@ -206,6 +216,7 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'notification_pending_status',
     statements: NOTIFICATION_PENDING,
   },
+  { version: 3, name: 'job_claim_lease', statements: JOB_CLAIM_LEASE },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise

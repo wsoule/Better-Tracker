@@ -19,6 +19,12 @@ export const DEFAULT_DEMO_APP_URL = 'http://localhost:3000';
 export const DEFAULT_PGLITE_DIR = '.data/pglite';
 /** Session lifetime when `SESSION_DAYS` is unset. */
 export const DEFAULT_SESSION_DAYS = 30;
+/**
+ * How long an unfinished daily claim holds before another process may take
+ * it over (EngineConfig.dailyLeaseMinutes). Longer than any worker tick can
+ * live (TICK_TIMEOUT_MINUTES is capped below it).
+ */
+export const DEFAULT_DAILY_LEASE_MINUTES = 30;
 /** Path of the OAuth callback route, appended to `APP_URL`. */
 export const OAUTH_CALLBACK_PATH = '/api/auth/linear/callback';
 

@@ -539,7 +539,16 @@ Tables (all keyed by `workspace_id`):
 - `allocation_entries` — per-issue/per-project log (§6.12 "logged").
 - `warning_memory` — `(workspace_id, subject_kind, subject_id) pk`.
 - `notifications` — unique `(workspace_id, day, recipient_id)`.
-- `job_claims` — unique `(workspace_id, job, day)`.
+- `job_claims` — unique `(workspace_id, job, day)`, `claimed_at`, `finished_at`
+  (migration 3; claims made before it count as finished). A claim is a lease:
+  `claimJob(…, now, { leaseMinutes })` inserts the claim, or takes over an
+  existing one only while it is unfinished and `claimed_at` is older than the
+  lease (one `INSERT … ON CONFLICT DO UPDATE … WHERE` upsert, so of several
+  concurrent takeovers exactly one wins; logged at warn). The claim time is the
+  claim's identity: `finishJob(…, { claimedAt, at })` sets `finished_at` and
+  `releaseJob(…, claimedAt)` deletes the claim only while it is still that
+  unfinished claim, so a holder that was taken over never touches the new
+  holder's. A finished claim is never taken over.
 - `audit_log` — PM edits with before/after.
 
 Token encryption: AES-256-GCM, key = 32 bytes from `TOKEN_ENCRYPTION_KEY`
@@ -634,9 +643,13 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `warningsMode === 'live'` deliver via the channel, else status `preview`. Save
   memory only after notifications are recorded. `previewOnly` builds digests
   without writing anything (Settings preview).
-- **runDaily**: `claimJob(daily, today)` unless `force` → fullSync →
-  runAllocation(settings.allocationMode, schedule) → runWarnings. If the run
-  throws before finishing, `releaseJob` so a retry can run.
+- **runDaily**: `claimJob(daily, today, { leaseMinutes })` unless `force` →
+  fullSync → runAllocation(settings.allocationMode, schedule) → runWarnings →
+  `finishJob`. If the run throws, `releaseJob` so the next tick can retry. If
+  the process dies instead (killed, hard timeout), the claim stays unfinished
+  and, once older than `config.dailyLeaseMinutes` (default 30,
+  `DEFAULT_DAILY_LEASE_MINUTES`), the next due tick takes the day over and runs
+  the whole job again (see "A daily takeover" below).
 - **PM edits**: require `actor.isPm` (else `not_pm`). Linear writes
   (`setMilestoneTargetDate`, `setProjectLead`) also require
   `actor.canWriteLinear` (else `needs_write_scope`) and go through
@@ -739,6 +752,25 @@ Engine decisions made while building it (binding for callers):
 - `handleWebhook` treats a blank `deliveryId` as none (no dedupe), and the
   public `runAllocation` always syncs first (only `runDaily` reuses its sync).
 - `runDaily` syncs once: its allocation run reuses that sync.
+- **A daily takeover re-runs the whole job**, which is safe wherever the dead
+  run stopped. Killed mid-sync: nothing was written. Killed during a live
+  allocation: the takeover's fresh sync shows the issues the dead run assigned
+  as assigned, so they are skipped `already_assigned` (never re-assigned or
+  re-commented); a comment the dead run had not posted yet stays missing, and an
+  assignment it made just before dying is logged only as that skip. The dead run
+  stays `running` until `startRun` closes it as `stale run` (30 minutes after it
+  started); a takeover that finds it not yet stale fails with `conflict`, gives
+  the day back, and a later tick runs the job. Killed during warnings: memory
+  was not saved yet, so every notice is planned again; nobody is sent a second
+  digest that day (a recipient with a row today counts as `alreadySent`,
+  including a `pending` row, whose send may have reached Slack), and those
+  recipients' notices keep their old memory, so they are offered again the next
+  day. A run that outlives its lease and completes anyway finds its claim gone:
+  `finishJob` returns false and it logs a warning. The lease must be longer than
+  any daily run can live: the worker caps `TICK_TIMEOUT_MINUTES` at 29 (one
+  below the default lease). The manual `daily` command has no hard timeout, so
+  one that ran past the lease could be taken over by a tick (both runs are safe,
+  the second is wasted work).
 - A live run in which every assignment failed is `failed`; a comment that fails
   after a successful assignment leaves the entry `applied` with an error and the
   run `partial`. Stale reasons: `not_found`, `closed`, `now_assigned`,
@@ -953,7 +985,8 @@ LINEAR" strip at the top of the content column.
 - `warn [--workspace <id>]`
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
   UTC): for each installed workspace, if the local time in its timezone is at or
-  past `DAILY_RUN_AT` (default `08:00`) and today's daily job is unclaimed,
+  past `DAILY_RUN_AT` (default `08:00`) and today's daily job is unclaimed (or
+  its claim was abandoned by a tick that died, past the engine's lease),
   `runDaily` (which syncs first); otherwise a plain `fullSync` (the periodic
   resync that heals milestone/relation drift, since Linear has no webhooks for
   those). Then `cleanup`. Closes the store and exits. A hard timeout
@@ -988,10 +1021,12 @@ Worker decisions made while building it (binding):
   account); they are counted in the summary.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
-  `TICK_TIMEOUT_MINUTES` (keep it below the 15-minute cron interval). `serve`
-  gives its boot, each tick and its shutdown one budget each; SIGTERM/SIGINT let
-  the current tick finish, then the store is closed and `serve` exits 0; a
-  second signal, including one during that close, exits 1 at once.
+  `TICK_TIMEOUT_MINUTES` (keep it below the 15-minute cron interval; at most 29,
+  so a tick always ends before the engine's 30-minute daily lease lets another
+  tick take its claim over). `serve` gives its boot, each tick and its shutdown
+  one budget each; SIGTERM/SIGINT let the current tick finish, then the store is
+  closed and `serve` exits 0; a second signal, including one during that close,
+  exits 1 at once.
 - The CLI runs only when its module is the process's main script, resolved the
   way node resolves it (`node apps/worker tick` and `node apps/worker/dist tick`
   work too), so it can never load and silently do nothing.
@@ -1016,7 +1051,7 @@ Worker decisions made while building it (binding):
 | `PM_EMAILS`, `WATCHER_EMAILS`               | engine          | comma-separated bootstrap lists                                   |
 | `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed                                 |
 | `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
-| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit for one tick, minutes (default 10)                     |
+| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit for one tick, minutes (default 10, at most 29)         |
 | `SYNC_INTERVAL_MINUTES`                     | worker serve    | minutes between ticks (default 15)                                |
 | `PGLITE_DIR`                                | all             | PGlite directory when `DATABASE_URL` is unset (local dev only)    |
 | `SESSION_DAYS`                              | engine          | session lifetime in days (default 30)                             |

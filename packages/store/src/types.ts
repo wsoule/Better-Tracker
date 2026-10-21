@@ -379,14 +379,44 @@ export interface Store {
   ): Promise<NotificationRecord[]>;
 
   // --- scheduled job bookkeeping ------------------------------------------
-  /** Claims (workspace, job, day); false if already claimed (idempotent daily run). */
+  /**
+   * Claims (workspace, job, day) for the caller, recording `now` as the
+   * claim time, which identifies this claim to finishJob and releaseJob.
+   * False when the day is already claimed: finished, or unfinished and not
+   * older than `leaseMinutes`. Additive: an unfinished claim older than
+   * the lease (its holder died mid-run) is taken over, gets `now` as its
+   * claim time, and the call returns true. Without a lease a claim is never
+   * taken over.
+   */
   claimJob(
     workspaceId: string,
     job: 'daily',
     day: IsoDate,
-    now: IsoDateTime
+    now: IsoDateTime,
+    options?: { leaseMinutes?: number }
   ): Promise<boolean>;
-  releaseJob(workspaceId: string, job: 'daily', day: IsoDate): Promise<void>;
+  /**
+   * Additive: marks the claim made at `claimedAt` finished, so it is never
+   * taken over. False (nothing written) when the day's claim is no longer
+   * that one: another process took it over, or it was released.
+   */
+  finishJob(
+    workspaceId: string,
+    job: 'daily',
+    day: IsoDate,
+    input: { claimedAt: IsoDateTime; at: IsoDateTime }
+  ): Promise<boolean>;
+  /**
+   * Frees the day so it can be claimed again. Additive: with `claimedAt`,
+   * only while the claim is still that one and unfinished, so a holder
+   * whose claim was taken over never frees the new holder's.
+   */
+  releaseJob(
+    workspaceId: string,
+    job: 'daily',
+    day: IsoDate,
+    claimedAt?: IsoDateTime
+  ): Promise<void>;
 
   // --- audit ----------------------------------------------------------------
   appendAudit(entry: AuditEntry): Promise<void>;

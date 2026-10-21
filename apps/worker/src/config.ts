@@ -3,6 +3,8 @@
 // scheduler knobs only the worker uses. Like the engine, every problem is
 // collected and reported in one error.
 
+import { DEFAULT_DAILY_LEASE_MINUTES } from '@better-tracker/engine';
+
 import {
   DEFAULT_DAILY_RUN_AT,
   type DailyTime,
@@ -17,7 +19,12 @@ export const DEFAULT_TICK_TIMEOUT_MINUTES = 10;
 /** Default `SYNC_INTERVAL_MINUTES` (serve). Matches the documented cron. */
 export const DEFAULT_SYNC_INTERVAL_MINUTES = 15;
 
-const MAX_TICK_TIMEOUT_MINUTES = 720;
+/**
+ * A tick must end before the engine's daily lease runs out: another tick
+ * takes over an unfinished daily claim older than the lease, which must
+ * mean its holder is dead, not still working.
+ */
+export const MAX_TICK_TIMEOUT_MINUTES: number = DEFAULT_DAILY_LEASE_MINUTES - 1;
 const MAX_SYNC_INTERVAL_MINUTES = 1440;
 
 export interface WorkerConfig {
@@ -58,8 +65,9 @@ function readMinutes(
 
 /**
  * Reads `DAILY_RUN_AT` (default 08:00, strict `HH:MM`),
- * `TICK_TIMEOUT_MINUTES` (default 10) and `SYNC_INTERVAL_MINUTES` (default
- * 15). Throws one Error listing every invalid variable.
+ * `TICK_TIMEOUT_MINUTES` (default 10, at most MAX_TICK_TIMEOUT_MINUTES) and
+ * `SYNC_INTERVAL_MINUTES` (default 15). Throws one Error listing every
+ * invalid variable.
  */
 export function loadWorkerConfig(env: WorkerEnv): WorkerConfig {
   const problems: string[] = [];

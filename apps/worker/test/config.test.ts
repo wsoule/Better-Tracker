@@ -64,7 +64,16 @@ describe('loadWorkerConfig', () => {
     }
   );
 
-  test.each(['721', '-1', '10m'])(
+  test('a tick may last up to one minute less than the daily lease', () => {
+    expect(
+      loadWorkerConfig({ TICK_TIMEOUT_MINUTES: '29' }).tickTimeoutMinutes
+    ).toBe(29);
+    expect(() => loadWorkerConfig({ TICK_TIMEOUT_MINUTES: '30' })).toThrow(
+      'TICK_TIMEOUT_MINUTES must be a whole number of minutes from 1 to 29'
+    );
+  });
+
+  test.each(['30', '721', '-1', '10m'])(
     'rejects TICK_TIMEOUT_MINUTES=%p',
     (value) => {
       expect(() => loadWorkerConfig({ TICK_TIMEOUT_MINUTES: value })).toThrow(

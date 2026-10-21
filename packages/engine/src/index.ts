@@ -9,6 +9,7 @@ export { createEngine } from './engine';
 export { createEngineFromEnv, type CreateEngineFromEnvOptions } from './boot';
 export {
   DEFAULT_APP_NAME,
+  DEFAULT_DAILY_LEASE_MINUTES,
   type EngineEnv,
   isFixtureEnv,
   loadEngineConfigFromEnv,

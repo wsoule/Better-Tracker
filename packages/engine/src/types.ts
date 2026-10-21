@@ -49,6 +49,13 @@ export interface EngineConfig {
   oauth: OAuthClientConfig | null;
   /** Session lifetime in days. */
   sessionDays: number;
+  /**
+   * Additive: minutes an unfinished daily claim holds before another
+   * process may take it over (its holder died mid-run). Default
+   * DEFAULT_DAILY_LEASE_MINUTES (30). It must be longer than any daily run
+   * can live, which is why the worker caps TICK_TIMEOUT_MINUTES below it.
+   */
+  dailyLeaseMinutes?: number;
 }
 
 /**

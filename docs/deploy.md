@@ -245,7 +245,9 @@ from the same Dockerfile.
   The worker's hard timeout covers that last point. `TICK_TIMEOUT_MINUTES`
   (default 10) is counted from the moment the process starts, boot included: a
   run that is still going then logs an error and exits 1, before the next slot,
-  so one stuck run cannot block the runs after it. Keep it below 15.
+  so one stuck run cannot block the runs after it. Keep it below 15. The worker
+  refuses values above 29: the daily job's claim may be taken over after 30
+  minutes, which must only happen to a tick that is dead.
 
 - **Restart policy**: **Never**. The default is On Failure with up to 10
   restarts. Railway does not document how restarts interact with cron runs; its
@@ -411,10 +413,22 @@ service if your Railway plan offers one: **verify this in your workspace**.
 - `daily already ran for <day>` in the summary means today's claim is taken.
 - `daily due at <time> <zone>` means it is not that time yet in the workspace's
   timezone.
+- If the job fails with an error, its claim is released and the next tick (15
+  minutes later) runs it again.
 - If a tick is killed or hits its timeout **in the middle of** the daily job,
-  today's claim stays taken. The claim is released only when the job fails with
-  an error. The job then does not retry that day: run `daily --force`, or wait
-  for tomorrow.
+  its claim stays taken for a 30-minute lease, so the next tick or two report
+  `daily already ran`. After that the next tick takes the day over and runs the
+  whole job again (logged as `took over a stale job claim`), normally within 45
+  minutes of the killed tick. If the dead tick had already started its
+  allocation run, that run blocks allocation until it is 30 minutes old: the
+  first takeover can fail with `An allocation run is already in progress` (exit
+  1), and the tick after it succeeds.
+- What the re-run does: issues the dead tick already assigned are skipped as
+  already assigned (never assigned or commented twice; a comment it had not
+  posted yet stays missing). Nobody gets a second digest that day, not even
+  someone whose digest was being sent when the tick died (it may have reached
+  Slack). The notices of people who already had a digest that day keep their
+  warning memory and come back the next day.
 
 `daily --force` is safe to repeat. Allocation never reassigns an assigned issue,
 and nobody gets a second digest on the same day.
