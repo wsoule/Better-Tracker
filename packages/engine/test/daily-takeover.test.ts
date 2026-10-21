@@ -12,6 +12,8 @@ import { afterEach, describe, expect, test } from 'bun:test';
 // (the run never finishes, throws or releases anything), then checks what
 // the takeover does at that point.
 
+import { ALLOCATION_RUN_STALE_MINUTES } from '../src/allocation-run';
+import { DEFAULT_DAILY_LEASE_MINUTES } from '../src/config';
 import { createEngine } from '../src/engine';
 import {
   createDemoHarness,
@@ -32,6 +34,14 @@ afterEach(async () => {
 });
 
 const MINUTE_MS = 60_000;
+/** The daily claim's lease: a takeover needs a claim older than this. */
+const LEASE = DEFAULT_DAILY_LEASE_MINUTES;
+/**
+ * The longest a worker run may live (its TICK_TIMEOUT_MINUTES cap,
+ * lease − stale − 1), so the latest a dead run's allocation can start
+ * after its claim.
+ */
+const LONGEST_WORKER_RUN_MINUTES = 14;
 
 /**
  * A call that never settles, like one cut off by a killed process.
@@ -80,13 +90,13 @@ describe('runDaily after a run that died', () => {
     await gate.reached;
     hangSync = false;
 
-    // Still within the 30-minute lease: the day counts as taken.
-    at(h, startMs, 30);
+    // Until the claim is older than the lease, the day counts as taken.
+    at(h, startMs, LEASE);
     expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
       false
     );
 
-    at(h, startMs, 31);
+    at(h, startMs, LEASE + 1);
     const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     expect(takeover.ran).toBe(true);
     expect(takeover.day).toBe(day);
@@ -126,7 +136,7 @@ describe('runDaily after a run that died', () => {
     stallSync = true;
     const slow = h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     await gate.reached;
-    at(h, startMs, 31);
+    at(h, startMs, LEASE + 1);
     expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
       true
     );
@@ -176,7 +186,7 @@ describe('runDaily after a run that died', () => {
     const [first, second] = assigned;
     expect(h.fixture.comments.map((c) => c.issueId)).toEqual([first ?? '']);
 
-    at(h, startMs, 31);
+    at(h, startMs, LEASE + 1);
     const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     expect(takeover.ran).toBe(true);
     expect(takeover.allocation).toMatchObject({
@@ -209,18 +219,25 @@ describe('runDaily after a run that died', () => {
     });
   });
 
-  test('a takeover that finds the dead allocation run not yet stale retries on a later tick', async () => {
+  test('a takeover right after the lease finds the dead allocation run stale', async () => {
+    expect(LONGEST_WORKER_RUN_MINUTES).toBe(
+      LEASE - ALLOCATION_RUN_STALE_MINUTES - 1
+    );
     let slowSync = false;
     let hangAssign = false;
     const gate = hangGate();
     const wrap: GatewayWrapper = (gateway): LinearGateway => ({
       ...gateway,
       fetchWorkspace: () => {
-        // The dead tick's sync took 5 minutes, so its allocation run
-        // started 5 minutes after the claim.
+        // The dead tick's sync took as long as a worker run may live, so
+        // its allocation run started that long after the claim.
         if (slowSync && harness !== null) {
           slowSync = false;
-          at(harness, harness.clock.now().getTime(), 5);
+          at(
+            harness,
+            harness.clock.now().getTime(),
+            LONGEST_WORKER_RUN_MINUTES
+          );
         }
         return gateway.fetchWorkspace();
       },
@@ -238,17 +255,78 @@ describe('runDaily after a run that died', () => {
     void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     await gate.reached;
     hangAssign = false;
+    const [dead] = await h.engine.listRuns(WORKSPACE_ID, 10);
+    expect(dead?.startedAt).toBe(
+      new Date(startMs + LONGEST_WORKER_RUN_MINUTES * MINUTE_MS).toISOString()
+    );
 
-    // The claim is past its lease, but the allocation run is only 26
-    // minutes old: the run lock still holds, the takeover fails and gives
-    // the day back.
-    at(h, startMs, 31);
+    // At exactly the lease the claim still holds; the first instant past
+    // it the takeover claims the day, and the dead run (31 minutes old) is
+    // closed as stale instead of refusing the takeover's run.
+    at(h, startMs, LEASE);
+    expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
+      false
+    );
+    h.clock.set(new Date(startMs + LEASE * MINUTE_MS + 1).toISOString());
+    const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(takeover.ran).toBe(true);
+    expect(takeover.allocation).toMatchObject({
+      status: 'succeeded',
+      summary: { assigned: 5 },
+    });
+    expect(h.fixture.comments).toHaveLength(5);
+    const runs = await h.engine.listRuns(WORKSPACE_ID, 10);
+    expect(runs.find((run) => run.id === dead?.id)).toMatchObject({
+      status: 'failed',
+      error: 'stale run',
+    });
+  });
+
+  test('a takeover that finds another allocation run in progress gives the day back', async () => {
+    let hangSync = false;
+    let hangAssign = false;
+    const syncGate = hangGate();
+    const assignGate = hangGate();
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: () =>
+        hangSync ? syncGate.hang() : gateway.fetchWorkspace(),
+      updateIssue: (issueId, input) =>
+        hangAssign ? assignGate.hang() : gateway.updateIssue(issueId, input),
+    });
+    harness = await createDemoHarness({ wrap });
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    const settings = (await h.engine.load(WORKSPACE_ID)).settings;
+    await h.store.saveSettings({ ...settings, allocationMode: 'live' });
+
+    // The daily tick dies mid-sync. 20 minutes later a PM's live run
+    // (started from the web app) gets stuck on its first assignment.
+    hangSync = true;
+    void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    await syncGate.reached;
+    hangSync = false;
+    at(h, startMs, 20);
+    hangAssign = true;
+    void h.engine.runAllocation({
+      workspaceId: WORKSPACE_ID,
+      mode: 'live',
+      trigger: 'manual',
+      actor: null,
+    });
+    await assignGate.reached;
+    hangAssign = false;
+
+    // The claim is past its lease, but the PM's run is only 26 minutes
+    // old: the run lock still holds, the takeover fails and gives the day
+    // back.
+    at(h, startMs, LEASE + 1);
     expect(
       await rejectionMessage(h.engine.runDaily({ workspaceId: WORKSPACE_ID }))
     ).toContain('already in progress');
 
-    // The next tick claims the day afresh and finds the run stale.
-    at(h, startMs, 46);
+    // The next tick claims the day afresh and finds that run stale.
+    at(h, startMs, LEASE + 16);
     const retry = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     expect(retry.ran).toBe(true);
     expect(retry.allocation?.status).toBe('succeeded');
@@ -301,7 +379,7 @@ describe('runDaily after a run that died', () => {
       'user-dev': 'pending',
     });
 
-    at(h, startMs, 31);
+    at(h, startMs, LEASE + 1);
     const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     expect(takeover.ran).toBe(true);
     expect(takeover.warnings).toMatchObject({ alreadySent: 4, delivered: 1 });
@@ -353,7 +431,7 @@ describe('runDaily after a run that died', () => {
     await gate.reached;
     expect(await h.store.listWarningMemory(WORKSPACE_ID)).toEqual([]);
 
-    at(h, startMs, 31);
+    at(h, startMs, LEASE + 1);
     const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     expect(takeover.warnings).toMatchObject({ alreadySent: 5, notices: 8 });
     h.clock.advanceDays(1);

@@ -6,10 +6,12 @@
 // The claim is a lease. If anything throws, it is released so the next
 // scheduler tick can retry. If the process dies instead (killed, or the
 // worker's hard timeout), the claim stays unfinished; once it is older
-// than the lease (config.dailyLeaseMinutes, longer than any tick can
-// live) the next tick takes the day over and runs the whole job again,
-// which is safe at any point the first run stopped: allocation never
-// reassigns an assigned issue, and nobody gets a second digest that day.
+// than the lease (config.dailyLeaseMinutes, 45 minutes by default: longer
+// than any worker run can live plus ALLOCATION_RUN_STALE_MINUTES, so the
+// allocation run the dead one started is stale by then) the next tick
+// takes the day over and runs the whole job again, which is safe at any
+// point the first run stopped: allocation never reassigns an assigned
+// issue, and nobody gets a second digest that day.
 
 import {
   addDays,

@@ -1,6 +1,14 @@
+import {
+  ALLOCATION_RUN_STALE_MINUTES,
+  DEFAULT_DAILY_LEASE_MINUTES,
+} from '@better-tracker/engine';
 import { describe, expect, test } from 'bun:test';
 
-import { loadWorkerConfig } from '../src/config';
+import {
+  DEFAULT_TICK_TIMEOUT_MINUTES,
+  loadWorkerConfig,
+  MAX_TICK_TIMEOUT_MINUTES,
+} from '../src/config';
 
 describe('loadWorkerConfig', () => {
   test('defaults: 08:00, 10-minute timeout, 15-minute interval', () => {
@@ -64,16 +72,35 @@ describe('loadWorkerConfig', () => {
     }
   );
 
-  test('a tick may last up to one minute less than the daily lease', () => {
+  test('a tick may last up to the daily lease minus the stale-run threshold, minus a minute', () => {
     expect(
-      loadWorkerConfig({ TICK_TIMEOUT_MINUTES: '29' }).tickTimeoutMinutes
-    ).toBe(29);
-    expect(() => loadWorkerConfig({ TICK_TIMEOUT_MINUTES: '30' })).toThrow(
-      'TICK_TIMEOUT_MINUTES must be a whole number of minutes from 1 to 29'
+      loadWorkerConfig({ TICK_TIMEOUT_MINUTES: '14' }).tickTimeoutMinutes
+    ).toBe(14);
+    expect(() => loadWorkerConfig({ TICK_TIMEOUT_MINUTES: '15' })).toThrow(
+      'TICK_TIMEOUT_MINUTES must be a whole number of minutes from 1 to 14'
     );
   });
 
-  test.each(['30', '721', '-1', '10m'])(
+  test("a dead run's allocation is stale before its daily claim can be taken over", () => {
+    // A run lives at most MAX_TICK_TIMEOUT_MINUTES after it starts, and it
+    // claims the day after it starts, so its allocation run started at
+    // most that long after the claim. That run stops blocking new ones
+    // ALLOCATION_RUN_STALE_MINUTES later; a takeover needs a claim older
+    // than the lease.
+    expect(
+      MAX_TICK_TIMEOUT_MINUTES + ALLOCATION_RUN_STALE_MINUTES
+    ).toBeLessThan(DEFAULT_DAILY_LEASE_MINUTES);
+    expect(MAX_TICK_TIMEOUT_MINUTES).toBe(
+      DEFAULT_DAILY_LEASE_MINUTES - ALLOCATION_RUN_STALE_MINUTES - 1
+    );
+    // The default fits, and a run ends before the next 15-minute cron slot.
+    expect(DEFAULT_TICK_TIMEOUT_MINUTES).toBeLessThanOrEqual(
+      MAX_TICK_TIMEOUT_MINUTES
+    );
+    expect(MAX_TICK_TIMEOUT_MINUTES).toBeLessThan(15);
+  });
+
+  test.each(['15', '30', '721', '-1', '10m'])(
     'rejects TICK_TIMEOUT_MINUTES=%p',
     (value) => {
       expect(() => loadWorkerConfig({ TICK_TIMEOUT_MINUTES: value })).toThrow(

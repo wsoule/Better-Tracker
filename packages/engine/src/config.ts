@@ -21,10 +21,13 @@ export const DEFAULT_PGLITE_DIR = '.data/pglite';
 export const DEFAULT_SESSION_DAYS = 30;
 /**
  * How long an unfinished daily claim holds before another process may take
- * it over (EngineConfig.dailyLeaseMinutes). Longer than any worker tick can
- * live (TICK_TIMEOUT_MINUTES is capped below it).
+ * it over (EngineConfig.dailyLeaseMinutes). The worker keeps every run
+ * shorter than this minus ALLOCATION_RUN_STALE_MINUTES (its
+ * TICK_TIMEOUT_MINUTES is at most 45 − 30 − 1 = 14), so when a dead run's
+ * claim may be taken over, the allocation run it started is already stale
+ * and the takeover's own run is not refused as a conflict.
  */
-export const DEFAULT_DAILY_LEASE_MINUTES = 30;
+export const DEFAULT_DAILY_LEASE_MINUTES = 45;
 /** Path of the OAuth callback route, appended to `APP_URL`. */
 export const OAUTH_CALLBACK_PATH = '/api/auth/linear/callback';
 

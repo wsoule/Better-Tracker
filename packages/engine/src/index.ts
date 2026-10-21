@@ -21,7 +21,11 @@ export {
   needsRefresh,
   REFRESH_MARGIN_MS,
 } from './providers';
-export { STALE_REASON_LABEL, type StaleReason } from './allocation-run';
+export {
+  ALLOCATION_RUN_STALE_MINUTES,
+  STALE_REASON_LABEL,
+  type StaleReason,
+} from './allocation-run';
 export { SLACK_NOT_CONFIGURED } from './warning-run';
 export { WEBHOOK_RETENTION_DAYS } from './cleanup';
 export { DONE_MEANS_MAX_LENGTH, WEIGHT_MAX, WEIGHT_MIN } from './pm-edits';

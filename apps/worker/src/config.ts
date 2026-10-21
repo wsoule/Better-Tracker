@@ -3,7 +3,10 @@
 // scheduler knobs only the worker uses. Like the engine, every problem is
 // collected and reported in one error.
 
-import { DEFAULT_DAILY_LEASE_MINUTES } from '@better-tracker/engine';
+import {
+  ALLOCATION_RUN_STALE_MINUTES,
+  DEFAULT_DAILY_LEASE_MINUTES,
+} from '@better-tracker/engine';
 
 import {
   DEFAULT_DAILY_RUN_AT,
@@ -20,11 +23,20 @@ export const DEFAULT_TICK_TIMEOUT_MINUTES = 10;
 export const DEFAULT_SYNC_INTERVAL_MINUTES = 15;
 
 /**
- * A tick must end before the engine's daily lease runs out: another tick
- * takes over an unfinished daily claim older than the lease, which must
- * mean its holder is dead, not still working.
+ * The largest `TICK_TIMEOUT_MINUTES`: the engine's daily lease minus its
+ * stale-run threshold, minus one minute of margin (45 − 30 − 1 = 14).
+ *
+ * Another tick takes over an unfinished daily claim once it is older than
+ * the lease, so a tick holding the claim must be dead by then. The
+ * takeover then starts its own allocation run, which the dead tick's run
+ * blocks until it is ALLOCATION_RUN_STALE_MINUTES old. A tick that lives
+ * at most this long started its allocation at most 14 minutes after its
+ * claim, so that run is stale by claim + 44, before any takeover (after
+ * claim + 45). It also keeps a tick shorter than the 15-minute cron
+ * interval.
  */
-export const MAX_TICK_TIMEOUT_MINUTES: number = DEFAULT_DAILY_LEASE_MINUTES - 1;
+export const MAX_TICK_TIMEOUT_MINUTES: number =
+  DEFAULT_DAILY_LEASE_MINUTES - ALLOCATION_RUN_STALE_MINUTES - 1;
 const MAX_SYNC_INTERVAL_MINUTES = 1440;
 
 export interface WorkerConfig {

@@ -540,7 +540,9 @@ Tables (all keyed by `workspace_id`):
   time/status/error, last webhook time.
 - `allocation_runs` — mode, trigger, status, summary jsonb; a partial unique
   index on `(workspace_id) where status = 'running'` makes concurrent runs
-  impossible.
+  impossible. `startRun(…, staleAfterMinutes)` first closes runs still `running`
+  that started longer ago than that as `failed`/`stale run` (a crashed process);
+  the engine passes `ALLOCATION_RUN_STALE_MINUTES` (30).
 - `allocation_entries` — per-issue/per-project log (§6.12 "logged").
 - `warning_memory` — `(workspace_id, subject_kind, subject_id) pk`.
 - `notifications` — unique `(workspace_id, day, recipient_id)`.
@@ -553,7 +555,8 @@ Tables (all keyed by `workspace_id`):
   claim's identity: `finishJob(…, { claimedAt, at })` sets `finished_at` and
   `releaseJob(…, claimedAt)` deletes the claim only while it is still that
   unfinished claim, so a holder that was taken over never touches the new
-  holder's. A finished claim is never taken over.
+  holder's. A finished claim is never taken over. The engine's daily lease is 45
+  minutes (§7).
 - `audit_log` — PM edits with before/after.
 
 Token encryption: AES-256-GCM, key = 32 bytes from `TOKEN_ENCRYPTION_KEY`
@@ -633,7 +636,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   milestones). Anything else → `'ignored'`. Errors are recorded on the delivery
   and logged; the periodic resync heals drift.
 - **runAllocation** (§7.4, §6.3, §6.12, §9 safety):
-  1. `store.startRun` (null → `EngineInputError('conflict')`).
+  1. `store.startRun` (null → `EngineInputError('conflict')`); a run still
+     `running` `ALLOCATION_RUN_STALE_MINUTES` (30) after it started counts as
+     crashed and is closed as `stale run` first.
   2. `fullSync` so the plan uses fresh data.
   3. `planAllocation`; record `block` entries for blocked projects and `skip`
      entries for skips.
@@ -656,7 +661,7 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   fullSync → runAllocation(settings.allocationMode, schedule) → runWarnings →
   `finishJob`. If the run throws, `releaseJob` so the next tick can retry. If
   the process dies instead (killed, hard timeout), the claim stays unfinished
-  and, once older than `config.dailyLeaseMinutes` (default 30,
+  and, once older than `config.dailyLeaseMinutes` (default 45,
   `DEFAULT_DAILY_LEASE_MINUTES`), the next due tick takes the day over and runs
   the whole job again (see "A daily takeover" below). `day` is the optional
   `input.day` (the day the scheduler decided is due), else today in the
@@ -685,8 +690,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 `loadEngineConfigFromEnv(env): EngineConfig` (throws one error listing every
 missing/invalid variable), `EngineAuthError`, `EngineInputError`,
 `LinearApiError` (re-exported) and `isLinearApiError(e)` (instanceof, with a
-`name === 'LinearApiError'` fallback across bundle copies), and every type in
-`src/types.ts`.
+`name === 'LinearApiError'` fallback across bundle copies), the timing constants
+`DEFAULT_DAILY_LEASE_MINUTES` (45) and `ALLOCATION_RUN_STALE_MINUTES` (30) the
+worker derives its timeout cap from, and every type in `src/types.ts`.
 
 `createEngineFromEnv`:
 
@@ -783,20 +789,25 @@ Engine decisions made while building it (binding for callers):
   as assigned, so they are skipped `already_assigned` (never re-assigned or
   re-commented); a comment the dead run had not posted yet stays missing, and an
   assignment it made just before dying is logged only as that skip. The dead run
-  stays `running` until `startRun` closes it as `stale run` (30 minutes after it
-  started); a takeover that finds it not yet stale fails with `conflict`, gives
-  the day back, and a later tick runs the job. Killed during warnings: memory
-  was not saved yet, so every notice is planned again; nobody is sent a second
-  digest that day (a recipient with a row today counts as `alreadySent`,
-  including a `pending` row, whose send may have reached Slack). What the dead
-  run's delivered digests carried counts as told; the notices of the recipient
-  whose send was in flight keep their old memory and are offered again the next
-  day. A run that outlives its lease and completes anyway finds its claim gone:
-  `finishJob` returns false and it logs a warning. The lease must be longer than
-  any daily run can live: the worker caps `TICK_TIMEOUT_MINUTES` at 29 (one
-  below the default lease). The manual `daily` command has no hard timeout, so
-  one that ran past the lease could be taken over by a tick (both runs are safe,
-  the second is wasted work).
+  stays `running` until `startRun` closes it as `stale run`
+  (`ALLOCATION_RUN_STALE_MINUTES`, 30 minutes after it started), and the lease
+  is sized so a takeover never finds it in the way: the worker caps
+  `TICK_TIMEOUT_MINUTES` at lease − stale − 1 = 14, so a dead tick started its
+  allocation run at most 14 minutes after its claim, and that run is stale by
+  claim + 44, before the claim can be taken over (claim + 45). A daily run that
+  does find an allocation run in progress (a PM's run from the web app) fails
+  with `conflict`, gives the day back, and a later tick runs the job. Killed
+  during warnings: memory was not saved yet, so every notice is planned again;
+  nobody is sent a second digest that day (a recipient with a row today counts
+  as `alreadySent`, including a `pending` row, whose send may have reached
+  Slack). What the dead run's delivered digests carried counts as told; the
+  notices of the recipient whose send was in flight keep their old memory and
+  are offered again the next day. A run that outlives its lease and completes
+  anyway finds its claim gone: `finishJob` returns false and it logs a warning.
+  The lease must be longer than any daily run can live plus
+  `ALLOCATION_RUN_STALE_MINUTES`; hence the worker's cap above. The manual
+  `daily` command has no hard timeout, so one that ran past the lease could be
+  taken over by a tick (both runs are safe, the second is wasted work).
 - A live run in which every assignment failed is `failed`; a comment that fails
   after a successful assignment leaves the entry `applied` with an error and the
   run `partial`. Stale reasons: `not_found`, `closed`, `now_assigned`,
@@ -1050,12 +1061,14 @@ Worker decisions made while building it (binding):
   account); they are counted in the summary.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
-  `TICK_TIMEOUT_MINUTES` (keep it below the 15-minute cron interval; at most 29,
-  so a tick always ends before the engine's 30-minute daily lease lets another
-  tick take its claim over). `serve` gives its boot, each tick and its shutdown
-  one budget each; SIGTERM/SIGINT let the current tick finish, then the store is
-  closed and `serve` exits 0; a second signal, including one during that close,
-  exits 1 at once.
+  `TICK_TIMEOUT_MINUTES`: at most 14 (`MAX_TICK_TIMEOUT_MINUTES`, derived from
+  the engine's constants: the 45-minute daily lease minus the 30-minute
+  stale-run threshold, minus a minute), so a tick always ends, and its
+  allocation run is stale, before another tick may take its daily claim over;
+  that also keeps it below the 15-minute cron interval. `serve` gives its boot,
+  each tick and its shutdown one budget each; SIGTERM/SIGINT let the current
+  tick finish, then the store is closed and `serve` exits 0; a second signal,
+  including one during that close, exits 1 at once.
 - The CLI runs only when its module is the process's main script, resolved the
   way node resolves it (`node apps/worker tick` and `node apps/worker/dist tick`
   work too), so it can never load and silently do nothing.
@@ -1080,7 +1093,7 @@ Worker decisions made while building it (binding):
 | `PM_EMAILS`, `WATCHER_EMAILS`               | engine          | comma-separated bootstrap lists                                   |
 | `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed                                 |
 | `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
-| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit for one tick, minutes (default 10, at most 29)         |
+| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit for one tick, minutes (default 10, at most 14)         |
 | `SYNC_INTERVAL_MINUTES`                     | worker serve    | minutes between ticks (default 15)                                |
 | `PGLITE_DIR`                                | all             | PGlite directory when `DATABASE_URL` is unset (local dev only)    |
 | `SESSION_DAYS`                              | engine          | session lifetime in days (default 30)                             |

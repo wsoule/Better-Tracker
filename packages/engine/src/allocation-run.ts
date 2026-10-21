@@ -59,8 +59,13 @@ export const STALE_REASON_LABEL: Record<StaleReason, string> = {
   now_triage: 'Moved back to Triage since the plan was made',
 };
 
-/** A run still "running" after this long is considered crashed. */
-const STALE_RUN_MINUTES = 30;
+/**
+ * Minutes after it started that a run still `running` counts as crashed:
+ * the next startRun closes it as `stale run` instead of refusing to start.
+ * The daily lease (DEFAULT_DAILY_LEASE_MINUTES) is sized against it, so a
+ * daily takeover never finds the dead run's allocation still in the way.
+ */
+export const ALLOCATION_RUN_STALE_MINUTES = 30;
 
 export interface AllocationRunInput {
   workspaceId: string;
@@ -342,7 +347,7 @@ export async function runAllocation(
     trigger,
     startedByUserId: actor?.session.userId ?? null,
     now: rt.nowIso(),
-    staleAfterMinutes: STALE_RUN_MINUTES,
+    staleAfterMinutes: ALLOCATION_RUN_STALE_MINUTES,
   });
   if (run === null) {
     throw new EngineInputError(

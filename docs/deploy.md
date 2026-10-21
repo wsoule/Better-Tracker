@@ -245,9 +245,11 @@ from the same Dockerfile.
   The worker's hard timeout covers that last point. `TICK_TIMEOUT_MINUTES`
   (default 10) is counted from the moment the process starts, boot included: a
   run that is still going then logs an error and exits 1, before the next slot,
-  so one stuck run cannot block the runs after it. Keep it below 15. The worker
-  refuses values above 29: the daily job's claim may be taken over after 30
-  minutes, which must only happen to a tick that is dead.
+  so one stuck run cannot block the runs after it. The worker refuses values
+  above 14, which also keeps it below 15: the daily job's claim may be taken
+  over after 45 minutes, which must only happen to a tick that is dead and whose
+  allocation run no longer blocks new ones (a run counts as crashed 30 minutes
+  after it started).
 
 - **Restart policy**: **Never**. The default is On Failure with up to 10
   restarts. Railway does not document how restarts interact with cron runs; its
@@ -303,9 +305,9 @@ PR environments (research: Railway deployment, "Variable reference syntax").
 | `RAILWAY_DOCKERFILE_PATH` |  ✓  |   ✓    | `deploy/Dockerfile` (a Railway build setting, not read by the app)                                                                                                                                                                                                                                       |
 
 Optional: `APP_NAME`, `LOG_LEVEL` (`debug` / `info` / `warn` / `error`),
-`SESSION_DAYS` (default 30) and `TICK_TIMEOUT_MINUTES` (default 10). **Never set
-`LINEAR_FIXTURE` in production**: it switches to the fictional demo workspace.
-`PGLITE_DIR` is not used when `DATABASE_URL` is set.
+`SESSION_DAYS` (default 30) and `TICK_TIMEOUT_MINUTES` (default 10, at most 14).
+**Never set `LINEAR_FIXTURE` in production**: it switches to the fictional demo
+workspace. `PGLITE_DIR` is not used when `DATABASE_URL` is set.
 
 **Migrations run on boot.** Each service applies pending migrations when it
 starts, and every worker run applies them too. A Postgres advisory lock
@@ -416,13 +418,17 @@ service if your Railway plan offers one: **verify this in your workspace**.
 - If the job fails with an error, its claim is released and the next tick (15
   minutes later) runs it again.
 - If a tick is killed or hits its timeout **in the middle of** the daily job,
-  its claim stays taken for a 30-minute lease, so the next tick or two report
-  `daily already ran`. After that the next tick takes the day over and runs the
-  whole job again (logged as `took over a stale job claim`), normally within 45
-  minutes of the killed tick. If the dead tick had already started its
-  allocation run, that run blocks allocation until it is 30 minutes old: the
-  first takeover can fail with `An allocation run is already in progress` (exit
-  1), and the tick after it succeeds.
+  its claim stays taken for a 45-minute lease, so the next two or three ticks
+  report `daily already ran`. After that the next tick takes the day over and
+  runs the whole job again (logged as `took over a stale job claim`), normally
+  45 to 60 minutes after the killed tick started. An allocation run the dead
+  tick had started is closed as crashed by then (30 minutes after it started;
+  logged as `marked stale allocation run as failed`), so it does not block the
+  takeover.
+- If another allocation run is in progress when the daily job starts (a PM
+  started one from the web app), the job fails with
+  `An allocation run is already in progress` (exit 1), gives the day back, and a
+  later tick runs it.
 - What the re-run does: issues the dead tick already assigned are skipped as
   already assigned (never assigned or commented twice; a comment it had not
   posted yet stays missing). Nobody gets a second digest that day, not even

@@ -52,8 +52,10 @@ export interface EngineConfig {
   /**
    * Additive: minutes an unfinished daily claim holds before another
    * process may take it over (its holder died mid-run). Default
-   * DEFAULT_DAILY_LEASE_MINUTES (30). It must be longer than any daily run
-   * can live, which is why the worker caps TICK_TIMEOUT_MINUTES below it.
+   * DEFAULT_DAILY_LEASE_MINUTES (45). It must be longer than any daily run
+   * can live plus ALLOCATION_RUN_STALE_MINUTES (30), so a takeover finds
+   * the dead run's allocation stale; the worker therefore caps
+   * TICK_TIMEOUT_MINUTES at lease − stale − 1 (14).
    */
   dailyLeaseMinutes?: number;
 }
