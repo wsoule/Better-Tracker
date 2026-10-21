@@ -513,7 +513,12 @@ to the `options` of `DATABASE_URL` (or `PGOPTIONS`), so no query has to run
 before a connection's first one. Every transaction also pins the level in
 `BEGIN`, and every write runs in a transaction of its own, so a transaction-mode
 pooler that drops startup options is still safe; statements outside a
-transaction are single-statement reads.
+transaction are single-statement reads. A pooler that refuses the option instead
+(PgBouncer in its default configuration closes the connection with 08P01
+"unsupported startup parameter") makes the handle switch, once and logged at
+info, to connections opened with `DATABASE_URL` exactly as given, and retry the
+call there (only opening a connection fails that way). A refusal of the URL's
+own `options` still fails.
 
 Tables (all keyed by `workspace_id`):
 
@@ -1097,7 +1102,9 @@ Worker decisions made while building it (binding):
   With `TEST_DATABASE_URL` the same suite also runs on real Postgres, including
   sessions forced to REPEATABLE READ (as behind a pooler that dropped the
   startup option), writes racing an uncommitted writer, and a subprocess that
-  must print no `DeprecationWarning`.
+  must print no `DeprecationWarning`. `TEST_PGBOUNCER_URL` (a transaction-mode
+  PgBouncer with its default configuration) runs the store behind a pooler that
+  refuses the startup option.
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe

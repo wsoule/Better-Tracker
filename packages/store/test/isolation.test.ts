@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { type PoolClient, Pool } from 'pg';
 
 import { openPgSql, type Sql } from '../src/db';
-import { createSqlStore } from '../src/store';
+import { createSqlStore, openStore } from '../src/store';
 import type { Store } from '../src/types';
 import {
   newWorkspaceId,
@@ -222,6 +222,47 @@ describe.skipIf(DATABASE_URL === '')(
           () => store.deleteSession(token)
         );
         expect(await store.getSession(token, NOW)).toBeNull();
+      });
+    });
+  }
+);
+
+// TEST_PGBOUNCER_URL: a transaction-mode PgBouncer in its default
+// configuration in front of a Postgres server. PgBouncer accepts only the
+// startup parameters it tracks, so it closes every connection that carries
+// the store's startup option ("unsupported startup parameter"); the store
+// must still connect, and keep its READ COMMITTED answers through BEGIN.
+const PGBOUNCER_URL = process.env['TEST_PGBOUNCER_URL'] ?? '';
+
+describe.skipIf(PGBOUNCER_URL === '')(
+  'Store behind PgBouncer (TEST_PGBOUNCER_URL)',
+  () => {
+    let store: Store;
+
+    beforeAll(async () => {
+      store = await openStore({
+        databaseUrl: PGBOUNCER_URL,
+        encryptionKey: TEST_KEY,
+      });
+      await store.migrate();
+    }, STARTUP_TIMEOUT);
+
+    afterAll(async () => {
+      await store.close();
+    });
+
+    test('connects, and concurrent claims still have exactly one winner', async () => {
+      const ws = newWorkspaceId();
+      expect(await store.ping()).toBe(true);
+      const claims = await Promise.all(
+        [1, 2, 3, 4, 5, 6].map(() =>
+          store.claimJob(ws, 'daily', DAY, NOW, { leaseMinutes: 30 })
+        )
+      );
+      expect(claims.filter(Boolean)).toHaveLength(1);
+      await store.recordFullSync(ws, { at: NOW, ok: true, error: null });
+      expect(await store.getSyncState(ws)).toMatchObject({
+        lastFullSyncStatus: 'ok',
       });
     });
   }
