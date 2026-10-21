@@ -1,0 +1,386 @@
+import { LinearApiError as SourceLinearApiError } from '@better-tracker/linear';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import {
+  type Actor,
+  createEngineFromEnv,
+  type Engine,
+  EngineAuthError,
+  EngineInputError,
+  isLinearApiError,
+  LinearApiError,
+  loadEngineConfigFromEnv,
+} from '../src/index';
+import {
+  recordingLogger,
+  TEST_KEY,
+  rejectionMessage,
+  rejection,
+} from './helpers';
+
+const REAL_ENV = {
+  APP_URL: 'https://planner.example.com/',
+  TOKEN_ENCRYPTION_KEY: TEST_KEY,
+  LINEAR_CLIENT_ID: 'client-id',
+  LINEAR_CLIENT_SECRET: 'client-secret',
+};
+
+describe('loadEngineConfigFromEnv', () => {
+  test('demo mode needs no other variables', () => {
+    const config = loadEngineConfigFromEnv({ LINEAR_FIXTURE: '1' });
+    expect(config).toEqual({
+      appName: 'Milestone Planner',
+      appUrl: 'http://localhost:3000',
+      defaultTimezone: 'UTC',
+      bootstrapPmEmails: [],
+      bootstrapWatcherEmails: [],
+      oauth: null,
+      sessionDays: 30,
+    });
+  });
+
+  test('real mode builds OAuth config and normalises values', () => {
+    const config = loadEngineConfigFromEnv({
+      ...REAL_ENV,
+      APP_NAME: 'Planner',
+      DEFAULT_TIMEZONE: 'America/Chicago',
+      PM_EMAILS: ' Wyat@Example.com, shanzer@example.com ,,wyat@example.com',
+      WATCHER_EMAILS: 'ops@example.com',
+      SESSION_DAYS: '14',
+    });
+    expect(config.appUrl).toBe('https://planner.example.com');
+    expect(config.oauth).toEqual({
+      clientId: 'client-id',
+      clientSecret: 'client-secret',
+      redirectUri: 'https://planner.example.com/api/auth/linear/callback',
+    });
+    expect(config.bootstrapPmEmails).toEqual([
+      'wyat@example.com',
+      'shanzer@example.com',
+    ]);
+    expect(config.bootstrapWatcherEmails).toEqual(['ops@example.com']);
+    expect(config.defaultTimezone).toBe('America/Chicago');
+    expect(config.sessionDays).toBe(14);
+    expect(config.appName).toBe('Planner');
+  });
+
+  test('reports every problem in one error', () => {
+    let message = '';
+    try {
+      loadEngineConfigFromEnv({
+        DEFAULT_TIMEZONE: 'Mars/Olympus',
+        SESSION_DAYS: 'forever',
+        PM_EMAILS: 'not-an-email',
+        LOG_LEVEL: 'loud',
+      });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    for (const part of [
+      'APP_URL is required',
+      'TOKEN_ENCRYPTION_KEY is required',
+      'LINEAR_CLIENT_ID is required',
+      'LINEAR_CLIENT_SECRET is required',
+      'DEFAULT_TIMEZONE is not a known IANA timezone: Mars/Olympus',
+      'SESSION_DAYS must be a whole number',
+      'PM_EMAILS has an entry that is not an email: not-an-email',
+      'LOG_LEVEL must be one of',
+    ]) {
+      expect(message).toContain(part);
+    }
+  });
+
+  test('rejects malformed values that are present', () => {
+    expect(() =>
+      loadEngineConfigFromEnv({ ...REAL_ENV, APP_URL: 'ftp://x.example' })
+    ).toThrow('APP_URL must start with http:// or https://');
+    expect(() =>
+      loadEngineConfigFromEnv({ ...REAL_ENV, TOKEN_ENCRYPTION_KEY: 'short' })
+    ).toThrow('TOKEN_ENCRYPTION_KEY is invalid');
+    expect(() =>
+      loadEngineConfigFromEnv({ ...REAL_ENV, DATABASE_URL: 'mysql://db' })
+    ).toThrow('DATABASE_URL must be a postgres:// connection string');
+    expect(() => loadEngineConfigFromEnv({ LINEAR_FIXTURE: 'yes' })).toThrow(
+      'LINEAR_FIXTURE must be 1'
+    );
+  });
+});
+
+describe('createEngineFromEnv in demo mode', () => {
+  let engine: Engine;
+  const { logger, lines } = recordingLogger();
+
+  beforeAll(async () => {
+    engine = await createEngineFromEnv({ LINEAR_FIXTURE: '1' }, { logger });
+  });
+  afterAll(async () => {
+    await engine.close();
+  });
+
+  test('boots a seeded, synced demo workspace', async () => {
+    expect(engine.mode).toBe('fixture');
+    expect(engine.config.oauth).toBeNull();
+    expect(await engine.listWorkspaceIds()).toEqual(['org-northwind']);
+
+    const loaded = await engine.load('org-northwind');
+    expect(loaded.snapshot.projects.size).toBe(9);
+    expect(loaded.snapshot.milestones.size).toBe(17);
+    expect(loaded.mirrorVersion).toBeGreaterThan(0);
+    expect(loaded.syncState?.lastFullSyncStatus).toBe('ok');
+    expect(loaded.settings.pmUserIds).toEqual(['user-ana', 'user-ben']);
+    expect(loaded.settings.watcherUserIds).toEqual(['user-ana', 'user-ben']);
+    expect(loaded.settings.allocationMode).toBe('dry_run');
+    expect(loaded.settings.warningsMode).toBe('preview');
+    expect(loaded.assessments.size).toBe(17);
+    expect(loaded.allocationPlan.totals.actions).toBe(5);
+
+    // Seeded "done means…" makes ms-compass-1 valid; ms-harbor-1 stays invalid.
+    expect(loaded.assessments.get('ms-compass-1')?.rubric.valid).toBe(true);
+    expect(loaded.assessments.get('ms-harbor-1')?.rubric.gaps).toEqual([
+      'no_done_means',
+    ]);
+
+    // A cached load reuses the indexed snapshot object.
+    const again = await engine.load('org-northwind');
+    expect(again.snapshot).toBe(loaded.snapshot);
+  });
+
+  test('every view builds over the demo workspace', async () => {
+    const loaded = await engine.load('org-northwind');
+    const users = await engine.listDemoUsers();
+    expect(users.map((u) => u.id)).toEqual([
+      'user-ana',
+      'user-ben',
+      'user-chloe',
+      'user-dev',
+      'user-elena',
+      'user-femi',
+      'user-grace',
+    ]);
+    for (const user of users) {
+      const week = await engine.getWeekView('org-northwind', user.id);
+      expect(week.userId).toBe(user.id);
+      expect(week.userName).toBe(user.name);
+      expect(week.today).toBe(loaded.today);
+    }
+    const anaWeek = await engine.getWeekView('org-northwind', 'user-ana');
+    expect(anaWeek.sections.at(-1)?.milestoneId).toBeNull();
+    expect(anaWeek.totals.open).toBeGreaterThan(0);
+
+    const timeline = await engine.getTimelineView('org-northwind');
+    expect(timeline.groups.length).toBeGreaterThan(0);
+    expect(
+      timeline.banners.projectsWithoutLead.map((p) => p.projectId)
+    ).toEqual(['proj-delta']);
+    expect(
+      timeline.banners.blockedProjects.map((p) => p.projectId).sort()
+    ).toEqual(['proj-delta', 'proj-ember', 'proj-harbor']);
+
+    const graph = await engine.getGraph('org-northwind', {
+      level: 'milestone',
+    });
+    expect(graph.nodes.length).toBeGreaterThan(0);
+    expect(graph.edges.length).toBeGreaterThan(0);
+    const juniper = await engine.getGraph('org-northwind', {
+      level: 'issue',
+      milestoneId: 'ms-juniper-1',
+    });
+    expect(juniper.cycles.length).toBe(1);
+    const atlas = await engine.getGraph('org-northwind', {
+      level: 'issue',
+      projectId: 'proj-atlas',
+    });
+    expect(atlas.nodes.some((n) => n.id === 'iss-eng-12')).toBe(true);
+
+    for (const milestoneId of loaded.snapshot.milestones.keys()) {
+      const detail = await engine.getMilestoneDetail(
+        'org-northwind',
+        milestoneId
+      );
+      expect(detail.milestone.id).toBe(milestoneId);
+    }
+
+    expect(await engine.listRuns('org-northwind', 10)).toEqual([]);
+    expect(await engine.listNotifications('org-northwind', 10)).toEqual([]);
+    expect(await engine.listAudit('org-northwind', 10)).toEqual([]);
+    const installation = await engine.getInstallation('org-northwind');
+    expect(installation?.appUserId).toBe('user-app');
+    expect(installation?.tokens.accessToken).toBe('');
+  });
+
+  test('reads reject unknown ids and scopes', async () => {
+    expect(
+      await rejection(engine.getMilestoneDetail('org-northwind', 'ms-nope'))
+    ).toMatchObject({ name: 'EngineInputError', code: 'not_found' });
+    expect(
+      await rejection(
+        engine.getGraph('org-northwind', {
+          level: 'issue',
+          projectId: 'proj-nope',
+        })
+      )
+    ).toBeInstanceOf(EngineInputError);
+    expect(
+      await rejection(engine.getWeekView('org-northwind', 'user-nobody'))
+    ).toMatchObject({ code: 'not_found' });
+    expect(await rejection(engine.load('org-elsewhere'))).toMatchObject({
+      name: 'EngineAuthError',
+      code: 'not_installed',
+    });
+  });
+
+  test('demo sign-in works for people only, and webhooks are ignored', async () => {
+    const signIn = await engine.devSignIn('user-chloe');
+    expect(signIn.needsInstall).toBe(false);
+    expect(signIn.session.tokens.accessToken).toBe('');
+    const actor = await engine.authenticate(signIn.sessionToken);
+    expect(actor?.isPm).toBe(false);
+    expect(actor?.canWriteLinear).toBe(true);
+    expect(actor?.session.userId).toBe('user-chloe');
+
+    const pm = await engine.authenticate(
+      (await engine.devSignIn('user-ana')).sessionToken
+    );
+    expect(pm?.isPm).toBe(true);
+
+    expect(await rejection(engine.devSignIn('user-app'))).toBeInstanceOf(
+      EngineInputError
+    );
+    expect(await rejection(engine.devSignIn('user-hugo'))).toBeInstanceOf(
+      EngineInputError
+    );
+    expect(await rejection(engine.devSignIn('user-nobody'))).toMatchObject({
+      code: 'not_found',
+    });
+
+    await engine.signOut(signIn.sessionToken);
+    expect(await engine.authenticate(signIn.sessionToken)).toBeNull();
+    expect(await engine.authenticate(undefined)).toBeNull();
+
+    expect(
+      await engine.handleWebhook({
+        deliveryId: 'd-1',
+        workspaceId: 'org-northwind',
+        type: 'Issue',
+        action: 'update',
+        entityId: 'iss-eng-12',
+        updatedFrom: null,
+      })
+    ).toBe('ignored');
+    expect(() => engine.startOAuth('signin')).toThrow(EngineInputError);
+  });
+
+  test('cleanup drops expired sessions and old webhook deliveries', async () => {
+    const before = lines.length;
+    await engine.cleanup();
+    const line = lines
+      .slice(before)
+      .find((l) => l.includes('"msg":"cleanup finished"'));
+    expect(line).toContain('"expiredSessions":0');
+    expect(line).toContain('"oldDeliveries":0');
+  });
+
+  test('logs carry context and no tokens', () => {
+    expect(lines.some((line) => line.includes('"msg":"engine ready"'))).toBe(
+      true
+    );
+    expect(
+      lines.some(
+        (line) =>
+          line.includes('"msg":"full sync finished"') &&
+          line.includes('"workspaceId":"org-northwind"')
+      )
+    ).toBe(true);
+    expect(lines.join('\n')).not.toContain(TEST_KEY);
+  });
+});
+
+describe('demo mode over a persisted PGLITE_DIR', () => {
+  test('reboots with a fresh ephemeral key and drops unreadable sessions', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'engine-demo-'));
+    const env = { LINEAR_FIXTURE: '1', PGLITE_DIR: join(dir, 'pglite') };
+    const { logger } = recordingLogger();
+    try {
+      const first = await createEngineFromEnv(env, { logger });
+      const signIn = await first.devSignIn('user-ana');
+      await first.updateSettings(
+        (await first.authenticate(signIn.sessionToken)) as Actor,
+        { warningsMode: 'live' }
+      );
+      await first.close();
+
+      const second = await createEngineFromEnv(env, { logger });
+      try {
+        expect(await second.authenticate(signIn.sessionToken)).toBeNull();
+        const loaded = await second.load('org-northwind');
+        // Settings a PM changed survive; the fixture is re-seeded around today.
+        expect(loaded.settings.warningsMode).toBe('live');
+        expect(loaded.snapshot.issues.size).toBeGreaterThan(0);
+        expect(
+          (await second.getInstallation('org-northwind'))?.revokedAt
+        ).toBeNull();
+        const again = await second.devSignIn('user-ana');
+        expect((await second.authenticate(again.sessionToken))?.isPm).toBe(
+          true
+        );
+      } finally {
+        await second.close();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('createEngineFromEnv in real mode', () => {
+  test('requires OAuth settings and migrates the store', async () => {
+    expect(await rejectionMessage(createEngineFromEnv({}))).toContain(
+      'APP_URL is required'
+    );
+    const { logger } = recordingLogger();
+    const dir = await mkdtemp(join(tmpdir(), 'engine-boot-'));
+    const engine = await createEngineFromEnv(
+      { ...REAL_ENV, PGLITE_DIR: join(dir, 'pglite') },
+      { logger }
+    );
+    try {
+      expect(engine.mode).toBe('linear');
+      expect(engine.config.oauth?.redirectUri).toBe(
+        'https://planner.example.com/api/auth/linear/callback'
+      );
+      expect(await engine.listWorkspaceIds()).toEqual([]);
+      expect(await rejection(engine.load('org-x'))).toBeInstanceOf(
+        EngineAuthError
+      );
+      expect(await rejection(engine.devSignIn('user-ana'))).toMatchObject({
+        code: 'fixture_only',
+      });
+      expect(await engine.listDemoUsers()).toEqual([]);
+      const start = engine.startOAuth('install');
+      const url = new URL(start.url);
+      expect(url.searchParams.get('actor')).toBe('app');
+      expect(url.searchParams.get('prompt')).toBe('consent');
+      expect(url.searchParams.get('scope')).toBe('read,write');
+    } finally {
+      await engine.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('isLinearApiError', () => {
+  test('recognises the class and copies from another bundle', () => {
+    expect(LinearApiError).toBe(SourceLinearApiError);
+    expect(isLinearApiError(new LinearApiError('network', 'down'))).toBe(true);
+    const foreign = Object.assign(new Error('rate limited'), {
+      name: 'LinearApiError',
+      kind: 'rate_limited',
+    });
+    expect(isLinearApiError(foreign)).toBe(true);
+    expect(isLinearApiError(new Error('plain'))).toBe(false);
+    expect(isLinearApiError({ name: 'LinearApiError', kind: 'x' })).toBe(false);
+  });
+});

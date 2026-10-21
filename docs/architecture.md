@@ -655,6 +655,54 @@ chars, empty → null; settings: at least one PM (no lockout), valid IANA
 timezone, tuning integers within sane ranges (1–90 days), known modes; user ids
 must exist in the mirror.
 
+Engine decisions made while building it (binding for callers):
+
+- **No credentials leave the engine.** `Actor.session`, `SignInResult.session`,
+  `getInstallation()` and `finishInstall()` carry tokens with `accessToken: ''`
+  and `refreshToken: null` (expiry and scopes kept), so a page can never
+  serialize a Linear token. The real provider's `forSession` therefore reads the
+  session's tokens from its row under `withSessionLock`.
+- **Digests are claim-first**: in live mode with a delivering channel each
+  digest is inserted as `pending`, sent, then `updateNotificationStatus` records
+  the outcome (at most one digest per person per day, even across a crash). A
+  notice that one of its recipients did not get today keeps its old warning
+  memory, so it is announced the next day instead of being lost: the person
+  already had today's digest, the send `failed` (Slack down, bad token),
+  warnings are live with no channel configured, or the notice had no recipient
+  at all (no active lead, no watchers). A per-person `undeliverable` (no Slack
+  account) does not hold the notice, or everyone else would get it again every
+  day.
+- **Going live forgets the warning memory**: `updateSettings` switching
+  `warningsMode` from `preview` to `live` resets every memory row to "never
+  told", so the first live run announces whatever is notable now (preview runs
+  remembered notices nobody received). Today's preview rows still count as
+  today's digest, so that announcement goes out the next day.
+- People the mirror shows as deactivated in Linear (or app users) are signed out
+  by `authenticate` (session deleted), as sign-in refuses them too.
+- PM edits and `updateSettings` require an active installation (`not_installed`
+  otherwise). Weight and "done means…" edits of one milestone run one at a time
+  in-process (the store upserts the whole meta row).
+- `handleWebhook` treats a blank `deliveryId` as none (no dedupe), and the
+  public `runAllocation` always syncs first (only `runDaily` reuses its sync).
+- `runDaily` syncs once: its allocation run reuses that sync.
+- A live run in which every assignment failed is `failed`; a comment that fails
+  after a successful assignment leaves the entry `applied` with an error and the
+  run `partial`. Stale reasons: `not_found`, `closed`, `now_assigned`,
+  `moved_milestone`, `now_triage`.
+- `finishInstall` saves only the installer as PM; the first full sync (mirror
+  version 0) merges `PM_EMAILS`/`WATCHER_EMAILS` in. Reinstalling over an active
+  installation needs a PM, unless no configured PM is still an active person in
+  the mirror (lockout recovery: only a Linear admin can grant `actor=app`, and
+  the reinstaller becomes a PM).
+- `authenticate` drops a session whose refresh hits `invalid_grant`; a transient
+  refresh failure keeps the person signed in.
+- Webhook processing errors resolve as `'processed'` with the error recorded on
+  the delivery. Removals of entities the mirror never had write nothing.
+- Additive API: `EngineDeps.fetch` (OAuth calls), `Engine.close()`,
+  `createEngineFromEnv(env, { logger, now, fetch, channel })`; `cleanup()` also
+  prunes webhook deliveries older than 7 days. Demo mode never uses
+  `DATABASE_URL` or Slack.
+
 ## 8. Web app (apps/planner)
 
 Two references, one rule: **layout and interaction from Gr8r Studio

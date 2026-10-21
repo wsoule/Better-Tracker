@@ -15,7 +15,11 @@ import type {
   WeekView,
   WorkspaceSettings,
 } from '@better-tracker/core';
-import type { LinearGateway, OAuthClientConfig } from '@better-tracker/linear';
+import type {
+  FetchLike,
+  LinearGateway,
+  OAuthClientConfig,
+} from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 import type { NotificationChannel } from '@better-tracker/notify';
 import type {
@@ -69,6 +73,12 @@ export interface EngineDeps {
   config: EngineConfig;
   /** Injectable clock for tests. */
   now?: () => Date;
+  /**
+   * Additive: the fetch used for OAuth calls the engine makes itself (code
+   * exchange, token revocation) and for the identity check right after an
+   * exchange. Defaults to the global fetch; tests inject a fake.
+   */
+  fetch?: FetchLike;
 }
 
 /** The signed-in person making a request. */
@@ -280,6 +290,11 @@ export interface Engine {
   /** Housekeeping for the worker: expired sessions etc. */
   cleanup(): Promise<void>;
   now(): IsoDateTime;
+  /**
+   * Additive: closes the store the engine was built with (the worker exits
+   * after each tick; tests release their PGlite instances).
+   */
+  close(): Promise<void>;
 }
 
 export type { IsoDateTime };

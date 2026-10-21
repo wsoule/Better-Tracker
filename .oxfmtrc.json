@@ -44,6 +44,7 @@
     ".vercel",
     "*.patch",
     "packages/linear/schema/linear.graphql",
-    "docs/design/**"
+    "docs/design/**",
+    "apps/planner/AGENTS.md"
   ]
 }
