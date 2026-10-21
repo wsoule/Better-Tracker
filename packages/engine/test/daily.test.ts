@@ -1,11 +1,13 @@
 import { LinearApiError, type LinearGateway } from '@better-tracker/linear';
 import { afterEach, describe, expect, test } from 'bun:test';
 
+import { EngineInputError } from '../src/types';
 import {
   createDemoHarness,
   type DemoHarness,
   type GatewayWrapper,
   WORKSPACE_ID,
+  rejection,
   rejectionMessage,
 } from './helpers';
 
@@ -152,5 +154,65 @@ describe('runDaily', () => {
     const next = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
     expect(next.ran).toBe(true);
     expect(next.day).toBe('2026-10-23');
+  });
+});
+
+describe('runDaily for a given day', () => {
+  test('runs the day the scheduler decided on, even after local midnight', async () => {
+    harness = await createDemoHarness();
+    const h = harness;
+    const decided = h.clock.today();
+    // The scheduler decided "due for today" a moment before midnight; the
+    // run itself starts just after it.
+    h.clock.set(`${decided}T23:59:59.900Z`);
+    h.clock.set(new Date(h.clock.now().getTime() + 200).toISOString());
+    expect(h.clock.today()).not.toBe(decided);
+
+    const late = await h.engine.runDaily({
+      workspaceId: WORKSPACE_ID,
+      day: decided,
+    });
+    expect(late.ran).toBe(true);
+    expect(late.day).toBe(decided);
+    expect(late.warnings?.day).toBe(decided);
+    // The new day was not claimed early: its own run still happens.
+    const next = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(next.ran).toBe(true);
+    expect(next.day).toBe(h.clock.today());
+    // And the decided day stays claimed.
+    expect(
+      (await h.engine.runDaily({ workspaceId: WORKSPACE_ID, day: decided })).ran
+    ).toBe(false);
+  });
+
+  test('accepts today in the workspace timezone', async () => {
+    harness = await createDemoHarness();
+    const h = harness;
+    const settings = (await h.engine.load(WORKSPACE_ID)).settings;
+    // 15:00 UTC on Oct 21 is already Oct 22 in Kiritimati (UTC+14).
+    await h.store.saveSettings({ ...settings, timezone: 'Pacific/Kiritimati' });
+    const result = await h.engine.runDaily({
+      workspaceId: WORKSPACE_ID,
+      day: '2026-10-22',
+    });
+    expect(result).toMatchObject({ ran: true, day: '2026-10-22' });
+  });
+
+  test.each([
+    ['tomorrow', '2026-10-22'],
+    ['two days ago', '2026-10-19'],
+    ['a malformed date', '2026-10-32'],
+    ['not a date', 'today'],
+  ])('rejects %s without claiming anything', async (_label, day) => {
+    harness = await createDemoHarness();
+    const h = harness;
+    const error = await rejection(
+      h.engine.runDaily({ workspaceId: WORKSPACE_ID, day })
+    );
+    expect(error).toBeInstanceOf(EngineInputError);
+    expect((error as EngineInputError).code).toBe('invalid');
+    expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
+      true
+    );
   });
 });

@@ -4,15 +4,20 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { Pool, PoolConfig } from 'pg';
 
 import {
+  isStartupOptionRefused,
   isUniqueViolation,
   openPgliteSql,
   openPgSql,
+  pgConnectionConfig,
+  pgSqlOverPools,
+  READ_COMMITTED_STARTUP_OPTION,
   type Sql,
 } from '../src/db';
 import { type Migration, MIGRATIONS, runMigrations } from '../src/migrations';
-import { openStore } from '../src/store';
+import { createSqlStore, openStore } from '../src/store';
 import { rejection, repeatableReadUrl, TEST_KEY } from './fixtures';
 
 const STARTUP_TIMEOUT = 60_000;
@@ -116,6 +121,191 @@ describe('Sql on PGlite', () => {
   });
 });
 
+describe('pgConnectionConfig', () => {
+  const RC = READ_COMMITTED_STARTUP_OPTION;
+
+  test('the startup option sets read committed as one escaped value', () => {
+    expect(RC).toBe('-c default_transaction_isolation=read\\ committed');
+  });
+
+  test.each([
+    [
+      'a URL without a query',
+      'postgres://u:p%40ss@db.example:5432/app',
+      undefined,
+      'postgres://u:p%40ss@db.example:5432/app',
+      RC,
+    ],
+    [
+      'PGOPTIONS when the URL has no options',
+      'postgres://db.example/app?sslmode=require',
+      '-c search_path=app',
+      'postgres://db.example/app?sslmode=require',
+      `-c search_path=app ${RC}`,
+    ],
+    [
+      'URL options (which beat PGOPTIONS), moved out of the URL',
+      'postgres://db.example/app?sslmode=require&options=-c%20statement_timeout%3D5s&application_name=a%2Fb',
+      '-c ignored=1',
+      'postgres://db.example/app?sslmode=require&application_name=a%2Fb',
+      `-c statement_timeout=5s ${RC}`,
+    ],
+    [
+      'the last of repeated URL options, as node-postgres reads them',
+      'postgres://db.example/app?options=-c+a%3D1&options=-c+a%3D2#frag',
+      undefined,
+      'postgres://db.example/app#frag',
+      `-c a=2 ${RC}`,
+    ],
+    [
+      'a socket-path string',
+      '/var/run/postgresql app',
+      '-c x=y',
+      '/var/run/postgresql app',
+      `-c x=y ${RC}`,
+    ],
+  ])('merges %s', (_label, url, envOptions, connectionString, options) => {
+    expect(pgConnectionConfig(url, envOptions)).toEqual({
+      connectionString,
+      options,
+    });
+  });
+});
+
+describe('pgSqlOverPools: a pooler that refuses the startup option', () => {
+  const URL = 'postgres://db.example/app?options=-c%20search_path%3Dapp';
+
+  // A pg error as node-postgres raises it from a refused connection.
+  function pgError(code: string, message: string): Error {
+    return Object.assign(new Error(message), { code, severity: 'FATAL' });
+  }
+
+  // A stand-in for pg.Pool: every connection attempt fails with `refusal`
+  // when set, else queries answer one row. Records what ran on it.
+  interface FakePool {
+    pool: Pool;
+    config: PoolConfig;
+    ran: string[];
+    ended: boolean;
+  }
+  function fakePools(refusals: (Error | null)[]): {
+    made: FakePool[];
+    makePool: (config: PoolConfig) => Pool;
+  } {
+    const made: FakePool[] = [];
+    const makePool = (config: PoolConfig): Pool => {
+      const refusal = refusals[made.length] ?? null;
+      const fake: FakePool = {
+        pool: {} as Pool,
+        config,
+        ran: [],
+        ended: false,
+      };
+      const run = (text: string) => {
+        if (refusal !== null) return Promise.reject(refusal);
+        fake.ran.push(text);
+        return Promise.resolve({ rows: [{ ok: 1 }] });
+      };
+      const pool = {
+        on: () => pool,
+        query: run,
+        connect: () =>
+          refusal === null
+            ? Promise.resolve({ query: run, release: () => undefined })
+            : Promise.reject(refusal),
+        end: () => {
+          fake.ended = true;
+          return Promise.resolve();
+        },
+      };
+      fake.pool = pool as unknown as Pool;
+      made.push(fake);
+      return fake.pool;
+    };
+    return { made, makePool };
+  }
+
+  test.each([
+    'unsupported startup parameter: options',
+    'unsupported startup parameter in options: default_transaction_isolation',
+  ])(
+    'reconnects without it, once, after PgBouncer says %p',
+    async (message) => {
+      const { made, makePool } = fakePools([pgError('08P01', message), null]);
+      const infos: string[] = [];
+      const sql = pgSqlOverPools(makePool, URL, {
+        info: (line) => infos.push(line),
+        warn: () => undefined,
+        error: () => undefined,
+      });
+      // Concurrent calls all fail on the first pool; only one switches.
+      const [a, b, tx] = await Promise.all([
+        sql.query('SELECT 1 AS ok'),
+        sql.query('SELECT 2 AS ok'),
+        sql.transaction((t) => t.query('SELECT 3 AS ok')),
+      ]);
+      expect([a, b, tx]).toEqual([[{ ok: 1 }], [{ ok: 1 }], [{ ok: 1 }]]);
+      expect(made.map((m) => m.config)).toEqual([
+        pgConnectionConfig(URL),
+        { connectionString: URL },
+      ]);
+      expect(made[1]?.ran).toEqual([
+        'SELECT 1 AS ok',
+        'SELECT 2 AS ok',
+        'BEGIN ISOLATION LEVEL READ COMMITTED',
+        'SELECT 3 AS ok',
+        'COMMIT',
+      ]);
+      expect(infos).toHaveLength(1);
+      // Later calls go straight to the pool without the option.
+      await sql.query('SELECT 4 AS ok');
+      expect(made).toHaveLength(2);
+      await sql.close();
+      expect(made.map((m) => m.ended)).toEqual([true, true]);
+    }
+  );
+
+  test('other connection errors reach the caller without a switch', async () => {
+    const auth = pgError('28P01', 'password authentication failed');
+    const { made, makePool } = fakePools([auth]);
+    const sql = pgSqlOverPools(makePool, URL);
+    expect(await rejection(sql.query('SELECT 1'))).toBe(auth);
+    expect(await rejection(sql.transaction(() => Promise.resolve()))).toBe(
+      auth
+    );
+    expect(made).toHaveLength(1);
+  });
+
+  test("a refusal of the URL's own options reaches the caller", async () => {
+    const refused = pgError(
+      '08P01',
+      'unsupported startup parameter in options: search_path'
+    );
+    const { made, makePool } = fakePools([refused, refused]);
+    const sql = pgSqlOverPools(makePool, URL);
+    expect(await rejection(sql.query('SELECT 1'))).toBe(refused);
+    expect(await rejection(sql.query('SELECT 1'))).toBe(refused);
+    expect(made).toHaveLength(2);
+  });
+
+  test.each([
+    [pgError('08P01', 'unsupported startup parameter: options'), true],
+    [
+      pgError(
+        '08P01',
+        'unsupported startup parameter in options: default_transaction_isolation'
+      ),
+      true,
+    ],
+    [pgError('08P01', 'invalid message format'), false],
+    [pgError('42704', 'unsupported startup parameter: options'), false],
+    [{ code: '08P01', message: 'unsupported startup parameter' }, false],
+    [null, false],
+  ])('isStartupOptionRefused(%p) is %p', (error, expected) => {
+    expect(isStartupOptionRefused(error)).toBe(expected);
+  });
+});
+
 describe('runMigrations', () => {
   test('applies the real schema once and is idempotent', async () => {
     expect(await runMigrations(sql)).toEqual(MIGRATIONS.map((m) => m.version));
@@ -202,6 +392,34 @@ describe('runMigrations', () => {
     expect((await rejection(runMigrations(sql, unordered))).message).toMatch(
       /strictly increasing/
     );
+  });
+
+  test('migration 3 counts the claims made before leases as finished', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 2)
+      );
+      await fresh.query(
+        `INSERT INTO job_claims (workspace_id, job, day, claimed_at)
+         VALUES ('ws', 'daily', '2026-10-21', '2026-10-21T08:00:00Z')`
+      );
+      expect(await runMigrations(fresh)).toEqual([3]);
+      const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+      // A day an older version claimed stays claimed, lease or not.
+      expect(
+        await store.claimJob(
+          'ws',
+          'daily',
+          '2026-10-21',
+          '2026-10-21T20:00:00.000Z',
+          { leaseMinutes: 30 }
+        )
+      ).toBe(false);
+    } finally {
+      await fresh.close();
+    }
   });
 
   test('concurrent migrators apply each migration once', async () => {

@@ -22,7 +22,7 @@ import {
   setMilestoneWeight,
   setProjectLead,
 } from './pm-edits';
-import { createRuntime } from './runtime';
+import { createRuntime, readSettings } from './runtime';
 import { updateSettings } from './settings';
 import { fullSync } from './sync';
 import type { Engine, EngineDeps, LoadedWorkspace } from './types';
@@ -64,6 +64,8 @@ export function createEngine(deps: EngineDeps): Engine {
         mirrorVersion: loaded.mirrorVersion,
       };
     },
+    getSettings: async (workspaceId) =>
+      (await readSettings(rt, workspaceId)).settings,
     getWeekView: (workspaceId, userId) => getWeekView(rt, workspaceId, userId),
     getTimelineView: (workspaceId) => getTimelineView(rt, workspaceId),
     getGraph: (workspaceId, scope) => getGraph(rt, workspaceId, scope),

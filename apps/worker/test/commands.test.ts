@@ -1,3 +1,5 @@
+import type { WorkspaceSettings } from '@better-tracker/core';
+import type { Engine } from '@better-tracker/engine';
 import { silentLogger } from '@better-tracker/logger';
 import { describe, expect, test } from 'bun:test';
 
@@ -8,6 +10,7 @@ import {
   oneLine,
   runCommand,
   summaryLine,
+  workerEngineFrom,
   type WorkspaceOutcome,
 } from '../src/commands';
 import { loadWorkerConfig } from '../src/config';
@@ -324,9 +327,9 @@ describe('runCommand: tick', () => {
     expect(engine.calls).toEqual([
       'listWorkspaceIds',
       'workspaceTimezone:ws-a',
-      'runDaily:ws-a',
+      'runDaily:ws-a@2026-10-21',
       'workspaceTimezone:ws-b',
-      'runDaily:ws-b',
+      'runDaily:ws-b@2026-10-21',
       'cleanup',
     ]);
     expect(result.notes).toEqual([
@@ -362,11 +365,11 @@ describe('runCommand: tick', () => {
     expect(engine.calls).toEqual([
       'listWorkspaceIds',
       'workspaceTimezone:ws-a',
-      'runDaily:ws-a',
+      'runDaily:ws-a@2026-10-21',
       'cleanup',
       'listWorkspaceIds',
       'workspaceTimezone:ws-a',
-      'runDaily:ws-a',
+      'runDaily:ws-a@2026-10-21',
       'fullSync:ws-a',
       'cleanup',
     ]);
@@ -395,8 +398,8 @@ describe('runCommand: tick', () => {
       engine.calls.filter((c) => !c.startsWith('workspaceTimezone'))
     ).toEqual([
       'listWorkspaceIds',
-      'runDaily:nz',
-      'runDaily:ny',
+      'runDaily:nz@2026-10-21',
+      'runDaily:ny@2026-10-20',
       'fullSync:jp',
       'cleanup',
     ]);
@@ -405,6 +408,21 @@ describe('runCommand: tick', () => {
       expect.stringContaining('daily ran for 2026-10-20'),
       'synced (mirror v7, 42 issues, 12 ms), daily due at 08:00 Asia/Tokyo',
     ]);
+  });
+
+  test('runs the day it decided on, even when the run starts after midnight', async () => {
+    // Decided at 23:59:59.9 UTC on Oct 21; the engine's clock has already
+    // reached Oct 22 when runDaily starts.
+    const engine = fakeEngine({
+      workspaces: ['ws-a'],
+      now: () => new Date('2026-10-22T00:00:00.100Z'),
+    });
+    const result = await runCommand(
+      context(engine, { now: new Date('2026-10-21T23:59:59.900Z') }),
+      { name: 'tick', workspaceId: null }
+    );
+    expect(engine.calls).toContain('runDaily:ws-a@2026-10-21');
+    expect(result.outcomes[0]?.detail).toContain('daily ran for 2026-10-21');
   });
 
   test('a failing workspace is reported and cleanup still runs', async () => {
@@ -450,5 +468,36 @@ describe('runCommand: tick', () => {
     expect(result.notes).toEqual([
       'cleanup: 3 expired sessions (1 revocation failed), 1 old webhook delivery record',
     ]);
+  });
+});
+
+describe('workerEngineFrom', () => {
+  // An engine whose load() must not be called: reading the timezone may
+  // not sync a workspace (load syncs one that was never mirrored).
+  function engineWith(timezone: string): Engine {
+    const partial: Partial<Engine> = {
+      mode: 'fixture',
+      config: { defaultTimezone: 'Asia/Tokyo' } as Engine['config'],
+      load: () => Promise.reject(new Error('load() syncs; not allowed here')),
+      getSettings: (workspaceId) =>
+        Promise.resolve({ workspaceId, timezone } as WorkspaceSettings),
+    };
+    return partial as Engine;
+  }
+
+  test('reads the timezone from the settings, without loading', async () => {
+    expect(
+      await workerEngineFrom(engineWith('Europe/Berlin')).workspaceTimezone(
+        'ws-a'
+      )
+    ).toBe('Europe/Berlin');
+  });
+
+  test('an invalid saved timezone falls back to DEFAULT_TIMEZONE', async () => {
+    expect(
+      await workerEngineFrom(engineWith('Mars/Olympus')).workspaceTimezone(
+        'ws-a'
+      )
+    ).toBe('Asia/Tokyo');
   });
 });

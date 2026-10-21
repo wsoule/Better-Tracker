@@ -1,11 +1,18 @@
-import { addDays, type Digest } from '@better-tracker/core';
+import {
+  addDays,
+  type Digest,
+  type DigestItem,
+  type Notice,
+} from '@better-tracker/core';
 import {
   createOutboxChannel,
   type DeliveryResult,
 } from '@better-tracker/notify';
+import type { NotificationRecord } from '@better-tracker/store';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { SLACK_NOT_CONFIGURED } from '../src/index';
+import { toldEarlierToday } from '../src/warning-run';
 import {
   actorFor,
   createDemoHarness,
@@ -483,5 +490,70 @@ describe('notices that nobody received are not forgotten', () => {
     expect(noticeKeys(ana === undefined ? [] : [ana])).toContain(
       'allocation_blocked:proj-delta'
     );
+  });
+});
+
+describe('toldEarlierToday', () => {
+  const notice = (key: string): Notice =>
+    ({ subjectKind: 'milestone', subjectId: 'ms-1', key }) as Notice;
+  const row = (
+    status: NotificationRecord['status'],
+    channel: NotificationRecord['channel'] = 'slack'
+  ): NotificationRecord => ({
+    id: 'n-1',
+    workspaceId: WORKSPACE_ID,
+    day: '2026-10-21',
+    recipientId: 'user-ana',
+    channel,
+    status,
+    digest: {
+      recipientId: 'user-ana',
+      recipientName: 'Ana',
+      recipientEmail: null,
+      day: '2026-10-21',
+      items: [{ notice: notice('at_risk:2026-10-24') } as DigestItem],
+    },
+    error: null,
+    createdAt: '2026-10-21T08:00:00.000Z',
+  });
+  const carried = notice('at_risk:2026-10-24');
+  const redated = notice('at_risk:2026-10-31');
+
+  test.each([
+    ['a sent digest, live', row('sent'), 'live', true, false],
+    [
+      'a preview digest, preview',
+      row('preview', 'outbox'),
+      'preview',
+      true,
+      false,
+    ],
+    [
+      'a preview digest after going live',
+      row('preview', 'outbox'),
+      'live',
+      false,
+      false,
+    ],
+    ['a send whose outcome is unknown', row('pending'), 'live', false, false],
+    ['a failed send', row('failed'), 'live', false, false],
+    [
+      'live without a channel',
+      row('undeliverable', 'outbox'),
+      'live',
+      false,
+      false,
+    ],
+    ['a person Slack cannot reach', row('undeliverable'), 'live', true, true],
+    ['no row', undefined, 'live', false, false],
+  ] as const)('%s', (_label, record, mode, toldCarried, toldRedated) => {
+    const told = toldEarlierToday(record, mode);
+    expect(told(carried)).toBe(toldCarried);
+    expect(told(redated)).toBe(toldRedated);
+  });
+
+  test('a malformed stored digest tells nothing', () => {
+    const broken = { ...row('sent'), digest: {} as Digest };
+    expect(toldEarlierToday(broken, 'live')(carried)).toBe(false);
   });
 });

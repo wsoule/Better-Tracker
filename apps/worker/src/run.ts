@@ -2,12 +2,18 @@
 // engine (createEngineFromEnv runs migrations first), run the command,
 // print one human summary line, close the engine and return the exit code.
 //
-// `tick` runs under one hard deadline, TICK_TIMEOUT_MINUTES, counted from
-// the start and covering boot, the tick and closing the store: when it
-// passes, the worker logs an error and exits 1 without waiting, so a hung
-// run never blocks later cron runs (Railway skips a cron run while the
-// previous one is still running). `serve` gives its boot, each tick and its
-// shutdown a deadline of that length each.
+// `tick` and the manual one-shot commands (`sync`, `daily`, `allocate`,
+// `warn`) run under one hard deadline, TICK_TIMEOUT_MINUTES, counted from
+// the start and covering boot, the command and closing the store: when it
+// passes, the worker logs an error naming the stage it was in and exits 1
+// without waiting. So a hung run never blocks later cron runs (Railway
+// skips a cron run while the previous one is still running), and no
+// worker run outlives the window the engine's daily lease and stale-run
+// threshold assume (config.ts, MAX_TICK_TIMEOUT_MINUTES). `serve` gives
+// its boot, each tick and its shutdown a deadline of that length each.
+// `migrate` has none: it claims no daily job and starts no allocation run,
+// and it is how an operator applies a migration too long for one budget
+// (every other command applies pending migrations inside its own).
 
 import {
   createEngineFromEnv,
@@ -68,7 +74,7 @@ export interface CliDeps {
   /** Clock for the schedule decision and the engine. */
   now?: () => Date;
   /**
-   * Ends the process when a tick passes its deadline (default
+   * Ends the process when a command passes its deadline (default
    * process.exit). Tests record the code instead.
    */
   exit?: (code: number) => void;
@@ -194,10 +200,11 @@ interface Session extends DeadlineTarget {
   config: WorkerConfig;
 }
 
-// Arms the hard deadline for `what` (boot, a tick, shutdown): when it
-// passes, log, tell the operator and end the process with exit code 1.
-// `stage` names what was still running then (one deadline can cover
-// several stages), e.g. "booting" for tick's whole-run deadline.
+// Arms the hard deadline for `what` (a one-shot command, or serve's boot,
+// tick or shutdown): when it passes, log, tell the operator and end the
+// process with exit code 1. `stage` names what was still running then
+// (one deadline can cover several stages), e.g. "booting" for a one-shot
+// command's whole-run deadline.
 function armDeadline(
   target: DeadlineTarget,
   what: string,
@@ -259,8 +266,8 @@ async function serveLoop(
  * Runs the worker CLI for `argv` (`process.argv.slice(2)`) and resolves
  * with the exit code: 0 ok, 1 a workspace or the worker failed (including
  * invalid configuration), 2 usage error. Closes the engine before
- * resolving. On a tick timeout it calls `deps.exit(1)` instead and never
- * resolves.
+ * resolving. When a command passes its hard deadline it calls
+ * `deps.exit(1)` instead and never resolves.
  */
 export async function runCli(
   argv: readonly string[],
@@ -310,14 +317,16 @@ export async function runCli(
       : null;
   const timeoutMs = deps.tickTimeoutMs ?? config.tickTimeoutMinutes * MINUTE_MS;
   const target: DeadlineTarget = { output, logger, exit, timeoutMs };
-  // tick: one deadline from here until the engine is closed. Booting can
-  // hang too (an unreachable database, a held migration lock), and with a
-  // deadline per stage a run could last several timeouts and overlap the
-  // next cron slot. serve: boot gets its own; each tick and the shutdown
-  // get theirs below.
+  // One-shot commands but migrate: one deadline from here until the engine
+  // is closed. Booting can hang too (an unreachable database, a held
+  // migration lock), and with a deadline per stage a run could last
+  // several timeouts and overlap the next cron slot or a daily takeover.
+  // serve: boot gets its own; each tick and the shutdown get theirs below.
   let stage = 'booting';
-  const tickDeadline =
-    command.name === 'tick' ? armDeadline(target, 'tick', () => stage) : null;
+  const runDeadline =
+    command.name === 'serve' || command.name === 'migrate'
+      ? null
+      : armDeadline(target, command.name, () => stage);
   const bootDeadline =
     command.name === 'serve' ? armDeadline(target, 'boot') : null;
 
@@ -331,7 +340,7 @@ export async function runCli(
       now,
     });
   } catch (error) {
-    tickDeadline?.cancel();
+    runDeadline?.cancel();
     bootDeadline?.cancel();
     ownStop?.dispose();
     logger.error('worker could not start', { error });
@@ -339,7 +348,7 @@ export async function runCli(
     return EXIT_FAILED;
   }
   bootDeadline?.cancel();
-  stage = 'running the tick';
+  stage = `running ${command.name}`;
 
   const session: Session = {
     ...target,
@@ -382,7 +391,7 @@ export async function runCli(
     logger.error('could not close the engine', { error });
     code = EXIT_FAILED;
   } finally {
-    tickDeadline?.cancel();
+    runDeadline?.cancel();
     closeDeadline?.cancel();
     // Only now: a second SIGTERM/SIGINT while the store closes must still
     // exit 1 at once (without a listener, node as PID 1 ignores SIGTERM).

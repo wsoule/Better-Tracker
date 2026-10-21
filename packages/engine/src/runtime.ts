@@ -173,6 +173,23 @@ export async function readSettings(
   };
 }
 
+/**
+ * The two not_installed messages, shared by every path that finds them
+ * (requireInstallation for allocation, PM edits and settings; the real
+ * Linear provider for sync and webhooks), so a person sees the same words
+ * whichever action ran into it. `lostAccess` covers a revoked
+ * installation and a grant Linear rejects, which both need a reinstall.
+ */
+export const NOT_INSTALLED_MESSAGE: {
+  missing(appName: string): string;
+  lostAccess(appName: string): string;
+} = {
+  missing: (appName) =>
+    `${appName} is not installed in this Linear workspace yet.`,
+  lostAccess: (appName) =>
+    `${appName} lost its access to this Linear workspace (uninstalled, or its authorization stopped working); an admin must install it again.`,
+};
+
 /** The workspace's active installation, or EngineAuthError('not_installed'). */
 export async function requireInstallation(
   rt: EngineRuntime,
@@ -182,14 +199,14 @@ export async function requireInstallation(
   if (installation === null) {
     throw new EngineAuthError(
       'not_installed',
-      `${rt.config.appName} is not installed in this Linear workspace yet.`
+      NOT_INSTALLED_MESSAGE.missing(rt.config.appName)
     );
   }
   // revokedAt: uninstalled in Linear, or its grant stopped refreshing.
   if (installation.revokedAt !== null) {
     throw new EngineAuthError(
       'not_installed',
-      `${rt.config.appName} lost its access to this Linear workspace (uninstalled, or its authorization stopped working); an admin must install it again.`
+      NOT_INSTALLED_MESSAGE.lostAccess(rt.config.appName)
     );
   }
   return installation;

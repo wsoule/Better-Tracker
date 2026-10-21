@@ -1,7 +1,8 @@
 // A scriptable stand-in for the engine slice the worker uses. Every call is
-// recorded as a string (`fullSync:ws-a`, `runDaily:ws-a:force`), daily
-// claims are tracked per (workspace, UTC day) like the real store, and any
-// method can be replaced per test.
+// recorded as a string (`fullSync:ws-a`, `runDaily:ws-a@2026-10-21`,
+// `runDaily:ws-a:force`), daily claims are tracked per (workspace, day) like
+// the real store (the given day, else today in the workspace timezone), and
+// any method can be replaced per test.
 
 import { todayIn } from '@better-tracker/core';
 import type { AllocationMode } from '@better-tracker/core';
@@ -107,10 +108,12 @@ export function fakeEngine(
       calls.push(`fullSync:${id}`);
       return Promise.resolve(syncResult(id));
     },
-    runDaily: ({ workspaceId, force }) => {
-      calls.push(`runDaily:${workspaceId}${force === true ? ':force' : ''}`);
+    runDaily: ({ workspaceId, force, day: given }) => {
+      calls.push(
+        `runDaily:${workspaceId}${given === undefined ? '' : `@${given}`}${force === true ? ':force' : ''}`
+      );
       const timezone = options.timezones?.[workspaceId] ?? 'UTC';
-      const day = todayIn(timezone, now());
+      const day = given ?? todayIn(timezone, now());
       const key = `${workspaceId}:${day}`;
       const fresh = !claims.has(key);
       claims.add(key);

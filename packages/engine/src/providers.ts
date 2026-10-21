@@ -31,6 +31,8 @@ import {
   type StoredTokens,
 } from '@better-tracker/store';
 
+import { DEFAULT_APP_NAME } from './config';
+import { NOT_INSTALLED_MESSAGE } from './runtime';
 import { EngineAuthError, type LinearProvider } from './types';
 
 /** Refresh an access token this long before it expires. */
@@ -46,6 +48,12 @@ export interface LinearProviderOptions {
   fetch?: FetchLike;
   /** Overrides REFRESH_MARGIN_MS (tests). */
   refreshMarginMs?: number;
+  /**
+   * Additive: the display name in not-installed errors (config.appName),
+   * so they read like the rest of the engine's. Defaults to
+   * DEFAULT_APP_NAME.
+   */
+  appName?: string;
 }
 
 /**
@@ -71,11 +79,7 @@ const DEAD_TOKEN_CODE: Record<TokenOwner, EngineAuthError['code']> = {
   installation: 'not_installed',
   session: 'not_signed_in',
 };
-const DEAD_TOKEN_MESSAGE: Record<TokenOwner, string> = {
-  installation:
-    'The Linear authorization for this workspace no longer works; an admin must install the app again.',
-  session: 'Your Linear sign-in expired. Sign in again.',
-};
+const SESSION_EXPIRED_MESSAGE = 'Your Linear sign-in expired. Sign in again.';
 
 /**
  * Thrown by refresh() when the grant itself is dead (invalid_grant, or an
@@ -95,6 +99,21 @@ export function createLinearProvider(
 ): LinearProvider {
   const clock = options.now ?? ((): Date => new Date());
   const marginMs = options.refreshMarginMs ?? REFRESH_MARGIN_MS;
+  const appName = options.appName ?? DEFAULT_APP_NAME;
+  const notInstalled = (): EngineAuthError =>
+    new EngineAuthError(
+      'not_installed',
+      NOT_INSTALLED_MESSAGE.missing(appName)
+    );
+  const lostAccess = (): EngineAuthError =>
+    new EngineAuthError(
+      'not_installed',
+      NOT_INSTALLED_MESSAGE.lostAccess(appName)
+    );
+  const deadTokenMessage = (owner: TokenOwner): string =>
+    owner === 'installation'
+      ? NOT_INSTALLED_MESSAGE.lostAccess(appName)
+      : SESSION_EXPIRED_MESSAGE;
 
   // Refreshes `tokens` with Linear. invalid_grant (or no refresh token at
   // all) means the grant is dead: logged at error and turned into the
@@ -107,10 +126,7 @@ export function createLinearProvider(
   ): Promise<StoredTokens> {
     if (tokens.refreshToken === null) {
       log.error('linear token expired and has no refresh token', { owner });
-      throw new DeadGrantError(
-        DEAD_TOKEN_CODE[owner],
-        DEAD_TOKEN_MESSAGE[owner]
-      );
+      throw new DeadGrantError(DEAD_TOKEN_CODE[owner], deadTokenMessage(owner));
     }
     try {
       const fresh = await refreshTokens(
@@ -136,7 +152,7 @@ export function createLinearProvider(
         log.error('linear refresh token rejected (invalid_grant)', { owner });
         throw new DeadGrantError(
           DEAD_TOKEN_CODE[owner],
-          DEAD_TOKEN_MESSAGE[owner]
+          deadTokenMessage(owner)
         );
       }
       throw error;
@@ -191,17 +207,11 @@ export function createLinearProvider(
       const log = options.logger.child({ workspaceId, actor: 'app' });
       const installation = await options.store.getInstallation(workspaceId);
       if (installation === null) {
-        throw new EngineAuthError(
-          'not_installed',
-          'The app is not installed in this Linear workspace.'
-        );
+        throw notInstalled();
       }
       if (installation.revokedAt !== null) {
         log.error('linear installation is revoked; reinstall needed');
-        throw new EngineAuthError(
-          'not_installed',
-          DEAD_TOKEN_MESSAGE.installation
-        );
+        throw lostAccess();
       }
       let tokens = installation.tokens;
       if (needsRefresh(tokens, clock(), marginMs)) {
@@ -213,10 +223,7 @@ export function createLinearProvider(
             workspaceId,
             async (locked) => {
               if (locked.revokedAt !== null) {
-                throw new EngineAuthError(
-                  'not_installed',
-                  DEAD_TOKEN_MESSAGE.installation
-                );
+                throw lostAccess();
               }
               // Another process may have refreshed while we waited.
               if (!needsRefresh(locked.tokens, clock(), marginMs)) {
@@ -238,10 +245,7 @@ export function createLinearProvider(
             await markDeadInstallation(workspaceId, failed.dead, log);
           }
           if (isStoreNotFoundError(error, 'installation')) {
-            throw new EngineAuthError(
-              'not_installed',
-              'The app is not installed in this Linear workspace.'
-            );
+            throw notInstalled();
           }
           throw error;
         }

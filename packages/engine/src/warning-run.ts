@@ -11,22 +11,31 @@
 //   mid-run re-announces instead of silently forgetting.
 // - A notice that did not reach someone today keeps its previous memory
 //   row, so it is announced again tomorrow instead of being lost: a
-//   recipient already had today's digest, a delivery failed (Slack down,
-//   bad token), warnings are live with no channel configured, or the
-//   notice had no recipient at all (no active lead, no watchers). A person
-//   Slack cannot reach at all (undeliverable) does not hold the notice
-//   back: that would repeat it to everyone else daily.
+//   recipient already had a digest today that did not carry it (or whose
+//   send never confirmed, 'pending'), a delivery failed (Slack down, bad
+//   token), warnings are live with no channel configured, or the notice
+//   had no recipient at all (no active lead, no watchers). A person Slack
+//   cannot reach at all (undeliverable) does not hold the notice back:
+//   that would repeat it to everyone else daily.
+// - A second run the same day (a daily takeover after a killed run) counts
+//   what today's delivered digests already told each person, so only the
+//   notices someone may have missed come back tomorrow.
 
 import {
   buildDigests,
   type Digest,
   type IsoDate,
   isValidIsoDate,
+  type Notice,
   planWarnings,
   type WarningMemory,
+  type WarningsMode,
 } from '@better-tracker/core';
 import type { DeliveryResult } from '@better-tracker/notify';
-import type { NotificationStatus } from '@better-tracker/store';
+import type {
+  NotificationRecord,
+  NotificationStatus,
+} from '@better-tracker/store';
 
 import { loadWorkspace } from './load';
 import { type EngineRuntime, errorMessage } from './runtime';
@@ -38,6 +47,60 @@ export const SLACK_NOT_CONFIGURED: string =
 
 function memoryKey(kind: WarningMemory['subjectKind'], id: string): string {
   return `${kind}\u0000${id}`;
+}
+
+/**
+ * How many of today's notification rows a re-run reads back (one per
+ * person). Rows past it read as "told nothing", which only repeats a
+ * notice, never loses one.
+ */
+const TODAY_ROWS_LIMIT = 10_000;
+
+// A notice's identity across runs: its subject and its dedupe key.
+function noticeKey(
+  notice: Pick<Notice, 'subjectKind' | 'subjectId' | 'key'>
+): string {
+  return `${notice.subjectKind}\u0000${notice.subjectId}\u0000${notice.key}`;
+}
+
+/**
+ * For a recipient who already has today's notification row (an earlier
+ * run the same day), which of today's notices that row already told them.
+ * A digest that went out ('sent', or 'preview' while warnings are in
+ * preview) told them the notices it carried with the same key. A person
+ * Slack cannot reach at all holds nothing back, as on a first send.
+ * Anything else told them nothing: 'pending' (the send's outcome is
+ * unknown, so it is never repeated, but it does not count as told),
+ * 'failed', live without a channel, or a preview from before going live.
+ */
+export function toldEarlierToday(
+  row: NotificationRecord | undefined,
+  mode: WarningsMode
+): (notice: Notice) => boolean {
+  if (row === undefined) return () => false;
+  if (row.status === 'undeliverable' && row.channel === 'slack') {
+    return () => true;
+  }
+  const delivered =
+    row.status === 'sent' || (row.status === 'preview' && mode === 'preview');
+  if (!delivered) return () => false;
+  // Read defensively: a malformed stored digest tells nothing.
+  const stored: unknown = row.digest;
+  const items: unknown =
+    typeof stored === 'object' && stored !== null
+      ? (stored as { items?: unknown }).items
+      : undefined;
+  const told = new Set<string>();
+  for (const item of Array.isArray(items) ? (items as unknown[]) : []) {
+    const notice: unknown =
+      typeof item === 'object' && item !== null
+        ? (item as { notice?: unknown }).notice
+        : undefined;
+    if (typeof notice === 'object' && notice !== null) {
+      told.add(noticeKey(notice as Notice));
+    }
+  }
+  return (candidate) => told.has(noticeKey(candidate));
 }
 
 /** How a digest ends up: anything but the 'pending' claim. */
@@ -130,6 +193,9 @@ export async function runWarnings(
   };
 
   const missedRecipients = new Set<string>();
+  // Recipients who already had a row today, with what it told them.
+  const toldBefore = new Map<string, (notice: Notice) => boolean>();
+  let todayRows: Map<string, NotificationRecord> | null = null;
   for (const digest of digests) {
     const recipientLog = log.child({ recipientId: digest.recipientId });
     // Claim-first: the row is today's one digest for this person. When
@@ -148,8 +214,23 @@ export async function runWarnings(
     });
     if (!claimed) {
       result.alreadySent += 1;
-      missedRecipients.add(digest.recipientId);
-      recipientLog.info('recipient already had today\u2019s digest; not sent');
+      // Read once, on the first recipient who already has a row.
+      todayRows ??= new Map(
+        (
+          await rt.store.listNotifications(workspaceId, {
+            day,
+            limit: TODAY_ROWS_LIMIT,
+          })
+        ).map((row) => [row.recipientId, row])
+      );
+      const earlier = todayRows.get(digest.recipientId);
+      toldBefore.set(
+        digest.recipientId,
+        toldEarlierToday(earlier, settings.warningsMode)
+      );
+      recipientLog.info('recipient already had today\u2019s digest; not sent', {
+        status: earlier?.status ?? null,
+      });
       continue;
     }
     let outcome: DeliveryOutcome;
@@ -189,10 +270,15 @@ export async function runWarnings(
   // and for notices nobody could receive (no active lead and no watchers):
   // they are told once someone can hear them, not remembered as sent.
   const held = new Set<string>();
+  const missed = (id: string, notice: Notice): boolean => {
+    if (missedRecipients.has(id)) return true;
+    const told = toldBefore.get(id);
+    return told !== undefined && !told(notice);
+  };
   for (const notice of plan.notices) {
     if (
       notice.recipientIds.length === 0 ||
-      notice.recipientIds.some((id) => missedRecipients.has(id))
+      notice.recipientIds.some((id) => missed(id, notice))
     ) {
       held.add(memoryKey(notice.subjectKind, notice.subjectId));
     }

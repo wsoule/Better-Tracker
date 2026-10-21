@@ -58,6 +58,21 @@ function deps(
   };
 }
 
+// Makes the engine call behind a one-shot `command` hang forever.
+function stallCommand(engine: FakeEngine, command: string): void {
+  const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
+  if (command === 'sync') engine.fullSync = never;
+  else if (command === 'daily') engine.runDaily = never;
+  else if (command === 'allocate') engine.runAllocation = never;
+  else if (command === 'warn') engine.runWarnings = never;
+  else throw new Error(`no engine call to stall for ${command}`);
+}
+
+// The argv that runs a one-shot command (allocate needs its mode).
+function argvFor(command: string): string[] {
+  return command === 'allocate' ? ['allocate', '--dry-run'] : [command];
+}
+
 describe('runCli: arguments and configuration', () => {
   test('--help prints usage and exits 0 without booting', async () => {
     const d = deps(fakeEngine());
@@ -181,6 +196,89 @@ describe('runCli: one-shot commands', () => {
     void runCli(['tick'], d);
     expect(await exited.promise).toBe(1);
     expect(output.errLines).toEqual([expect.stringContaining('while booting')]);
+  });
+
+  // The manual commands get tick's budget too: a hung manual `daily` would
+  // still hold its claim when a tick takes the day over, and an allocation
+  // run that outlived the stale-run threshold would be closed as crashed
+  // while it is still writing.
+  test.each(['sync', 'daily', 'allocate', 'warn'])(
+    'a hung %s hits the hard timeout and exits 1',
+    async (name) => {
+      const engine = fakeEngine({ workspaces: ['ws-a'] });
+      stallCommand(engine, name);
+      const exited = Promise.withResolvers<number>();
+      const d = deps(engine, {
+        tickTimeoutMs: 20,
+        exit: (code) => exited.resolve(code),
+      });
+      void runCli(argvFor(name), d);
+      expect(await exited.promise).toBe(1);
+      expect(d.output.errLines).toHaveLength(1);
+      const [line] = d.output.errLines;
+      expect(line).toStartWith(
+        `worker: ${name} did not finish within TICK_TIMEOUT_MINUTES`
+      );
+      expect(line).toContain(`stuck while running ${name}`);
+    }
+  );
+
+  test('a manual command shares one budget with its boot', async () => {
+    const engine = fakeEngine({ workspaces: ['ws-a'] });
+    engine.runDaily = async (input) => {
+      await Bun.sleep(100);
+      return fakeEngine().runDaily(input);
+    };
+    const exits: number[] = [];
+    const output = capture();
+    const d: CliDeps = {
+      ...deps(engine),
+      output,
+      tickTimeoutMs: 150,
+      exit: (code) => exits.push(code),
+      createEngine: async () => {
+        await Bun.sleep(100);
+        return engine;
+      },
+    };
+    void runCli(['daily'], d);
+    await Bun.sleep(400);
+    expect(exits).toEqual([1]);
+    expect(output.errLines).toEqual([
+      expect.stringContaining('stuck while running daily'),
+    ]);
+  });
+
+  test('the deadline is cancelled when a manual command finishes in time', async () => {
+    let exits = 0;
+    const d = deps(fakeEngine({ workspaces: ['ws-a'] }), {
+      tickTimeoutMs: 30,
+      exit: () => {
+        exits += 1;
+      },
+    });
+    expect(await runCli(['allocate', '--live'], d)).toBe(0);
+    await Bun.sleep(60);
+    expect(exits).toBe(0);
+  });
+
+  test('migrate has no hard timeout', async () => {
+    // It claims no daily job and starts no allocation run, and it is how
+    // an operator applies a migration too long for a tick's budget.
+    let exits = 0;
+    const engine = fakeEngine({ workspaces: [] });
+    const d = deps(engine, {
+      tickTimeoutMs: 20,
+      exit: () => {
+        exits += 1;
+      },
+      createEngine: async () => {
+        await Bun.sleep(80);
+        return engine;
+      },
+    });
+    expect(await runCli(['migrate'], d)).toBe(0);
+    expect(exits).toBe(0);
   });
 
   test('boot and the tick share one budget, so a run never outlasts it', async () => {

@@ -46,10 +46,13 @@ Commands:
   tick     [--workspace <id>]      What the cron runs every 15 minutes: the
                                    daily job when it is due in the workspace's
                                    timezone, otherwise a full resync; then
-                                   housekeeping. Exits 1 after
-                                   TICK_TIMEOUT_MINUTES (default 10).
+                                   housekeeping.
   serve    [--workspace <id>]      Run tick every SYNC_INTERVAL_MINUTES
                                    (default 15) until SIGTERM or SIGINT.
+
+Every command except migrate and serve exits 1 when it is still running
+TICK_TIMEOUT_MINUTES (default 10, at most 14) after it started; serve
+applies that limit to its boot, each tick and its shutdown.
 
 Options:
   --workspace <id>   One Linear workspace id (default: every installed one).

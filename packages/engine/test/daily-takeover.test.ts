@@ -1,0 +1,444 @@
+import type { Digest } from '@better-tracker/core';
+import type { LinearGateway } from '@better-tracker/linear';
+import type {
+  DeliveryResult,
+  NotificationChannel,
+} from '@better-tracker/notify';
+import { afterEach, describe, expect, test } from 'bun:test';
+// runDaily's claim is a lease (architecture §7, §7.1): a tick killed in the
+// middle of the daily job leaves its claim unfinished, and once the claim
+// is older than the lease the next tick takes the day over and runs it
+// again. Each test "kills" the first run by making one call hang forever
+// (the run never finishes, throws or releases anything), then checks what
+// the takeover does at that point.
+
+import { ALLOCATION_RUN_STALE_MINUTES } from '../src/allocation-run';
+import { DEFAULT_DAILY_LEASE_MINUTES } from '../src/config';
+import { createEngine } from '../src/engine';
+import {
+  createDemoHarness,
+  type DemoHarness,
+  fixtureProvider,
+  type GatewayWrapper,
+  recordingLogger,
+  rejectionMessage,
+  storeWith,
+  TEST_CONFIG,
+  WORKSPACE_ID,
+} from './helpers';
+
+let harness: DemoHarness | null = null;
+afterEach(async () => {
+  await harness?.close();
+  harness = null;
+});
+
+const MINUTE_MS = 60_000;
+/** The daily claim's lease: a takeover needs a claim older than this. */
+const LEASE = DEFAULT_DAILY_LEASE_MINUTES;
+/**
+ * The longest a worker run may live (its TICK_TIMEOUT_MINUTES cap,
+ * lease − stale − 1), so the latest a dead run's allocation can start
+ * after its claim.
+ */
+const LONGEST_WORKER_RUN_MINUTES = 14;
+
+/**
+ * A call that never settles, like one cut off by a killed process.
+ * `reached` resolves once the first such call has started.
+ */
+function hangGate(): { reached: Promise<void>; hang<T>(): Promise<T> } {
+  let reachedResolve: () => void = () => undefined;
+  const reached = new Promise<void>((resolve) => {
+    reachedResolve = resolve;
+  });
+  return {
+    reached,
+    hang<T>(): Promise<T> {
+      reachedResolve();
+      return new Promise<T>(() => undefined);
+    },
+  };
+}
+
+// Moves the harness clock to `minutes` after `startMs`.
+function at(h: DemoHarness, startMs: number, minutes: number): void {
+  h.clock.set(new Date(startMs + minutes * MINUTE_MS).toISOString());
+}
+
+function noticeIds(digest: Digest | undefined): string[] {
+  return (digest?.items ?? [])
+    .map((item) => `${item.notice.kind}:${item.notice.subjectId}`)
+    .sort();
+}
+
+describe('runDaily after a run that died', () => {
+  test('a run killed mid-sync holds the day for the lease, then is taken over', async () => {
+    let hangSync = false;
+    const gate = hangGate();
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: () => (hangSync ? gate.hang() : gateway.fetchWorkspace()),
+    });
+    harness = await createDemoHarness({ wrap });
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    const day = h.clock.today();
+
+    hangSync = true;
+    void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    await gate.reached;
+    hangSync = false;
+
+    // Until the claim is older than the lease, the day counts as taken.
+    at(h, startMs, LEASE);
+    expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
+      false
+    );
+
+    at(h, startMs, LEASE + 1);
+    const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(takeover.ran).toBe(true);
+    expect(takeover.day).toBe(day);
+    expect(takeover.allocation?.status).toBe('succeeded');
+    expect(takeover.warnings?.notices).toBe(8);
+
+    // The takeover finished, so the day is never taken over again.
+    at(h, startMs, 120);
+    expect(h.clock.today()).toBe(day);
+    expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
+      false
+    );
+  });
+
+  test("a run that outlived its lease leaves the new holder's claim alone", async () => {
+    let stallSync = false;
+    let resume: () => void = () => undefined;
+    const stalled = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const gate = hangGate();
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: async () => {
+        if (stallSync) {
+          stallSync = false;
+          void gate.hang();
+          await stalled;
+        }
+        return gateway.fetchWorkspace();
+      },
+    });
+    harness = await createDemoHarness({ wrap });
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+
+    stallSync = true;
+    const slow = h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    await gate.reached;
+    at(h, startMs, LEASE + 1);
+    expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
+      true
+    );
+
+    // The stalled run wakes up and completes; its claim is gone, so it
+    // neither finishes nor frees the takeover's (finished) claim.
+    resume();
+    expect((await slow).ran).toBe(true);
+    expect(
+      h.logs.some((line) => line.includes('daily claim was taken over'))
+    ).toBe(true);
+    expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
+      false
+    );
+  });
+
+  test('a live allocation killed between assigning and commenting is not repeated', async () => {
+    let hangSecondComment = false;
+    let comments = 0;
+    const assigned: string[] = [];
+    const gate = hangGate();
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      updateIssue: (issueId, input) => {
+        if (input.assigneeId !== undefined) assigned.push(issueId);
+        return gateway.updateIssue(issueId, input);
+      },
+      createComment: (issueId, body) => {
+        comments += 1;
+        return hangSecondComment && comments === 2
+          ? gate.hang()
+          : gateway.createComment(issueId, body);
+      },
+    });
+    harness = await createDemoHarness({ wrap });
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    const settings = (await h.engine.load(WORKSPACE_ID)).settings;
+    await h.store.saveSettings({ ...settings, allocationMode: 'live' });
+
+    hangSecondComment = true;
+    void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    await gate.reached;
+    hangSecondComment = false;
+    // The dead run assigned two issues and commented on the first only.
+    expect(assigned).toHaveLength(2);
+    const [first, second] = assigned;
+    expect(h.fixture.comments.map((c) => c.issueId)).toEqual([first ?? '']);
+
+    at(h, startMs, LEASE + 1);
+    const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(takeover.ran).toBe(true);
+    expect(takeover.allocation).toMatchObject({
+      mode: 'live',
+      status: 'succeeded',
+    });
+    expect(takeover.allocation?.summary?.assigned).toBe(3);
+
+    // Five issues, each assigned once; no issue has two comments. The
+    // comment the dead run never posted stays missing.
+    expect(assigned).toHaveLength(5);
+    expect(new Set(assigned).size).toBe(5);
+    const commented = h.fixture.comments.map((c) => c.issueId);
+    expect(commented).toHaveLength(4);
+    expect(new Set(commented).size).toBe(4);
+    expect(commented).not.toContain(second);
+
+    // The takeover's run log shows both as already assigned; the dead run
+    // is closed as stale.
+    const runId = takeover.allocation?.id ?? '';
+    const log = await h.engine.getRun(WORKSPACE_ID, runId);
+    const alreadyAssigned = (log?.entries ?? [])
+      .filter((e) => e.action === 'skip' && e.reason === 'already_assigned')
+      .map((e) => e.issueId);
+    expect(alreadyAssigned).toEqual(expect.arrayContaining([first, second]));
+    const runs = await h.engine.listRuns(WORKSPACE_ID, 10);
+    expect(runs.find((run) => run.id !== runId)).toMatchObject({
+      status: 'failed',
+      error: 'stale run',
+    });
+  });
+
+  test('a takeover right after the lease finds the dead allocation run stale', async () => {
+    expect(LONGEST_WORKER_RUN_MINUTES).toBe(
+      LEASE - ALLOCATION_RUN_STALE_MINUTES - 1
+    );
+    let slowSync = false;
+    let hangAssign = false;
+    const gate = hangGate();
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: () => {
+        // The dead tick's sync took as long as a worker run may live, so
+        // its allocation run started that long after the claim.
+        if (slowSync && harness !== null) {
+          slowSync = false;
+          at(
+            harness,
+            harness.clock.now().getTime(),
+            LONGEST_WORKER_RUN_MINUTES
+          );
+        }
+        return gateway.fetchWorkspace();
+      },
+      updateIssue: (issueId, input) =>
+        hangAssign ? gate.hang() : gateway.updateIssue(issueId, input),
+    });
+    harness = await createDemoHarness({ wrap });
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    const settings = (await h.engine.load(WORKSPACE_ID)).settings;
+    await h.store.saveSettings({ ...settings, allocationMode: 'live' });
+
+    slowSync = true;
+    hangAssign = true;
+    void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    await gate.reached;
+    hangAssign = false;
+    const [dead] = await h.engine.listRuns(WORKSPACE_ID, 10);
+    expect(dead?.startedAt).toBe(
+      new Date(startMs + LONGEST_WORKER_RUN_MINUTES * MINUTE_MS).toISOString()
+    );
+
+    // At exactly the lease the claim still holds; the first instant past
+    // it the takeover claims the day, and the dead run (31 minutes old) is
+    // closed as stale instead of refusing the takeover's run.
+    at(h, startMs, LEASE);
+    expect((await h.engine.runDaily({ workspaceId: WORKSPACE_ID })).ran).toBe(
+      false
+    );
+    h.clock.set(new Date(startMs + LEASE * MINUTE_MS + 1).toISOString());
+    const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(takeover.ran).toBe(true);
+    expect(takeover.allocation).toMatchObject({
+      status: 'succeeded',
+      summary: { assigned: 5 },
+    });
+    expect(h.fixture.comments).toHaveLength(5);
+    const runs = await h.engine.listRuns(WORKSPACE_ID, 10);
+    expect(runs.find((run) => run.id === dead?.id)).toMatchObject({
+      status: 'failed',
+      error: 'stale run',
+    });
+  });
+
+  test('a takeover that finds another allocation run in progress gives the day back', async () => {
+    let hangSync = false;
+    let hangAssign = false;
+    const syncGate = hangGate();
+    const assignGate = hangGate();
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: () =>
+        hangSync ? syncGate.hang() : gateway.fetchWorkspace(),
+      updateIssue: (issueId, input) =>
+        hangAssign ? assignGate.hang() : gateway.updateIssue(issueId, input),
+    });
+    harness = await createDemoHarness({ wrap });
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    const settings = (await h.engine.load(WORKSPACE_ID)).settings;
+    await h.store.saveSettings({ ...settings, allocationMode: 'live' });
+
+    // The daily tick dies mid-sync. 20 minutes later a PM's live run
+    // (started from the web app) gets stuck on its first assignment.
+    hangSync = true;
+    void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    await syncGate.reached;
+    hangSync = false;
+    at(h, startMs, 20);
+    hangAssign = true;
+    void h.engine.runAllocation({
+      workspaceId: WORKSPACE_ID,
+      mode: 'live',
+      trigger: 'manual',
+      actor: null,
+    });
+    await assignGate.reached;
+    hangAssign = false;
+
+    // The claim is past its lease, but the PM's run is only 26 minutes
+    // old: the run lock still holds, the takeover fails and gives the day
+    // back.
+    at(h, startMs, LEASE + 1);
+    expect(
+      await rejectionMessage(h.engine.runDaily({ workspaceId: WORKSPACE_ID }))
+    ).toContain('already in progress');
+
+    // The next tick claims the day afresh and finds that run stale.
+    at(h, startMs, LEASE + 16);
+    const retry = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(retry.ran).toBe(true);
+    expect(retry.allocation?.status).toBe('succeeded');
+    expect(retry.allocation?.summary?.assigned).toBe(5);
+    expect(h.fixture.comments).toHaveLength(5);
+  });
+
+  test('warnings killed mid-send: no second digest today, the lost notice comes back tomorrow', async () => {
+    let sends = 0;
+    let hangOnSend: number | null = 4;
+    const gate = hangGate();
+    const sent: Digest[] = [];
+    const channel: NotificationChannel & { sent: Digest[] } = {
+      name: 'slack',
+      delivers: true,
+      sent,
+      send(digest: Digest): Promise<DeliveryResult> {
+        sends += 1;
+        if (sends === hangOnSend) return gate.hang();
+        sent.push(digest);
+        return Promise.resolve({
+          status: 'sent',
+          channel: 'slack',
+          detail: null,
+        });
+      },
+    };
+    harness = await createDemoHarness({ channel });
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    const day = h.clock.today();
+    const settings = (await h.engine.load(WORKSPACE_ID)).settings;
+    await h.store.saveSettings({ ...settings, warningsMode: 'live' });
+
+    void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    await gate.reached;
+    hangOnSend = null;
+    // Digests go out in recipient order: ana, ben and chloe got theirs;
+    // dev's is claimed, and whether Slack got it is unknown.
+    const before = await h.store.listNotifications(WORKSPACE_ID, {
+      limit: 50,
+      day,
+    });
+    expect(
+      Object.fromEntries(before.map((r) => [r.recipientId, r.status]))
+    ).toEqual({
+      'user-ana': 'sent',
+      'user-ben': 'sent',
+      'user-chloe': 'sent',
+      'user-dev': 'pending',
+    });
+
+    at(h, startMs, LEASE + 1);
+    const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(takeover.ran).toBe(true);
+    expect(takeover.warnings).toMatchObject({ alreadySent: 4, delivered: 1 });
+    // At most one digest per person per day, even for dev.
+    expect(sent.map((d) => d.recipientId)).toEqual([
+      'user-ana',
+      'user-ben',
+      'user-chloe',
+      'user-elena',
+    ]);
+
+    // Dev's notice was never confirmed delivered, so it is offered again.
+    // What the dead run's delivered digests told ana, ben and chloe counts
+    // as told: those notices are not repeated (overdue repeats daily by
+    // rule).
+    h.clock.advanceDays(1);
+    const tomorrow = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(tomorrow.ran).toBe(true);
+    const byRecipient = Object.fromEntries(
+      (tomorrow.warnings?.digests ?? []).map((d) => [
+        d.recipientId,
+        noticeIds(d),
+      ])
+    );
+    expect(byRecipient).toEqual({
+      'user-ana': ['at_risk:ms-beacon-1', 'overdue:ms-atlas-2'],
+      'user-ben': ['at_risk:ms-beacon-1', 'overdue:ms-atlas-2'],
+      'user-chloe': ['overdue:ms-atlas-2'],
+      'user-dev': ['at_risk:ms-beacon-1'],
+    });
+  });
+
+  test("a preview re-run counts today's preview digests as told", async () => {
+    harness = await createDemoHarness();
+    const h = harness;
+    const startMs = h.clock.now().getTime();
+    // A second process whose run dies after recording every preview digest
+    // and before saving the warning memory.
+    const gate = hangGate();
+    const dying = createEngine({
+      store: storeWith(h.store, { saveWarningMemory: () => gate.hang() }),
+      linear: fixtureProvider(h.fixture),
+      channel: h.channel,
+      logger: recordingLogger().logger,
+      config: TEST_CONFIG,
+      now: h.clock.now,
+    });
+    void dying.runDaily({ workspaceId: WORKSPACE_ID });
+    await gate.reached;
+    expect(await h.store.listWarningMemory(WORKSPACE_ID)).toEqual([]);
+
+    at(h, startMs, LEASE + 1);
+    const takeover = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    expect(takeover.warnings).toMatchObject({ alreadySent: 5, notices: 8 });
+    h.clock.advanceDays(1);
+    const tomorrow = await h.engine.runDaily({ workspaceId: WORKSPACE_ID });
+    // Only the overdue milestone repeats (by rule); the rest was previewed.
+    expect(
+      [...new Set(tomorrow.warnings?.digests.flatMap(noticeIds))].sort()
+    ).toEqual(['overdue:ms-atlas-2']);
+  });
+});

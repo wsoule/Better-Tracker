@@ -290,6 +290,70 @@ describe('real provider: installation tokens', () => {
   });
 });
 
+describe('not installed: one message for every path', () => {
+  // Sync goes through the provider; allocation (and PM edits) check the
+  // installation first. Both must tell the person the same thing.
+  async function messages(): Promise<{ sync: string; allocate: string }> {
+    const named = createLinearProvider({
+      store,
+      oauth: OAUTH,
+      logger,
+      now: clock.now,
+      fetch: fake.fetch,
+      appName: 'Acme Planner',
+    });
+    const engine = createEngine({
+      store,
+      linear: named,
+      channel: recordingChannel(),
+      logger,
+      config: { ...TEST_CONFIG, appName: 'Acme Planner', oauth: OAUTH },
+      now: clock.now,
+      fetch: fake.fetch,
+    });
+    const text = async (promise: Promise<unknown>): Promise<string> => {
+      const error = await rejection(promise);
+      expect(error).toBeInstanceOf(EngineAuthError);
+      expect((error as EngineAuthError).code).toBe('not_installed');
+      return (error as EngineAuthError).message;
+    };
+    return {
+      sync: await text(engine.fullSync('org-acme')),
+      allocate: await text(
+        engine.runAllocation({
+          workspaceId: 'org-acme',
+          mode: 'dry_run',
+          trigger: 'manual',
+          actor: null,
+        })
+      ),
+    };
+  }
+
+  test('never installed', async () => {
+    const { sync, allocate } = await messages();
+    expect(sync).toBe(allocate);
+    expect(sync).toBe(
+      'Acme Planner is not installed in this Linear workspace yet.'
+    );
+  });
+
+  test('revoked, or a grant Linear rejects: the same "lost access" message', async () => {
+    await store.saveInstallation(installation(3_600_000, 'r-old'));
+    await store.markInstallationRevoked('org-acme', clock.now().toISOString());
+    const revoked = await messages();
+    expect(revoked.sync).toBe(revoked.allocate);
+    expect(revoked.sync).toContain('Acme Planner lost its access');
+
+    // An expired token with no refresh token is a dead grant: the sync
+    // finds out while refreshing, and records the installation revoked.
+    await store.saveInstallation(installation(-60_000, null));
+    const dead = await messages();
+    expect(dead.sync).toBe(revoked.sync);
+    expect(dead.allocate).toBe(revoked.sync);
+  });
+});
+
 describe('real provider: session tokens', () => {
   test('reads the session row (not the redacted copy) and refreshes it', async () => {
     fake.addRefreshToken('r-user', APP);

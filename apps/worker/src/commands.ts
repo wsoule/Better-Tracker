@@ -35,6 +35,8 @@ export interface WorkerEngine {
   runDaily(input: {
     workspaceId: string;
     force?: boolean;
+    /** The workspace-local day the scheduler decided is due. */
+    day?: string;
   }): Promise<DailyResult>;
   runAllocation: Engine['runAllocation'];
   runWarnings(input: { workspaceId: string }): Promise<WarningRunResult>;
@@ -47,8 +49,10 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
   return {
     mode: engine.mode,
     listWorkspaceIds: () => engine.listWorkspaceIds(),
+    // getSettings, not load(): load syncs a workspace that was never
+    // mirrored, and the tick decides on its own whether to sync.
     workspaceTimezone: async (workspaceId) => {
-      const { settings } = await engine.load(workspaceId);
+      const settings = await engine.getSettings(workspaceId);
       return isValidTimeZone(settings.timezone)
         ? settings.timezone
         : engine.config.defaultTimezone;
@@ -284,7 +288,12 @@ async function tickWorkspace(
     ...decision,
   });
   if (decision.due) {
-    const daily = await ctx.engine.runDaily({ workspaceId });
+    // The day decided above, not whatever day it is once runDaily starts:
+    // a tick deciding at 23:59:59 local must not claim tomorrow early.
+    const daily = await ctx.engine.runDaily({
+      workspaceId,
+      day: decision.localDate,
+    });
     if (daily.ran) return describeDaily(daily);
     const sync = await ctx.engine.fullSync(workspaceId);
     return {

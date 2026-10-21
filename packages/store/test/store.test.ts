@@ -14,6 +14,7 @@ import {
   installation,
   newWorkspaceId,
   rejection,
+  repeatableReadSessionSql,
   repeatableReadUrl,
   TEST_KEY,
   tokens,
@@ -24,6 +25,8 @@ const STARTUP_TIMEOUT = 60_000;
 // Only TEST_DATABASE_URL enables the Postgres suites (see db.test.ts).
 const DATABASE_URL = process.env.TEST_DATABASE_URL;
 const HAS_POSTGRES = DATABASE_URL !== undefined && DATABASE_URL !== '';
+/** The calendar day most tests claim or notify for. */
+const DAY = '2026-10-21';
 
 function entry(overrides: Partial<NewRunEntry>): NewRunEntry {
   return {
@@ -1449,6 +1452,99 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         );
         expect(results.filter(Boolean)).toHaveLength(1);
       });
+
+      // The lease: an unfinished claim older than leaseMinutes belongs to
+      // a process that died mid-run, so the next claimer takes it over.
+      const T0 = '2026-10-21T08:00:00.000Z';
+      const at = (minutes: number): string =>
+        new Date(Date.parse(T0) + minutes * 60_000).toISOString();
+      const lease = { leaseMinutes: 30 };
+
+      test('an unfinished claim is taken over once it is older than the lease', async () => {
+        const ws = newWorkspaceId();
+        expect(await store.claimJob(ws, 'daily', DAY, T0, lease)).toBe(true);
+        expect(await store.claimJob(ws, 'daily', DAY, at(30), lease)).toBe(
+          false
+        );
+        expect(await store.claimJob(ws, 'daily', DAY, at(31), lease)).toBe(
+          true
+        );
+        // The takeover's own claim is fresh again.
+        expect(await store.claimJob(ws, 'daily', DAY, at(45), lease)).toBe(
+          false
+        );
+        // Without a lease nothing is ever taken over.
+        expect(await store.claimJob(ws, 'daily', DAY, at(600))).toBe(false);
+      });
+
+      test('a finished claim is never taken over', async () => {
+        const ws = newWorkspaceId();
+        expect(await store.claimJob(ws, 'daily', DAY, T0, lease)).toBe(true);
+        expect(
+          await store.finishJob(ws, 'daily', DAY, {
+            claimedAt: T0,
+            at: at(5),
+          })
+        ).toBe(true);
+        expect(await store.claimJob(ws, 'daily', DAY, at(600), lease)).toBe(
+          false
+        );
+        // Finishing twice is a no-op.
+        expect(
+          await store.finishJob(ws, 'daily', DAY, {
+            claimedAt: T0,
+            at: at(6),
+          })
+        ).toBe(false);
+      });
+
+      test('a taken-over holder can neither finish nor release the new claim', async () => {
+        const ws = newWorkspaceId();
+        await store.claimJob(ws, 'daily', DAY, T0, lease);
+        expect(await store.claimJob(ws, 'daily', DAY, at(31), lease)).toBe(
+          true
+        );
+        // The first holder wakes up late.
+        expect(
+          await store.finishJob(ws, 'daily', DAY, {
+            claimedAt: T0,
+            at: at(32),
+          })
+        ).toBe(false);
+        await store.releaseJob(ws, 'daily', DAY, T0);
+        expect(await store.claimJob(ws, 'daily', DAY, at(33), lease)).toBe(
+          false
+        );
+        // The current holder releases its own claim.
+        await store.releaseJob(ws, 'daily', DAY, at(31));
+        expect(await store.claimJob(ws, 'daily', DAY, at(34), lease)).toBe(
+          true
+        );
+      });
+
+      test('a release by claim time leaves a finished claim alone', async () => {
+        const ws = newWorkspaceId();
+        await store.claimJob(ws, 'daily', DAY, T0, lease);
+        await store.finishJob(ws, 'daily', DAY, { claimedAt: T0, at: at(1) });
+        await store.releaseJob(ws, 'daily', DAY, T0);
+        expect(await store.claimJob(ws, 'daily', DAY, at(2), lease)).toBe(
+          false
+        );
+        // The unconditional release still frees it.
+        await store.releaseJob(ws, 'daily', DAY);
+        expect(await store.claimJob(ws, 'daily', DAY, at(3), lease)).toBe(true);
+      });
+
+      test('concurrent takeovers of a stale claim: exactly one wins', async () => {
+        const ws = newWorkspaceId();
+        await store.claimJob(ws, 'daily', DAY, T0, lease);
+        const results = await Promise.all(
+          [1, 2, 3, 4].map(() =>
+            store.claimJob(ws, 'daily', DAY, at(40), lease)
+          )
+        );
+        expect(results.filter(Boolean)).toHaveLength(1);
+      });
     });
 
     describe('audit', () => {
@@ -1522,12 +1618,22 @@ describe.skipIf(!HAS_POSTGRES)(
 );
 
 // The locking tests (concurrent refreshers, mirror writers, run starts)
-// again, on sessions whose default isolation is stricter than Postgres'
-// READ COMMITTED default.
+// again, on a URL asking for sessions stricter than Postgres' READ
+// COMMITTED default (the store's own startup option still wins).
 describe.skipIf(!HAS_POSTGRES)(
-  'Store on node-postgres, sessions defaulting to repeatable read',
+  'Store on node-postgres, URL asking for repeatable read',
   () => {
     storeSuite('suite', () => openPgSql(repeatableReadUrl(DATABASE_URL ?? '')));
+  }
+);
+
+// And once more where that startup option was lost (a transaction-mode
+// pooler drops it): plain statements really run at REPEATABLE READ, so
+// every write must pin its own level.
+describe.skipIf(!HAS_POSTGRES)(
+  'Store on node-postgres, sessions at repeatable read (startup option dropped)',
+  () => {
+    storeSuite('suite', () => repeatableReadSessionSql(DATABASE_URL ?? ''));
   }
 );
 

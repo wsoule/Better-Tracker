@@ -245,7 +245,12 @@ from the same Dockerfile.
   The worker's hard timeout covers that last point. `TICK_TIMEOUT_MINUTES`
   (default 10) is counted from the moment the process starts, boot included: a
   run that is still going then logs an error and exits 1, before the next slot,
-  so one stuck run cannot block the runs after it. Keep it below 15.
+  so one stuck run cannot block the runs after it. The worker refuses values
+  above 14, which also keeps it below 15: the daily job's claim may be taken
+  over after 45 minutes, which must only happen to a tick that is dead and whose
+  allocation run no longer blocks new ones (a run counts as crashed 30 minutes
+  after it started). Commands run by hand get the same limit (see "Running jobs
+  by hand").
 
 - **Restart policy**: **Never**. The default is On Failure with up to 10
   restarts. Railway does not document how restarts interact with cron runs; its
@@ -301,9 +306,9 @@ PR environments (research: Railway deployment, "Variable reference syntax").
 | `RAILWAY_DOCKERFILE_PATH` |  ✓  |   ✓    | `deploy/Dockerfile` (a Railway build setting, not read by the app)                                                                                                                                                                                                                                       |
 
 Optional: `APP_NAME`, `LOG_LEVEL` (`debug` / `info` / `warn` / `error`),
-`SESSION_DAYS` (default 30) and `TICK_TIMEOUT_MINUTES` (default 10). **Never set
-`LINEAR_FIXTURE` in production**: it switches to the fictional demo workspace.
-`PGLITE_DIR` is not used when `DATABASE_URL` is set.
+`SESSION_DAYS` (default 30) and `TICK_TIMEOUT_MINUTES` (default 10, at most 14).
+**Never set `LINEAR_FIXTURE` in production**: it switches to the fictional demo
+workspace. `PGLITE_DIR` is not used when `DATABASE_URL` is set.
 
 **Migrations run on boot.** Each service applies pending migrations when it
 starts, and every worker run applies them too. A Postgres advisory lock
@@ -373,7 +378,7 @@ tick FAILED (1 of 2 workspaces) — org-1: synced (…), daily due at 08:00 Amer
 - a workspace failed;
 - housekeeping failed;
 - the worker could not start (bad configuration, database unreachable);
-- the tick timed out.
+- the run hit its `TICK_TIMEOUT_MINUTES` limit (any command except `migrate`).
 
 `2` is a usage error. One workspace failing never stops the others. A workspace
 counts as failed when its job throws, or when an allocation run ends `failed` or
@@ -401,20 +406,48 @@ it.
 - `serve`
 
 All of them take `[--workspace <id>]`, except `migrate`. They need the
-production variables and the private network. The verified way to run one is
-`railway cron run`, which runs the worker's configured `tick`. For anything
-else, temporarily change the worker's start command, or use a shell inside the
-service if your Railway plan offers one: **verify this in your workspace**.
+production variables and the private network. `sync`, `daily`, `allocate` and
+`warn` stop with exit 1 after `TICK_TIMEOUT_MINUTES`, like `tick`, naming the
+stage they were stuck in, so a manual run never overlaps a tick that takes over
+the daily job. `migrate` has no time limit: if a migration takes longer than one
+run's budget (every command applies pending migrations when it starts), apply it
+with `migrate`. The verified way to run one is `railway cron run`, which runs
+the worker's configured `tick`. For anything else, temporarily change the
+worker's start command, or use a shell inside the service if your Railway plan
+offers one: **verify this in your workspace**.
 
 **The daily job did not run.**
 
 - `daily already ran for <day>` in the summary means today's claim is taken.
 - `daily due at <time> <zone>` means it is not that time yet in the workspace's
   timezone.
-- If a tick is killed or hits its timeout **in the middle of** the daily job,
-  today's claim stays taken. The claim is released only when the job fails with
-  an error. The job then does not retry that day: run `daily --force`, or wait
-  for tomorrow.
+- If the job fails with an error, its claim is released and the next tick (15
+  minutes later) runs it again.
+- If a tick (or a `daily` run by hand) is killed or hits its timeout **in the
+  middle of** the daily job, its claim stays taken for a 45-minute lease, so the
+  next two or three ticks report `daily already ran`. After that the next tick
+  takes the day over and runs the whole job again (logged as
+  `took over a stale job claim`), normally 45 to 60 minutes after the killed run
+  started. If the dead run was killed during its allocation run, that run is
+  more than 30 minutes old by then, so the takeover closes it as crashed (logged
+  as `marked stale allocation run as failed`) instead of being blocked by it.
+- A takeover happens only while the job is still due, before local midnight. If
+  the killed job started after about 23:00 in the workspace's timezone, the
+  ticks after midnight are due for the next day, so the killed day's job is not
+  repeated; the next day's job runs as usual. A `daily` or `warn` run by hand
+  after midnight counts for the new day, so run `allocate` by hand if the
+  assignments cannot wait.
+- If another allocation run is in progress when the daily job starts, the job
+  fails with `An allocation run is already in progress` (exit 1), gives the day
+  back, and a later tick runs it. That run can be an `allocate` run by hand (or
+  a PM's run from the web app) that is still going, or one that was killed or
+  timed out: a run counts as in progress until 30 minutes after it started.
+- What the re-run does: issues the dead tick already assigned are skipped as
+  already assigned (never assigned or commented twice; a comment it had not
+  posted yet stays missing). Nobody gets a second digest that day, not even
+  someone whose digest was being sent when the tick died (it may have reached
+  Slack). What the dead tick's delivered digests said counts as said; the
+  notices in the digest that was being sent come back the next day.
 
 `daily --force` is safe to repeat. Allocation never reassigns an assigned issue,
 and nobody gets a second digest on the same day.

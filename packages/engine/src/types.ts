@@ -49,6 +49,15 @@ export interface EngineConfig {
   oauth: OAuthClientConfig | null;
   /** Session lifetime in days. */
   sessionDays: number;
+  /**
+   * Additive: minutes an unfinished daily claim holds before another
+   * process may take it over (its holder died mid-run). Default
+   * DEFAULT_DAILY_LEASE_MINUTES (45). It must be longer than any daily run
+   * can live plus ALLOCATION_RUN_STALE_MINUTES (30), so a takeover finds
+   * the dead run's allocation stale; the worker therefore caps
+   * TICK_TIMEOUT_MINUTES at lease − stale − 1 (14).
+   */
+  dailyLeaseMinutes?: number;
 }
 
 /**
@@ -216,6 +225,14 @@ export interface Engine {
 
   // --- reads ----------------------------------------------------------------
   load(workspaceId: string): Promise<LoadedWorkspace>;
+  /**
+   * Additive: the workspace's saved settings layered over the defaults
+   * (unconfigured workspaces get the defaults with DEFAULT_TIMEZONE), as
+   * load() reports them, but without syncing or reading the mirror and
+   * without requiring an installation. The timezone is returned as saved,
+   * even when invalid.
+   */
+  getSettings(workspaceId: string): Promise<WorkspaceSettings>;
   getWeekView(workspaceId: string, userId: string): Promise<WeekView>;
   getTimelineView(workspaceId: string): Promise<TimelineView>;
   getGraph(workspaceId: string, scope: GraphScope): Promise<DependencyGraph>;
@@ -272,6 +289,13 @@ export interface Engine {
   runDaily(input: {
     workspaceId: string;
     force?: boolean;
+    /**
+     * Additive: the workspace-local day to run (claim and warnings), as
+     * the scheduler decided it. Defaults to today in the workspace
+     * timezone. Must be today or yesterday there (a decision made just
+     * before local midnight), else EngineInputError('invalid').
+     */
+    day?: IsoDate;
   }): Promise<DailyResult>;
   listWorkspaceIds(): Promise<string[]>;
 

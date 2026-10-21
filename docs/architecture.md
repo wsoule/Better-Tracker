@@ -517,6 +517,22 @@ every workspace that installs it, routed by `organizationId`)
 transaction and recorded in `schema_migrations`; `migrate()` takes
 `pg_advisory_lock` so two processes never race.
 
+Isolation: everything runs at READ COMMITTED (the lock-then-read patterns and
+the `ON CONFLICT` claims depend on seeing the latest commits; under a stricter
+server default such as `default_transaction_isolation = 'repeatable read'` they
+fail with serialization errors). The pg pool sends
+`-c default_transaction_isolation=read\ committed` as a startup option, appended
+to the `options` of `DATABASE_URL` (or `PGOPTIONS`), so no query has to run
+before a connection's first one. Every transaction also pins the level in
+`BEGIN`, and every write runs in a transaction of its own, so a transaction-mode
+pooler that drops startup options is still safe; statements outside a
+transaction are single-statement reads. A pooler that refuses the option instead
+(PgBouncer in its default configuration closes the connection with 08P01
+"unsupported startup parameter") makes the handle switch, once and logged at
+info, to connections opened with `DATABASE_URL` exactly as given, and retry the
+call there (only opening a connection fails that way). A refusal of the URL's
+own `options` still fails.
+
 Tables (all keyed by `workspace_id`):
 
 - `installations` — app actor tokens (encrypted), app user id, installer,
@@ -537,11 +553,23 @@ Tables (all keyed by `workspace_id`):
   time/status/error, last webhook time.
 - `allocation_runs` — mode, trigger, status, summary jsonb; a partial unique
   index on `(workspace_id) where status = 'running'` makes concurrent runs
-  impossible.
+  impossible. `startRun(…, staleAfterMinutes)` first closes runs still `running`
+  that started longer ago than that as `failed`/`stale run` (a crashed process);
+  the engine passes `ALLOCATION_RUN_STALE_MINUTES` (30).
 - `allocation_entries` — per-issue/per-project log (§6.12 "logged").
 - `warning_memory` — `(workspace_id, subject_kind, subject_id) pk`.
 - `notifications` — unique `(workspace_id, day, recipient_id)`.
-- `job_claims` — unique `(workspace_id, job, day)`.
+- `job_claims` — unique `(workspace_id, job, day)`, `claimed_at`, `finished_at`
+  (migration 3; claims made before it count as finished). A claim is a lease:
+  `claimJob(…, now, { leaseMinutes })` inserts the claim, or takes over an
+  existing one only while it is unfinished and `claimed_at` is older than the
+  lease (one `INSERT … ON CONFLICT DO UPDATE … WHERE` upsert, so of several
+  concurrent takeovers exactly one wins; logged at warn). The claim time is the
+  claim's identity: `finishJob(…, { claimedAt, at })` sets `finished_at` and
+  `releaseJob(…, claimedAt)` deletes the claim only while it is still that
+  unfinished claim, so a holder that was taken over never touches the new
+  holder's. A finished claim is never taken over. The engine's daily lease is 45
+  minutes (§7).
 - `audit_log` — PM edits with before/after.
 
 Token encryption: AES-256-GCM, key = 32 bytes from `TOKEN_ENCRYPTION_KEY`
@@ -601,6 +629,10 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   re-indexes. Settings + milestone meta are read every call (small). Computes
   `today` (workspace tz), assessments, allocation plan. No mirror yet → runs
   `fullSync` first (if installed).
+- **getSettings(workspaceId)** (additive): the saved settings over the defaults,
+  exactly as `load` reports them, with no sync, no mirror read and no
+  installation check (the timezone as saved, even if invalid). The worker reads
+  each workspace's timezone with it on every tick.
 - **fullSync**: app gateway `fetchWorkspace()` → refine `lastStateChangeAt` via
   `fetchLastStateChanges` for open issues in milestones whose target date is
   within `warnLeadDays + stallDays` ahead or already past → bootstrap PMs and
@@ -617,7 +649,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   milestones). Anything else → `'ignored'`. Errors are recorded on the delivery
   and logged; the periodic resync heals drift.
 - **runAllocation** (§7.4, §6.3, §6.12, §9 safety):
-  1. `store.startRun` (null → `EngineInputError('conflict')`).
+  1. `store.startRun` (null → `EngineInputError('conflict')`); a run still
+     `running` `ALLOCATION_RUN_STALE_MINUTES` (30) after it started counts as
+     crashed and is closed as `stale run` first.
   2. `fullSync` so the plan uses fresh data.
   3. `planAllocation`; record `block` entries for blocked projects and `skip`
      entries for skips.
@@ -636,9 +670,20 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `warningsMode === 'live'` deliver via the channel, else status `preview`. Save
   memory only after notifications are recorded. `previewOnly` builds digests
   without writing anything (Settings preview).
-- **runDaily**: `claimJob(daily, today)` unless `force` → fullSync →
-  runAllocation(settings.allocationMode, schedule) → runWarnings. If the run
-  throws before finishing, `releaseJob` so a retry can run.
+- **runDaily**: `claimJob(daily, day, { leaseMinutes })` unless `force` →
+  fullSync → runAllocation(settings.allocationMode, schedule) → runWarnings →
+  `finishJob`. If the run throws, `releaseJob` so the next tick can retry. If
+  the process dies instead (killed, hard timeout), the claim stays unfinished
+  and, once older than `config.dailyLeaseMinutes` (default 45,
+  `DEFAULT_DAILY_LEASE_MINUTES`), the next due tick takes the day over and runs
+  the whole job again (see "A daily takeover" below). Ticks run a day only until
+  its local midnight, so a claim still within its lease at the day's last tick
+  is never taken over by the schedule, and that day's job is not repeated. `day`
+  is the optional `input.day` (the day the scheduler decided is due), else today
+  in the workspace timezone; a given day must be today or yesterday there
+  (`EngineInputError('invalid')` otherwise), so a decision made just before
+  local midnight claims and warns for that day instead of claiming the next one
+  hours early. Warnings run for that day.
 - **PM edits**: require `actor.isPm` (else `not_pm`). Linear writes
   (`setMilestoneTargetDate`, `setProjectLead`) also require
   `actor.canWriteLinear` (else `needs_write_scope`) and go through
@@ -660,8 +705,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 `loadEngineConfigFromEnv(env): EngineConfig` (throws one error listing every
 missing/invalid variable), `EngineAuthError`, `EngineInputError`,
 `LinearApiError` (re-exported) and `isLinearApiError(e)` (instanceof, with a
-`name === 'LinearApiError'` fallback across bundle copies), and every type in
-`src/types.ts`.
+`name === 'LinearApiError'` fallback across bundle copies), the timing constants
+`DEFAULT_DAILY_LEASE_MINUTES` (45) and `ALLOCATION_RUN_STALE_MINUTES` (30) the
+worker derives its timeout cap from, and every type in `src/types.ts`.
 
 `createEngineFromEnv`:
 
@@ -684,7 +730,13 @@ missing/invalid variable), `EngineAuthError`, `EngineInputError`,
   provider's `now` clock), and returns `createLinearGateway({ accessToken })`. A
   revoked installation or an `invalid_grant` refresh →
   `EngineAuthError('not_installed')` (workspace) or
-  `EngineAuthError('not_signed_in')` (session), logged at error. A dead
+  `EngineAuthError('not_signed_in')` (session), logged at error. Every
+  `not_installed` the engine raises, from the provider (sync, webhooks) or from
+  its own installation check (allocation, PM edits, settings), uses one of two
+  messages naming `APP_NAME` (`NOT_INSTALLED_MESSAGE` in `runtime.ts`; boot
+  passes `appName` to the provider): "… is not installed in this Linear
+  workspace yet." (no row) and "… lost its access to this Linear workspace …; an
+  admin must install it again." (revoked, or a grant Linear rejects). A dead
   installation grant (`invalid_grant`, or an expired token without a refresh
   token) is also recorded with `markInstallationRevoked(workspaceId, now)` once
   the row lock is released, after re-reading the row: a reinstall saved in
@@ -713,11 +765,16 @@ Engine decisions made while building it (binding for callers):
   the outcome (at most one digest per person per day, even across a crash). A
   notice that one of its recipients did not get today keeps its old warning
   memory, so it is announced the next day instead of being lost: the person
-  already had today's digest, the send `failed` (Slack down, bad token),
-  warnings are live with no channel configured, or the notice had no recipient
-  at all (no active lead, no watchers). A per-person `undeliverable` (no Slack
-  account) does not hold the notice, or everyone else would get it again every
-  day.
+  already had a digest today that did not carry it, the send `failed` (Slack
+  down, bad token), warnings are live with no channel configured, or the notice
+  had no recipient at all (no active lead, no watchers). A per-person
+  `undeliverable` (no Slack account) does not hold the notice, or everyone else
+  would get it again every day. When a recipient already has today's row (a
+  second run the same day, such as a daily takeover), the notices its stored
+  digest carried with the same key count as told if it went out (`sent`, or
+  `preview` while warnings are in preview); a `pending` row (the send's outcome
+  is unknown, so it is never repeated), a `failed` one, or a preview row after
+  going live told nothing.
 - **Going live forgets the warning memory**: `updateSettings` switching
   `warningsMode` from `preview` to `live` resets every memory row to "never
   told", so the first live run announces whatever is notable now (preview runs
@@ -741,6 +798,32 @@ Engine decisions made while building it (binding for callers):
 - `handleWebhook` treats a blank `deliveryId` as none (no dedupe), and the
   public `runAllocation` always syncs first (only `runDaily` reuses its sync).
 - `runDaily` syncs once: its allocation run reuses that sync.
+- **A daily takeover re-runs the whole job**, which is safe wherever the dead
+  run stopped. Killed mid-sync: nothing was written. Killed during a live
+  allocation: the takeover's fresh sync shows the issues the dead run assigned
+  as assigned, so they are skipped `already_assigned` (never re-assigned or
+  re-commented); a comment the dead run had not posted yet stays missing, and an
+  assignment it made just before dying is logged only as that skip. The dead run
+  stays `running` until `startRun` closes it as `stale run`
+  (`ALLOCATION_RUN_STALE_MINUTES`, 30 minutes after it started), and the lease
+  is sized so a takeover never finds it in the way: the worker caps
+  `TICK_TIMEOUT_MINUTES` at lease − stale − 1 = 14, so a dead tick started its
+  allocation run at most 14 minutes after its claim, and that run is stale by
+  claim + 44, before the claim can be taken over (claim + 45). A daily run that
+  does find an allocation run in progress (a manual `allocate` or a PM's run
+  from the web app, still going or killed, that started less than
+  `ALLOCATION_RUN_STALE_MINUTES` ago) fails with `conflict`, gives the day back,
+  and a later tick runs the job. Killed during warnings: memory was not saved
+  yet, so every notice is planned again; nobody is sent a second digest that day
+  (a recipient with a row today counts as `alreadySent`, including a `pending`
+  row, whose send may have reached Slack). What the dead run's delivered digests
+  carried counts as told; the notices of the recipient whose send was in flight
+  keep their old memory and are offered again the next day. A run that outlives
+  its lease and completes anyway finds its claim gone: `finishJob` returns false
+  and it logs a warning. The lease must be longer than any daily run can live
+  plus `ALLOCATION_RUN_STALE_MINUTES`; hence the worker's cap above, which
+  applies to the manual `daily`, `allocate`, `warn` and `sync` commands too
+  (§9), so a manual run is never taken over while it is still working either.
 - A live run in which every assignment failed is `failed`; a comment that fails
   after a successful assignment leaves the entry `applied` with an error and the
   run `partial`. Stale reasons: `not_found`, `closed`, `now_assigned`,
@@ -1155,7 +1238,8 @@ LINEAR" strip at the top of the content column.
 - `warn [--workspace <id>]`
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
   UTC): for each installed workspace, if the local time in its timezone is at or
-  past `DAILY_RUN_AT` (default `08:00`) and today's daily job is unclaimed,
+  past `DAILY_RUN_AT` (default `08:00`) and today's daily job is unclaimed (or
+  its claim was abandoned by a run that died, past the engine's lease),
   `runDaily` (which syncs first); otherwise a plain `fullSync` (the periodic
   resync that heals milestone/relation drift, since Linear has no webhooks for
   those). Then `cleanup`. Closes the store and exits. A hard timeout
@@ -1175,9 +1259,12 @@ Worker decisions made while building it (binding):
   later, until local midnight. On a fall-back day a repeated time counts from
   its first occurrence and stays due through the repeated hour; a time inside a
   spring-forward gap is due from the transition. The timezone is the saved
-  setting, or `DEFAULT_TIMEZONE` when that is invalid (as the engine does).
-  "Unclaimed" is decided by `runDaily`'s own claim: a due tick whose `runDaily`
-  returns `ran: false` falls back to `fullSync`.
+  setting (read with `getSettings`, which never syncs), or `DEFAULT_TIMEZONE`
+  when that is invalid (as the engine does). The tick passes the local date it
+  decided on as `runDaily`'s `day`, so a run that starts after local midnight
+  still runs the day that was due. "Unclaimed" is decided by `runDaily`'s own
+  claim: a due tick whose `runDaily` returns `ran: false` falls back to
+  `fullSync`.
 - `DAILY_RUN_AT` is strict `HH:MM` (00:00–23:59); invalid worker variables exit
   1 before boot. A time later than one tick interval before midnight is logged
   as a warning (no tick may land before midnight).
@@ -1190,10 +1277,20 @@ Worker decisions made while building it (binding):
   account); they are counted in the summary.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
-  `TICK_TIMEOUT_MINUTES` (keep it below the 15-minute cron interval). `serve`
-  gives its boot, each tick and its shutdown one budget each; SIGTERM/SIGINT let
-  the current tick finish, then the store is closed and `serve` exits 0; a
-  second signal, including one during that close, exits 1 at once.
+  `TICK_TIMEOUT_MINUTES`. The manual one-shot commands (`sync`, `daily`,
+  `allocate`, `warn`) get the same budget; on expiry each logs and prints the
+  stage it was stuck in (`booting`, `running <command>`, `closing the store`)
+  and exits 1. `TICK_TIMEOUT_MINUTES` is at most 14 (`MAX_TICK_TIMEOUT_MINUTES`,
+  derived from the engine's constants: the 45-minute daily lease minus the
+  30-minute stale-run threshold, minus a minute), so a run always ends, and its
+  allocation run is stale, before a tick may take its daily claim over; that
+  also keeps a tick below the 15-minute cron interval. `migrate` has no timeout:
+  it claims no daily job and starts no allocation run, and it is how an operator
+  applies a migration too long for one budget (every other command applies
+  pending migrations inside its own). `serve` gives its boot, each tick and its
+  shutdown one budget each; SIGTERM/SIGINT let the current tick finish, then the
+  store is closed and `serve` exits 0; a second signal, including one during
+  that close, exits 1 at once.
 - The CLI runs only when its module is the process's main script, resolved the
   way node resolves it (`node apps/worker tick` and `node apps/worker/dist tick`
   work too), so it can never load and silently do nothing.
@@ -1218,7 +1315,7 @@ Worker decisions made while building it (binding):
 | `PM_EMAILS`, `WATCHER_EMAILS`               | engine          | comma-separated bootstrap lists                                   |
 | `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed                                 |
 | `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
-| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit for one tick, minutes (default 10)                     |
+| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)    |
 | `SYNC_INTERVAL_MINUTES`                     | worker serve    | minutes between ticks (default 15)                                |
 | `PGLITE_DIR`                                | all             | PGlite directory when `DATABASE_URL` is unset (local dev only)    |
 | `SESSION_DAYS`                              | engine          | session lifetime in days (default 30)                             |
@@ -1237,6 +1334,12 @@ Worker decisions made while building it (binding):
   webhook signature + timestamp tests with known vectors.
 - store: every method against in-memory PGlite; concurrency guards (second
   `startRun` returns null; duplicate notification returns false; job claims).
+  With `TEST_DATABASE_URL` the same suite also runs on real Postgres, including
+  sessions forced to REPEATABLE READ (as behind a pooler that dropped the
+  startup option), writes racing an uncommitted writer, and a subprocess that
+  must print no `DeprecationWarning`. `TEST_PGBOUNCER_URL` (a transaction-mode
+  PgBouncer with its default configuration) runs the store behind a pooler that
+  refuses the startup option.
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe
