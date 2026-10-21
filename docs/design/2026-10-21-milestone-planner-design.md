@@ -43,7 +43,9 @@ audiences a screen that fits how they actually work.
 
 - Replacing Linear. **Linear stays the source of truth "right now"** (Wyat). Issues are
   created, described, discussed and closed in Linear as today.
-- Editing issue titles/descriptions, comments, labels, estimates.
+- ~~Editing issue titles/descriptions, comments, labels, estimates.~~
+  **Superseded 2026-10-21 by an owner decision** (§12): every signed-in person can
+  edit an issue, and read and add comments, from the planner.
 - Time tracking, capacity planning by hours, sprint/cycle management.
 - Being a portal page (see §4).
 - Multi-tenant SaaS. Productization is a stated future possibility; v1 serves this one
@@ -171,6 +173,9 @@ the timeline. Also notify when a milestone has a date inside 7 days but fails th
   description), users, initiatives.
 - **Writes (only these):** issue assignee + state (allocation), issue comment
   (allocation note), milestone target date, project lead. Everything else is read-only.
+  *(Extended 2026-10-21 by an owner decision, §12: a signed-in person's own issue
+  edits, comments and blocking relations, always made with that person's Linear
+  token. The automatic writes are unchanged.)*
 - **Owned by this tool (not in Linear):** milestone weight override, "done means…" text
   if Linear's milestone description is not used for it, PM list, warning history,
   allocation run log.
@@ -203,3 +208,27 @@ webhook); exact at-risk formula tuning; naming.
 - Final name.
 - Confirm the milestone rubric in §6.7.
 - Whether anyone beyond engineers + Shanzer should see the timeline in v1.
+
+## 12. Owner decisions
+
+### 2026-10-21 — everyone edits issues from the planner
+
+Decided by the product owner. It supersedes the §3 non-goal "Editing issue
+titles/descriptions, comments, labels, estimates" and extends the §8 "Writes (only
+these)" list; the original text above is kept for the record.
+
+- **Every signed-in person** (not only PMs) can edit an issue from the planner:
+  title, description, status (workflow state), assignee, priority, labels,
+  estimate, due date, project, project milestone, and blocking relations (add or
+  remove "blocked by" / "blocks"). They can read the issue's comments and add
+  their own.
+- These edits are made with **that person's own Linear OAuth token** (actor=user,
+  the existing "grant write access" upgrade, now offered to everyone, not only
+  PMs). Linear's own permissions therefore apply, and Linear's history credits the
+  person, never the planner's app user.
+- The planner's only **automatic** write stays allocation: assignee + state and one
+  comment per allocated issue (§7.4).
+- PM-only edits are unchanged: milestone target date, project lead, weight
+  override and "done means…".
+- Linear stays the source of truth: every edit goes to Linear first and the
+  planner's copy follows.

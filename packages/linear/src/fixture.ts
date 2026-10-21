@@ -10,31 +10,46 @@
 // a cross-project blocks chain, a cycle and a resolved blocker.
 //
 // createFixtureGateway serves the workspace through the LinearGateway
-// interface and applies the four writes to it, so demo-mode allocation
-// runs and PM edits "write back".
+// interface and applies every write to it, so demo-mode allocation runs,
+// PM edits and people's issue edits "write back". The issue page's extra
+// fields (descriptions, labels, estimates, due dates, comments) live in
+// fixture-details.ts and are kept in the same in-memory store.
 
-import type {
-  BlockingRelation,
-  Initiative,
-  IsoDate,
-  IsoDateTime,
-  Issue,
-  Milestone,
-  Priority,
-  Project,
-  ProjectStatusType,
-  Team,
-  User,
-  WorkflowState,
-  WorkflowStateType,
-  WorkspaceData,
+import {
+  type BlockingRelation,
+  type EstimateScale,
+  type Initiative,
+  type IsoDate,
+  type IsoDateTime,
+  type Issue,
+  type IssueComment,
+  type IssueExtras,
+  type IssueLabel,
+  type IssuePatch,
+  isAllowedEstimate,
+  type Milestone,
+  type Priority,
+  type Project,
+  type ProjectStatusType,
+  type Team,
+  type User,
+  type WorkflowState,
+  type WorkflowStateType,
+  type WorkspaceData,
 } from '@better-tracker/core';
 
+import {
+  createFixtureIssueDetails,
+  type FixtureComment,
+  type FixtureIssueFields,
+  type FixtureLabel,
+} from './fixture-details';
 import {
   LinearApiError,
   type LinearGateway,
   type LinearIdentity,
 } from './gateway';
+import { NO_ESTIMATES } from './map';
 
 // ---------------------------------------------------------------------------
 // Identity constants
@@ -1386,21 +1401,24 @@ export function createFixtureWorkspace(today: IsoDate): WorkspaceData {
 // In-memory store and gateway
 // ---------------------------------------------------------------------------
 
-/** A comment written through the fixture gateway. */
-export interface FixtureComment {
-  id: string;
-  issueId: string;
-  body: string;
-  authorId: string;
-  createdAt: IsoDateTime;
-}
-
 /** Mutable state behind one or more fixture gateways. */
 export interface FixtureStore {
   data: WorkspaceData;
+  /** Comments written through the gateway (allocation notes, people's). */
   comments: FixtureComment[];
   /** Clock for write timestamps; tests may replace it. */
   now: () => Date;
+  /**
+   * Additive (issue page): the demo discussion that existed before the
+   * demo started; reads list it together with `comments`.
+   */
+  seededComments: FixtureComment[];
+  /** Additive: per-issue fields the mirror does not keep, by issue id. */
+  issueFields: Record<string, FixtureIssueFields>;
+  /** Additive: every label, groups and archived ones included. */
+  labels: FixtureLabel[];
+  /** Additive: each team's estimate scale, by team id. */
+  estimateScales: Record<string, EstimateScale>;
 }
 
 /**
@@ -1420,10 +1438,15 @@ function fixtureActorUserId(actor: FixtureActor | string): string {
 
 /** A fresh store over a fresh workspace; stores never share data. */
 export function createFixtureStore(today: IsoDate): FixtureStore {
+  const details = createFixtureIssueDetails(today);
   return {
     data: createFixtureWorkspace(today),
     comments: [],
     now: () => new Date(),
+    seededComments: details.seededComments,
+    issueFields: details.issueFields,
+    labels: details.labels,
+    estimateScales: details.estimateScales,
   };
 }
 
@@ -1445,6 +1468,38 @@ function notFound(kind: string, id: string): LinearApiError {
 
 const TIMELESS_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+function refused(message: string): LinearApiError {
+  return new LinearApiError('invalid_input', message);
+}
+
+// A fixture label as the gateway contract shows it (groups resolved).
+function toIssueLabel(
+  entry: FixtureLabel,
+  byId: ReadonlyMap<string, FixtureLabel>
+): IssueLabel {
+  const group = entry.parentId === null ? undefined : byId.get(entry.parentId);
+  return {
+    id: entry.id,
+    name: entry.name,
+    color: entry.color,
+    teamId: entry.teamId,
+    group:
+      group === undefined
+        ? null
+        : {
+            id: group.id,
+            name: group.name,
+            singleSelect: group.groupType !== 'multiSelect',
+          },
+  };
+}
+
+// Orders labels by name, then id, like the real gateway.
+function byName(a: IssueLabel, b: IssueLabel): number {
+  if (a.name !== b.name) return a.name < b.name ? -1 : 1;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 /**
  * A LinearGateway over `store`. Reads return deep copies; the four writes
  * mutate the store, so later reads (from any gateway on the same store)
@@ -1463,6 +1518,176 @@ export function createFixtureGateway(
 
   function hasUser(id: string): boolean {
     return store.data.users.some((user) => user.id === id);
+  }
+
+  function labelsById(): Map<string, FixtureLabel> {
+    return new Map(store.labels.map((entry) => [entry.id, entry]));
+  }
+
+  function fieldsOf(issueId: string): FixtureIssueFields {
+    let entry = store.issueFields[issueId];
+    if (entry === undefined) {
+      entry = {
+        description: null,
+        labelIds: [],
+        estimate: null,
+        dueDate: null,
+      };
+      store.issueFields[issueId] = entry;
+    }
+    return entry;
+  }
+
+  function scaleOf(teamId: string): EstimateScale {
+    return store.estimateScales[teamId] ?? NO_ESTIMATES;
+  }
+
+  function commentView(comment: FixtureComment): IssueComment {
+    const author = store.data.users.find((u) => u.id === comment.authorId);
+    return {
+      id: comment.id,
+      body: comment.body,
+      createdAt: comment.createdAt,
+      url: `${BASE_URL}/comment/${comment.id}`,
+      parentId: comment.parentId ?? null,
+      author:
+        author === undefined ? null : { id: author.id, name: author.name },
+      externalAuthor: author === undefined ? 'Unknown' : null,
+    };
+  }
+
+  // Checks a label set the way Linear does: every label exists, is not
+  // archived or a group, belongs to the issue's team or the workspace, and
+  // a single-select group contributes at most one label.
+  function checkLabels(issue: Issue, labelIds: readonly string[]): string[] {
+    const byId = labelsById();
+    const unique = [...new Set(labelIds)];
+    const groups = new Set<string>();
+    for (const id of unique) {
+      const entry = byId.get(id);
+      if (entry === undefined || entry.archived) {
+        throw refused(`Label not found: ${id}`);
+      }
+      if (entry.isGroup) {
+        throw refused(`${entry.name} is a label group and cannot be applied`);
+      }
+      if (entry.teamId !== null && entry.teamId !== issue.teamId) {
+        throw refused(`${entry.name} is not a label of this issue's team`);
+      }
+      const group =
+        entry.parentId === null ? undefined : byId.get(entry.parentId);
+      if (group !== undefined && group.groupType !== 'multiSelect') {
+        if (groups.has(group.id)) {
+          throw refused(`Only one ${group.name} label can be applied`);
+        }
+        groups.add(group.id);
+      }
+    }
+    return unique;
+  }
+
+  // Moves an issue to `next` and keeps its lifecycle timestamps plausible:
+  // startedAt is set when it first starts, completedAt / canceledAt when
+  // it closes (and cleared when it reopens).
+  function moveToState(issue: Issue, next: WorkflowState, now: string): void {
+    if (next.id === issue.stateId) return;
+    issue.stateId = next.id;
+    issue.lastStateChangeAt = now;
+    if (next.type === 'started' && issue.startedAt === null) {
+      issue.startedAt = now;
+    }
+    issue.completedAt = next.type === 'completed' ? now : null;
+    issue.canceledAt = next.type === 'canceled' ? now : null;
+  }
+
+  // Applies a person's edit after checking it like Linear would; throws
+  // LinearApiError('invalid_input') with Linear-like wording otherwise.
+  function applyPatch(issue: Issue, patch: IssuePatch): void {
+    const has = (key: keyof IssuePatch): boolean =>
+      Object.hasOwn(patch, key) && patch[key] !== undefined;
+    const keys = (Object.keys(patch) as (keyof IssuePatch)[]).filter(has);
+    if (keys.length === 0) {
+      throw refused('updateIssueFields needs at least one field');
+    }
+    const fields = fieldsOf(issue.id);
+    let nextState: WorkflowState | undefined;
+    if (has('title') && (patch.title ?? '').trim() === '') {
+      throw refused('Title cannot be empty');
+    }
+    if (has('stateId')) {
+      nextState = store.data.states.find((s) => s.id === patch.stateId);
+      if (nextState === undefined || nextState.teamId !== issue.teamId) {
+        throw refused(
+          `State ${String(patch.stateId)} is not a state of ${issue.identifier}'s team`
+        );
+      }
+    }
+    if (has('assigneeId') && patch.assigneeId !== null) {
+      if (!hasUser(String(patch.assigneeId))) {
+        throw refused(`Unknown assignee: ${String(patch.assigneeId)}`);
+      }
+    }
+    if (has('priority')) {
+      const p = patch.priority;
+      if (typeof p !== 'number' || !Number.isInteger(p) || p < 0 || p > 4) {
+        throw refused('Priority must be an integer from 0 to 4');
+      }
+    }
+    let projectId = issue.projectId;
+    if (has('projectId')) {
+      projectId = patch.projectId ?? null;
+      if (
+        projectId !== null &&
+        !store.data.projects.some((p) => p.id === projectId)
+      ) {
+        throw refused(`Project not found: ${projectId}`);
+      }
+    }
+    let milestoneId = issue.milestoneId;
+    if (has('projectMilestoneId')) {
+      milestoneId = patch.projectMilestoneId ?? null;
+    } else if (projectId !== issue.projectId) {
+      // Moving to another project leaves the old project's milestone.
+      milestoneId = null;
+    }
+    if (milestoneId !== null) {
+      const milestone = store.data.milestones.find((m) => m.id === milestoneId);
+      if (milestone === undefined || milestone.projectId !== projectId) {
+        throw refused("The milestone must belong to the issue's project");
+      }
+    }
+    if (has('dueDate') && patch.dueDate !== null) {
+      if (!TIMELESS_DATE.test(String(patch.dueDate))) {
+        throw refused('Due date must be YYYY-MM-DD');
+      }
+    }
+    if (has('estimate') && patch.estimate !== null) {
+      const estimate = Number(patch.estimate);
+      if (!isAllowedEstimate(scaleOf(issue.teamId), estimate)) {
+        throw refused(
+          `Estimate ${estimate} is not on the team's estimate scale`
+        );
+      }
+    }
+    const labelIds = has('labelIds')
+      ? checkLabels(issue, patch.labelIds ?? [])
+      : null;
+
+    const now = store.now().toISOString();
+    if (has('title')) issue.title = String(patch.title).trim();
+    if (has('description')) {
+      const text = patch.description ?? null;
+      fields.description = text === null || text.trim() === '' ? null : text;
+    }
+    if (nextState !== undefined) moveToState(issue, nextState, now);
+    if (has('assigneeId')) issue.assigneeId = patch.assigneeId ?? null;
+    if (has('priority')) issue.priority = patch.priority ?? 0;
+    issue.projectId = projectId;
+    issue.milestoneId = milestoneId;
+    if (has('dueDate')) fields.dueDate = patch.dueDate ?? null;
+    if (has('estimate')) fields.estimate = patch.estimate ?? null;
+    if (labelIds !== null) fields.labelIds = labelIds;
+    issue.updatedAt = now;
   }
 
   return {
@@ -1634,6 +1859,113 @@ export function createFixtureGateway(
         }
         project.leadId = leadId;
         return copy(project);
+      });
+    },
+
+    fetchIssueDetail(issueId: string): Promise<IssueExtras | null> {
+      return settle(() => {
+        const issue = findIssue(issueId);
+        if (issue === undefined) return null;
+        const fields = fieldsOf(issueId);
+        const byId = labelsById();
+        const labels = fields.labelIds
+          .flatMap((id) => {
+            const entry = byId.get(id);
+            return entry === undefined ? [] : [toIssueLabel(entry, byId)];
+          })
+          .sort(byName);
+        const comments = [...store.seededComments, ...store.comments]
+          .filter((comment) => comment.issueId === issueId)
+          .sort((a, b) => {
+            const byTime = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+            if (byTime !== 0) return byTime;
+            return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+          })
+          .map(commentView);
+        return {
+          issueId,
+          description: fields.description,
+          labels,
+          estimate: fields.estimate,
+          dueDate: fields.dueDate,
+          comments,
+          commentsTruncated: false,
+          estimateScale: { ...scaleOf(issue.teamId) },
+        };
+      });
+    },
+
+    listIssueLabels(teamId: string): Promise<IssueLabel[]> {
+      return settle(() => {
+        const byId = labelsById();
+        return store.labels
+          .filter(
+            (entry) =>
+              !entry.archived &&
+              !entry.isGroup &&
+              (entry.teamId === null || entry.teamId === teamId)
+          )
+          .map((entry) => toIssueLabel(entry, byId))
+          .sort(byName);
+      });
+    },
+
+    updateIssueFields(issueId: string, patch: IssuePatch): Promise<Issue> {
+      return settle(() => {
+        const issue = findIssue(issueId);
+        if (issue === undefined) throw notFound('issue', issueId);
+        applyPatch(issue, patch);
+        return copy(issue);
+      });
+    },
+
+    createBlockingRelation(
+      blockerIssueId: string,
+      blockedIssueId: string
+    ): Promise<BlockingRelation> {
+      return settle(() => {
+        if (findIssue(blockerIssueId) === undefined) {
+          throw notFound('issue', blockerIssueId);
+        }
+        if (findIssue(blockedIssueId) === undefined) {
+          throw notFound('issue', blockedIssueId);
+        }
+        if (blockerIssueId === blockedIssueId) {
+          throw refused('An issue cannot block itself');
+        }
+        const relations = store.data.relations;
+        if (
+          relations.some(
+            (r) =>
+              r.blockerId === blockerIssueId && r.blockedId === blockedIssueId
+          )
+        ) {
+          throw refused('These issues already have this relation');
+        }
+        let n = relations.length + 1;
+        while (relations.some((r) => r.id === `rel-${n}`)) n += 1;
+        const relation: BlockingRelation = {
+          id: `rel-${n}`,
+          blockerId: blockerIssueId,
+          blockedId: blockedIssueId,
+        };
+        relations.push(relation);
+        const now = store.now().toISOString();
+        for (const id of [blockerIssueId, blockedIssueId]) {
+          const touched = findIssue(id);
+          if (touched !== undefined) touched.updatedAt = now;
+        }
+        return copy(relation);
+      });
+    },
+
+    deleteRelation(relationId: string): Promise<void> {
+      return settle(() => {
+        const index = store.data.relations.findIndex(
+          (r) => r.id === relationId
+        );
+        if (index === -1) throw notFound('relation', relationId);
+        store.data.relations.splice(index, 1);
       });
     },
   };

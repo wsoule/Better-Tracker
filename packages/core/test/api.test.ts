@@ -60,6 +60,11 @@ describe('public API (docs/architecture.md §3)', () => {
     'buildWeekView',
     'buildTimelineView',
     'buildMilestoneDetail',
+    'buildIssueDetail',
+    'buildIssueEditOptions',
+    'estimateOptions',
+    'estimateLabel',
+    'isAllowedEstimate',
   ])('exports function %s', (name) => {
     expect(typeof (core as Record<string, unknown>)[name]).toBe('function');
   });
@@ -71,6 +76,7 @@ describe('public API (docs/architecture.md §3)', () => {
     'STATUS_LABEL',
     'BLOCK_REASON_LABEL',
     'PRIORITY_LABEL',
+    'ISSUE_FIELD_LABEL',
   ])('exports constant %s', (name) => {
     expect(typeof (core as Record<string, unknown>)[name]).toBe('object');
   });

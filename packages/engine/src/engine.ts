@@ -15,6 +15,13 @@ import {
 } from './auth';
 import { cleanup } from './cleanup';
 import { runDaily } from './daily';
+import { getIssueDetail } from './issue-detail';
+import {
+  addBlocker,
+  addComment,
+  removeRelation,
+  updateIssue,
+} from './issue-edits';
 import { loadWorkspace } from './load';
 import {
   setMilestoneDoneMeans,
@@ -108,6 +115,15 @@ export function createEngine(deps: EngineDeps): Engine {
     setMilestoneDoneMeans: (actor, milestoneId, text) =>
       setMilestoneDoneMeans(rt, actor, milestoneId, text),
     updateSettings: (actor, patch) => updateSettings(rt, actor, patch),
+
+    getIssueDetail: (actor, issueId) => getIssueDetail(rt, actor, issueId),
+    updateIssue: (actor, issueId, patch) =>
+      updateIssue(rt, actor, issueId, patch),
+    addComment: (actor, issueId, body) => addComment(rt, actor, issueId, body),
+    addBlocker: (actor, issueId, blockerIssueId) =>
+      addBlocker(rt, actor, issueId, blockerIssueId),
+    removeRelation: (actor, relationId) =>
+      removeRelation(rt, actor, relationId),
 
     cleanup: () => cleanup(rt),
     now: () => rt.nowIso(),

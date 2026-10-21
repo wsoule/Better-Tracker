@@ -227,6 +227,13 @@ describe('queries.ts against the Linear schema', () => {
       'COMMENT_CREATE_MUTATION',
       'PROJECT_MILESTONE_UPDATE_MUTATION',
       'PROJECT_UPDATE_MUTATION',
+      // Issue page (owner decision 2026-10-21).
+      'ISSUE_DETAIL_QUERY',
+      'ISSUE_LABELS_PAGE_QUERY',
+      'ISSUE_COMMENTS_PAGE_QUERY',
+      'TEAM_LABELS_QUERY',
+      'ISSUE_RELATION_CREATE_MUTATION',
+      'ISSUE_RELATION_DELETE_MUTATION',
     ]) {
       expect(names).toContain(expected);
     }
@@ -285,6 +292,7 @@ describe('queries.ts against the Linear schema', () => {
       queries.PROJECT_ISSUES_QUERY,
       queries.OPEN_ISSUES_WITHOUT_PROJECT_QUERY,
       queries.WORKSPACE_RELATIONS_QUERY,
+      queries.TEAM_LABELS_QUERY,
     ]) {
       expect(doc).toContain('$first: Int!');
       expect(doc).toContain('$after: String');
@@ -303,6 +311,21 @@ describe('queries.ts against the Linear schema', () => {
     );
     expect(queries.OPEN_ISSUES_WITHOUT_PROJECT_QUERY).toContain(
       'state: { type: { nin: ["completed", "canceled", "duplicate"] } }'
+    );
+  });
+
+  test('the issue page reads labels and comments with documented caps', () => {
+    expect(queries.ISSUE_COMMENTS_MAX).toBe(200);
+    expect(queries.ISSUE_DETAIL_QUERY).toContain(
+      'comments(first: 50, orderBy: createdAt)'
+    );
+    expect(queries.ISSUE_DETAIL_QUERY).toContain('labels(first: 50)');
+    // Team labels and workspace labels (team null), nothing else.
+    expect(queries.TEAM_LABELS_QUERY).toContain(
+      'filter: { or: [{ team: { id: { eq: $teamId } } }, { team: { null: true } }] }'
+    );
+    expect(queries.ISSUE_RELATION_CREATE_MUTATION).toContain(
+      'issueRelationCreate(input: $input)'
     );
   });
 

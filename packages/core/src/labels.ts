@@ -3,6 +3,7 @@
 
 import type {
   AllocationBlockReason,
+  IssuePatchField,
   IssueSkipReason,
   MilestoneStatus,
   NoticeKind,
@@ -54,6 +55,20 @@ export const PRIORITY_LABEL: Record<Priority, string> = {
   2: 'High',
   3: 'Medium',
   4: 'Low',
+};
+
+/** An issue field as the issue page and the audit log name it. */
+export const ISSUE_FIELD_LABEL: Record<IssuePatchField, string> = {
+  title: 'Title',
+  description: 'Description',
+  stateId: 'Status',
+  assigneeId: 'Assignee',
+  priority: 'Priority',
+  projectId: 'Project',
+  projectMilestoneId: 'Milestone',
+  dueDate: 'Due date',
+  estimate: 'Estimate',
+  labelIds: 'Labels',
 };
 
 export const ISSUE_SKIP_REASON_LABEL: Record<IssueSkipReason, string> = {

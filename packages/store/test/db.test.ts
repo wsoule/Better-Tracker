@@ -405,7 +405,12 @@ describe('runMigrations', () => {
         `INSERT INTO job_claims (workspace_id, job, day, claimed_at)
          VALUES ('ws', 'daily', '2026-10-21', '2026-10-21T08:00:00Z')`
       );
-      expect(await runMigrations(fresh)).toEqual([3]);
+      expect(
+        await runMigrations(
+          fresh,
+          MIGRATIONS.filter((m) => m.version <= 3)
+        )
+      ).toEqual([3]);
       const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
       // A day an older version claimed stays claimed, lease or not.
       expect(
@@ -417,6 +422,23 @@ describe('runMigrations', () => {
           { leaseMinutes: 30 }
         )
       ).toBe(false);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test('migration 4 indexes allocation entries by issue', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(fresh);
+      const rows = await fresh.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes
+         WHERE tablename = 'allocation_entries'
+           AND indexname = 'allocation_entries_issue_idx'`
+      );
+      expect(rows.map((r) => r.indexname)).toEqual([
+        'allocation_entries_issue_idx',
+      ]);
     } finally {
       await fresh.close();
     }

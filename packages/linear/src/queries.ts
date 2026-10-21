@@ -24,6 +24,20 @@ export const STATE_CHANGE_BATCH_SIZE = 20;
 /** State spans / history entries per issue per request. */
 export const HISTORY_PAGE_SIZE = 50;
 
+/**
+ * Issue page (owner decision 2026-10-21): comments per page, and how many
+ * pages one fetchIssueDetail reads at most. ISSUE_COMMENTS_MAX caps the
+ * comments one issue page shows; Linear does not document the default
+ * direction of `orderBy: createdAt`, so the gateway sorts what it read
+ * oldest first and reports `commentsTruncated` when more remain.
+ */
+export const ISSUE_COMMENTS_PAGE_SIZE = 50;
+export const ISSUE_COMMENTS_MAX_PAGES = 4;
+export const ISSUE_COMMENTS_MAX: number =
+  ISSUE_COMMENTS_PAGE_SIZE * ISSUE_COMMENTS_MAX_PAGES;
+/** Labels of one issue per page (an issue's label set is read in full). */
+export const ISSUE_LABELS_PAGE_SIZE = 50;
+
 /** Project status types the mirror leaves out. */
 const CLOSED_PROJECT_STATUSES = '["completed", "canceled"]';
 /** Issue state types that count as closed ("duplicate" is a Linear extra). */
@@ -123,6 +137,41 @@ fragment RelationFields on IssueRelation {
   type
   issue { id }
   relatedIssue { id }
+}`;
+
+// A label as the issue page needs it: its group (parent) decides whether
+// two labels exclude each other; groups themselves cannot be applied.
+const ISSUE_LABEL_FIELDS = `
+fragment IssueLabelFields on IssueLabel {
+  id
+  name
+  color
+  isGroup
+  team { id }
+  parent { id name groupType }
+}`;
+
+const COMMENT_FIELDS = `
+fragment CommentFields on Comment {
+  id
+  body
+  createdAt
+  url
+  parent { id }
+  user { id name }
+  botActor { name }
+  externalUser { name }
+}`;
+
+// A team's estimate settings. A sub-team may inherit them from its parent,
+// so the issue detail reads two parent levels with the same fragment.
+const ESTIMATE_SCALE_FIELDS = `
+fragment EstimateScaleFields on Team {
+  id
+  issueEstimationType
+  issueEstimationAllowZero
+  issueEstimationExtended
+  inheritIssueEstimation
 }`;
 
 const STATE_SPANS_FIELDS = `
@@ -385,6 +434,89 @@ query IssueInverseRelationsPage($id: String!, $after: String) {
 ${RELATION_FIELDS}`;
 
 // ---------------------------------------------------------------------------
+// Issue page (owner decision 2026-10-21): live fields the mirror does not keep
+// ---------------------------------------------------------------------------
+
+/**
+ * Description, estimate, due date, the first page of labels and comments,
+ * and the team's estimate scale (with up to two parent teams, for
+ * sub-teams that inherit it).
+ */
+export const ISSUE_DETAIL_QUERY: string = `
+query IssueDetail($id: String!) {
+  issue(id: $id) {
+    id
+    description
+    estimate
+    dueDate
+    archivedAt
+    trashed
+    team {
+      ...EstimateScaleFields
+      parent {
+        ...EstimateScaleFields
+        parent { ...EstimateScaleFields }
+      }
+    }
+    labels(first: ${ISSUE_LABELS_PAGE_SIZE}) {
+      nodes { ...IssueLabelFields }
+      ${PAGE_INFO}
+    }
+    comments(first: ${ISSUE_COMMENTS_PAGE_SIZE}, orderBy: createdAt) {
+      nodes { ...CommentFields }
+      ${PAGE_INFO}
+    }
+  }
+}
+${ESTIMATE_SCALE_FIELDS}
+${ISSUE_LABEL_FIELDS}
+${COMMENT_FIELDS}`;
+
+/** Further pages of one issue's labels. */
+export const ISSUE_LABELS_PAGE_QUERY: string = `
+query IssueLabelsPage($id: String!, $after: String) {
+  issue(id: $id) {
+    id
+    labels(first: ${ISSUE_LABELS_PAGE_SIZE}, after: $after) {
+      nodes { ...IssueLabelFields }
+      ${PAGE_INFO}
+    }
+  }
+}
+${ISSUE_LABEL_FIELDS}`;
+
+/** Further pages of one issue's comments. */
+export const ISSUE_COMMENTS_PAGE_QUERY: string = `
+query IssueCommentsPage($id: String!, $after: String) {
+  issue(id: $id) {
+    id
+    comments(first: ${ISSUE_COMMENTS_PAGE_SIZE}, after: $after, orderBy: createdAt) {
+      nodes { ...CommentFields }
+      ${PAGE_INFO}
+    }
+  }
+}
+${COMMENT_FIELDS}`;
+
+/**
+ * Labels usable on one team's issues: the team's own and workspace labels
+ * (team null). Archived labels are excluded by default; label groups are
+ * dropped by the gateway.
+ */
+export const TEAM_LABELS_QUERY: string = `
+query TeamIssueLabels($first: Int!, $after: String, $teamId: ID!) {
+  issueLabels(
+    first: $first
+    after: $after
+    filter: { or: [{ team: { id: { eq: $teamId } } }, { team: { null: true } }] }
+  ) {
+    nodes { ...IssueLabelFields }
+    ${PAGE_INFO}
+  }
+}
+${ISSUE_LABEL_FIELDS}`;
+
+// ---------------------------------------------------------------------------
 // Last state change (Issue.stateHistory, falling back to Issue.history)
 // ---------------------------------------------------------------------------
 
@@ -469,10 +601,14 @@ query IssueHistoryPage($id: String!, $after: String) {
 }`;
 
 // ---------------------------------------------------------------------------
-// Mutations: exactly the four writes the design allows (§8)
+// Mutations: the writes the design allows (§8 and the owner decision of
+// 2026-10-21; issue edits always use the editing person's token)
 // ---------------------------------------------------------------------------
 
-/** Assign and/or move an issue; `input` carries only the provided fields. */
+/**
+ * Edit an issue; `input` carries only the provided fields. Allocation sends
+ * assigneeId/stateId; a person's edit any IssuePatch field.
+ */
 export const ISSUE_UPDATE_MUTATION: string = `
 mutation IssueUpdate($id: String!, $input: IssueUpdateInput!) {
   issueUpdate(id: $id, input: $input) {
@@ -510,3 +646,21 @@ mutation ProjectUpdate($id: String!, $input: ProjectUpdateInput!) {
   }
 }
 ${PROJECT_FIELDS}`;
+
+/** "issue blocks relatedIssue" (input type: blocks). */
+export const ISSUE_RELATION_CREATE_MUTATION: string = `
+mutation IssueRelationCreate($input: IssueRelationCreateInput!) {
+  issueRelationCreate(input: $input) {
+    success
+    issueRelation { ...RelationFields }
+  }
+}
+${RELATION_FIELDS}`;
+
+export const ISSUE_RELATION_DELETE_MUTATION: string = `
+mutation IssueRelationDelete($id: String!) {
+  issueRelationDelete(id: $id) {
+    success
+    entityId
+  }
+}`;

@@ -27,9 +27,11 @@ export const DONE_MEANS_MAX_LENGTH = 280;
 
 const GRAPHEMES = new Intl.Segmenter('en', { granularity: 'grapheme' });
 
-// User-perceived characters (an emoji with modifiers counts once), so the
-// length limit matches what the person typed.
-function characterCount(text: string): number {
+/**
+ * User-perceived characters (an emoji with modifiers counts once), so a
+ * length limit matches what the person typed. Shared with issue edits.
+ */
+export function characterCount(text: string): number {
   return Array.from(GRAPHEMES.segment(text)).length;
 }
 
@@ -37,10 +39,16 @@ function invalid(message: string): EngineInputError {
   return new EngineInputError('invalid', message);
 }
 
-// The actor's workspace snapshot. The workspace must still have an active
-// installation (an uninstalled app must not keep writing to Linear or
-// changing its data), and a conflict when it was never synced.
-async function snapshotFor(rt: EngineRuntime, actor: Actor): Promise<Snapshot> {
+/**
+ * The actor's workspace snapshot for an edit. The workspace must still have
+ * an active installation (an uninstalled app must not keep writing to
+ * Linear or changing its data), and a conflict when it was never synced.
+ * Shared with the issue edits (issue-edits.ts).
+ */
+export async function snapshotFor(
+  rt: EngineRuntime,
+  actor: Actor
+): Promise<Snapshot> {
   await requireInstallation(rt, actor.session.workspaceId);
   const view = await rt.mirror.current(actor.session.workspaceId);
   if (view === null) {

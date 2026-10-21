@@ -6,9 +6,13 @@
   The binding build spec (domain rules, package contracts, routes, design
   system) is `docs/architecture.md`; read the relevant section before changing
   behavior, and update it in the same change when a rule moves.
-- Linear is the source of truth. The tool writes only an issue's assignee and
-  state, an issue comment, a milestone's target date, and a project's lead. Do
-  not add other Linear writes without changing the design doc first.
+- Linear is the source of truth. The tool's only automatic write is allocation
+  (an issue's assignee and state, plus one comment); PMs write a milestone's
+  target date and a project's lead. Since the owner decision of 2026-10-21
+  (design doc §12) every signed-in person may also edit an issue (title,
+  description, state, assignee, priority, labels, estimate, due date, project,
+  milestone, blocking relations) and add comments, always with their own Linear
+  token. Do not add other Linear writes without changing the design doc first.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace). Tests never call real Linear or Slack.
 - UI: layout and interaction follow Gr8r Studio (sidebar shell, command palette,

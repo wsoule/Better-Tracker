@@ -1,8 +1,10 @@
 // The LinearGateway backed by Linear's GraphQL API. It pages every root
 // connection, maps nodes into core types (map.ts), refines "last state
-// change" from issue history in aliased batches, and performs the four
-// writes the design allows. Transport, retries and error mapping live in
-// client.ts; dropping relations whose ends are not mirrored is core's job.
+// change" from issue history in aliased batches, and performs the writes
+// the design allows (allocation, PM edits, and since the owner decision of
+// 2026-10-21 a person's own issue edits). Transport, retries and error
+// mapping live in client.ts; dropping relations whose ends are not
+// mirrored is core's job.
 
 import type {
   BlockingRelation,
@@ -10,6 +12,10 @@ import type {
   IsoDate,
   IsoDateTime,
   Issue,
+  IssueComment,
+  IssueExtras,
+  IssueLabel,
+  IssuePatch,
   Milestone,
   Project,
   User,
@@ -38,9 +44,13 @@ import {
 } from './json';
 import {
   isArchivedNode,
+  isLabelGroupNode,
   mapBlockingRelation,
+  mapComment,
+  mapEstimateScale,
   mapInitiative,
   mapIssue,
+  mapIssueLabel,
   mapMilestone,
   mapProject,
   mapTeam,
@@ -56,9 +66,15 @@ import {
   IDENTITY_QUERY,
   INITIATIVE_QUERY,
   INITIATIVES_QUERY,
+  ISSUE_COMMENTS_MAX_PAGES,
+  ISSUE_COMMENTS_PAGE_QUERY,
+  ISSUE_DETAIL_QUERY,
   ISSUE_HISTORY_PAGE_QUERY,
   ISSUE_INVERSE_RELATIONS_PAGE_QUERY,
+  ISSUE_LABELS_PAGE_QUERY,
   ISSUE_QUERY,
+  ISSUE_RELATION_CREATE_MUTATION,
+  ISSUE_RELATION_DELETE_MUTATION,
   ISSUE_RELATIONS_PAGE_QUERY,
   ISSUE_RELATIONS_QUERY,
   ISSUE_UPDATE_MUTATION,
@@ -74,6 +90,7 @@ import {
   PROJECTS_QUERY,
   STATE_CHANGE_BATCH_SIZE,
   STATE_HISTORY_PAGE_QUERY,
+  TEAM_LABELS_QUERY,
   TEAMS_QUERY,
   USER_QUERY,
   USERS_QUERY,
@@ -220,6 +237,161 @@ interface AliasedBatchResult {
   failed: string[];
 }
 
+const PATCH_KEYS: readonly (keyof IssuePatch)[] = [
+  'title',
+  'description',
+  'stateId',
+  'assigneeId',
+  'priority',
+  'projectId',
+  'projectMilestoneId',
+  'dueDate',
+  'estimate',
+  'labelIds',
+];
+
+function badPatch(message: string): LinearApiError {
+  return new LinearApiError('invalid_input', message);
+}
+
+/**
+ * The IssueUpdateInput for a person's edit: exactly the patch's keys (the
+ * patch field names are Linear's), shape-checked so a malformed value
+ * fails here instead of at Linear. The engine validates meaning (states of
+ * the team, labels, the estimate scale) before it calls the gateway.
+ */
+export function issueUpdateInput(patch: IssuePatch): Record<string, unknown> {
+  const input: Record<string, unknown> = {};
+  for (const key of PATCH_KEYS) {
+    if (!Object.hasOwn(patch, key)) continue;
+    const value: unknown = patch[key];
+    if (value === undefined) continue;
+    switch (key) {
+      case 'title':
+      case 'stateId':
+        if (typeof value !== 'string')
+          throw badPatch(`${key} must be a string`);
+        break;
+      case 'description':
+      case 'assigneeId':
+      case 'projectId':
+      case 'projectMilestoneId':
+        if (value !== null && typeof value !== 'string') {
+          throw badPatch(`${key} must be a string or null`);
+        }
+        break;
+      case 'priority':
+        if (
+          typeof value !== 'number' ||
+          !Number.isInteger(value) ||
+          value < 0 ||
+          value > 4
+        ) {
+          throw badPatch('priority must be an integer from 0 to 4');
+        }
+        break;
+      case 'dueDate':
+        if (
+          value !== null &&
+          (typeof value !== 'string' || !TIMELESS_DATE.test(value))
+        ) {
+          throw badPatch(`dueDate must be YYYY-MM-DD or null`);
+        }
+        break;
+      case 'estimate':
+        // IssueUpdateInput.estimate is an Int.
+        if (
+          value !== null &&
+          (typeof value !== 'number' || !Number.isInteger(value))
+        ) {
+          throw badPatch('estimate must be an integer or null');
+        }
+        break;
+      case 'labelIds':
+        if (
+          !Array.isArray(value) ||
+          !value.every((id): id is string => typeof id === 'string')
+        ) {
+          throw badPatch('labelIds must be a list of label ids');
+        }
+        break;
+    }
+    input[key] = value;
+  }
+  if (Object.keys(input).length === 0) {
+    throw badPatch('updateIssueFields needs at least one field');
+  }
+  return input;
+}
+
+// The detail Linear gave for a GraphQL refusal: the first error's
+// user-presentable message, else its message; null when there is none.
+function refusalDetail(error: LinearApiError): string | null {
+  if (!(error.cause instanceof LinearGraphqlErrors)) return null;
+  const first = error.cause.errors[0];
+  if (first === undefined) return null;
+  return first.userPresentableMessage ?? first.message;
+}
+
+/**
+ * Rewrites a write's LinearApiError into a sentence a person can act on
+ * ("Linear refused to update the issue: Estimate is not valid"), keeping
+ * its kind, retry time and the original error as cause. Other errors pass
+ * through unchanged.
+ */
+export function readableWriteError(error: unknown, action: string): unknown {
+  if (!(error instanceof LinearApiError)) return error;
+  const detail = refusalDetail(error);
+  const suffix = detail === null ? '.' : `: ${detail}`;
+  let message: string;
+  switch (error.kind) {
+    case 'invalid_input':
+      message = `Linear refused to ${action}${suffix}`;
+      break;
+    case 'forbidden':
+      message = `Linear does not let this account ${action}${suffix}`;
+      break;
+    case 'not_found':
+      message = `Linear could not ${action}: something it refers to no longer exists${detail === null ? '.' : ` (${detail})`}`;
+      break;
+    case 'rate_limited':
+      message = `Linear's rate limit was reached; could not ${action}.`;
+      break;
+    default:
+      return error;
+  }
+  return new LinearApiError(error.kind, message, {
+    retryAt: error.retryAt,
+    cause: error,
+  });
+}
+
+// Plain code-unit order (deterministic on every host).
+function compareText(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+// Comments oldest first; ties (same instant) by id so the order is stable.
+function oldestFirst(a: IssueComment, b: IssueComment): number {
+  const byTime = Date.parse(a.createdAt) - Date.parse(b.createdAt);
+  return byTime !== 0 ? byTime : compareText(a.id, b.id);
+}
+
+// Labels by name, then id.
+function byLabelName(a: IssueLabel, b: IssueLabel): number {
+  const byName = compareText(a.name, b.name);
+  return byName !== 0 ? byName : compareText(a.id, b.id);
+}
+
+// Runs one write and makes its refusal readable (readableWriteError).
+async function writing<T>(action: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    throw readableWriteError(error, action);
+  }
+}
+
 /** Creates a gateway that talks to Linear with one access token. */
 export function createLinearGateway(
   options: LinearGatewayOptions
@@ -241,14 +413,19 @@ export function createLinearGateway(
   // list (the engine replaces the whole mirror with this result).
   async function fetchAllPages(
     query: string,
-    field: string
+    field: string,
+    variables: Record<string, unknown> = {}
   ): Promise<JsonObject[]> {
     const nodes: JsonObject[] = [];
     const seenCursors = new Set<string>();
     let after: string | null = null;
     for (;;) {
       const data = asData(
-        await client.request<unknown>(query, { first: PAGE_SIZE, after }),
+        await client.request<unknown>(query, {
+          ...variables,
+          first: PAGE_SIZE,
+          after,
+        }),
         field
       );
       const page = readConnection(data[field], field);
@@ -506,6 +683,55 @@ export function createLinearGateway(
       );
     }
     return entity;
+  }
+
+  // Every label of one issue: the first page from the detail query, then
+  // the rest (a label set must be complete, since an edit sends the full
+  // set back).
+  async function issueLabels(
+    issueId: string,
+    node: JsonObject
+  ): Promise<IssueLabel[]> {
+    const first = readConnection(node['labels'], 'Issue.labels');
+    const rest = first.hasNextPage
+      ? await fetchAllNested(
+          ISSUE_LABELS_PAGE_QUERY,
+          'issue',
+          'labels',
+          issueId,
+          first.endCursor
+        )
+      : [];
+    return [...first.nodes, ...rest]
+      .filter((label) => !isLabelGroupNode(label))
+      .map(mapIssueLabel);
+  }
+
+  // Up to ISSUE_COMMENTS_MAX_PAGES pages of comments, oldest first (the
+  // default direction of orderBy createdAt is undocumented, so sort here).
+  async function issueComments(
+    issueId: string,
+    node: JsonObject
+  ): Promise<{ comments: IssueComment[]; truncated: boolean }> {
+    const first = readConnection(node['comments'], 'Issue.comments');
+    let nodes = first.nodes;
+    let truncated = false;
+    if (first.hasNextPage) {
+      const more = await fetchRemainingNested(
+        ISSUE_COMMENTS_PAGE_QUERY,
+        'issue',
+        'comments',
+        issueId,
+        first.endCursor,
+        ISSUE_COMMENTS_MAX_PAGES - 1
+      );
+      nodes = [...nodes, ...more.nodes];
+      truncated = !more.complete;
+    }
+    const byId = new Map<string, IssueComment>();
+    for (const comment of nodes.map(mapComment)) byId.set(comment.id, comment);
+    const comments = [...byId.values()].sort(oldestFirst);
+    return { comments, truncated };
   }
 
   const gateway: LinearGateway = {
@@ -776,6 +1002,131 @@ export function createLinearGateway(
         payloadEntity(data, 'projectUpdate', 'project'),
         logger
       );
+    },
+
+    async fetchIssueDetail(issueId: string): Promise<IssueExtras | null> {
+      const node = await readSingle(ISSUE_DETAIL_QUERY, issueId, 'issue');
+      if (node === null) return null;
+      const [labels, comments] = await Promise.all([
+        issueLabels(issueId, node),
+        issueComments(issueId, node),
+      ]);
+      const description = optionalString(node, 'description');
+      const estimate = node['estimate'];
+      const dueDate = optionalString(node, 'dueDate');
+      return {
+        issueId: requireString(node, 'id', 'Issue'),
+        description:
+          description === null || description.trim() === ''
+            ? null
+            : description,
+        labels,
+        estimate:
+          typeof estimate === 'number' && Number.isFinite(estimate)
+            ? estimate
+            : null,
+        dueDate:
+          dueDate !== null && TIMELESS_DATE.test(dueDate.slice(0, 10))
+            ? dueDate.slice(0, 10)
+            : null,
+        comments: comments.comments,
+        commentsTruncated: comments.truncated,
+        estimateScale: mapEstimateScale(
+          requireObject(node, 'team', 'Issue'),
+          logger
+        ),
+      };
+    },
+
+    async listIssueLabels(teamId: string): Promise<IssueLabel[]> {
+      const nodes = await fetchAllPages(TEAM_LABELS_QUERY, 'issueLabels', {
+        teamId,
+      });
+      const byId = new Map<string, IssueLabel>();
+      for (const node of nodes) {
+        if (isLabelGroupNode(node) || isArchivedNode(node)) continue;
+        const label = mapIssueLabel(node);
+        byId.set(label.id, label);
+      }
+      return [...byId.values()].sort(byLabelName);
+    },
+
+    async updateIssueFields(
+      issueId: string,
+      patch: IssuePatch
+    ): Promise<Issue> {
+      const input = issueUpdateInput(patch);
+      return writing('update the issue', async () => {
+        const data = asData(
+          await client.request<unknown>(ISSUE_UPDATE_MUTATION, {
+            id: issueId,
+            input,
+          }),
+          'issueUpdate'
+        );
+        const issue = mapIssue(payloadEntity(data, 'issueUpdate', 'issue'));
+        // As in updateIssue: a state change happened at updatedAt.
+        if (input['stateId'] !== undefined) {
+          issue.lastStateChangeAt =
+            maxIso(issue.lastStateChangeAt, issue.updatedAt) ?? issue.updatedAt;
+        }
+        return issue;
+      });
+    },
+
+    async createBlockingRelation(
+      blockerIssueId: string,
+      blockedIssueId: string
+    ): Promise<BlockingRelation> {
+      return writing('add the blocking relation', async () => {
+        // Not idempotent: a retried 5xx could create the relation twice.
+        const data = asData(
+          await client.request<unknown>(
+            ISSUE_RELATION_CREATE_MUTATION,
+            {
+              input: {
+                issueId: blockerIssueId,
+                relatedIssueId: blockedIssueId,
+                type: 'blocks',
+              },
+            },
+            { idempotent: false }
+          ),
+          'issueRelationCreate'
+        );
+        const relation = mapBlockingRelation(
+          payloadEntity(data, 'issueRelationCreate', 'issueRelation')
+        );
+        if (relation === null) {
+          throw new LinearApiError(
+            'graphql',
+            'Linear issueRelationCreate returned a relation that is not "blocks"'
+          );
+        }
+        return relation;
+      });
+    },
+
+    async deleteRelation(relationId: string): Promise<void> {
+      await writing('remove the relation', async () => {
+        const data = asData(
+          await client.request<unknown>(ISSUE_RELATION_DELETE_MUTATION, {
+            id: relationId,
+          }),
+          'issueRelationDelete'
+        );
+        const payload = requireObject(
+          data,
+          'issueRelationDelete',
+          'issueRelationDelete'
+        );
+        if (payload['success'] !== true) {
+          throw new LinearApiError(
+            'graphql',
+            'Linear issueRelationDelete reported success=false'
+          );
+        }
+      });
     },
   };
 

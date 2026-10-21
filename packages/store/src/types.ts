@@ -153,6 +153,15 @@ export interface RunEntry {
 
 export type NewRunEntry = Omit<RunEntry, 'runId' | 'seq' | 'createdAt'>;
 
+/**
+ * A run entry about one issue together with its run's mode and trigger
+ * (the issue page's allocation history: a dry-run entry was never applied).
+ */
+export interface IssueRunEntry extends RunEntry {
+  runMode: AllocationMode;
+  runTrigger: RunTrigger;
+}
+
 export type NotificationStatus =
   /**
    * Claimed for today and being delivered. A record left 'pending' means the
@@ -188,7 +197,24 @@ export interface AuditEntry {
     | 'milestone.weight'
     | 'milestone.done_means'
     | 'project.lead'
-    | 'settings.update';
+    | 'settings.update'
+    // A person's issue edits (owner decision 2026-10-21): one entry per
+    // changed field; subjectId is the issue (the blocked issue for
+    // relations). Comment and description texts are logged as their
+    // length and a short excerpt, never in full.
+    | 'issue.title'
+    | 'issue.description'
+    | 'issue.state'
+    | 'issue.assignee'
+    | 'issue.priority'
+    | 'issue.project'
+    | 'issue.milestone'
+    | 'issue.due_date'
+    | 'issue.estimate'
+    | 'issue.labels'
+    | 'issue.comment'
+    | 'issue.blocker_added'
+    | 'issue.relation_removed';
   subjectId: string;
   before: unknown;
   after: unknown;
@@ -348,6 +374,15 @@ export interface Store {
     workspaceId: string,
     since: IsoDateTime
   ): Promise<RunEntry[]>;
+  /**
+   * Additive (issue page): the run entries about one issue, dry runs
+   * included, newest first, at most `limit`. The engine asks for 20.
+   */
+  listRunEntriesForIssue(
+    workspaceId: string,
+    issueId: string,
+    limit: number
+  ): Promise<IssueRunEntry[]>;
 
   // --- warnings and notifications -------------------------------------------
   listWarningMemory(workspaceId: string): Promise<WarningMemory[]>;

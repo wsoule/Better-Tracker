@@ -209,6 +209,13 @@ const JOB_CLAIM_LEASE: readonly string[] = [
   'UPDATE job_claims SET finished_at = claimed_at WHERE finished_at IS NULL',
 ];
 
+// The issue page lists one issue's allocation history (newest first).
+const ISSUE_ENTRY_INDEX: readonly string[] = [
+  `CREATE INDEX IF NOT EXISTS allocation_entries_issue_idx
+    ON allocation_entries (workspace_id, issue_id, created_at DESC)
+    WHERE issue_id IS NOT NULL`,
+];
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', statements: INITIAL_SCHEMA },
   {
@@ -217,6 +224,11 @@ export const MIGRATIONS: readonly Migration[] = [
     statements: NOTIFICATION_PENDING,
   },
   { version: 3, name: 'job_claim_lease', statements: JOB_CLAIM_LEASE },
+  {
+    version: 4,
+    name: 'allocation_entries_by_issue',
+    statements: ISSUE_ENTRY_INDEX,
+  },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise

@@ -56,8 +56,8 @@ function isMirrored(snapshot: Snapshot, ref: MirrorRef): boolean {
   }
 }
 
-// Refs of every mirrored relation in which `issueId` blocks or is blocked.
-function relationRefsTouching(
+/** Refs of every mirrored relation in which `issueId` blocks or is blocked. */
+export function relationRefsTouching(
   snapshot: Snapshot,
   issueId: string
 ): MirrorRef[] {
@@ -118,10 +118,12 @@ async function projectRefresh(
   };
 }
 
-// Whether the mirror keeps this issue: issues of mirrored projects (open
-// and closed, for progress) and open issues without a project, exactly the
-// set fetchWorkspace mirrors.
-function keepsLooseIssue(snapshot: Snapshot, issue: Issue): boolean {
+/**
+ * Whether the mirror keeps an issue without a project: only open ones,
+ * exactly the set fetchWorkspace mirrors (issues of mirrored projects are
+ * kept open and closed, for progress).
+ */
+export function keepsLooseIssue(snapshot: Snapshot, issue: Issue): boolean {
   const type = snapshot.states.get(issue.stateId)?.type ?? 'backlog';
   return isOpenState(type);
 }

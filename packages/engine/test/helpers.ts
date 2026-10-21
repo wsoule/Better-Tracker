@@ -170,6 +170,8 @@ export async function createDemoHarness(
     wrap?: GatewayWrapper;
     channel?: NotificationChannel & { sent: Digest[] };
     clock?: TestClock;
+    /** Replaces the provider built from the fixture (mode/wrap ignored). */
+    linear?: (fixture: FixtureStore) => LinearProvider;
   } = {}
 ): Promise<DemoHarness> {
   const clock = options.clock ?? createClock();
@@ -180,10 +182,12 @@ export async function createDemoHarness(
   const { logger, lines } = recordingLogger();
   const engine = createEngine({
     store,
-    linear: fixtureProvider(fixture, {
-      mode: options.mode,
-      wrap: options.wrap,
-    }),
+    linear:
+      options.linear?.(fixture) ??
+      fixtureProvider(fixture, {
+        mode: options.mode,
+        wrap: options.wrap,
+      }),
     channel,
     logger,
     config: TEST_CONFIG,

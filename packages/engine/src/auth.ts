@@ -1,8 +1,9 @@
 // Sign-in, install and sessions (§7 "auth", §4.1 OAuth).
 //
-// - signin asks for `read`; grant_write upgrades a PM to `read,write` so
-//   their Linear edits are attributed to them; install is the admin's
-//   actor=app grant (`read,write`, prompt=consent).
+// - signin asks for `read`; grant_write upgrades anyone signed in to
+//   `read,write` so their Linear edits are attributed to them (PM edits,
+//   and since the owner decision of 2026-10-21 everyone's issue edits);
+//   install is the admin's actor=app grant (`read,write`, prompt=consent).
 // - Sessions are cookie tokens whose SHA-256 is stored with the person's
 //   own Linear tokens (encrypted). Objects handed back to callers (Actor,
 //   SignInResult, Installation) carry redacted tokens so a page can never

@@ -648,3 +648,262 @@ export interface MilestoneDetail {
   /** Milestones this one waits on (milestone-level graph neighbours). */
   waitsOn: { milestoneId: string; name: string; projectName: string }[];
 }
+
+// ---------------------------------------------------------------------------
+// Issue detail and issue edits (owner decision 2026-10-21: every signed-in
+// person can edit an issue from the planner with their own Linear token)
+// ---------------------------------------------------------------------------
+
+/**
+ * A team's estimate scale (Linear `Team.issueEstimationType`). `notUsed`
+ * means the team has estimates switched off: only "no estimate" is valid.
+ */
+export type EstimateScaleType =
+  | 'notUsed'
+  | 'exponential'
+  | 'fibonacci'
+  | 'linear'
+  | 'tShirt';
+
+export interface EstimateScale {
+  type: EstimateScaleType;
+  /** `Team.issueEstimationAllowZero`: 0 is an explicit, valid estimate. */
+  allowZero: boolean;
+  /** `Team.issueEstimationExtended`: two more values at the top of the scale. */
+  extended: boolean;
+}
+
+/** One value the estimate picker offers ("5", or "L" on a T-shirt scale). */
+export interface EstimateOption {
+  /** What Linear stores (T-shirt sizes are stored as Fibonacci numbers). */
+  value: number;
+  label: string;
+}
+
+/** The label group a label belongs to (Linear `IssueLabel.parent`). */
+export interface IssueLabelGroup {
+  id: string;
+  name: string;
+  /**
+   * At most one label of the group per issue. Linear groups are
+   * single-select unless their `groupType` is `multiSelect`.
+   */
+  singleSelect: boolean;
+}
+
+/** A Linear issue label that can be applied to an issue (never a group). */
+export interface IssueLabel {
+  id: string;
+  name: string;
+  /**
+   * Linear's HEX colour, kept as data only: the planner draws labels in
+   * its own marks and never paints this colour (one accent, §8.2).
+   */
+  color: string;
+  /** The team the label belongs to; null for a workspace label. */
+  teamId: string | null;
+  group: IssueLabelGroup | null;
+}
+
+/** A comment on an issue, as read live from Linear. */
+export interface IssueComment {
+  id: string;
+  /** Markdown, as Linear stores it. */
+  body: string;
+  createdAt: IsoDateTime;
+  /** Link to the comment in Linear; null when Linear did not send one. */
+  url: string | null;
+  /** The comment this one replies to (threads), else null. */
+  parentId: string | null;
+  /** The Linear user who wrote it; null for bots and integrations. */
+  author: { id: string; name: string } | null;
+  /** The bot's or external person's name when `author` is null. */
+  externalAuthor: string | null;
+}
+
+/**
+ * The fields of one issue the mirror does not keep, read live from Linear
+ * for the issue page (the sync never fetches them, so the mirror stays
+ * small and every reader sees Linear's current text).
+ */
+export interface IssueExtras {
+  issueId: string;
+  /** Markdown description; null when empty. */
+  description: string | null;
+  /** The issue's labels (the full set). */
+  labels: IssueLabel[];
+  estimate: number | null;
+  dueDate: IsoDate | null;
+  /** Oldest first, newest last. */
+  comments: IssueComment[];
+  /** Linear holds more comments than were read (see ISSUE_COMMENTS_MAX). */
+  commentsTruncated: boolean;
+  /** The estimate scale of the issue's team. */
+  estimateScale: EstimateScale;
+}
+
+/**
+ * A person's edit of one issue: only the keys present change. Null clears
+ * a field that may be empty; `labelIds` is the issue's complete new label
+ * set (labels left out are removed).
+ */
+export interface IssuePatch {
+  title?: string;
+  description?: string | null;
+  stateId?: string;
+  assigneeId?: string | null;
+  priority?: Priority;
+  projectId?: string | null;
+  projectMilestoneId?: string | null;
+  dueDate?: IsoDate | null;
+  estimate?: number | null;
+  labelIds?: string[];
+}
+
+export type IssuePatchField = keyof IssuePatch;
+
+/** A person on the issue page, with whether Linear still has them active. */
+export interface IssuePersonRef {
+  id: string;
+  name: string;
+  active: boolean;
+}
+
+/** One blocks relation as the issue page lists it. */
+export interface IssueRelationRow {
+  /** The Linear relation id (what removeRelation takes). */
+  relationId: string;
+  /** The other issue of the relation. */
+  issueId: string;
+  identifier: string;
+  title: string;
+  url: string;
+  stateName: string;
+  stateType: WorkflowStateType;
+  assigneeId: string | null;
+  assigneeName: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  milestoneId: string | null;
+  milestoneName: string | null;
+  /**
+   * The other issue is outside the planner's active work: it has no
+   * project, or its project's status is not in activeProjectStatuses.
+   */
+  external: boolean;
+  /** The relation's blocker is closed, so it no longer holds anything up. */
+  resolved: boolean;
+}
+
+export interface IssueDetailProject {
+  id: string;
+  name: string;
+  url: string;
+  statusType: ProjectStatusType;
+  statusName: string;
+  /** In tuning.activeProjectStatuses (§2.8): allocated and warned about. */
+  active: boolean;
+  lead: IssuePersonRef | null;
+}
+
+export interface IssueDetailMilestone {
+  id: string;
+  name: string;
+  targetDate: IsoDate | null;
+  daysLeft: number | null;
+  status: MilestoneStatus;
+  reasons: RiskReason[];
+  /** Its project's next milestone (§2.6). */
+  isNext: boolean;
+  rubric: RubricResult;
+  progress: Progress;
+}
+
+export interface IssueDetailTiming {
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+  startedAt: IsoDateTime | null;
+  completedAt: IsoDateTime | null;
+  canceledAt: IsoDateTime | null;
+  /** When the issue entered its current state (see Issue). */
+  lastStateChangeAt: IsoDateTime;
+  /** Whole days since lastStateChangeAt (0 when it lies in the future). */
+  daysInState: number;
+  /** Open, and no state change for more than tuning.stallDays × 24 h. */
+  stalled: boolean;
+}
+
+/** Why this issue matters to the plan, for the page's "why" panel. */
+export interface IssueWhyItMatters {
+  /**
+   * Open, unassigned, in its active project's next milestone: the next
+   * live allocation run gives it to the project lead.
+   */
+  unassignedInNextMilestone: boolean;
+  /**
+   * Overdue or at-risk milestones of active projects holding an open issue
+   * this open issue blocks, in milestone display order.
+   */
+  blocksAtRiskMilestones: {
+    milestoneId: string;
+    name: string;
+    projectName: string;
+    status: 'overdue' | 'at_risk';
+  }[];
+  /** Open, and transitively waits on an open unassigned issue. */
+  waitsOnUnassigned: boolean;
+  /** Open, and transitively waits on an issue of an overdue milestone. */
+  waitsOnOverdue: boolean;
+  /**
+   * On a dependency chain that ends in an unassigned or overdue issue
+   * (§2.10): it waits on one, or is one and blocks an open issue.
+   */
+  onRiskChain: boolean;
+}
+
+/** A project the issue may move to, with its milestones. */
+export interface IssueProjectOption {
+  id: string;
+  name: string;
+  statusName: string;
+  active: boolean;
+  /** The issue's team works on the project (Project.teamIds). */
+  includesTeam: boolean;
+  /** In project order (§2.6: date ascending, undated last). */
+  milestones: { id: string; name: string; targetDate: IsoDate | null }[];
+}
+
+/** What the edit controls may offer, all from the mirror. */
+export interface IssueEditOptions {
+  /** The issue's team's workflow states in Linear's order (position). */
+  states: WorkflowState[];
+  /** Active people (no app users), by name. */
+  assignees: { id: string; name: string; displayName: string }[];
+  /** Active projects first (timeline order), then the others. */
+  projects: IssueProjectOption[];
+}
+
+/** The issue page's view model, built from the mirror (buildIssueDetail). */
+export interface IssueDetail {
+  issue: Issue;
+  /** The issue's workflow state (null when the mirror lacks it). */
+  state: { id: string; name: string; type: WorkflowStateType } | null;
+  team: Team | null;
+  assignee: IssuePersonRef | null;
+  priority: Priority;
+  project: IssueDetailProject | null;
+  milestone: IssueDetailMilestone | null;
+  /** Issues blocking this one, open blockers first, then issue order. */
+  blockedBy: IssueRelationRow[];
+  /** Issues this one blocks, open ones first, then issue order. */
+  blocks: IssueRelationRow[];
+  /**
+   * Blocks relations whose other issue the mirror does not hold (an issue
+   * of a closed project, or of a team the app cannot see): counted, since
+   * there is nothing to show for them.
+   */
+  hiddenRelations: number;
+  timing: IssueDetailTiming;
+  why: IssueWhyItMatters;
+  options: IssueEditOptions;
+}

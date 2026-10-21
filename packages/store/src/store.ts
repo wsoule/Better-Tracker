@@ -44,6 +44,7 @@ import type {
   AllocationRun,
   AuditEntry,
   Installation,
+  IssueRunEntry,
   LoadedMirror,
   MilestoneMetaField,
   MirrorEntity,
@@ -1325,6 +1326,29 @@ class SqlStore implements Store {
       [runId]
     );
     return { run: runFromRow(run), entries: entries.map(entryFromRow) };
+  }
+
+  async listRunEntriesForIssue(
+    workspaceId: string,
+    issueId: string,
+    limit: number
+  ): Promise<IssueRunEntry[]> {
+    const rows = await this.sql.query<
+      EntryRow & { run_mode: AllocationMode; run_trigger: RunTrigger }
+    >(
+      `SELECT ${ENTRY_COLUMNS}, r.mode AS run_mode, r.run_trigger
+       FROM allocation_entries e
+       JOIN allocation_runs r ON r.id = e.run_id
+       WHERE e.workspace_id = $1 AND e.issue_id = $2
+       ORDER BY e.created_at DESC, r.started_at DESC, e.run_id DESC, e.seq DESC
+       LIMIT $3::int`,
+      [workspaceId, issueId, sqlLimit(limit)]
+    );
+    return rows.map((row) => ({
+      ...entryFromRow(row),
+      runMode: row.run_mode,
+      runTrigger: row.run_trigger,
+    }));
   }
 
   async listAppliedAssignments(

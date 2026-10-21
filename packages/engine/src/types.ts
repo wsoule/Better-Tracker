@@ -1,11 +1,21 @@
 import type {
   AllocationMode,
   AllocationPlan,
+  BlockingRelation,
   DependencyGraph,
   Digest,
+  EstimateOption,
+  EstimateScale,
   GraphScope,
   IsoDate,
   IsoDateTime,
+  Issue,
+  IssueComment,
+  IssueDetail,
+  IssueExtras,
+  IssueLabel,
+  IssuePatch,
+  IssuePatchField,
   MilestoneAssessment,
   MilestoneDetail,
   Snapshot,
@@ -26,6 +36,7 @@ import type {
   AllocationRun,
   AuditEntry,
   Installation,
+  IssueRunEntry,
   NotificationRecord,
   RunEntry,
   RunTrigger,
@@ -69,7 +80,7 @@ export interface LinearProvider {
   readonly mode: 'linear' | 'fixture';
   /** Acts as the installed app (allocation writes, sync). */
   forApp(workspaceId: string): Promise<LinearGateway>;
-  /** Acts as the signed-in human (PM edits). */
+  /** Acts as the signed-in human (PM edits, a person's issue edits). */
   forSession(session: Session): Promise<LinearGateway>;
 }
 
@@ -94,8 +105,51 @@ export interface EngineDeps {
 export interface Actor {
   session: Session;
   isPm: boolean;
-  /** Granted Linear scopes of the user's token include `write`. */
+  /**
+   * Granted Linear scopes of the user's token include `write`. Since the
+   * owner decision of 2026-10-21 every signed-in person may hold it (the
+   * grant_write upgrade is offered to everyone) and edit issues with it.
+   */
   canWriteLinear: boolean;
+}
+
+/**
+ * The issue page (owner decision 2026-10-21): what getIssueDetail returns.
+ * `detail` comes from the mirror; everything live is read with the
+ * viewer's own token (the app's when theirs cannot be used), and a failed
+ * live read leaves `extra` null with `extraError` saying why instead of
+ * failing the page.
+ */
+export interface IssueDetailResult {
+  detail: IssueDetail;
+  /** Description, labels, estimate, due date, comments; null on failure. */
+  extra: IssueExtras | null;
+  /** Why `extra` (and `labels`) are missing; null when the read worked. */
+  extraError: string | null;
+  /** Whose token read `extra`: the viewer's, or the app's as a fallback. */
+  extraSource: 'actor' | 'app' | null;
+  /** Labels the issue's team can use, by name; empty when the read failed. */
+  labels: IssueLabel[];
+  /** The team's estimate scale; null when the live read failed. */
+  estimateScale: EstimateScale | null;
+  /** The estimates that scale allows (empty for no scale or `notUsed`). */
+  estimateOptions: EstimateOption[];
+  /** Allocation run entries about this issue, newest first (at most 20). */
+  allocationHistory: IssueRunEntry[];
+  /** The viewer's token may write: show the edit controls. */
+  canEdit: boolean;
+}
+
+/** What updateIssue changed. */
+export interface IssueUpdateResult {
+  /** The issue as mirrored after the edit (unchanged when nothing was). */
+  issue: Issue;
+  /**
+   * The fields Linear was asked to change, in patch order; values equal to
+   * the current ones are left out (empty: nothing was written). A project
+   * change that cleared the old milestone lists projectMilestoneId too.
+   */
+  changed: IssuePatchField[];
 }
 
 /** A loaded, indexed workspace plus everything derived from it. */
@@ -179,7 +233,9 @@ export class EngineAuthError extends Error {
     | 'needs_write_scope'
     | 'not_installed'
     | 'wrong_workspace'
-    | 'fixture_only';
+    | 'fixture_only'
+    /** Additive: Linear's own permissions refused the person's edit. */
+    | 'linear_forbidden';
   constructor(code: EngineAuthError['code'], message: string) {
     super(message);
     this.name = 'EngineAuthError';
@@ -187,13 +243,23 @@ export class EngineAuthError extends Error {
   }
 }
 
-/** Thrown for invalid input; the web layer maps it to 400/404/409. */
+/**
+ * Thrown for invalid input; the web layer maps it to 400/404/409, and
+ * (additive) `rate_limited` to 429.
+ */
 export class EngineInputError extends Error {
-  readonly code: 'invalid' | 'not_found' | 'conflict';
-  constructor(code: EngineInputError['code'], message: string) {
+  readonly code: 'invalid' | 'not_found' | 'conflict' | 'rate_limited';
+  /** For rate_limited: when Linear says the limit resets, if it said. */
+  readonly retryAt: IsoDateTime | null;
+  constructor(
+    code: EngineInputError['code'],
+    message: string,
+    options: { retryAt?: IsoDateTime | null } = {}
+  ) {
     super(message);
     this.name = 'EngineInputError';
     this.code = code;
+    this.retryAt = options.retryAt ?? null;
   }
 }
 
@@ -324,6 +390,39 @@ export interface Engine {
     actor: Actor,
     patch: Partial<Omit<WorkspaceSettings, 'workspaceId'>>
   ): Promise<WorkspaceSettings>;
+
+  // --- issue page (owner decision 2026-10-21; additive) ---------------------
+  // Reads need only a session. Writes need actor.canWriteLinear (any
+  // signed-in person who granted write; never isPm-gated), are validated
+  // against the mirror (and the team's live labels / estimate scale),
+  // go to Linear with the person's own token, patch the mirror at once and
+  // append an audit entry per changed field.
+
+  /** The issue page: mirror view model, live extras, allocation history. */
+  getIssueDetail(actor: Actor, issueId: string): Promise<IssueDetailResult>;
+  /** Edits an issue's fields (only the patch's keys). */
+  updateIssue(
+    actor: Actor,
+    issueId: string,
+    patch: IssuePatch
+  ): Promise<IssueUpdateResult>;
+  /** Adds a comment (markdown, 1–10,000 characters) as the person. */
+  addComment(
+    actor: Actor,
+    issueId: string,
+    body: string
+  ): Promise<IssueComment>;
+  /**
+   * Adds "blockerIssueId blocks issueId". For "this issue blocks X", call
+   * it with X as issueId and this issue as the blocker.
+   */
+  addBlocker(
+    actor: Actor,
+    issueId: string,
+    blockerIssueId: string
+  ): Promise<BlockingRelation>;
+  /** Removes a blocks relation (by its Linear id). */
+  removeRelation(actor: Actor, relationId: string): Promise<void>;
 
   /**
    * Housekeeping for the worker: deletes expired sessions (revoking their

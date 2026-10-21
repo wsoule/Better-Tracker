@@ -7,20 +7,24 @@
 // - Timestamps are normalised to `toISOString()` so string order is time
 //   order; TimelessDate values are kept as `YYYY-MM-DD`.
 
-import type {
-  BlockingRelation,
-  Initiative,
-  IsoDate,
-  IsoDateTime,
-  Issue,
-  Milestone,
-  Priority,
-  Project,
-  ProjectStatusType,
-  Team,
-  User,
-  WorkflowState,
-  WorkflowStateType,
+import {
+  type BlockingRelation,
+  type EstimateScale,
+  type Initiative,
+  type IsoDate,
+  type IsoDateTime,
+  type Issue,
+  type IssueComment,
+  type IssueLabel,
+  isEstimateScaleType,
+  type Milestone,
+  type Priority,
+  type Project,
+  type ProjectStatusType,
+  type Team,
+  type User,
+  type WorkflowState,
+  type WorkflowStateType,
 } from '@better-tracker/core';
 
 import type { LinearLogger } from './client';
@@ -28,6 +32,7 @@ import { LinearApiError } from './gateway';
 import {
   isRecord,
   type JsonObject,
+  optionalBoolean,
   optionalNumber,
   optionalObject,
   optionalRefId,
@@ -349,4 +354,104 @@ export function isArchivedNode(value: unknown): boolean {
   return (
     optionalString(value, 'archivedAt') !== null || value['trashed'] === true
   );
+}
+
+// ---------------------------------------------------------------------------
+// Issue page (owner decision 2026-10-21)
+// ---------------------------------------------------------------------------
+
+/**
+ * An IssueLabel node (IssueLabelFields) as a core IssueLabel. Its parent is
+ * the label group; a group without a groupType is single-select (Linear's
+ * documented default).
+ */
+export function mapIssueLabel(value: unknown): IssueLabel {
+  const node = asNode(value, 'IssueLabel');
+  const parent = optionalObject(node, 'parent');
+  const parentId = parent === null ? null : optionalString(parent, 'id');
+  return {
+    id: requireString(node, 'id', 'IssueLabel'),
+    name: requireString(node, 'name', 'IssueLabel'),
+    color: optionalString(node, 'color') ?? '',
+    teamId: optionalRefId(node, 'team'),
+    group:
+      parent === null || parentId === null
+        ? null
+        : {
+            id: parentId,
+            name: optionalString(parent, 'name') ?? '',
+            singleSelect: optionalString(parent, 'groupType') !== 'multiSelect',
+          },
+  };
+}
+
+/** True for a label group node (it cannot be applied to an issue). */
+export function isLabelGroupNode(value: unknown): boolean {
+  return isRecord(value) && value['isGroup'] === true;
+}
+
+/** A Comment node (CommentFields) as a core IssueComment. */
+export function mapComment(value: unknown): IssueComment {
+  const node = asNode(value, 'Comment');
+  const user = optionalObject(node, 'user');
+  const userId = user === null ? null : optionalString(user, 'id');
+  const bot = optionalObject(node, 'botActor');
+  const external = optionalObject(node, 'externalUser');
+  return {
+    id: requireString(node, 'id', 'Comment'),
+    body: optionalString(node, 'body') ?? '',
+    createdAt: requireDateTime(node, 'createdAt', 'Comment'),
+    url: optionalString(node, 'url'),
+    parentId: optionalRefId(node, 'parent'),
+    author:
+      user === null || userId === null
+        ? null
+        : { id: userId, name: optionalString(user, 'name') ?? '' },
+    externalAuthor:
+      user !== null && userId !== null
+        ? null
+        : ((bot === null ? null : optionalString(bot, 'name')) ??
+          (external === null ? null : optionalString(external, 'name'))),
+  };
+}
+
+/** A team that does not use estimates (also the fallback for unknowns). */
+export const NO_ESTIMATES: EstimateScale = {
+  type: 'notUsed',
+  allowZero: false,
+  extended: false,
+};
+
+/**
+ * A Team node (EstimateScaleFields, with up to two `parent` levels) as the
+ * estimate scale its issues use. A sub-team with inheritIssueEstimation
+ * takes its parent's settings, following parents while they inherit too.
+ * An unknown issueEstimationType (Linear sends a free string) reads as
+ * `notUsed` and is logged, so the planner never offers values Linear would
+ * reject.
+ */
+export function mapEstimateScale(
+  value: unknown,
+  logger?: LinearLogger
+): EstimateScale {
+  let node = asNode(value, 'Team');
+  for (let depth = 0; depth < 3; depth++) {
+    if (optionalBoolean(node, 'inheritIssueEstimation') !== true) break;
+    const parent = optionalObject(node, 'parent');
+    if (parent === null) break;
+    node = parent;
+  }
+  const type = optionalString(node, 'issueEstimationType') ?? 'notUsed';
+  if (!isEstimateScaleType(type)) {
+    logger?.warn('unknown Linear estimate scale; treating as not used', {
+      type,
+      teamId: optionalString(node, 'id'),
+    });
+    return { ...NO_ESTIMATES };
+  }
+  return {
+    type,
+    allowZero: optionalBoolean(node, 'issueEstimationAllowZero') === true,
+    extended: optionalBoolean(node, 'issueEstimationExtended') === true,
+  };
 }

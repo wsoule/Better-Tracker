@@ -13,4 +13,6 @@ export * from './warnings';
 export * from './graph';
 export * from './mermaid';
 export * from './views';
+export * from './estimates';
+export * from './issue-detail';
 export * from './labels';

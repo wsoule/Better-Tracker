@@ -9,3 +9,4 @@ export * from './linear-gateway';
 export * from './oauth';
 export * from './webhooks';
 export * from './fixture';
+export * from './fixture-details';

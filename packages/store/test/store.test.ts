@@ -1256,6 +1256,75 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           )
         ).toEqual([]);
       });
+      test('listRunEntriesForIssue lists one issue newest first with its run mode', async () => {
+        const ws = newWorkspaceId();
+        const dry = await store.startRun({
+          workspaceId: ws,
+          mode: 'dry_run',
+          trigger: 'manual',
+          startedByUserId: 'u-ana',
+          now: '2026-10-18T08:00:00.000Z',
+          staleAfterMinutes: 60,
+        });
+        clock = new Date('2026-10-18T08:00:01.000Z');
+        await store.appendRunEntries(dry?.id ?? '', [
+          entry({ issueId: 'iss-7', outcome: 'planned' }),
+          entry({ issueId: 'iss-8', outcome: 'planned' }),
+        ]);
+        await store.finishRun(dry?.id ?? '', {
+          status: 'succeeded',
+          summary,
+          error: null,
+          now: '2026-10-18T08:01:00.000Z',
+        });
+        const live = await start(ws, '2026-10-19T08:00:00.000Z');
+        clock = new Date('2026-10-19T08:00:01.000Z');
+        await store.appendRunEntries(live?.id ?? '', [
+          entry({
+            action: 'skip',
+            outcome: 'noted',
+            issueId: 'iss-7',
+            reason: 'triage',
+          }),
+          entry({ issueId: 'iss-7' }),
+          entry({ action: 'block', outcome: 'noted', issueId: null }),
+        ]);
+        // Another workspace's entry for the same issue id stays out.
+        const other = newWorkspaceId();
+        const otherRun = await start(other, '2026-10-19T09:00:00.000Z');
+        await store.appendRunEntries(otherRun?.id ?? '', [
+          entry({ issueId: 'iss-7' }),
+        ]);
+
+        const liveId = live?.id ?? '';
+        const dryId = dry?.id ?? '';
+        const history = await store.listRunEntriesForIssue(ws, 'iss-7', 20);
+        expect(
+          history.map((e) => [
+            e.runId,
+            e.seq,
+            e.action,
+            e.runMode,
+            e.runTrigger,
+          ])
+        ).toEqual([
+          [liveId, 2, 'assign', 'live', 'schedule'],
+          [liveId, 1, 'skip', 'live', 'schedule'],
+          [dryId, 1, 'assign', 'dry_run', 'manual'],
+        ]);
+        expect(history[0]).toMatchObject({
+          issueId: 'iss-7',
+          outcome: 'applied',
+          reason: 'comment-1',
+          createdAt: '2026-10-19T08:00:01.000Z',
+        });
+        expect(
+          (await store.listRunEntriesForIssue(ws, 'iss-7', 1)).map((e) => e.seq)
+        ).toEqual([2]);
+        expect(await store.listRunEntriesForIssue(ws, 'iss-none', 20)).toEqual(
+          []
+        );
+      });
     });
 
     describe('warnings and notifications', () => {

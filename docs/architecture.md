@@ -9,6 +9,12 @@ _My week_ for everyone, the _timeline_ for PMs.
 Working product name: **Milestone Planner** (configurable via `APP_NAME`; the
 repo and package scope are `better-tracker`).
 
+**Owner decision 2026-10-21** (design doc §12): every signed-in person can edit
+an issue from the planner (title, description, state, assignee, priority,
+labels, estimate, due date, project, milestone, blocking relations) and read and
+add comments, always with their own Linear token. The only automatic write stays
+allocation. The contracts are in §2.12, §3, §4, §5, §7.2 and §8.5.
+
 ## 1. Layout
 
 ```
@@ -248,6 +254,47 @@ count, plain lines ("3 open issues unassigned", "no state change in 9 days",
   projects without lead, milestones without date, open issues without milestone
   (per project), blocked projects.
 
+### 2.12 Issue page (owner decision 2026-10-21)
+
+`buildIssueDetail({ snapshot, ctx, assessments, issueId })` → `IssueDetail`
+(null for an issue the mirror does not hold), from the mirror only:
+
+- the issue, its state (`id`, `name`, `type`; no colour), team, assignee and
+  project lead as `{ id, name, active }`, priority, project (`active` = status
+  in `tuning.activeProjectStatuses`, §2.8) and milestone (target date, days
+  left, status, reasons, `isNext`, rubric gaps, progress).
+- `blockedBy` / `blocks`: one row per blocker/blocked pair with the Linear
+  relation id (what `removeRelation` takes), the other issue's identifier,
+  title, state, assignee, project and milestone names, `external` (the other
+  issue has no project, or its project is inactive or not mirrored) and
+  `resolved` (the relation's blocker is closed, as on graph edges). Rows whose
+  other issue is open come first, then issue order (§2.7). Relations whose other
+  end is not mirrored are only counted (`hiddenRelations`).
+- timing: created / updated / started / completed / canceled,
+  `lastStateChangeAt`, `daysInState` (whole days, floor, never negative) and
+  `stalled` (open and more than `stallDays × 24 h` in its state, like §2.5).
+- `why`: `unassignedInNextMilestone` (open, unassigned, not triage, in its
+  active project's next milestone: allocation hands it to the lead unless the
+  project is blocked); `blocksAtRiskMilestones` (overdue / at-risk milestones of
+  active projects holding an open issue this open issue blocks, milestone
+  order); `waitsOnUnassigned` / `waitsOnOverdue` (transitively over open
+  blockers, exactly as the graph computes them, so project status is not
+  considered); `onRiskChain` (it waits on one of those, or is itself unassigned
+  or overdue and blocks an open issue).
+- `options` (`buildIssueEditOptions(snapshot, ctx, teamId)`): the team's
+  workflow states by `position`; assignable people (active, not app users) by
+  name; projects with their milestones (§2.6 order), active projects first in
+  timeline order, each with `includesTeam`.
+
+Limits shared with the UI: `ISSUE_TITLE_MAX_LENGTH` 255 characters,
+`ISSUE_DESCRIPTION_MAX_LENGTH` 100,000 UTF-16 code units, `COMMENT_MAX_LENGTH`
+10,000 characters. Estimates follow Linear's documented scales
+(linear.app/docs/estimates): exponential 1 2 4 8 16 (+32 64 extended), Fibonacci
+1 2 3 5 8 (+13 21), linear 1 2 3 4 5 (+6 7), T-shirt XS S M L XL (+XXL XXXL),
+stored as the Fibonacci numbers they translate to; `allowZero` adds 0; `notUsed`
+allows only "no estimate". `estimateOptions(scale)`,
+`isAllowedEstimate(scale, value)`, `estimateLabel(scale, value)`.
+
 ## 3. Core API (packages/core/src/index.ts)
 
 ```ts
@@ -358,13 +405,48 @@ export function buildMilestoneDetail(input: {
   assessments: ReadonlyMap<string, MilestoneAssessment>;
   milestoneId: string;
 }): MilestoneDetail | null;
+// issue-detail.ts / estimates.ts — the issue page (§2.12)
+export function buildIssueDetail(input: {
+  snapshot: Snapshot;
+  ctx: EvalContext;
+  assessments: ReadonlyMap<string, MilestoneAssessment>;
+  issueId: string;
+}): IssueDetail | null;
+export function buildIssueEditOptions(
+  snapshot: Snapshot,
+  ctx: EvalContext,
+  teamId: string
+): IssueEditOptions;
+export const ISSUE_TITLE_MAX_LENGTH = 255;
+export const ISSUE_DESCRIPTION_MAX_LENGTH = 100_000;
+export const COMMENT_MAX_LENGTH = 10_000;
+export function estimateOptions(scale: EstimateScale): EstimateOption[];
+export function isAllowedEstimate(scale: EstimateScale, value: number): boolean;
+export function estimateLabel(scale: EstimateScale, value: number): string;
+export function isEstimateScaleType(value: string): value is EstimateScaleType;
 // labels.ts — shared human copy for UI and digests
 export const RUBRIC_GAP_LABEL: Record<RubricGap, string>;
 export const RISK_REASON_LABEL: Record<RiskReason, string>;
 export const STATUS_LABEL: Record<MilestoneStatus, string>;
 export const BLOCK_REASON_LABEL: Record<AllocationBlockReason, string>;
 export const PRIORITY_LABEL: Record<Priority, string>;
+export const ISSUE_FIELD_LABEL: Record<IssuePatchField, string>; // "Status", "Due date", …
 ```
+
+Issue page types (`types.ts`): `IssueDetail`, `IssueRelationRow`,
+`IssueDetailProject`, `IssueDetailMilestone`, `IssueDetailTiming`,
+`IssueWhyItMatters`, `IssueEditOptions`, `IssueProjectOption`, `IssuePersonRef`;
+the live part `IssueExtras` (`issueId`, `description`, `labels`, `estimate`,
+`dueDate`, `comments` oldest first, `commentsTruncated`, `estimateScale`),
+`IssueLabel` (`id`, `name`, `color` — data only, never painted —, `teamId` or
+null for workspace labels, `group` with `singleSelect`), `IssueComment` (`id`,
+`body` markdown, `createdAt`, `url`, `parentId`, `author` `{ id, name }` or
+null, `externalAuthor` for bots and integrations), `EstimateScale` (`type`,
+`allowZero`, `extended`), `EstimateOption`; and the edit `IssuePatch` (any of
+`title`, `description` (null clears), `stateId`, `assigneeId` (null unassigns),
+`priority` 0–4, `projectId` (null), `projectMilestoneId` (null), `dueDate`
+(null), `estimate` (null), `labelIds` (the full new set)) with
+`IssuePatchField = keyof IssuePatch`.
 
 The allocation comment (§7.4) is exactly:
 `Assigned by <appName>: you lead <project> and this is in its next milestone <milestone>, due <Mon D, YYYY>.`
@@ -400,6 +482,48 @@ The allocation comment (§7.4) is exactly:
   cycle, a project with an inactive lead, a paused project.
   `createFixtureGateway(state, actorUserId | 'app')` mutates that in-memory
   workspace so demo drags and allocation runs "write back".
+- **Issue page** (owner decision 2026-10-21; additive `LinearGateway` methods,
+  real and fixture):
+  - `fetchIssueDetail(issueId) → IssueExtras | null` — one `IssueDetail` query
+    (description, estimate, due date, the team's estimate settings with two
+    parent levels, the first 50 labels and comments), then every further label
+    page (an edit sends the full set back, so the set must be complete) and up
+    to 3 more comment pages: at most `ISSUE_COMMENTS_MAX` (200) comments, sorted
+    oldest first by `createdAt` (Linear does not document the default direction
+    of `orderBy: createdAt`, so which 200 an issue with more keeps is not
+    guaranteed), `commentsTruncated` when more remain. Null when the issue is
+    gone, archived or trashed. A blank description reads as null.
+  - `listIssueLabels(teamId) → IssueLabel[]` — root `issueLabels` filtered to
+    the team's labels and workspace labels
+    (`or: [{ team: { id: { eq } } }, { team: { null: true } }]`), every page;
+    label groups (`isGroup`) and archived labels dropped; by name.
+  - `updateIssueFields(issueId, patch: IssuePatch) → Issue` — `issueUpdate` with
+    exactly the patch's keys (`issueUpdateInput` shape-checks them and refuses
+    an empty patch before any request; `estimate` must be an Int, `dueDate`
+    `YYYY-MM-DD`), mapped like the sync mirrors it; `lastStateChangeAt` moves to
+    `updatedAt` when `stateId` was sent.
+  - `createBlockingRelation(blocker, blocked) → BlockingRelation` —
+    `issueRelationCreate(input: { issueId: blocker, relatedIssueId: blocked, type: blocks })`,
+    not retried after a server/network failure (it could run twice).
+    `deleteRelation(relationId)` — `issueRelationDelete(id)`, checks `success`.
+  - `createComment(issueId, body)` already fits a person's comment (markdown
+    body; the token decides the author) and is unchanged.
+  - A refusal of these writes is rewritten by
+    `readableWriteError(error, action)` into one sentence ("Linear refused to
+    update the issue: Estimate 4 is not valid for this team."; "Linear does not
+    let this account update the issue."), keeping `kind`, `retryAt` and the
+    original as `cause`.
+  - The fixture keeps the extra fields in the same store (`fixture-details.ts`:
+    descriptions on most demo issues, workspace and team labels with a
+    single-select "Area" group and an archived label, Fibonacci estimates on
+    Engineering and extended T-shirt sizes with zero on Operations, some due
+    dates, a seeded discussion), and refuses what Linear would: a state of
+    another team, an unknown user, project or label, a milestone of another
+    project, an estimate off the team's scale, a group or archived label, two
+    labels of a single-select group, a self or duplicate relation. A project
+    change without a milestone drops the old project's milestone. Seeded
+    comments live in `seededComments`; `comments` stays the list of comments
+    written through the gateway.
 
 ### 4.1 Linear facts this design relies on
 
@@ -442,6 +566,26 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   `CommentPayload { success comment { id } }`;
   `projectMilestoneUpdate(id, input: { targetDate })`;
   `projectUpdate(id, input: { leadId })`.
+- Issue page (owner decision 2026-10-21): `IssueUpdateInput` also takes `title`,
+  `description` (markdown), `priority: Int`, `projectId`, `projectMilestoneId`,
+  `dueDate: TimelessDate`, `estimate: Int` and `labelIds: [String!]` (the full
+  set; `addedLabelIds`/`removedLabelIds` exist but are not used), each nullable
+  where the field can be empty.
+  `issueRelationCreate(input: { issueId, relatedIssueId, type: blocks })` →
+  `IssueRelationPayload { success issueRelation }`;
+  `issueRelationDelete(id) → DeletePayload { success entityId }`.
+  `Issue.description: String`, `Issue.estimate: Float`,
+  `Issue.dueDate: TimelessDate`, `Issue.labels` and `Issue.comments` are
+  connections (`comments(orderBy: createdAt)`; the direction is undocumented).
+  `IssueLabel { id name color isGroup team parent { groupType } }`: a group
+  cannot be applied; `groupType` is `singleSelect` / `multiSelect`, and a group
+  without one is single-select.
+  `Comment { body createdAt url parent user botActor externalUser }` (`user` is
+  null for bots and integrations). Team estimates: `Team.issueEstimationType` is
+  a String, one of `notUsed`, `exponential`, `fibonacci`, `linear`, `tShirt`
+  (unknown → treated as `notUsed`, logged); `issueEstimationAllowZero`,
+  `issueEstimationExtended`; a sub-team with `inheritIssueEstimation` uses its
+  parent's settings. Scale values: linear.app/docs/estimates (§2.12).
 - Identity:
   `{ viewer { id name displayName email active avatarUrl app } organization { id name urlKey } }`.
   With an actor=app token, `viewer` is the app user (`app: true`), never the
@@ -473,9 +617,11 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   the app user, which is what allocation comments should say. Scopes
   `read,write` (actor=app cannot request `admin`). The app only sees the teams
   the admin picks at install — document this in setup.
-- Per-user sign-in uses the default actor (user) with `read`; PMs upgrade to
-  `read,write` so their date/lead edits are attributed to them in Linear. Scopes
-  are sent comma-separated.
+- Per-user sign-in uses the default actor (user) with `read`; anyone signed in
+  may upgrade to `read,write` (`grant_write`) so their edits are attributed to
+  them in Linear: a PM's date/lead edits and, since the owner decision of
+  2026-10-21, everyone's issue edits and comments. Scopes are sent
+  comma-separated.
 
 **Webhooks** (configured on the OAuth app: URL + resource types; delivered for
 every workspace that installs it, routed by `organizationId`)
@@ -570,7 +716,20 @@ Tables (all keyed by `workspace_id`):
   unfinished claim, so a holder that was taken over never touches the new
   holder's. A finished claim is never taken over. The engine's daily lease is 45
   minutes (§7).
-- `audit_log` — PM edits with before/after.
+- `audit_log` — PM edits and (owner decision 2026-10-21) a person's issue edits
+  with before/after: one entry per changed field, actions `issue.title`,
+  `issue.description`, `issue.state`, `issue.assignee`, `issue.priority`,
+  `issue.project`, `issue.milestone`, `issue.due_date`, `issue.estimate`,
+  `issue.labels`, `issue.comment`, `issue.blocker_added`,
+  `issue.relation_removed`; `subjectId` is the issue (the blocked issue for
+  relations). Descriptions and comments are logged as `{ length, excerpt }` (the
+  first 80 characters), never in full; labels as `[{ id, name }]`; state,
+  assignee, project and milestone as ids.
+- `listRunEntriesForIssue(workspaceId, issueId, limit)` (additive, issue page) →
+  `IssueRunEntry[]`: the run entries about one issue, dry runs included, newest
+  first (`created_at`, then run start, run id, seq), each with its run's
+  `runMode` and `runTrigger`. Migration 4 adds
+  `allocation_entries_issue_idx (workspace_id, issue_id, created_at DESC)`.
 
 Token encryption: AES-256-GCM, key = 32 bytes from `TOKEN_ENCRYPTION_KEY`
 (base64), random 12-byte IV per value, stored as `v1:<iv>:<tag>:<ciphertext>`
@@ -691,11 +850,12 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   Each edit patches the mirror and appends an audit entry. Weight and done-means
   are tool-owned writes.
 - **auth**: `startOAuth(intent)` creates state + PKCE pair. Scopes: `signin` →
-  `read`; `grant_write` → `read,write`; `install` → `read,write` with
-  `actor=app`. `finishSignIn` exchanges the code, asks `whoAmI`, creates a
-  session (`sessionDays`). `finishInstall` exchanges with the app actor, checks
-  the workspace matches the actor's, saves the installation, makes the installer
-  a PM, and triggers `fullSync`. `authenticate` refreshes the session's Linear
+  `read`; `grant_write` → `read,write` (for anyone signed in, not only PMs:
+  owner decision 2026-10-21); `install` → `read,write` with `actor=app`.
+  `finishSignIn` exchanges the code, asks `whoAmI`, creates a session
+  (`sessionDays`). `finishInstall` exchanges with the app actor, checks the
+  workspace matches the actor's, saves the installation, makes the installer a
+  PM, and triggers `fullSync`. `authenticate` refreshes the session's Linear
   token when needed (under `withSessionLock`) and computes `isPm` from settings.
 
 ### 7.1 Engine exports and boot
@@ -707,7 +867,11 @@ missing/invalid variable), `EngineAuthError`, `EngineInputError`,
 `LinearApiError` (re-exported) and `isLinearApiError(e)` (instanceof, with a
 `name === 'LinearApiError'` fallback across bundle copies), the timing constants
 `DEFAULT_DAILY_LEASE_MINUTES` (45) and `ALLOCATION_RUN_STALE_MINUTES` (30) the
-worker derives its timeout cap from, and every type in `src/types.ts`.
+worker derives its timeout cap from, and every type in `src/types.ts` (including
+`IssueDetailResult` and `IssueUpdateResult`, §7.2). Issue page helpers
+(additive): `ISSUE_HISTORY_LIMIT` (20), `normalizeIssuePatch`,
+`normalizeCommentBody`, `textSummary` / `AUDIT_EXCERPT_LENGTH` (80) and
+`engineErrorFromLinear`.
 
 `createEngineFromEnv`:
 
@@ -751,7 +915,7 @@ Validation done by the engine (never trust the client): dates via
 an integer in [-1000, 1000] or null; done-means trimmed, single line, ≤ 280
 chars, empty → null; settings: at least one PM (no lockout), valid IANA
 timezone, tuning integers within sane ranges (1–90 days), known modes; user ids
-must exist in the mirror.
+must exist in the mirror; issue edits as listed in §7.2.
 
 Engine decisions made while building it (binding for callers):
 
@@ -852,6 +1016,70 @@ Engine decisions made while building it (binding for callers):
   dedupe needs only Linear's ~6 h retry window, the rest keeps each delivery's
   processing error around to investigate.
 
+### 7.2 Issue page (owner decision 2026-10-21)
+
+Additive `Engine` methods. Reads need only a session; writes need
+`actor.canWriteLinear` (else `EngineAuthError('needs_write_scope')`) and are
+**never** `isPm`-gated.
+
+- **getIssueDetail(actor, issueId) → IssueDetailResult**
+  `{ detail, extra, extraError, extraSource, labels, estimateScale, estimateOptions, allocationHistory, canEdit }`:
+  `detail` = core's `buildIssueDetail` over `load()` (unknown id →
+  `EngineInputError('not_found')`); `extra` (`fetchIssueDetail`) and `labels`
+  (`listIssueLabels(team)`) are read live in parallel with the **actor's own
+  token** (`linear.forSession`); when that gateway cannot be had (no usable
+  grant, refresh failing) the app's reads instead (`extraSource: 'app'`, logged
+  at warn). A live failure never throws: `extra` null, `labels` [],
+  `estimateScale` null and `extraError` a sentence ("Linear did not answer; …";
+  an issue Linear no longer has says so). `allocationHistory` =
+  `listRunEntriesForIssue(…, ISSUE_HISTORY_LIMIT)` (20). `canEdit` =
+  `actor.canWriteLinear`.
+- **updateIssue(actor, issueId, patch) → IssueUpdateResult**
+  `{ issue, changed }`. Validated before Linear is called
+  (`normalizeIssuePatch`, then the mirror): only `IssuePatch` keys and at least
+  one value; title trimmed, one line, 1–255 characters; description ≤ 100,000
+  (blank → null); state of the issue's team; assignee an active non-app mirrored
+  user or null; priority an integer 0–4; project mirrored or null; milestone of
+  the target project (an issue without a project has none), and a project change
+  without a milestone also sends `projectMilestoneId: null` (the old project's
+  milestone is cleared); due date a calendar date or null; estimate a
+  non-negative integer allowed by the team's live scale (`notUsed` refuses any)
+  or null; labels the team's live usable labels, at most one per single-select
+  group, duplicates dropped. The current values of description, due date,
+  estimate and labels are read live (actor's token) only when the patch touches
+  them. Values equal to the current ones are dropped; when nothing is left
+  nothing is written (`changed: []`). Then `updateIssueFields` with the actor's
+  token, the mirror is patched at once (`applyMirrorChanges`, which bumps the
+  mirror version so the next render shows it; a write that did not move the
+  state keeps the mirror's later — possibly history-refined —
+  `lastStateChangeAt`; an issue that leaves every mirrored project while closed,
+  or moves to an unmirrored project, is removed with its relations, as a full
+  sync would), and one audit entry per changed field. Edits of one issue are
+  serialized per process.
+- **addComment(actor, issueId, body) → IssueComment**: body trimmed, 1–10,000
+  characters; `createComment` with the actor's token; audited as
+  `{ commentId, length, excerpt }`. The mirror holds no comments (the page reads
+  them live).
+- **addBlocker(actor, issueId, blockerIssueId) → BlockingRelation**: creates
+  "blocker blocks issue" (for "this issue blocks X" call it with X as
+  `issueId`); both issues mirrored (else `not_found`), not the same issue
+  (`invalid`), not an existing pair (`conflict`). **removeRelation(actor,
+  relationId)**: a mirrored blocks relation (else `not_found`); a relation
+  Linear no longer has counts as removed. After either, the relations of both
+  issues are re-read through the app (the mirror's own view) and replace every
+  mirrored relation touching them, as an Issue webhook would; if that read fails
+  the direct change is applied (logged). Audited as `issue.blocker_added` /
+  `issue.relation_removed`.
+- **Linear errors** of these writes (`engineErrorFromLinear`): `forbidden` →
+  `EngineAuthError('linear_forbidden')` (403; Linear's own permissions said no),
+  `unauthorized` → `EngineAuthError('not_signed_in')`, `not_found` →
+  `EngineInputError('not_found')`, `invalid_input` →
+  `EngineInputError('invalid')` with Linear's sentence, `rate_limited` →
+  `EngineInputError('rate_limited')` (additive code, 429; `retryAt` set when
+  Linear sent a reset); network/server/graphql failures stay `LinearApiError`
+  (502). Nothing is written to the mirror or the audit log on a failure.
+- The planner's only automatic write is still allocation (§7 runAllocation).
+
 ## 8. Web app (apps/planner)
 
 Two references, one rule: **layout and interaction from Gr8r Studio
@@ -866,29 +1094,35 @@ nothing is imported from it.
 
 ### 8.1 Routes
 
-| route                           | who                        | what                                                                                                           |
-| ------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/`                             | all                        | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                        |
-| `/week`                         | signed in                  | My week (the landing screen); PMs may pass `?user=<id>`                                                        |
-| `/timeline`                     | signed in                  | Gantt timeline; `?milestone=<id>` opens the drawer, `?project=<id>` focuses a lane; edit controls only for PMs |
-| `/projects`                     | signed in                  | projects register: next milestone, status, progress, lead, allocation state                                    |
-| `/graph`                        | signed in                  | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level                |
-| `/runs`, `/runs/[id]`           | signed in                  | allocation run log; PMs get "Preview (dry run)" and "Run now"                                                  |
-| `/settings`                     | PMs (read-only for others) | modes, people, schedule, status, digest preview, notifications, audit                                          |
-| `/setup`                        | signed in                  | install the app into the workspace (admin)                                                                     |
-| `GET /api/palette`              | signed in                  | command-palette index (pages, projects, milestones, the user's open issues), fetched when the palette opens    |
-| `GET /api/auth/linear?intent=`  | —                          | starts OAuth (sets `mp_oauth` cookie)                                                                          |
-| `GET /api/auth/linear/callback` | —                          | finishes OAuth                                                                                                 |
-| `POST /api/auth/logout`         | —                          | ends session                                                                                                   |
-| `POST /api/auth/demo`           | fixture mode only          | demo sign-in                                                                                                   |
-| `POST /api/webhooks/linear`     | Linear                     | verify, ack 200, process in `after()`                                                                          |
-| `PATCH /api/milestones/[id]`    | PM                         | `{ targetDate?, weight?, doneMeans? }`                                                                         |
-| `PATCH /api/projects/[id]`      | PM                         | `{ leadId }`                                                                                                   |
-| `POST /api/runs`                | PM                         | `{ mode: 'dry_run' \| 'live' }`                                                                                |
-| `POST /api/sync`                | PM                         | full resync                                                                                                    |
-| `POST /api/warnings/preview`    | PM                         | digests without sending                                                                                        |
-| `PATCH /api/settings`           | PM                         | settings patch                                                                                                 |
-| `GET /api/health`               | —                          | `{ ok, db }` for Railway healthchecks                                                                          |
+| route                            | who                        | what                                                                                                           |
+| -------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `/`                              | all                        | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                        |
+| `/week`                          | signed in                  | My week (the landing screen); PMs may pass `?user=<id>`                                                        |
+| `/timeline`                      | signed in                  | Gantt timeline; `?milestone=<id>` opens the drawer, `?project=<id>` focuses a lane; edit controls only for PMs |
+| `/projects`                      | signed in                  | projects register: next milestone, status, progress, lead, allocation state                                    |
+| `/graph`                         | signed in                  | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level                |
+| `/runs`, `/runs/[id]`            | signed in                  | allocation run log; PMs get "Preview (dry run)" and "Run now"                                                  |
+| `/settings`                      | PMs (read-only for others) | modes, people, schedule, status, digest preview, notifications, audit                                          |
+| `/setup`                         | signed in                  | install the app into the workspace (admin)                                                                     |
+| `GET /api/palette`               | signed in                  | command-palette index (pages, projects, milestones, the user's open issues), fetched when the palette opens    |
+| `GET /api/auth/linear?intent=`   | —                          | starts OAuth (sets `mp_oauth` cookie)                                                                          |
+| `GET /api/auth/linear/callback`  | —                          | finishes OAuth                                                                                                 |
+| `POST /api/auth/logout`          | —                          | ends session                                                                                                   |
+| `POST /api/auth/demo`            | fixture mode only          | demo sign-in                                                                                                   |
+| `POST /api/webhooks/linear`      | Linear                     | verify, ack 200, process in `after()`                                                                          |
+| `PATCH /api/milestones/[id]`     | PM                         | `{ targetDate?, weight?, doneMeans? }`                                                                         |
+| `PATCH /api/projects/[id]`       | PM                         | `{ leadId }`                                                                                                   |
+| `/issues/[id]`                   | signed in                  | the issue page (§8.5); edit controls for anyone with Linear write access                                       |
+| `GET /api/issues/[id]`           | signed in                  | `IssueDetailResult` for the issue slide-over                                                                   |
+| `PATCH /api/issues/[id]`         | write access               | an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                         |
+| `POST /api/issues/[id]/comments` | write access               | `{ body }` → 201 `{ comment }`                                                                                 |
+| `POST /api/issues/[id]/blockers` | write access               | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                   |
+| `DELETE /api/relations/[id]`     | write access               | removes a blocks relation → 204                                                                                |
+| `POST /api/runs`                 | PM                         | `{ mode: 'dry_run' \| 'live' }`                                                                                |
+| `POST /api/sync`                 | PM                         | full resync                                                                                                    |
+| `POST /api/warnings/preview`     | PM                         | digests without sending                                                                                        |
+| `PATCH /api/settings`            | PM                         | settings patch                                                                                                 |
+| `GET /api/health`                | —                          | `{ ok, db }` for Railway healthchecks                                                                          |
 
 Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
 `APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
@@ -1227,6 +1461,30 @@ planner uses these marks, mono labels, and the accent only for "needs action"
 Fixture mode shows a permanent accent-bordered "DEMO DATA — NOT CONNECTED TO
 LINEAR" strip at the top of the content column.
 
+### 8.5 Issue page (owner decision 2026-10-21; contract for the wiring stage)
+
+- Data: one `engine.getIssueDetail(actor, id)` per render (the page, and the
+  slide-over through `GET /api/issues/[id]`). It never fails for Linear being
+  unreachable: with `extra` null the page shows the mirror's facts and
+  `extraError` in one line where the description and comments would be.
+- Who: every signed-in person sees it. Edit controls (title, description,
+  status, assignee, priority, labels, estimate, due date, project, milestone,
+  "blocked by" / "blocks", the comment box) render when `canEdit`; without it
+  one line links `/api/auth/linear?intent=grant_write&returnTo=<this page>`,
+  offered to **everyone**, not only PMs (PM-only controls elsewhere keep their
+  `isPm` check). The server decides: the routes call the engine, which enforces
+  `canWriteLinear` and validates again.
+- Pickers come from `detail.options` (states in order, assignable people,
+  projects active first with their milestones), `labels` (group-aware: one per
+  single-select group) and `estimateOptions` (labels like "L" on T-shirt teams;
+  no picker when the scale is `notUsed`). Label colours are data only: labels
+  are drawn in the planner's own marks (§8.2), never in Linear's colours.
+- Routes: same order as the PM routes (CSRF guard and session → strict zod body
+  with only the documented keys → engine → `errorResponse`), plus
+  `linear_forbidden` → 403 and the engine's `rate_limited` → 429. A save
+  refreshes the page data (the mirror version moved) rather than patching it
+  locally.
+
 ## 9. Worker (apps/worker)
 
 `node apps/worker/dist/index.js <command>`:
@@ -1331,7 +1589,10 @@ Worker decisions made while building it (binding):
   stays next; weight changes display order only).
 - linear: schema validation of every query/mutation; mapping fixtures;
   pagination with a fake fetch; OAuth URL/exchange/refresh with a fake fetch;
-  webhook signature + timestamp tests with known vectors.
+  webhook signature + timestamp tests with known vectors; the issue page's reads
+  and writes with a fake fetch (label/comment paging and the comment cap,
+  estimate-scale inheritance, readable refusals) and in the fixture (content on
+  every team's scale, every refusal Linear would give).
 - store: every method against in-memory PGlite; concurrency guards (second
   `startRun` returns null; duplicate notification returns false; job claims).
   With `TEST_DATABASE_URL` the same suite also runs on real Postgres, including
@@ -1343,7 +1604,10 @@ Worker decisions made while building it (binding):
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe
-  across days, overdue repeat, PM permission errors.
+  across days, overdue repeat, PM permission errors; the issue page: a non-PM
+  member with write scope edits with their own token, one without write scope is
+  refused before Linear is called, every validation, mirror refresh and audit,
+  Linear error mapping, live-read failure and app-token fallback.
 - planner: unit tests for cookie signing/origin checks; Playwright smoke in
   fixture mode (screens render, drag updates a date).
 

@@ -1,5 +1,7 @@
-// Permission checks shared by every PM-only operation. The UI never decides
-// permissions; these run on the server for each request.
+// Permission checks shared by the engine's write operations. The UI never
+// decides permissions; these run on the server for each request. PM-only
+// operations need both checks; a person's own issue edits (owner decision
+// 2026-10-21) need only requireWriteScope.
 
 import { type Actor, EngineAuthError } from './types';
 
@@ -15,7 +17,8 @@ export function requirePm(actor: Actor): void {
 
 /**
  * Throws EngineAuthError('needs_write_scope') unless the actor's Linear
- * token may write, so Linear edits are attributed to the person making them.
+ * token may write, so Linear edits are attributed to the person making
+ * them. Anyone signed in can get write scope (the grant_write upgrade).
  */
 export function requireWriteScope(actor: Actor): void {
   if (!actor.canWriteLinear) {

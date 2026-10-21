@@ -4,6 +4,8 @@
 
 import { LinearApiError } from '@better-tracker/linear';
 
+import { isLinearApiError } from './linear-errors';
+
 export * from './types';
 export { createEngine } from './engine';
 export { createEngineFromEnv, type CreateEngineFromEnvOptions } from './boot';
@@ -29,18 +31,12 @@ export {
 export { SLACK_NOT_CONFIGURED } from './warning-run';
 export { WEBHOOK_RETENTION_DAYS } from './cleanup';
 export { DONE_MEANS_MAX_LENGTH, WEIGHT_MAX, WEIGHT_MIN } from './pm-edits';
-export { LinearApiError };
-
-/**
- * True for a LinearApiError, including one thrown by another bundled copy
- * of @better-tracker/linear (where instanceof fails): then the error's name
- * and `kind` identify it.
- */
-export function isLinearApiError(error: unknown): error is LinearApiError {
-  if (error instanceof LinearApiError) return true;
-  return (
-    error instanceof Error &&
-    error.name === 'LinearApiError' &&
-    typeof (error as { kind?: unknown }).kind === 'string'
-  );
-}
+export { ISSUE_HISTORY_LIMIT } from './issue-detail';
+export {
+  AUDIT_EXCERPT_LENGTH,
+  normalizeCommentBody,
+  normalizeIssuePatch,
+  textSummary,
+} from './issue-edits';
+export { engineErrorFromLinear } from './linear-errors';
+export { LinearApiError, isLinearApiError };

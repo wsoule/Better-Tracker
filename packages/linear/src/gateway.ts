@@ -4,6 +4,9 @@ import type {
   IsoDate,
   IsoDateTime,
   Issue,
+  IssueExtras,
+  IssueLabel,
+  IssuePatch,
   Milestone,
   Project,
   User,
@@ -39,8 +42,11 @@ export interface LinearIdentity {
  * the engine can run against the real API, the in-memory fixture workspace
  * (demo mode), or test doubles.
  *
- * Writes are limited to exactly the four the design allows (§8): issue
- * assignee + state, issue comment, milestone target date, project lead.
+ * Writes are the ones the design allows (§8, and the owner decision of
+ * 2026-10-21): allocation's issue assignee + state and comment, a PM's
+ * milestone target date and project lead, and a signed-in person's own
+ * issue edits (fields, comments, blocking relations), which the engine
+ * always sends with that person's token.
  */
 export interface LinearGateway {
   whoAmI(): Promise<LinearIdentity>;
@@ -80,6 +86,36 @@ export interface LinearGateway {
     targetDate: IsoDate | null
   ): Promise<Milestone>;
   updateProjectLead(id: string, leadId: string | null): Promise<Project>;
+
+  // --- issue page (owner decision 2026-10-21; additive) -------------------
+
+  /**
+   * The issue's fields the mirror does not keep (description, labels,
+   * estimate, due date, comments oldest first, the team's estimate scale),
+   * read live. Null when the issue no longer exists or is archived.
+   * Comments are capped at ISSUE_COMMENTS_MAX (`commentsTruncated` says
+   * when Linear holds more).
+   */
+  fetchIssueDetail(issueId: string): Promise<IssueExtras | null>;
+  /**
+   * Labels that can be applied to the team's issues: the team's own and
+   * the workspace's, archived ones and label groups left out, by name.
+   */
+  listIssueLabels(teamId: string): Promise<IssueLabel[]>;
+  /**
+   * Edits an issue (a person's own edit): sends exactly the patch's keys
+   * and returns the updated issue in the shape the sync mirrors. Linear's
+   * refusals (invalid estimate, label, state…) arrive as LinearApiError
+   * with a readable message.
+   */
+  updateIssueFields(issueId: string, patch: IssuePatch): Promise<Issue>;
+  /** Creates "blocker blocks blocked" and returns the relation. */
+  createBlockingRelation(
+    blockerIssueId: string,
+    blockedIssueId: string
+  ): Promise<BlockingRelation>;
+  /** Deletes an issue relation; LinearApiError('not_found') when it is gone. */
+  deleteRelation(relationId: string): Promise<void>;
 }
 
 /** Thrown by gateways for API failures, with enough detail to log and show. */
