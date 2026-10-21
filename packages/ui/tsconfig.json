@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.options.json",
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.ts",
+    "test/**/*.tsx",
+    "global.d.ts"
+  ],
+  "exclude": ["node_modules"],
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "emitDeclarationOnly": false,
+    "noEmit": true,
+    "allowJs": false,
+    "checkJs": false,
+    "jsx": "react-jsx",
+    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "types": ["bun", "react", "react-dom"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "tsBuildInfoFile": "tsconfig.tsbuildinfo"
+  }
+}

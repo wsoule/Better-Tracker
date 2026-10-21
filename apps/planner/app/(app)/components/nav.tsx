@@ -1,6 +1,8 @@
+import { ThemeToggle } from '@better-tracker/ui';
+
+import { THEME_STORAGE_KEY } from '../../fonts';
 import NavLinks, { type NavLink } from './nav-links';
 import styles from './nav.module.css';
-import ThemeToggle from './theme-toggle';
 
 /* The instrument panel: a hatched, bordered bar with orange registration
    marks at its corners that floods orange on hover (DESIGN.md §8.1). The
@@ -51,7 +53,7 @@ export default function Nav({
               </button>
             </form>
           ) : null}
-          <ThemeToggle />
+          <ThemeToggle storageKey={THEME_STORAGE_KEY} />
         </div>
       </nav>
     </div>

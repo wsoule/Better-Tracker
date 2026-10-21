@@ -21,6 +21,9 @@
       "path": "packages/store/tsconfig.json"
     },
     {
+      "path": "packages/ui/tsconfig.json"
+    },
+    {
       "path": "apps/planner/tsconfig.json"
     },
     {

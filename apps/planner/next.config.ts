@@ -7,7 +7,10 @@ const securityHeaders = [
   { key: 'X-Frame-Options', value: 'DENY' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+  {
+    key: 'Permissions-Policy',
+    value: 'camera=(), microphone=(), geolocation=()',
+  },
 ];
 
 const nextConfig: NextConfig = {
@@ -16,6 +19,9 @@ const nextConfig: NextConfig = {
   // Database drivers load native/WASM assets at runtime; keep them out of
   // the server bundle and require them from node_modules instead.
   serverExternalPackages: ['@electric-sql/pglite', 'pg'],
+  // @better-tracker/ui ships TypeScript + CSS-module source (like Dispatch's
+  // @dispatch/ui); Next compiles it with the app.
+  transpilePackages: ['@better-tracker/ui'],
   headers() {
     return Promise.resolve([{ source: '/:path*', headers: securityHeaders }]);
   },

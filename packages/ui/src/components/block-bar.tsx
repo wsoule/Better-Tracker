@@ -22,7 +22,9 @@ export default function BlockBar({
       <span className="blockKey">{index}</span>
       <h2 className="blockTitle">{title}</h2>
       {children}
-      {meta ? <span className="blockMeta">{meta}</span> : null}
+      {meta !== undefined && meta !== null ? (
+        <span className="blockMeta">{meta}</span>
+      ) : null}
     </div>
   );
 }

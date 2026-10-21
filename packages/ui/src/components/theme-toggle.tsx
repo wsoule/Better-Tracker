@@ -1,19 +1,24 @@
-"use client";
+'use client';
 
-import styles from "./theme-toggle.module.css";
+import styles from './theme-toggle.module.css';
 
 /* Stateless by design: both glyphs are always rendered (identical markup in
    both themes, so there is nothing to hydrate wrong) and CSS picks the visible
    one. The glyph shown is the mode you would switch TO. Drawn in currentColor
    so it rides every chrome state for free: ink on the flat bar, white on the
    orange hover flood, inverted ink in dark. */
-export default function ThemeToggle() {
+export default function ThemeToggle({
+  storageKey,
+}: {
+  /** localStorage key; must match the one passed to themeScript(). */
+  storageKey: string;
+}) {
   function toggle() {
     const el = document.documentElement;
-    const next = el.dataset.theme === "dark" ? "light" : "dark";
+    const next = el.dataset.theme === 'dark' ? 'light' : 'dark';
     el.dataset.theme = next;
     try {
-      localStorage.setItem("milestone-planner-theme", next);
+      localStorage.setItem(storageKey, next);
     } catch {
       /* private mode: the choice simply does not persist */
     }
@@ -30,7 +35,14 @@ export default function ThemeToggle() {
         aria-hidden="true"
         focusable="false"
       >
-        <circle cx="7" cy="7" r="3" fill="none" stroke="currentColor" strokeWidth="1" />
+        <circle
+          cx="7"
+          cy="7"
+          r="3"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1"
+        />
         <g stroke="currentColor" strokeWidth="1">
           <line x1="7" y1="0.5" x2="7" y2="2.5" />
           <line x1="7" y1="11.5" x2="7" y2="13.5" />

@@ -1,7 +1,8 @@
-"use client";
+'use client';
 
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
-import styles from "./tabs.module.css";
+import { type CSSProperties, type ReactNode, useRef, useState } from 'react';
+
+import styles from './tabs.module.css';
 
 /* Client-side tab strip from the competitors site: a grid of bordered tabs,
    selected = ink fill, hover = orange flood, arrow-key roving focus. */
@@ -15,9 +16,12 @@ export default function Tabs({ items }: { items: TabItem[] }) {
 
   function onKey(e: React.KeyboardEvent, i: number) {
     const n = items.length;
-    const next = { ArrowRight: (i + 1) % n, ArrowLeft: (i - 1 + n) % n, Home: 0, End: n - 1 }[
-      e.key
-    ];
+    const next = {
+      ArrowRight: (i + 1) % n,
+      ArrowLeft: (i - 1 + n) % n,
+      Home: 0,
+      End: n - 1,
+    }[e.key];
     if (next === undefined) return;
     e.preventDefault();
     select(items[next].id);
@@ -30,7 +34,7 @@ export default function Tabs({ items }: { items: TabItem[] }) {
         role="tablist"
         aria-label="Sections"
         className={styles.tablist}
-        style={{ "--tab-count": items.length } as CSSProperties}
+        style={{ '--tab-count': items.length } as CSSProperties}
       >
         {items.map((t, i) => (
           <button

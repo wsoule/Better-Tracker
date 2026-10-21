@@ -23,11 +23,11 @@
   display: none;
 }
 
-:global(html[data-theme="dark"]) .sun {
+:global(html[data-theme='dark']) .sun {
   display: block;
 }
 
-:global(html[data-theme="dark"]) .moon {
+:global(html[data-theme='dark']) .moon {
   display: none;
 }
 

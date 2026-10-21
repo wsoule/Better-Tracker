@@ -8,6 +8,7 @@
     "@better-tracker/core": "workspace:*",
     "@better-tracker/engine": "workspace:*",
     "@better-tracker/logger": "workspace:*",
+    "@better-tracker/ui": "workspace:*",
     "@dagrejs/dagre": "catalog:",
     "next": "catalog:",
     "react": "catalog:",

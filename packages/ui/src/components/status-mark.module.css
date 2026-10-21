@@ -16,7 +16,7 @@
     border-color 0.15s ease;
 }
 
-.complete {
+.done {
   background: var(--foreground);
 }
 
@@ -35,8 +35,7 @@
   border-color: var(--accent);
 }
 
-.unscheduled,
-.empty {
+.missing {
   border-color: var(--muted);
   background-image: repeating-linear-gradient(
     45deg,

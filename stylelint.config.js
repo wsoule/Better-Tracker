@@ -28,6 +28,11 @@ export default {
       },
     ],
     'selector-class-pattern': null,
+    // CSS modules: :global(...) escapes the module scope.
+    'selector-pseudo-class-no-unknown': [
+      true,
+      { ignorePseudoClasses: ['global', 'local'] },
+    ],
     'no-descending-specificity': null,
 
     'property-no-vendor-prefix': null,

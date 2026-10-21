@@ -1,0 +1,9 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+# React components for the task UI, consumed as TypeScript source (like
+# Dispatch's @dispatch/ui): host apps compile it (Next via transpilePackages,
+# Vite natively), so there is no build task and no dist. Inherits test and
+# typecheck from the shared bun-common tasks. Not listed in the root
+# dependsOn because it produces no dist.
+language: 'typescript'
+layer: 'library'

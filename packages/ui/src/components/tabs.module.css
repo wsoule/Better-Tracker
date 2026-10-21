@@ -19,20 +19,22 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   text-align: left;
-  transition: background-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .tab:first-child {
   margin-left: 0;
 }
 
-.tab[aria-selected="true"] {
+.tab[aria-selected='true'] {
   background: var(--foreground);
   color: var(--background);
 }
 
 @media (hover: hover) {
-  .tab[aria-selected="false"]:hover {
+  .tab[aria-selected='false']:hover {
     background: var(--accent);
     color: var(--on-accent);
   }
@@ -42,7 +44,7 @@
   margin-top: -1px;
 }
 
-@media (max-width: 768px) {
+@media (width <= 768px) {
   .wrap {
     margin-bottom: 48px;
   }

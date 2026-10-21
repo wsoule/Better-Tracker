@@ -1,0 +1,192 @@
+/* ============================================================================
+   SHARED PRIMITIVES (Milestone Planner)
+   Built only from the token block above and the system's own moves: mono
+   uppercase micro-labels, 1px hairlines, 2px reserved for emphasis, full-
+   surface floods on hover (gated off touch), zero radius, no shadows.
+   ========================================================================== */
+
+/* The page body under the nav: a stack of hairline blocks. */
+.page {
+  padding-bottom: 72px;
+}
+
+/* A mono, letterspaced key in the accent: the "01", "WHY", "NET" register. */
+.key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* Micro-label: the machine voice at small sizes. */
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Accent text link with a drawn underline (sources, "open in Linear"). */
+.accentLink {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  border-bottom: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.accentLink:hover,
+.accentLink:focus-visible {
+  color: var(--accent-hover);
+}
+
+/* Buttons: 2px is emphasis, so a button is a 2px-bordered mono label that
+   floods orange on hover. The primary variant starts as an ink slab. */
+.button,
+.buttonPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 16px;
+  border: 2px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.button {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.buttonPrimary {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.button:disabled,
+.buttonPrimary:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+@media (hover: hover) {
+  .button:not(:disabled):hover,
+  .buttonPrimary:not(:disabled):hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* Inputs: hairline box, mono, square; focus uses the global accent ring. */
+.input,
+.select,
+.textarea {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 8px 10px;
+  min-height: 36px;
+}
+
+.textarea {
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.5;
+  width: 100%;
+  resize: vertical;
+}
+
+.select {
+  appearance: none;
+  padding-right: 28px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 9px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* A notice strip: 2px accent rule, mono key, body copy. Used for errors,
+   blocked states and the demo-mode banner. */
+.notice {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  border: 2px solid var(--accent);
+  padding: 12px 18px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  position: relative;
+  z-index: 1;
+}
+
+/* Hatched fill for anything incomplete or invalid (the blueprint texture). */
+.hatched {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+/* Empty states are honest copy in the mono register, not illustrations. */
+.empty {
+  border: 1px solid var(--border);
+  margin-top: -1px;
+  padding: 28px 18px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey-2);
+}
+
+@media (width <= 768px) {
+  .notice {
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button,
+  .buttonPrimary {
+    transition: none;
+  }
+}
