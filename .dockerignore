@@ -1,0 +1,11 @@
+.git
+**/node_modules
+**/.next
+**/dist
+**/*.tsbuildinfo
+.data
+**/.data
+.moon/cache
+.moon/hooks
+.agents/ignore
+.env*
