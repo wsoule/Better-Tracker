@@ -14,6 +14,7 @@ import {
   installation,
   newWorkspaceId,
   rejection,
+  repeatableReadSessionSql,
   repeatableReadUrl,
   TEST_KEY,
   tokens,
@@ -1522,12 +1523,22 @@ describe.skipIf(!HAS_POSTGRES)(
 );
 
 // The locking tests (concurrent refreshers, mirror writers, run starts)
-// again, on sessions whose default isolation is stricter than Postgres'
-// READ COMMITTED default.
+// again, on a URL asking for sessions stricter than Postgres' READ
+// COMMITTED default (the store's own startup option still wins).
 describe.skipIf(!HAS_POSTGRES)(
-  'Store on node-postgres, sessions defaulting to repeatable read',
+  'Store on node-postgres, URL asking for repeatable read',
   () => {
     storeSuite('suite', () => openPgSql(repeatableReadUrl(DATABASE_URL ?? '')));
+  }
+);
+
+// And once more where that startup option was lost (a transaction-mode
+// pooler drops it): plain statements really run at REPEATABLE READ, so
+// every write must pin its own level.
+describe.skipIf(!HAS_POSTGRES)(
+  'Store on node-postgres, sessions at repeatable read (startup option dropped)',
+  () => {
+    storeSuite('suite', () => repeatableReadSessionSql(DATABASE_URL ?? ''));
   }
 );
 

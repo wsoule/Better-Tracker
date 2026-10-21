@@ -9,6 +9,8 @@ import {
   isUniqueViolation,
   openPgliteSql,
   openPgSql,
+  pgConnectionConfig,
+  READ_COMMITTED_STARTUP_OPTION,
   type Sql,
 } from '../src/db';
 import { type Migration, MIGRATIONS, runMigrations } from '../src/migrations';
@@ -113,6 +115,57 @@ describe('Sql on PGlite', () => {
     expect(isUniqueViolation({ code: '23503' })).toBe(false);
     expect(isUniqueViolation(null)).toBe(false);
     await sql.query('DELETE FROM items');
+  });
+});
+
+describe('pgConnectionConfig', () => {
+  const RC = READ_COMMITTED_STARTUP_OPTION;
+
+  test('the startup option sets read committed as one escaped value', () => {
+    expect(RC).toBe('-c default_transaction_isolation=read\\ committed');
+  });
+
+  test.each([
+    [
+      'a URL without a query',
+      'postgres://u:p%40ss@db.example:5432/app',
+      undefined,
+      'postgres://u:p%40ss@db.example:5432/app',
+      RC,
+    ],
+    [
+      'PGOPTIONS when the URL has no options',
+      'postgres://db.example/app?sslmode=require',
+      '-c search_path=app',
+      'postgres://db.example/app?sslmode=require',
+      `-c search_path=app ${RC}`,
+    ],
+    [
+      'URL options (which beat PGOPTIONS), moved out of the URL',
+      'postgres://db.example/app?sslmode=require&options=-c%20statement_timeout%3D5s&application_name=a%2Fb',
+      '-c ignored=1',
+      'postgres://db.example/app?sslmode=require&application_name=a%2Fb',
+      `-c statement_timeout=5s ${RC}`,
+    ],
+    [
+      'the last of repeated URL options, as node-postgres reads them',
+      'postgres://db.example/app?options=-c+a%3D1&options=-c+a%3D2#frag',
+      undefined,
+      'postgres://db.example/app#frag',
+      `-c a=2 ${RC}`,
+    ],
+    [
+      'a socket-path string',
+      '/var/run/postgresql app',
+      '-c x=y',
+      '/var/run/postgresql app',
+      `-c x=y ${RC}`,
+    ],
+  ])('merges %s', (_label, url, envOptions, connectionString, options) => {
+    expect(pgConnectionConfig(url, envOptions)).toEqual({
+      connectionString,
+      options,
+    });
   });
 });
 

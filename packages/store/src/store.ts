@@ -605,6 +605,18 @@ class SqlStore implements Store {
     return this.clock().toISOString();
   }
 
+  // Runs one writing statement in a transaction of its own. transaction()
+  // pins READ COMMITTED in BEGIN, so the write gives the same answer
+  // whatever the connection's default isolation (a transaction-mode
+  // pooler can drop the startup option that sets it): at REPEATABLE READ,
+  // an upsert, update or delete that waited on another writer's row fails
+  // with a serialization error instead, and an ON CONFLICT DO NOTHING
+  // claim reports that error rather than "already claimed". Plain reads
+  // stay single statements.
+  private write<T>(text: string, params?: readonly SqlParam[]): Promise<T[]> {
+    return this.sql.transaction((tx) => tx.query<T>(text, params));
+  }
+
   // The four token columns shared by installations and sessions, in the
   // order the INSERT/UPDATE statements below bind them.
   private tokenParams(tokens: StoredTokens): SqlParam[] {
@@ -696,7 +708,7 @@ class SqlStore implements Store {
   }
 
   async saveInstallation(installation: Installation): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `INSERT INTO installations (${INSTALLATION_COLUMNS})
        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9::timestamptz,
          $10::text::jsonb, $11::timestamptz, $12::timestamptz)
@@ -766,7 +778,7 @@ class SqlStore implements Store {
     workspaceId: string,
     at: IsoDateTime
   ): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `UPDATE installations SET revoked_at = $2::timestamptz,
          updated_at = $2::timestamptz
        WHERE workspace_id = $1`,
@@ -780,7 +792,7 @@ class SqlStore implements Store {
     session: NewSession
   ): Promise<{ token: string; session: Session }> {
     const token = generateSessionToken();
-    const rows = await this.sql.query<SessionRow>(
+    const rows = await this.write<SessionRow>(
       `INSERT INTO sessions (id, token_hash, workspace_id, user_id, user_name,
          access_token_enc, refresh_token_enc, token_expires_at, token_scopes,
          created_at, expires_at)
@@ -843,13 +855,13 @@ class SqlStore implements Store {
   }
 
   async deleteSession(token: string): Promise<void> {
-    await this.sql.query('DELETE FROM sessions WHERE token_hash = $1', [
+    await this.write('DELETE FROM sessions WHERE token_hash = $1', [
       hashSessionToken(token),
     ]);
   }
 
   async deleteExpiredSessions(now: IsoDateTime): Promise<number> {
-    const rows = await this.sql.query<{ id: string }>(
+    const rows = await this.write<{ id: string }>(
       `DELETE FROM sessions WHERE expires_at <= $1::timestamptz RETURNING id`,
       [now]
     );
@@ -867,7 +879,7 @@ class SqlStore implements Store {
     now: IsoDateTime,
     limit: number
   ): Promise<Session[]> {
-    const rows = await this.sql.query<SessionRow>(
+    const rows = await this.write<SessionRow>(
       `DELETE FROM sessions WHERE id IN (
          SELECT id FROM sessions WHERE expires_at <= $1::timestamptz
          ORDER BY expires_at, id LIMIT $2::int
@@ -912,7 +924,7 @@ class SqlStore implements Store {
   }
 
   async saveSettings(settings: WorkspaceSettings): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `INSERT INTO settings (workspace_id, data, updated_at)
        VALUES ($1, $2::text::jsonb, $3::timestamptz)
        ON CONFLICT (workspace_id) DO UPDATE SET
@@ -939,7 +951,7 @@ class SqlStore implements Store {
     at: IsoDateTime
   ): Promise<MilestoneMeta> {
     checkMetaValue(field, value);
-    const rows = await this.sql.query<MilestoneMetaRow>(
+    const rows = await this.write<MilestoneMetaRow>(
       UPDATE_META_FIELD_SQL[field],
       [workspaceId, milestoneId, value, at, updatedBy]
     );
@@ -954,7 +966,7 @@ class SqlStore implements Store {
     workspaceId: string,
     meta: MilestoneMeta
   ): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `INSERT INTO milestone_meta (workspace_id, milestone_id, weight,
          done_means, updated_at, updated_by)
        VALUES ($1, $2, $3::double precision, $4, $5::timestamptz, $6)
@@ -1083,7 +1095,7 @@ class SqlStore implements Store {
     workspaceId: string,
     result: { at: IsoDateTime; ok: boolean; error: string | null }
   ): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `INSERT INTO sync_state (workspace_id, last_full_sync_at,
          last_full_sync_status, last_full_sync_error)
        VALUES ($1, $2::timestamptz, $3, $4)
@@ -1136,7 +1148,7 @@ class SqlStore implements Store {
   }
 
   async pruneWebhookDeliveries(before: IsoDateTime): Promise<number> {
-    const rows = await this.sql.query<{ delivery_id: string }>(
+    const rows = await this.write<{ delivery_id: string }>(
       `DELETE FROM webhook_deliveries WHERE received_at < $1::timestamptz
        RETURNING delivery_id`,
       [before]
@@ -1148,7 +1160,7 @@ class SqlStore implements Store {
     deliveryId: string,
     result: { at: IsoDateTime; error: string | null }
   ): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `UPDATE webhook_deliveries SET processed_at = $2::timestamptz, error = $3
        WHERE delivery_id = $1`,
       [deliveryId, result.at, result.error]
@@ -1170,7 +1182,7 @@ class SqlStore implements Store {
     now: IsoDateTime;
     staleAfterMinutes: number;
   }): Promise<AllocationRun | null> {
-    const expired = await this.sql.query<{ id: string }>(
+    const expired = await this.write<{ id: string }>(
       `UPDATE allocation_runs
        SET status = 'failed', error = 'stale run', finished_at = $2::timestamptz
        WHERE workspace_id = $1 AND status = 'running'
@@ -1185,7 +1197,7 @@ class SqlStore implements Store {
       });
     }
     try {
-      const rows = await this.sql.query<RunRow>(
+      const rows = await this.write<RunRow>(
         `INSERT INTO allocation_runs (id, workspace_id, mode, run_trigger,
            started_by_user_id, status, started_at)
          VALUES ($1, $2, $3, $4, $5, 'running', $6::timestamptz)
@@ -1267,7 +1279,7 @@ class SqlStore implements Store {
       now: IsoDateTime;
     }
   ): Promise<void> {
-    const rows = await this.sql.query<{ id: string }>(
+    const rows = await this.write<{ id: string }>(
       `UPDATE allocation_runs SET status = $2, summary = $3::text::jsonb,
          error = $4, finished_at = $5::timestamptz
        WHERE id = $1
@@ -1370,7 +1382,7 @@ class SqlStore implements Store {
       last_notified_on: row.lastNotifiedOn,
       occurrence: row.occurrence,
     }));
-    await this.sql.query(
+    await this.write(
       `INSERT INTO warning_memory (workspace_id, subject_kind, subject_id,
          last_key, last_notified_on, occurrence)
        SELECT $1::text, r.subject_kind, r.subject_id, r.last_key,
@@ -1388,7 +1400,7 @@ class SqlStore implements Store {
   async insertNotification(
     record: Omit<NotificationRecord, 'id' | 'createdAt'> & { now: IsoDateTime }
   ): Promise<boolean> {
-    const rows = await this.sql.query<{ id: string }>(
+    const rows = await this.write<{ id: string }>(
       `INSERT INTO notifications (id, workspace_id, day, recipient_id, channel,
          status, digest, error, created_at)
        VALUES ($1, $2, $3::date, $4, $5, $6, $7::text::jsonb, $8, $9::timestamptz)
@@ -1417,7 +1429,7 @@ class SqlStore implements Store {
     status: Exclude<NotificationStatus, 'pending'>;
     error: string | null;
   }): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `UPDATE notifications SET status = $4, channel = $5, error = $6
        WHERE workspace_id = $1 AND day = $2::date AND recipient_id = $3`,
       [
@@ -1452,7 +1464,7 @@ class SqlStore implements Store {
     day: IsoDate,
     now: IsoDateTime
   ): Promise<boolean> {
-    const rows = await this.sql.query<{ job: string }>(
+    const rows = await this.write<{ job: string }>(
       `INSERT INTO job_claims (workspace_id, job, day, claimed_at)
        VALUES ($1, $2, $3::date, $4::timestamptz)
        ON CONFLICT (workspace_id, job, day) DO NOTHING
@@ -1467,7 +1479,7 @@ class SqlStore implements Store {
     job: 'daily',
     day: IsoDate
   ): Promise<void> {
-    await this.sql.query(
+    await this.write(
       'DELETE FROM job_claims WHERE workspace_id = $1 AND job = $2 AND day = $3::date',
       [workspaceId, job, day]
     );
@@ -1476,7 +1488,7 @@ class SqlStore implements Store {
   // --- audit ------------------------------------------------------------------------
 
   async appendAudit(entry: AuditEntry): Promise<void> {
-    await this.sql.query(
+    await this.write(
       `INSERT INTO audit_log (workspace_id, actor_user_id, action, subject_id,
          before_value, after_value, occurred_at)
        VALUES ($1, $2, $3, $4, $5::text::jsonb, $6::text::jsonb, $7::timestamptz)`,

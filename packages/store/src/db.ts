@@ -87,6 +87,74 @@ function toError(value: unknown): Error {
 }
 
 /**
+ * The server option the store adds to every Postgres connection's startup
+ * `options`: sessions default to READ COMMITTED. Inside one option a
+ * backslash escapes the space ("read committed" is one value).
+ */
+export const READ_COMMITTED_STARTUP_OPTION: string =
+  '-c default_transaction_isolation=read\\ committed';
+
+/** Connection settings for node-postgres' Pool. */
+export interface PgConnectionConfig {
+  connectionString: string;
+  /** Startup `options` sent to the server (`-c name=value …`). */
+  options: string;
+}
+
+/**
+ * The node-postgres connection settings for databaseUrl with
+ * READ_COMMITTED_STARTUP_OPTION appended to whatever startup options the
+ * connection already had, so the server applies the level while the
+ * connection opens and no query has to run before the first one.
+ *
+ * node-postgres takes `options` from the URL's `?options=` when present
+ * (it overrides the config field), else from the config field, else from
+ * PGOPTIONS. So the URL's options (or else PGOPTIONS) come first and the
+ * store's last, where the server lets it win, and `options` is moved out
+ * of the URL into the config field; every other query parameter is kept
+ * byte for byte. A socket-path string (`/run/postgresql db`) has no query.
+ */
+export function pgConnectionConfig(
+  databaseUrl: string,
+  envOptions: string | undefined = process.env['PGOPTIONS']
+): PgConnectionConfig {
+  const merge = (existing: string | null | undefined): string => {
+    const base = existing?.trim() ?? '';
+    return base === ''
+      ? READ_COMMITTED_STARTUP_OPTION
+      : `${base} ${READ_COMMITTED_STARTUP_OPTION}`;
+  };
+  const queryStart = databaseUrl.startsWith('/')
+    ? -1
+    : databaseUrl.indexOf('?');
+  if (queryStart === -1) {
+    return { connectionString: databaseUrl, options: merge(envOptions) };
+  }
+  const fragmentStart = databaseUrl.indexOf('#', queryStart);
+  const queryEnd = fragmentStart === -1 ? databaseUrl.length : fragmentStart;
+  const kept: string[] = [];
+  let fromUrl: string | null = null;
+  for (const part of databaseUrl.slice(queryStart + 1, queryEnd).split('&')) {
+    // Decoded the way node-postgres reads the URL (URLSearchParams), where
+    // the last `options` wins too.
+    const [entry] = new URLSearchParams(part);
+    if (entry?.[0] === 'options') {
+      fromUrl = entry[1];
+    } else {
+      kept.push(part);
+    }
+  }
+  if (fromUrl === null) {
+    return { connectionString: databaseUrl, options: merge(envOptions) };
+  }
+  const query = kept.length > 0 ? `?${kept.join('&')}` : '';
+  return {
+    connectionString: `${databaseUrl.slice(0, queryStart)}${query}${databaseUrl.slice(queryEnd)}`,
+    options: merge(fromUrl),
+  };
+}
+
+/**
  * node-postgres pool. Plain queries use any pooled connection; each
  * transaction checks out one client and runs BEGIN/COMMIT/ROLLBACK on it.
  *
@@ -97,35 +165,24 @@ function toError(value: unknown): Error {
  * read) a transaction keeps the snapshot it took before waiting for the
  * lock: concurrent migrators then re-apply a migration and fail, and
  * concurrent token refreshers or mirror writers hit serialization errors.
+ *
+ * The level is set twice. Every connection starts with it as a startup
+ * option (pgConnectionConfig), and every transaction pins it in BEGIN,
+ * which still holds behind a transaction-mode pooler that drops startup
+ * options. The store therefore runs every write through transaction()
+ * (store.ts); plain queries are single-statement reads, which see the
+ * same data at either level.
  */
 export async function openPgSql(
   databaseUrl: string,
   logger?: SqlLogger
 ): Promise<Sql> {
   const { Pool: PgPool } = await import('pg');
-  const pool: Pool = new PgPool({ connectionString: databaseUrl });
+  const pool: Pool = new PgPool(pgConnectionConfig(databaseUrl));
   // An idle client losing its connection emits 'error' on the pool; without
   // a listener Node treats it as unhandled and kills the process.
   pool.on('error', (error) => {
     logger?.error('postgres idle client error', { error });
-  });
-  // Statements outside transaction() (claimJob's and insertNotification's
-  // INSERT … ON CONFLICT DO NOTHING) follow the session default, and under
-  // REPEATABLE READ a concurrent conflicting insert raises a serialization
-  // error instead of answering "already exists". So every new connection
-  // defaults to READ COMMITTED too. The query is queued before the pool
-  // hands the client out. A transaction-mode pooler may not keep session
-  // settings, which is why transaction() also pins the level in BEGIN.
-  pool.on('connect', (client) => {
-    client
-      .query(
-        'SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED'
-      )
-      .catch((error: unknown) => {
-        logger?.error('could not set the connection isolation level', {
-          error,
-        });
-      });
   });
 
   const poolQuery: QueryFn = async <T>(

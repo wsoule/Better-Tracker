@@ -504,6 +504,17 @@ every workspace that installs it, routed by `organizationId`)
 transaction and recorded in `schema_migrations`; `migrate()` takes
 `pg_advisory_lock` so two processes never race.
 
+Isolation: everything runs at READ COMMITTED (the lock-then-read patterns and
+the `ON CONFLICT` claims depend on seeing the latest commits; under a stricter
+server default such as `default_transaction_isolation = 'repeatable read'` they
+fail with serialization errors). The pg pool sends
+`-c default_transaction_isolation=read\ committed` as a startup option, appended
+to the `options` of `DATABASE_URL` (or `PGOPTIONS`), so no query has to run
+before a connection's first one. Every transaction also pins the level in
+`BEGIN`, and every write runs in a transaction of its own, so a transaction-mode
+pooler that drops startup options is still safe; statements outside a
+transaction are single-statement reads.
+
 Tables (all keyed by `workspace_id`):
 
 - `installations` — app actor tokens (encrypted), app user id, installer,
@@ -1024,6 +1035,10 @@ Worker decisions made while building it (binding):
   webhook signature + timestamp tests with known vectors.
 - store: every method against in-memory PGlite; concurrency guards (second
   `startRun` returns null; duplicate notification returns false; job claims).
+  With `TEST_DATABASE_URL` the same suite also runs on real Postgres, including
+  sessions forced to REPEATABLE READ (as behind a pooler that dropped the
+  startup option), writes racing an uncommitted writer, and a subprocess that
+  must print no `DeprecationWarning`.
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe

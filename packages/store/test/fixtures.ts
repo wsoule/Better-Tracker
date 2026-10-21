@@ -2,7 +2,9 @@ import type { Digest, WorkspaceData } from '@better-tracker/core';
 // Shared test data: a small but complete WorkspaceData (every mirrored
 // entity kind, nullable fields both set and unset) and a realistic digest.
 import { randomUUID } from 'node:crypto';
+import { Pool } from 'pg';
 
+import { openPgSql, type Sql, type SqlParam } from '../src/db';
 import type { Installation, StoredTokens } from '../src/types';
 
 /**
@@ -12,9 +14,9 @@ import type { Installation, StoredTokens } from '../src/types';
 export const TEST_KEY: string = Buffer.alloc(32, 7).toString('base64');
 
 /**
- * The same Postgres URL with every session defaulting to REPEATABLE READ
- * (a startup `options` parameter), to prove the store does not depend on
- * the server's default isolation level.
+ * The same Postgres URL asking for every session to default to REPEATABLE
+ * READ (a startup `options` parameter), to prove the store does not depend
+ * on the server's default isolation level.
  */
 export function repeatableReadUrl(databaseUrl: string): string {
   const url = new URL(databaseUrl);
@@ -23,6 +25,40 @@ export function repeatableReadUrl(databaseUrl: string): string {
     '-c default_transaction_isolation=repeatable\\ read'
   );
   return url.toString();
+}
+
+/**
+ * A Sql over databaseUrl that behaves like the store's pool behind a
+ * transaction-mode pooler that dropped the store's startup option, on a
+ * server defaulting to REPEATABLE READ: every plain query runs on a
+ * session set to REPEATABLE READ, while transaction() is the store's own
+ * (READ COMMITTED pinned in BEGIN). The store must give the same answers
+ * on it as on a READ COMMITTED connection.
+ */
+export async function repeatableReadSessionSql(
+  databaseUrl: string
+): Promise<Sql> {
+  const real = await openPgSql(databaseUrl);
+  const pool = new Pool({ connectionString: databaseUrl });
+  return {
+    async query<T>(text: string, params: readonly SqlParam[] = []) {
+      const client = await pool.connect();
+      try {
+        await client.query(
+          'SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL REPEATABLE READ'
+        );
+        const result = await client.query(text, [...params]);
+        const rows: unknown[] = result.rows;
+        return rows as T[];
+      } finally {
+        client.release();
+      }
+    },
+    transaction: (fn) => real.transaction(fn),
+    async close() {
+      await Promise.all([real.close(), pool.end()]);
+    },
+  };
 }
 
 /** A unique workspace id per test, so tests never see each other's rows. */
