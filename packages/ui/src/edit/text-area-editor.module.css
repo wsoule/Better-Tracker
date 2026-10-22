@@ -92,8 +92,9 @@
   color: var(--muted);
 }
 
+/* A refused value is an error: the red status hue (architecture §8.2). */
 .input[aria-invalid='true'] {
-  border-color: var(--accent);
+  border-color: var(--red);
 }
 
 .bar {
@@ -116,16 +117,19 @@
   gap: 6px;
 }
 
+/* "Unsaved changes: Esc again discards" warns of losing the draft: the
+   amber warning hue. */
 .armed {
-  color: var(--accent-ink);
+  color: var(--amber-ink);
 }
 
 .count {
   font-variant-numeric: tabular-nums;
 }
 
+/* Past the limit the text cannot be saved: the red error hue. */
 .count[data-over='true'] {
-  color: var(--accent-ink);
+  color: var(--red-ink);
 }
 
 .actions {

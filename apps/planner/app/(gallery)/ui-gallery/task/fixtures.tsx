@@ -51,7 +51,7 @@ interface PropertySpec {
   state: StateSpec;
   /** How long it has sat in its state ("9 days"). */
   inState: string;
-  /** The planner flagged it as stalled: the duration is the accent. */
+  /** The planner flagged it as stalled: the duration is amber (warning). */
   stalled?: boolean;
   assignee: string | null;
   /** Why it is this person's (the planner's allocation), or what is missing. */
@@ -79,7 +79,7 @@ function properties(spec: PropertySpec): PropertyListItem[] {
       label: 'Assignee',
       value: (
         <TaskPropertyValue
-          tone={spec.assignee === null ? 'accent' : 'default'}
+          tone={spec.assignee === null ? 'warning' : 'default'}
           note={spec.assigneeNote}
         >
           {spec.assignee ?? 'Unassigned'}
@@ -110,7 +110,7 @@ function properties(spec: PropertySpec): PropertyListItem[] {
       value: (
         <TaskPropertyValue
           mono
-          tone={spec.stalled === true ? 'accent' : 'default'}
+          tone={spec.stalled === true ? 'warning' : 'default'}
           note={
             spec.stalled === true
               ? `Stalled in ${spec.state.label}`
@@ -280,7 +280,7 @@ export const ENG_24: GalleryTask = {
       dateTime: '2026-10-21',
       label: 'Flagged as stalled',
       detail: 'In Todo for 9 days while Search v2 beta is due in 2 days.',
-      tone: 'accent',
+      tone: 'warning',
     },
     {
       id: 'blocked',
@@ -383,7 +383,7 @@ export const ENG_32: GalleryTask = {
       at: 'Oct 21',
       label: 'Left unassigned by the planner',
       detail: 'Nobody in Compass onboarding has room before Oct 26.',
-      tone: 'accent',
+      tone: 'warning',
     },
     {
       id: 'created',

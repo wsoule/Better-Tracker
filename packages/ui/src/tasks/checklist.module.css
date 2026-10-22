@@ -25,12 +25,15 @@
   align-self: start;
 }
 
+/* Status hues (MARK tokens, 3:1 on the paper and a flood): met is a filled
+   green square, missing a hollow amber one (a missing input is a warning). */
 .met .mark {
-  background: var(--foreground);
+  background: var(--green);
+  border-color: var(--green);
 }
 
 .missing .mark {
-  border-color: var(--accent);
+  border-color: var(--amber);
 }
 
 .main {
@@ -63,7 +66,16 @@
 }
 
 .missing .state {
-  color: var(--accent-ink);
+  color: var(--amber-ink);
+}
+
+/* Forced colours drop backgrounds: a met mark keeps a fill. */
+@media (forced-colors: active) {
+  .met .mark {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border-color: CanvasText;
+  }
 }
 
 @media (width <= 768px) {

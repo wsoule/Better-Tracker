@@ -105,6 +105,10 @@
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);

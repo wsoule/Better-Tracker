@@ -350,7 +350,7 @@ export function useIssueTaskProps(
                 meId={model.viewerId}
                 value={values.assigneeId}
                 valueLabel={edit.assigneeLabel}
-                placeholderTone={loud ? 'accent' : 'muted'}
+                placeholderTone={loud ? 'warning' : 'muted'}
                 onChange={(assigneeId) => writes.patch({ assigneeId })}
                 formatError={formatError}
               />

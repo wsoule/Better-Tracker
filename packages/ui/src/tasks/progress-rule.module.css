@@ -27,8 +27,9 @@
   transition: transform 0.5s var(--ease-out-expo);
 }
 
-.accent .fill {
-  background: var(--accent);
+/* Any tone but default (data-tone gives --tone and --tone-ink). */
+.toned .fill {
+  background: var(--tone);
 }
 
 .label {
@@ -43,8 +44,18 @@
   color: var(--foreground);
 }
 
-.accent .label {
-  color: var(--accent-ink);
+.toned .label {
+  color: var(--tone-ink);
+}
+
+/* Forced colours drop backgrounds: the fill keeps the system's text
+   colour so the progress still shows. */
+@media (forced-colors: active) {
+  .fill,
+  .toned .fill {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,9 +1,10 @@
-/* 2px is emphasis: the strip spends it because it asks for action. */
+/* 2px is emphasis: the strip spends it because it asks for action. The
+   frame and key take the tone hook's colours (data-tone, default accent). */
 .strip {
   display: flex;
   align-items: baseline;
   gap: 14px;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--tone);
   padding: 10px 14px;
   background: var(--background);
 }
@@ -15,7 +16,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent-ink);
+  color: var(--tone-ink);
   white-space: nowrap;
 }
 

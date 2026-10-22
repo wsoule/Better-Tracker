@@ -119,7 +119,7 @@ export const nav: ShellNavItem[] = [
     icon: icons.projects,
     count: 2,
     countLabel: '2 projects blocked',
-    countTone: 'accent',
+    countTone: 'warning',
     shortcut: ['G', 'P'],
   },
   {

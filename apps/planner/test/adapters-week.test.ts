@@ -347,13 +347,16 @@ describe('buildWeekPage header and stats', () => {
   });
 
   test('stats count open, overdue, new and at-risk-in-led-projects', () => {
+    // Each status number in its status colour (architecture §8.2):
+    // overdue danger, at risk warning. New and open issues are not a
+    // status and stay ink.
     expect(
       page.stats.map((s) => [s.id, s.value, s.note, s.tone ?? 'default'])
     ).toEqual([
       ['open', 5, '3 this week', 'default'],
-      ['overdue', 1, 'Atlas billing migration · Dual-write', 'accent'],
+      ['overdue', 1, 'Atlas billing migration · Dual-write', 'danger'],
       ['new', 1, 'Because you lead Atlas billing migration', 'default'],
-      ['risk', 1, 'Atlas billing migration · Dual-write', 'default'],
+      ['risk', 1, 'Atlas billing migration · Dual-write', 'warning'],
     ]);
     expect(page.stats[1]?.href).toBe('/timeline?milestone=ms-atlas-2');
     // One milestone at risk or overdue: the cell links to it.
@@ -388,12 +391,23 @@ describe('buildWeekPage header and stats', () => {
       'None in the last 7 days',
       'You lead no projects',
     ]);
-    expect(quiet.stats[1]?.tone).toBe('default');
+    // Zero is never coloured.
+    expect(quiet.stats.map((s) => s.tone ?? 'default')).toEqual([
+      'default',
+      'default',
+      'default',
+      'default',
+    ]);
     expect(quiet.attention).toEqual([]);
     expect(quiet.attentionEmpty).toBe('You lead no projects');
     expect(quiet.deadlines.map((g) => g.items.length)).toEqual([0, 0, 0, 0]);
-    // Nothing overdue: the group is not painted in the accent.
-    expect(quiet.deadlines[0]?.tone).toBe('default');
+    // Nothing due: no group is coloured.
+    expect(quiet.deadlines.map((g) => g.tone)).toEqual([
+      'default',
+      'default',
+      'default',
+      undefined,
+    ]);
   });
 });
 
@@ -426,15 +440,16 @@ describe('buildWeekPage sections', () => {
       statusLabel: 'Overdue',
       dueLabel: 'Oct 18',
       daysLeftLabel: '3 days overdue',
-      dueTone: 'accent',
-      progress: { done: 0, total: 4, tone: 'accent' },
+      dueTone: 'danger',
+      progress: { done: 0, total: 4, tone: 'danger' },
     });
+    // Behind pace: the progress is a warning; due in two days is not.
     const atRisk = page.sections[0]?.groups[1];
     expect(atRisk).toMatchObject({
       status: 'at_risk',
       dueLabel: 'Oct 23',
       daysLeftLabel: 'in 2 days',
-      progress: { done: 3, total: 7, tone: 'accent' },
+      progress: { done: 3, total: 7, tone: 'warning' },
     });
     expect(atRisk?.dueTone).toBeUndefined();
   });
@@ -455,7 +470,7 @@ describe('buildWeekPage sections', () => {
       priority: 2,
       priorityLabel: 'High',
       due: 'Oct 18',
-      dueTone: 'accent',
+      dueTone: 'danger',
     });
     expect(first?.chips).toBeUndefined();
     expect(second?.priorityLabel).toBe('Urgent');
@@ -612,9 +627,12 @@ describe('buildWeekPage sections', () => {
     const group = invalid.sections[0]?.groups[0];
     expect(group?.status).toBe('missing');
     expect(group?.statusLabel).toBe('Missing input');
+    // Due tomorrow: the date and its rows' dates are a warning.
+    expect(group?.dueTone).toBe('warning');
+    expect(group?.rows[0]?.dueTone).toBe('warning');
   });
 
-  test('an undated milestone says so in the accent', () => {
+  test('an undated milestone says so as a warning (a missing input)', () => {
     const undated = buildWeekPage({
       week: {
         ...week,
@@ -636,7 +654,7 @@ describe('buildWeekPage sections', () => {
     const group = undated.sections[1]?.groups[0];
     expect(group?.dueLabel).toBe('No target date');
     expect(group?.daysLeftLabel).toBeUndefined();
-    expect(group?.dueTone).toBe('accent');
+    expect(group?.dueTone).toBe('warning');
     expect(group?.status).toBe('missing');
     expect(group?.rows[0]?.due).toBeUndefined();
   });
@@ -655,7 +673,14 @@ describe('deadlines and needs attention', () => {
     // Complete milestones and ones more than six days out are left out;
     // Garnet's milestone is due today but Chloe neither leads it nor has
     // an issue in it.
-    expect(page.deadlines[0]?.tone).toBe('accent');
+    // Overdue is danger; due tomorrow a warning; an empty group and this
+    // week stay ink.
+    expect(page.deadlines.map((g) => g.tone)).toEqual([
+      'danger',
+      'default',
+      'warning',
+      undefined,
+    ]);
     expect(page.deadlines[0]?.items[0]).toEqual({
       id: 'ms-atlas-2',
       label: 'Dual-write',
@@ -679,6 +704,7 @@ describe('deadlines and needs attention', () => {
         projectName: 'Harbor API v3',
         detail: 'Next milestone is missing: done means…',
         flag: 'Blocked',
+        tone: 'warning',
         href: '/timeline?milestone=ms-harbor-1',
         rowLabel:
           'Harbor API v3: allocation blocked. Next milestone is missing: done means…',
@@ -688,6 +714,7 @@ describe('deadlines and needs attention', () => {
         projectName: 'Atlas billing migration',
         detail: 'Next: Dual-write',
         flag: '2 unassigned',
+        tone: 'warning',
         href: '/timeline?milestone=ms-atlas-2',
         rowLabel:
           'Atlas billing migration: 2 open issues unassigned in Dual-write',
@@ -780,6 +807,7 @@ describe('deadlines and needs attention', () => {
         projectName: 'Atlas billing migration',
         detail: 'Project lead is deactivated',
         flag: 'Blocked',
+        tone: 'warning',
         href: '/timeline?project=proj-atlas',
         rowLabel:
           'Atlas billing migration: allocation blocked. Project lead is deactivated',
@@ -1004,7 +1032,7 @@ describe('inactive projects are never loud (§2.8)', () => {
       dueLabel: 'Oct 16',
       daysLeftLabel: 'Inactive project',
       muted: true,
-      progress: { done: 0, total: 2, tone: 'default' },
+      progress: { done: 0, total: 2, tone: 'muted' },
     });
     expect(group?.dueTone).toBeUndefined();
     expect(group?.rows[0]?.dueTone).toBeUndefined();
@@ -1045,7 +1073,7 @@ describe('inactive projects are never loud (§2.8)', () => {
     expect(both.stats.find((c) => c.id === 'overdue')).toMatchObject({
       value: 1,
       note: 'Atlas billing migration · Dual-write · +1 in an inactive project',
-      tone: 'accent',
+      tone: 'danger',
       href: '/timeline?milestone=ms-atlas-2',
     });
     expect(both.receipts).toBe(

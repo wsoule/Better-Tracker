@@ -164,6 +164,7 @@ export function TaskDetail({
             <AlertStrip
               key={alert.id ?? `${i}:${alert.label}`}
               label={alert.label}
+              tone={alert.tone}
               action={alert.action}
             >
               {alert.message}

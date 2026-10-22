@@ -102,23 +102,23 @@ export default async function RunsPage() {
   );
 }
 
+/** One count cell; `tone` colours a non-zero count (danger for failed
+    writes, warning for blocked projects, architecture §8.2). */
 function Count({
   label,
   value,
-  accent = false,
+  tone = 'default',
 }: {
   label: string;
   value: number | null;
-  accent?: boolean;
+  tone?: 'default' | 'warning' | 'danger';
 }) {
   return (
     <RegisterCell
       label={label}
       variant="mono"
       align="end"
-      tone={
-        value === null ? 'muted' : accent && value > 0 ? 'accent' : 'default'
-      }
+      tone={value === null ? 'muted' : value > 0 ? tone : 'default'}
     >
       {value ?? '—'}
     </RegisterCell>
@@ -133,15 +133,19 @@ function RunRow({ row }: { row: RunRowModel }) {
         {row.title}
       </RegisterCell>
       <RegisterCell label="Mode">
-        <Chip tone={row.modeTone}>{row.modeLabel}</Chip>
+        <Chip tone={row.modeTone} filled={row.modeFilled}>
+          {row.modeLabel}
+        </Chip>
       </RegisterCell>
       <RegisterCell label="Status">
-        <Chip tone={row.statusTone}>{row.statusLabel}</Chip>
+        <Chip tone={row.statusTone} filled={row.statusFilled}>
+          {row.statusLabel}
+        </Chip>
       </RegisterCell>
       <Count label="Assigned" value={counts?.assigned ?? null} />
       <Count label="Would assign" value={counts?.wouldAssign ?? null} />
-      <Count label="Failed" value={counts?.failed ?? null} accent />
-      <Count label="Blocked" value={counts?.blocked ?? null} accent />
+      <Count label="Failed" value={counts?.failed ?? null} tone="danger" />
+      <Count label="Blocked" value={counts?.blocked ?? null} tone="warning" />
       <Count label="Skipped" value={counts?.skipped ?? null} />
       <RegisterCell label="Finished" variant="mono" sub={row.took ?? undefined}>
         {row.finished}

@@ -106,8 +106,10 @@
   white-space: nowrap;
 }
 
-.accent {
-  color: var(--accent-ink);
+/* An open relation nobody holds: "Unassigned" in the amber warning hue
+   (architecture §8.2). */
+.unassigned {
+  color: var(--amber-ink);
 }
 
 /* A blocker that has landed no longer holds anything back. */
@@ -181,7 +183,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent-ink);
+  color: var(--red-ink); /* failed: the red status hue */
 }
 
 .empty {
@@ -201,6 +203,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --muted: var(--muted-inverse);
   --ink-soft: var(--ink-soft-inverse);
@@ -214,6 +220,10 @@
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
     --muted: var(--muted-inverse);
     --ink-soft: var(--ink-soft-inverse);

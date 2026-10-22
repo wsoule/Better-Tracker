@@ -31,9 +31,9 @@ function lastCellSpan(count: number, columns: number): number {
 /* Gr8r's four stat cards as one Analytics drawing: a hairline grid where
    each cell draws only its right and bottom line (the strip draws the top
    and left), so nothing is drawn twice at any column count. Mono numerals;
-   the accent marks the number that needs action. Four across, two on
-   phones, with the last cell spanning the rest of its row so the frame
-   closes. */
+   a cell's tone colours its number and note (danger overdue, warning at
+   risk, accent new). Four across, two on phones, with the last cell
+   spanning the rest of its row so the frame closes. */
 export function StatsStrip({ cells, label = 'Summary' }: StatsStripProps) {
   const columns = Math.max(1, Math.min(cells.length, MAX_COLUMNS));
   const span = lastCellSpan(cells.length, columns);

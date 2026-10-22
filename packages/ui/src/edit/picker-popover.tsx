@@ -515,7 +515,9 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
     <span
       className={cx(
         styles.placeholder,
-        placeholderTone === 'accent' ? styles.accent : undefined,
+        placeholderTone !== 'default' && placeholderTone !== 'muted'
+          ? styles.toned
+          : undefined,
         placeholderTone === 'default' ? styles.plain : undefined
       )}
       data-tone={placeholderTone}

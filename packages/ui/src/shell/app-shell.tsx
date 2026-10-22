@@ -52,6 +52,11 @@ import type {
    hover. `data-tip` feeds the rail tooltip when the sidebar is collapsed. */
 function NavRow({ item }: { item: ShellNavItem }): ReactNode {
   const showCount = item.count !== undefined && item.count > 0;
+  // A status-toned count is the accent count's square chip in the status
+  // hue (data-tone gives the CSS --tone and --on-tone).
+  const tone = item.countTone ?? 'default';
+  const statusToned =
+    tone !== 'default' && tone !== 'muted' && tone !== 'accent';
   return (
     <li data-tip={item.label}>
       <Link
@@ -65,8 +70,10 @@ function NavRow({ item }: { item: ShellNavItem }): ReactNode {
           <span
             className={cx(
               styles.count,
-              item.countTone === 'accent' && styles.countAccent
+              tone === 'accent' && styles.countAccent,
+              statusToned && styles.countToned
             )}
+            data-tone={statusToned ? tone : undefined}
           >
             <span aria-hidden="true">{item.count}</span>
             <span className="srOnly">{`, ${item.countLabel ?? String(item.count)}`}</span>

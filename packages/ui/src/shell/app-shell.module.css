@@ -208,6 +208,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
@@ -250,7 +254,7 @@
   color: var(--muted);
 }
 
-/* An accent count needs action: an accent chip, square like a Mark. */
+/* An accent count (new, unread): an accent chip, square like a Mark. */
 .countAccent {
   display: grid;
   place-items: center;
@@ -259,6 +263,19 @@
   padding: 0 4px;
   background: var(--accent);
   color: var(--on-accent);
+}
+
+/* A count in a status tone (data-tone, e.g. warning for blocked
+   projects): the same square chip in the status MARK colour with the
+   hue's own text colour (black on amber, white on red, green and blue). */
+.countToned {
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--tone);
+  color: var(--on-tone);
 }
 
 .hint {
@@ -571,7 +588,8 @@
     background: var(--shell-flood);
   }
 
-  .item:not([aria-current='page']):hover .countAccent {
+  .item:not([aria-current='page']):hover .countAccent,
+  .item:not([aria-current='page']):hover .countToned {
     background: var(--on-accent);
     color: var(--shell-flood);
   }
@@ -667,6 +685,10 @@
 
   :global(html[data-shell-collapsed='true']) .countAccent {
     background: var(--accent);
+  }
+
+  :global(html[data-shell-collapsed='true']) .countToned {
+    background: var(--tone);
   }
 
   :global(html[data-shell-collapsed='true']) .item .hint,
@@ -851,6 +873,10 @@
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
 
     background: var(--background);

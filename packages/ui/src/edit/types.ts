@@ -113,7 +113,8 @@ interface PickerBaseProps {
   options: readonly PickerOption[];
   /** Trigger face when nothing is chosen ("Unassigned"). */
   placeholder?: string;
-  /** accent = needs action ("Unassigned"); muted (default) = quiet. */
+  /** The empty face's colour: a status tone when the emptiness is a status
+      (warning "Unassigned"), muted (default) = quiet, default = ink. */
   placeholderTone?: UiTone;
   /** The search box's placeholder ("Assign to…"). */
   searchPlaceholder?: string;

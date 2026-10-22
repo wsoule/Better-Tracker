@@ -100,11 +100,12 @@ describe('alerts', () => {
   test('an overdue, stalled, unassigned next-milestone issue that holds others up', () => {
     const detail = detailOf('ENG-12');
     const alerts = issueAlerts(detail, TODAY, { closed: false, quiet: false });
-    expect(alerts.map((a) => a.label)).toEqual([
-      'Overdue',
-      'Holds up',
-      'Stalled',
-      'Unassigned',
+    // Overdue is danger; the rest are warnings (architecture §8.2).
+    expect(alerts.map((a) => [a.label, a.tone])).toEqual([
+      ['Overdue', 'danger'],
+      ['Holds up', 'warning'],
+      ['Stalled', 'warning'],
+      ['Unassigned', 'warning'],
     ]);
     expect(alerts[0]?.message).toBe('Dual-write was due Oct 18, 3 days ago.');
     expect(alerts[1]?.message).toContain('Beacon search › Search v2 beta');
@@ -128,6 +129,7 @@ describe('alerts', () => {
     });
     const blocked = alerts.find((a) => a.id === 'blocked');
     expect(blocked?.message).toBe('Waiting on ENG-12 (Backlog, unassigned).');
+    expect(blocked?.tone).toBe('warning');
     // It was the milestone's issue graph (?milestone=ms-beacon-1) before
     // graphs at every level; now it is ENG-23's own blocking chain.
     expect(blocked?.action).toEqual({
@@ -218,10 +220,12 @@ describe('buildIssueTaskModel', () => {
       text: '3 points',
       mono: true,
     });
+    // Overdue: the date and the note under it in danger.
     expect(model.facts.dueDate).toMatchObject({
       text: 'Oct 19',
-      tone: 'accent',
+      tone: 'danger',
       note: '2 days overdue',
+      noteTone: 'danger',
     });
     expect(model.facts.project.note).toBe('Lead Dev Patel');
     expect(model.facts.inState).toMatchObject({
@@ -230,8 +234,9 @@ describe('buildIssueTaskModel', () => {
       note: 'Todo since Oct 19',
     });
     expect(modelFor('ENG-12').facts.inState).toMatchObject({
-      tone: 'accent',
+      tone: 'warning',
       note: 'Stalled: Backlog with no change since Oct 1',
+      noteTone: 'warning',
     });
     expect(model.viewerId).toBe('user-chloe');
     expect(model.facts.milestone.note).toBe(
@@ -275,7 +280,7 @@ describe('buildIssueTaskModel', () => {
   test('an unassigned open issue is loud; the viewer reads as "you"', () => {
     expect(modelFor('ENG-13').facts.assignee).toMatchObject({
       text: 'Unassigned',
-      tone: 'accent',
+      tone: 'warning',
     });
     const mine = modelFor('ENG-24', {}, 'user-ana');
     expect(mine.facts.assignee.text).toBe('Ana Moreno (you)');
@@ -454,6 +459,38 @@ describe('buildIssueTaskModel', () => {
 });
 
 describe('activity', () => {
+  test('a live assignment is green, a failed comment amber, a failed write red', () => {
+    const detail = detailOf('ENG-13');
+    const items = issueActivity(
+      detail,
+      [
+        history({ seq: 3, createdAt: '2026-10-21T06:00:00.000Z' }),
+        history({
+          seq: 2,
+          runId: 'run-2',
+          error: 'boom',
+          createdAt: '2026-10-20T06:00:00.000Z',
+        }),
+        history({
+          seq: 1,
+          runId: 'run-3',
+          outcome: 'failed',
+          error: 'Linear said no',
+          createdAt: '2026-10-19T06:00:00.000Z',
+        }),
+      ],
+      { today: TODAY, timeZone: 'UTC', names }
+    );
+    const planner = items.filter(
+      (item) => item.href?.startsWith('/runs/') === true
+    );
+    expect(planner.map((item) => item.tone)).toEqual([
+      'success',
+      'warning',
+      'danger',
+    ]);
+  });
+
   test('allocation decisions and lifecycle, newest first; repeats folded', () => {
     const detail = detailOf('ENG-13');
     const items = issueActivity(
@@ -496,6 +533,9 @@ describe('activity', () => {
       items.find((item) => item.label === 'Skipped by the planner')?.detail
     ).toBe('Daily run: it was still in Triage.');
     expect(items.at(-1)?.label).toBe('Created in Linear');
+    expect(
+      items.find((item) => item.label === 'Skipped by the planner')?.tone
+    ).toBe('muted');
     const instants = items.map((item) => item.dateTime ?? '');
     expect([...instants].sort().reverse()).toEqual(instants);
   });

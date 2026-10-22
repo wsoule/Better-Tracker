@@ -259,19 +259,19 @@ export default function TasksGallery({
                     <RegisterRow
                       href="/timeline?project=p-delta"
                       rowLabel="Delta: blocked, no lead"
-                      tone="accent"
+                      tone="warning"
                     >
                       <RegisterCell variant="name" sub="Next: Search relevance">
                         Delta
                       </RegisterCell>
-                      <RegisterCell variant="mono" tone="accent" align="end">
+                      <RegisterCell variant="mono" tone="warning" align="end">
                         Blocked: no lead
                       </RegisterCell>
                     </RegisterRow>
                     <RegisterRow
                       href="/timeline?project=p-atlas"
                       rowLabel="Atlas migration: 2 unassigned"
-                      tone="accent"
+                      tone="warning"
                     >
                       <RegisterCell
                         variant="name"
@@ -279,7 +279,7 @@ export default function TasksGallery({
                       >
                         Atlas migration
                       </RegisterCell>
-                      <RegisterCell variant="mono" tone="accent" align="end">
+                      <RegisterCell variant="mono" tone="warning" align="end">
                         2 unassigned
                       </RegisterCell>
                     </RegisterRow>
@@ -341,8 +341,8 @@ export default function TasksGallery({
                     href={`/timeline?project=${p.id}`}
                     rowLabel={`${p.name} on the timeline`}
                     tone={
-                      p.allocationTone === 'accent'
-                        ? 'accent'
+                      p.allocationTone === 'warning'
+                        ? 'warning'
                         : p.active
                           ? 'default'
                           : 'muted'
@@ -370,14 +370,28 @@ export default function TasksGallery({
                       <ProgressRule
                         done={p.done}
                         total={p.total}
-                        tone={p.status === 'overdue' ? 'accent' : 'default'}
+                        tone={
+                          !p.active
+                            ? 'muted'
+                            : p.status === 'overdue'
+                              ? 'danger'
+                              : p.status === 'done'
+                                ? 'success'
+                                : 'default'
+                        }
                         aria-label={`${p.milestone} progress`}
                       />
                     </RegisterCell>
                     <RegisterCell
                       label="Lead"
                       variant={p.lead === null ? 'mono' : 'value'}
-                      tone={p.lead === null ? 'accent' : 'default'}
+                      tone={
+                        p.lead !== null
+                          ? 'default'
+                          : p.active
+                            ? 'warning'
+                            : 'muted'
+                      }
                     >
                       {p.lead ?? 'No lead'}
                     </RegisterCell>
@@ -430,7 +444,10 @@ export default function TasksGallery({
                       {run.id.replace('run-', 'Run ')}
                     </RegisterCell>
                     <RegisterCell label="Mode">
-                      <Chip tone={run.mode === 'Live' ? 'inverse' : 'default'}>
+                      <Chip
+                        tone={run.mode === 'Live' ? 'info' : 'default'}
+                        filled={run.mode === 'Live'}
+                      >
                         {run.mode}
                       </Chip>
                     </RegisterCell>
@@ -449,7 +466,7 @@ export default function TasksGallery({
                       label="Blocked"
                       variant="mono"
                       align="end"
-                      tone={run.blocked > 0 ? 'accent' : 'default'}
+                      tone={run.blocked > 0 ? 'warning' : 'default'}
                     >
                       {run.blocked}
                     </RegisterCell>
@@ -457,7 +474,7 @@ export default function TasksGallery({
                       label="Failed"
                       variant="mono"
                       align="end"
-                      tone={run.failed > 0 ? 'accent' : 'default'}
+                      tone={run.failed > 0 ? 'danger' : 'default'}
                     >
                       {run.failed}
                     </RegisterCell>
@@ -587,7 +604,29 @@ export default function TasksGallery({
                   <Chip>In Progress</Chip>
                   <Chip tone="muted">Backlog</Chip>
                   <Chip tone="inverse">Live</Chip>
-                  <Chip tone="accent">Blocked: no lead</Chip>
+                  <Chip tone="warning" filled>
+                    Blocked: no lead
+                  </Chip>
+                </div>
+                <div className={css.line}>
+                  <Chip tone="danger">Failed</Chip>
+                  <Chip tone="warning">2 unassigned</Chip>
+                  <Chip tone="success">Succeeded</Chip>
+                  <Chip tone="info">Running</Chip>
+                </div>
+                <div className={css.line}>
+                  <Chip tone="danger" filled>
+                    Failed
+                  </Chip>
+                  <Chip tone="warning" filled>
+                    Partly failed
+                  </Chip>
+                  <Chip tone="success" filled>
+                    Assigned
+                  </Chip>
+                  <Chip tone="info" filled>
+                    Live
+                  </Chip>
                 </div>
                 <div className={css.line}>
                   <Chip status="overdue" statusLabel="Overdue">
@@ -596,7 +635,12 @@ export default function TasksGallery({
                   <Chip status="at_risk" statusLabel="At risk">
                     At risk
                   </Chip>
-                  <Chip tone="accent" status="overdue" statusLabel="Overdue">
+                  <Chip
+                    tone="danger"
+                    filled
+                    status="overdue"
+                    statusLabel="Overdue"
+                  >
                     Overdue · 2 days
                   </Chip>
                   <Chip tone="inverse" status="done" statusLabel="Complete">
@@ -661,8 +705,14 @@ export default function TasksGallery({
                   <ProgressRule
                     done={4}
                     total={7}
-                    tone="accent"
+                    tone="danger"
                     aria-label="Cutover rehearsal progress"
+                  />
+                  <ProgressRule
+                    done={1}
+                    total={6}
+                    tone="warning"
+                    aria-label="Read path switch progress"
                   />
                   <ProgressRule
                     done={0}
@@ -672,8 +722,15 @@ export default function TasksGallery({
                   <ProgressRule
                     done={9}
                     total={9}
+                    tone="success"
                     label="Complete"
                     aria-label="Docs progress"
+                  />
+                  <ProgressRule
+                    done={2}
+                    total={4}
+                    tone="muted"
+                    aria-label="Dashboards progress (inactive project)"
                   />
                 </div>
               </Specimen>
@@ -699,6 +756,7 @@ export default function TasksGallery({
                 <div className={css.stack}>
                   <Notice
                     label="Blocked"
+                    tone="warning"
                     action={
                       <Button size="sm" variant="secondary" href="/projects">
                         Set a lead
@@ -710,6 +768,12 @@ export default function TasksGallery({
                   </Notice>
                   <Notice tone="default" label="Synced">
                     Resynced from Linear at 08:02. 4 issues changed.
+                  </Notice>
+                  <Notice tone="danger" label="Run failed" role="alert">
+                    Linear refused 2 of 5 writes. Nothing else was changed.
+                  </Notice>
+                  <Notice label="Demo data">
+                    The default accent frame, for a note that is not a status.
                   </Notice>
                 </div>
               </Specimen>

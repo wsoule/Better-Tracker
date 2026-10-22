@@ -34,7 +34,7 @@ export function PendingNote({ text }: { text: string }): ReactNode {
   );
 }
 
-/** The inline error of a rejected save: an accent mono key ("Not saved")
+/** The inline error of a rejected save: a red mono key ("Not saved")
     and the message, announced as an alert when it appears. */
 export function SaveErrorLine({
   label,

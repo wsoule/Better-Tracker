@@ -54,9 +54,10 @@
   margin-top: 0;
 }
 
-/* 2px is emphasis: the row that needs action carries the accent rule. */
-.rowAccent {
-  border-left: 2px solid var(--accent);
+/* 2px is emphasis: the row that needs attention carries a rule in its
+   tone (data-tone gives --tone: amber, red, the accent…). */
+.rowRule {
+  border-left: 2px solid var(--tone);
   padding-left: 17px;
 }
 
@@ -69,6 +70,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
@@ -102,6 +107,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
@@ -111,9 +120,9 @@
   border-color: var(--ink);
 }
 
-.rowAccent.selected,
-.rowAccent.linked:has(.overlay:focus-visible) {
-  border-left-color: var(--accent);
+.rowRule.selected,
+.rowRule.linked:has(.overlay:focus-visible) {
+  border-left-color: var(--tone);
 }
 
 @media (hover: hover) and (width >= 901px) {
@@ -122,6 +131,10 @@
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);
@@ -131,8 +144,8 @@
     border-color: var(--ink);
   }
 
-  .linked.rowAccent:hover {
-    border-left-color: var(--accent);
+  .linked.rowRule:hover {
+    border-left-color: var(--tone);
   }
 }
 
@@ -198,9 +211,10 @@
   text-transform: uppercase;
 }
 
-.toneAccent .cellValue,
-.toneAccent .cellSub {
-  color: var(--accent-ink);
+/* Any tone but default and muted: the tone's TEXT colour. */
+.toneText .cellValue,
+.toneText .cellSub {
+  color: var(--tone-ink);
 }
 
 .toneMuted .cellValue {
@@ -243,7 +257,7 @@
     grid-column: 1 / -1;
   }
 
-  .stack900 .rowAccent {
+  .stack900 .rowRule {
     padding-left: 13px;
   }
 
@@ -297,7 +311,7 @@
     grid-column: 1 / -1;
   }
 
-  .stack700 .rowAccent {
+  .stack700 .rowRule {
     padding-left: 13px;
   }
 
@@ -361,7 +375,7 @@
     grid-column: 1 / -1;
   }
 
-  .within700 .rowAccent {
+  .within700 .rowRule {
     padding-left: 13px;
   }
 
@@ -412,7 +426,7 @@
     grid-column: 1 / -1;
   }
 
-  .within900 .rowAccent {
+  .within900 .rowRule {
     padding-left: 13px;
   }
 
@@ -463,7 +477,7 @@
     grid-column: 1 / -1;
   }
 
-  .within1000 .rowAccent {
+  .within1000 .rowRule {
     padding-left: 13px;
   }
 

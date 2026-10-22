@@ -75,10 +75,12 @@
   padding: 0 6px;
 }
 
-/* The accent as an outline: destructive or "needs action" commands. */
+/* The red status hue as an outline: a risky or irreversible write
+   ("Assign in Linear now"). The accent never means risk, so the hover and
+   press floods are red too. */
 .danger {
-  border-color: var(--accent);
-  color: var(--accent-ink);
+  border-color: var(--red);
+  color: var(--red-ink);
 }
 
 .button:disabled {
@@ -102,6 +104,12 @@
   .quiet:not(:disabled):hover {
     color: var(--accent-ink);
   }
+
+  .danger:not(:disabled):hover {
+    background: var(--red);
+    border-color: var(--red);
+    color: var(--on-red);
+  }
 }
 
 /* Touch and narrow screens get the pressed colour as feedback instead. */
@@ -109,6 +117,12 @@
   background: var(--accent-hover);
   border-color: var(--accent-hover);
   color: var(--on-accent);
+}
+
+.danger:not(:disabled):active {
+  background: var(--red);
+  border-color: var(--red);
+  color: var(--on-red);
 }
 
 @media (prefers-reduced-motion: reduce) {

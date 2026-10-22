@@ -313,6 +313,7 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
             <div className={`${styles.cell} ${styles.cellPad}`}>
               <AlertStrip
                 label="Overdue"
+                tone="danger"
                 action={{
                   label: 'Reschedule',
                   onClick: () => openDetail('atlas-3'),
@@ -369,6 +370,7 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
           <div className={styles.alert}>
             <AlertStrip
               label="Overdue"
+              tone="danger"
               action={{
                 label: 'Reschedule',
                 onClick: () => dueRef.current?.focus(),

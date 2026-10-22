@@ -52,9 +52,19 @@ a.inner:focus-visible {
   color: var(--muted);
 }
 
+/* The value that needs attention, in its tone's TEXT colour (data-tone):
+   accent for new, danger overdue, warning at risk, success, info. */
 .accent .value,
-.accent .note {
-  color: var(--accent-ink);
+.accent .note,
+.danger .value,
+.danger .note,
+.warning .value,
+.warning .note,
+.success .value,
+.success .note,
+.info .value,
+.info .note {
+  color: var(--tone-ink);
 }
 
 .muted .value {
@@ -70,6 +80,10 @@ a.inner:focus-visible {
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
     --muted: var(--muted-inverse);
   }

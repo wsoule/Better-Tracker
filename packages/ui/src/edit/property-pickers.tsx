@@ -72,8 +72,8 @@ export function StatePicker({
 }
 
 /** Who the task is assigned to: square initials, a "You" note on the
-    signed-in person, and "Unassigned" (in the accent: needs action) as the
-    none option and the empty face. */
+    signed-in person, and "Unassigned" (in the amber warning hue: an open
+    issue nobody holds) as the none option and the empty face. */
 export function AssigneePicker({
   people,
   value,
@@ -84,7 +84,7 @@ export function AssigneePicker({
   label = 'Assignee',
   noneLabel = 'Unassigned',
   placeholder = 'Unassigned',
-  placeholderTone = 'accent',
+  placeholderTone = 'warning',
   searchPlaceholder = 'Assign to…',
   ...rest
 }: AssigneePickerProps): ReactNode {

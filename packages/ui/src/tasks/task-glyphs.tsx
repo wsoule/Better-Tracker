@@ -2,10 +2,12 @@ import { cx } from './class-names';
 import styles from './task-glyphs.module.css';
 import type { TaskPriority, TaskStateKind } from './types';
 
-/* Issue-state glyphs in the Gr8r/Linear shapes, drawn as monochrome
-   hairlines: circles for issues so they never read as the square milestone
-   status marks. Decorative only (aria-hidden): the state's name is always
-   printed beside the glyph. */
+/* Issue-state glyphs in the Gr8r/Linear shapes, drawn as hairlines:
+   circles for issues so they never read as the square milestone status
+   marks. Todo is ink; in progress (started) takes the blue status hue and
+   done (completed) the green one; triage, backlog and canceled step back
+   to grey. Decorative only (aria-hidden): the state's name is always
+   printed beside the glyph, in ink. */
 export function StateGlyph({
   kind,
   size = 14,
@@ -66,8 +68,8 @@ const LIT: Record<TaskPriority, number> = { 0: 0, 1: 4, 2: 3, 3: 2, 4: 1 };
 const BAR_HEIGHTS = [4, 6.5, 9, 11.5];
 
 /* Priority as a four-step bar glyph: ink bars for the level, ghost bars for
-   the rest, all four in the accent for urgent (the one that needs action).
-   Decorative only: the priority label is printed beside it. */
+   the rest, all four in the red status hue for urgent (the one that needs
+   action). Decorative only: the priority label is printed beside it. */
 export function PriorityGlyph({
   priority,
   size = 14,

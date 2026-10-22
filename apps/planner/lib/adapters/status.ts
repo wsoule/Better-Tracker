@@ -11,9 +11,9 @@ import {
 import type { UiStatus } from '@better-tracker/ui';
 
 // The one place planner statuses become UI marks (architecture §8.2):
-// complete → done (filled ink), on track → hollow ink, at risk → 2px
-// accent, overdue → filled accent, and anything missing an input
-// (no date, no issues) → hatched.
+// complete → done (filled green), on track → hollow 1px green, at risk →
+// hollow 2px amber, overdue → filled red, and anything missing an input
+// (no date, no issues) → hatched with a grey edge.
 const STATUS_TO_UI: Record<MilestoneStatus, UiStatus> = {
   complete: 'done',
   on_track: 'on_track',

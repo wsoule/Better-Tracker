@@ -14,7 +14,7 @@ import {
   type WorkspaceSettings,
 } from '@better-tracker/core';
 import type { Engine, WarningRunResult } from '@better-tracker/engine';
-import type { ChipTone, NavTabItem } from '@better-tracker/ui';
+import type { ChipTone, NavTabItem, UiTone } from '@better-tracker/ui';
 
 import {
   dueLabel,
@@ -566,13 +566,18 @@ export function scheduleSavedMessage(
 // Status
 // ---------------------------------------------------------------------------
 
+/**
+ * One Status row. `tone` colours the value (architecture §8.2 "settings
+ * status"): success = working, warning = not installed or never synced,
+ * danger = revoked or a failed sync, muted = demo data or no webhook yet.
+ */
 export interface StatusRow {
   id: string;
   label: string;
   value: string;
   /** Mono line under the value. */
   sub?: string;
-  tone: 'default' | 'muted' | 'accent';
+  tone: UiTone;
 }
 
 export function statusRows(input: {
@@ -599,7 +604,7 @@ export function statusRows(input: {
       label: 'Installation',
       value: 'Not installed',
       sub: 'A Linear admin installs the app from Setup',
-      tone: 'accent',
+      tone: 'warning',
     });
   } else {
     rows.push(
@@ -623,14 +628,14 @@ export function statusRows(input: {
             label: 'Linear access',
             value: 'Working',
             sub: 'The app can read and write as itself',
-            tone: 'default',
+            tone: 'success',
           }
         : {
             id: 'access',
             label: 'Linear access',
             value: 'Revoked: reinstall from Setup',
             sub: `Since ${formatInstant(installation.revokedAt, timeZone)}`,
-            tone: 'accent',
+            tone: 'danger',
           }
     );
   }
@@ -640,7 +645,7 @@ export function statusRows(input: {
       label: 'Last full sync',
       value: 'Never',
       sub: 'Runs every 15 minutes from the worker, or Resync now',
-      tone: 'accent',
+      tone: 'warning',
     });
   } else {
     const failed = syncState.lastFullSyncStatus === 'failed';
@@ -651,7 +656,7 @@ export function statusRows(input: {
       sub: failed
         ? (syncState.lastFullSyncError ?? 'No error was recorded')
         : undefined,
-      tone: failed ? 'accent' : 'default',
+      tone: failed ? 'danger' : 'default',
     });
   }
   rows.push({
@@ -685,8 +690,22 @@ export interface DigestItemPreview {
   dueNote: string | null;
   lines: string[];
   href: string;
-  tone: 'default' | 'accent';
+  /** The "Why" chip's colour (noticeTone): danger overdue, warning the
+      rest. */
+  tone: DigestTone;
+  /** The chip keeps the shape it had before the status hues: filled for
+      what needs action now (the same items as rowTone), outlined for at
+      risk. */
+  chipFilled: boolean;
+  /** The row's 2px rule and its due date's colour: the item's tone for
+      what needs action now (overdue, due soon without what the rubric
+      needs, allocation stopped); default for at risk, which is a warning
+      but not yet a missed date or a missing input. */
+  rowTone: 'default' | DigestTone;
 }
+
+/** A digest item's colour (architecture §8.2 "warning kind"). */
+export type DigestTone = Extract<UiTone, 'danger' | 'warning'>;
 
 export interface DigestPreview {
   recipientId: string;
@@ -703,13 +722,12 @@ export interface DigestPreviewModel {
 }
 
 /**
- * The accent marks what needs action (§8.2: overdue, blocked, missing
- * input): an overdue milestone, one due soon without what the rubric
- * needs, a project whose allocation stopped. At risk stays ink: it is a
- * warning, not yet a missed date or a missing input.
+ * A digest item's tone (architecture §8.2 "warning kind"): an overdue
+ * milestone is danger (red); at risk, due soon without what the rubric
+ * needs, and a project whose allocation stopped are warnings (amber).
  */
-export function noticeTone(kind: NoticeKind): 'default' | 'accent' {
-  return kind === 'at_risk' ? 'default' : 'accent';
+export function noticeTone(kind: NoticeKind): DigestTone {
+  return kind === 'overdue' ? 'danger' : 'warning';
 }
 
 function previewItem(
@@ -746,6 +764,8 @@ function previewItem(
       lines: item.lines,
       href,
       tone: noticeTone(notice.kind),
+      chipFilled: notice.kind !== 'at_risk',
+      rowTone: notice.kind === 'at_risk' ? 'default' : noticeTone(notice.kind),
     };
   });
 }
@@ -794,15 +814,19 @@ export function isDigestPreviewModel(
 // Notifications
 // ---------------------------------------------------------------------------
 
+/** A digest's delivery status as a chip (architecture §8.2 "digest
+    status"). Sent, failed and undeliverable keep the filled chips they had
+    before the status hues (green and red slabs); preview and sending stay
+    outlined. */
 const NOTIFICATION_STATUS: Record<
   NotificationRecord['status'],
-  { label: string; tone: ChipTone }
+  { label: string; tone: ChipTone; filled: boolean }
 > = {
-  sent: { label: 'Sent', tone: 'inverse' },
-  preview: { label: 'Preview', tone: 'muted' },
-  pending: { label: 'Sending', tone: 'muted' },
-  failed: { label: 'Failed', tone: 'accent' },
-  undeliverable: { label: 'Undeliverable', tone: 'accent' },
+  sent: { label: 'Sent', tone: 'success', filled: true },
+  preview: { label: 'Preview', tone: 'muted', filled: false },
+  pending: { label: 'Sending', tone: 'info', filled: false },
+  failed: { label: 'Failed', tone: 'danger', filled: true },
+  undeliverable: { label: 'Undeliverable', tone: 'danger', filled: true },
 };
 
 export interface NotificationRow {
@@ -812,9 +836,12 @@ export interface NotificationRow {
   channel: string;
   statusLabel: string;
   statusTone: ChipTone;
+  /** Sent, failed and undeliverable are filled chips. */
+  statusFilled: boolean;
   items: string;
   error: string | null;
-  rowTone: 'default' | 'accent';
+  /** danger when the digest did not reach its recipient. */
+  rowTone: 'default' | 'danger';
 }
 
 export function notificationRows(
@@ -833,9 +860,10 @@ export function notificationRows(
       channel: record.channel === 'slack' ? 'Slack DM' : 'Outbox',
       statusLabel: status.label,
       statusTone: status.tone,
+      statusFilled: status.filled,
       items: plural(record.digest.items.length, 'item'),
       error: record.error,
-      rowTone: failed ? 'accent' : 'default',
+      rowTone: failed ? 'danger' : 'default',
     };
   });
 }

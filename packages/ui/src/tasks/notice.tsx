@@ -1,10 +1,22 @@
+import type { UiTone } from '../types';
 import { cx } from './class-names';
 import styles from './notice.module.css';
 import type { EmptyStateProps, NoticeProps } from './types';
 
+/* The tones whose 2px frame and key take a status hue. */
+const SEMANTIC: ReadonlySet<UiTone> = new Set<UiTone>([
+  'danger',
+  'warning',
+  'success',
+  'info',
+]);
+
 /* The 2px-accent notice strip (.notice) with its mono key: blocked states,
-   errors, the demo-mode banner. role is opt-in: "status" for something that
-   just changed, "alert" for an error; static copy needs neither. */
+   errors, the demo-mode banner. A status tone (danger, warning, success,
+   info) draws the same 2px frame and key in its hue; default and muted are
+   the quiet 1px hairline (muted with a grey key). role is opt-in: "status"
+   for something that just changed, "alert" for an error; static copy needs
+   neither. */
 export function Notice({
   label,
   children,
@@ -12,14 +24,27 @@ export function Notice({
   role,
   action,
 }: NoticeProps) {
+  const status = SEMANTIC.has(tone);
   return (
     <div
-      className={cx('notice', tone === 'default' ? styles.quiet : undefined)}
+      className={cx(
+        'notice',
+        tone === 'default' || tone === 'muted' ? styles.quiet : undefined,
+        status ? styles.toned : undefined
+      )}
       role={role}
       data-tone={tone}
     >
       {label !== undefined && label !== '' ? (
-        <span className={cx('key', styles.key)}>{label}</span>
+        <span
+          className={cx(
+            'key',
+            styles.key,
+            status || tone === 'muted' ? styles.toneKey : undefined
+          )}
+        >
+          {label}
+        </span>
       ) : null}
       <div className={styles.body}>{children}</div>
       {action !== undefined ? (

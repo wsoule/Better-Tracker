@@ -66,6 +66,33 @@ function collapseButton(): HTMLElement {
 }
 
 describe('AppShell', () => {
+  test('a status-toned count is the square chip in its hue', () => {
+    const nav = [
+      ...PROPS.nav,
+      {
+        id: 'projects',
+        label: 'Projects',
+        href: '/projects',
+        icon: CalendarCheck,
+        count: 2,
+        countLabel: '2 projects blocked',
+        countTone: 'warning' as const,
+      },
+    ];
+    render(
+      <AppShell {...PROPS} nav={nav}>
+        Body
+      </AppShell>
+    );
+    const link = screen.getByRole('link', { name: /2 projects blocked/ });
+    const count = link.querySelector('[data-tone]');
+    expect(count?.getAttribute('data-tone')).toBe('warning');
+    expect(count?.textContent).toContain('2');
+    // A plain count carries no tone.
+    const week = screen.getByRole('link', { name: /4 issues this week/ });
+    expect(week.querySelector('[data-tone]')).toBeNull();
+  });
+
   test('renders the frame with the current page marked', () => {
     render(<AppShell {...PROPS}>Body</AppShell>);
     const nav = screen.getByRole('navigation', { name: 'Primary' });

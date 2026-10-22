@@ -28,8 +28,12 @@ export interface TaskDetailStatus {
 /** One row of the alert stack above the properties. */
 export interface TaskDetailAlert {
   id?: string;
-  /** Mono key in the accent ("BLOCKED", "STALLED", "UNASSIGNED"). */
+  /** Mono key ("BLOCKED", "STALLED", "UNASSIGNED"), in the tone. */
   label: string;
+  /** The alert's colour (AlertStrip's tone, docs/architecture.md §8.2):
+      danger for an overdue milestone, warning for blocked, holds up,
+      stalled and unassigned. Default accent. */
+  tone?: UiTone;
   /** One sentence ("Waiting on ENG-12 (in progress)."). */
   message: ReactNode;
   /** Follow-up: a link when it has an href, a button when it acts in place. */
@@ -87,7 +91,9 @@ export interface TaskActivityItem {
   label: ReactNode;
   /** A sentence of context under the label. */
   detail?: ReactNode;
-  /** accent = needs action; muted = background noise. */
+  /** accent = something new; a status tone for what went wrong or right
+      (danger a failed write, warning a stalled flag); muted = background
+      noise. */
   tone?: UiTone;
   /** Makes the label a link (a run, a comment in the tracker). */
   href?: string;
@@ -361,7 +367,8 @@ export interface TaskPropertyValueProps {
   children: ReactNode;
   /** A sentence under the value ("Given by the planner: …"). */
   note?: ReactNode;
-  /** accent = needs action ("Unassigned"); muted = quiet. */
+  /** The value's colour: a status tone for a value that is a status
+      (warning "Unassigned", danger an overdue date), muted = quiet. */
   tone?: UiTone;
   noteTone?: UiTone;
   /** Print the value in the mono voice (dates, durations). */

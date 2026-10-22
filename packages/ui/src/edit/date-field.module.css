@@ -47,8 +47,9 @@
   color: var(--muted);
 }
 
+/* A refused value is an error: the red status hue (architecture §8.2). */
 .input[aria-invalid='true'] {
-  border-color: var(--accent);
+  border-color: var(--red);
 }
 
 @media (hover: hover) and (width >= 901px) {

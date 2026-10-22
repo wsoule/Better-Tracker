@@ -253,17 +253,27 @@ describe('runs register', () => {
     });
     expect(row.took).toBe('took 1.3 s');
     expect(row.rowTone).toBe('default');
+    // Succeeded is green (architecture §8.2 "run status"), and both
+    // chips stay the outlines they always were.
+    expect(row.statusTone).toBe('success');
+    expect([row.modeFilled, row.statusFilled]).toEqual([false, false]);
   });
 
-  test('a live run with failures is the accent; a running one has no counts', () => {
+  test('a partly failed live run is amber; a running one is blue, without counts', () => {
     const live = runRow(
       run({ mode: 'live', status: 'partial', trigger: 'schedule' }),
       snapshot,
       TZ
     );
-    expect(live.modeTone).toBe('accent');
+    // Live is the blue info chip; partly failed is a warning, in the
+    // chip and the row's rule.
+    expect(live.modeTone).toBe('info');
     expect(live.statusLabel).toBe('Partly failed');
-    expect(live.rowTone).toBe('accent');
+    expect(live.statusTone).toBe('warning');
+    expect(live.rowTone).toBe('warning');
+    // LIVE and a failed status keep their filled chips (blue and amber
+    // slabs): only the colour changed.
+    expect([live.modeFilled, live.statusFilled]).toEqual([true, true]);
     expect(live.trigger).toBe('Scheduled');
     // The trigger is not repeated in front of "Daily schedule".
     expect(live.byline).toBe('Daily schedule');
@@ -275,6 +285,12 @@ describe('runs register', () => {
     expect(running.counts).toBeNull();
     expect(running.finished).toBe('Still running');
     expect(running.took).toBeNull();
+    expect(running.statusTone).toBe('info');
+    expect(running.statusFilled).toBe(false);
+    // A failed run, or a succeeded one whose writes failed, is red.
+    const failed = runRow(run({ status: 'failed' }), snapshot, TZ);
+    expect([failed.statusTone, failed.rowTone]).toEqual(['danger', 'danger']);
+    expect(failed.statusFilled).toBe(true);
   });
 
   // Owner decision 2026-10-22: no PM role. The page model names nobody
@@ -358,7 +374,9 @@ describe('run detail', () => {
       gapLines: ['Missing a target date', 'Project has no lead'],
       milestone: 'Search beta',
     });
-    expect(beacon?.tone).toBe('accent');
+    // A blocked project is a warning (architecture §8.2).
+    expect(beacon?.tone).toBe('warning');
+    expect(atlas?.tone).toBe('default');
     expect(beacon?.href).toBe('/timeline?project=p-beacon');
   });
 
@@ -405,7 +423,23 @@ describe('run detail', () => {
       ['applied', 'Assigned, but the comment failed: boom'],
       ['stale', 'Someone was assigned in Linear since the plan was made'],
     ]);
-    expect(group?.tone).toBe('accent');
+    // A failed write is danger, in the group and the outcome chips:
+    // assigned green, failed red, not written grey.
+    expect(group?.tone).toBe('danger');
+    expect(group?.rows.map((r) => [r.outcomeTone, r.reasonTone])).toEqual([
+      ['danger', 'danger'],
+      ['success', 'muted'],
+      ['success', 'danger'],
+      ['muted', 'muted'],
+    ]);
+    // Assigned and failed keep their filled chips; not written stays
+    // the outline.
+    expect(group?.rows.map((r) => r.outcomeFilled)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
     expect(group?.meta).toBe('2 assigned · 1 failed · 1 not written');
   });
 
@@ -431,12 +465,13 @@ describe('run detail', () => {
       snapshot,
       timeZone: TZ,
     });
-    expect(live.modeTone).toBe('accent');
-    expect(live.stats.map((s) => [s.label, s.value])).toEqual([
-      ['Assigned', 1],
-      ['Failed', 1],
-      ['Not written', 0],
-      ['Blocked projects', 0],
+    expect(live.modeTone).toBe('info');
+    // Assigned green, failed red, nothing not written or blocked grey.
+    expect(live.stats.map((s) => [s.label, s.value, s.tone])).toEqual([
+      ['Assigned', 1, 'success'],
+      ['Failed', 1, 'danger'],
+      ['Not written', 0, 'muted'],
+      ['Blocked projects', 0, 'muted'],
     ]);
     expect(live.note.label).toBe('Undo by hand');
     expect(live.note.body).toContain('delete that comment');

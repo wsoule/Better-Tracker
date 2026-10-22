@@ -3,12 +3,17 @@ import type { ReactNode } from 'react';
 import type { UiStatus } from '../types';
 import styles from './status-mark.module.css';
 
-/* The competitors-site Mark idiom applied to status: filled vs hollow, ink
-   vs accent. No new hues — overdue is the accent at full strength, at risk
-   the accent as a 2px outline, done is ink, and a missing input is
-   hatched. The label is always available to assistive tech. `muted`
-   draws any status as a hollow grey square (an inactive project's
-   milestone, which is never loud), like the timeline's inactive lanes. */
+/* The competitors-site Mark idiom applied to status: the shape says the
+   status (filled, hollow, 2px outline, hatched) and the status hue says it
+   again (docs/architecture.md §8.2): overdue a filled red square, at risk
+   a 2px amber outline, on track a hollow green square, done a filled ink
+   square (ink, not green, so done and overdue never look alike without
+   red-green vision), a missing input hatched grey, and open (no status
+   claim of its own) the plain hollow ink square. The colour is never the only
+   cue: the shapes differ and the label is always available to assistive
+   tech. `muted` draws any status as a hollow grey square (an inactive
+   project's milestone, which is never loud), like the timeline's inactive
+   lanes. The purple accent is never a status. */
 export interface StatusMarkProps {
   status: UiStatus;
   /** Human wording, e.g. "At risk". */
@@ -29,6 +34,7 @@ export default function StatusMark({
     <span className={styles.wrap}>
       <span
         className={`${styles.mark} ${muted ? styles.muted : styles[status]}`}
+        data-status={status}
         data-muted={muted ? '' : undefined}
         role="img"
         aria-label={label}

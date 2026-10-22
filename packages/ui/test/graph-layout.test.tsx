@@ -131,7 +131,7 @@ describe('layoutGraph', () => {
     expect(layout.nodes[0].rank).toBe(0);
   });
 
-  test('paints faint edges first and the accent last', () => {
+  test('paints faint edges first and the status hues last', () => {
     const layout = layoutGraph(MILESTONES, MILESTONE_EDGES);
     const kinds = layout.edges.map((e) => e.kind);
     const order = ['resolved', 'default', 'cross', 'risk', 'cycle'];

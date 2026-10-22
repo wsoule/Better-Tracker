@@ -40,11 +40,14 @@
 }
 
 /* One block for every banner: a 1px hairline frame with the single 2px
-   accent rule down its left edge (2px is emphasis, spent once), and one
-   1px ruled row per banner, about 40px tall. */
+   rule down its left edge (2px is emphasis, spent once), and one 1px
+   ruled row per banner, about 40px tall. Every banner is a missing input
+   or a blocked project, a warning (docs/architecture.md §8.2), so the
+   rule is the amber MARK colour and each row's key takes its tone's text
+   colour from the data-tone hook. */
 .banners {
   border: 1px solid var(--border);
-  border-left: 2px solid var(--accent);
+  border-left: 2px solid var(--amber);
 }
 
 .bannerRows {
@@ -72,7 +75,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent-ink);
+  color: var(--tone-ink);
   white-space: nowrap;
 }
 
@@ -299,10 +302,12 @@
   min-width: 0;
 }
 
+/* The status's risk reasons and missing input (unassigned, stalled,
+   behind pace, "missing …"): warnings, in the amber text. */
 .reasons {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--accent-ink);
+  color: var(--amber-ink);
 }
 
 .note {
@@ -311,23 +316,28 @@
   color: var(--muted);
 }
 
-.accentNote {
+/* Words that carry a status take their tone's text colour from the
+   data-tone hook (docs/architecture.md §8.2): an overdue date red, a
+   missing date, lead or "done means…" and a stopped allocation amber, an
+   over-long "done means…" (an error) red. The purple never means a
+   status. */
+.toneNote {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--accent-ink);
+  color: var(--tone-ink);
 }
 
-.accent {
-  color: var(--accent-ink);
+.toned {
+  color: var(--tone-ink);
 }
 
-.accentMono {
+.toneMono {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--accent-ink);
+  color: var(--tone-ink);
 }
 
 .mono {
@@ -377,9 +387,11 @@
   padding: 4px 28px 4px 8px;
 }
 
-.selectAccent {
-  border-color: var(--accent);
-  color: var(--accent-ink);
+/* The lead select while the project has no lead (a missing input): the
+   amber rule and text. */
+.selectWarning {
+  border-color: var(--amber);
+  color: var(--amber-ink);
 }
 
 /* Grows with the text where the browser can (one line of up to 280
@@ -490,7 +502,7 @@
   .issue:hover .issueKey,
   .issue:hover .issueTitle,
   .issue:hover .issueMeta,
-  .issue:hover .accent {
+  .issue:hover .toned {
     color: var(--background);
   }
 }

@@ -79,7 +79,7 @@ describe('AssigneePicker', () => {
     { id: 'u-ben', name: 'Ben Okafor', keywords: ['ben@northwind.test'] },
   ];
 
-  test('square initials, "You", Unassigned in the accent', async () => {
+  test('square initials, "You", Unassigned in the warning hue', async () => {
     const onChange = mock((_id: string | null) => undefined);
     render(
       <AssigneePicker
@@ -92,7 +92,7 @@ describe('AssigneePicker', () => {
     const button = screen.getByRole('button', {
       name: 'Assignee: Unassigned',
     });
-    expect(button.querySelector('[data-tone="accent"]')?.textContent).toBe(
+    expect(button.querySelector('[data-tone="warning"]')?.textContent).toBe(
       'Unassigned'
     );
     fireEvent.click(button);

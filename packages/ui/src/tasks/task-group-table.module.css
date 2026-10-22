@@ -416,8 +416,15 @@
   text-overflow: ellipsis;
 }
 
-.accentText {
-  color: var(--accent-ink);
+/* A due date with a tone (data-tone: danger overdue, warning due soon or
+   undated) in the tone's TEXT colour. */
+.toneText {
+  color: var(--tone-ink);
+}
+
+/* Urgent priority's label, beside the red bars (architecture §8.2). */
+.urgentText {
+  color: var(--red-ink);
 }
 
 .mutedText {
@@ -451,6 +458,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
@@ -484,6 +495,10 @@
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);

@@ -23,8 +23,10 @@
   text-transform: uppercase;
 }
 
-.accent {
-  color: var(--accent-ink);
+/* Any tone but default and muted (data-tone gives --tone-ink): accent,
+   danger, warning, success, info. */
+.toned {
+  color: var(--tone-ink);
 }
 
 .muted {

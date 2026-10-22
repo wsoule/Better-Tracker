@@ -9,6 +9,16 @@
   stroke: var(--background);
 }
 
+/* The status hues are MARK tokens (3:1 on the paper and on a flood's ink),
+   so these keep their colour inside a flooded row. */
+.started {
+  color: var(--blue);
+}
+
+.completed {
+  color: var(--green);
+}
+
 /* Backlog is the same hollow circle as Todo, one step dimmer: not yet
    planned, so it recedes. */
 .backlog {
@@ -32,5 +42,5 @@
 }
 
 .urgent {
-  color: var(--accent);
+  color: var(--red);
 }

@@ -206,15 +206,17 @@ describe('node flags', () => {
     expect(nodeTags(node({ open: false, unassigned: true }))).toEqual([]);
   });
 
-  test('tone: closed is muted, needs-action is accent', () => {
+  test('tone: closed is muted, overdue danger, needs action warning', () => {
     expect(nodeTone(node())).toBe('default');
     expect(nodeTone(node({ open: false }))).toBe('muted');
-    expect(nodeTone(node({ unassigned: true }))).toBe('accent');
-    expect(nodeTone(node({ overdue: true }))).toBe('accent');
+    expect(nodeTone(node({ unassigned: true }))).toBe('warning');
+    expect(nodeTone(node({ overdue: true }))).toBe('danger');
+    // Overdue wins over unassigned: the box floods red either way.
+    expect(nodeTone(node({ overdue: true, unassigned: true }))).toBe('danger');
     const milestone = node({ kind: 'milestone', status: 'on_track' });
-    // A later milestone's unassigned issues are normal: not the accent.
+    // A later milestone's unassigned issues are normal: no amber rule.
     expect(nodeTone({ ...milestone, unassigned: true })).toBe('default');
-    expect(nodeTone({ ...milestone, status: 'at_risk' })).toBe('accent');
+    expect(nodeTone({ ...milestone, status: 'at_risk' })).toBe('warning');
     expect(nodeTone({ ...milestone, status: 'complete' })).toBe('muted');
   });
 
@@ -252,14 +254,14 @@ describe('node flags', () => {
   test('tone: inactive work is quiet, aggregate boxes follow their status', () => {
     const project = node({ kind: 'project', status: 'on_track' });
     expect(nodeTone(project)).toBe('default');
-    expect(nodeTone({ ...project, status: 'at_risk' })).toBe('accent');
-    expect(nodeTone({ ...project, status: 'overdue' })).toBe('accent');
+    expect(nodeTone({ ...project, status: 'at_risk' })).toBe('warning');
+    expect(nodeTone({ ...project, status: 'overdue' })).toBe('danger');
     expect(nodeTone({ ...project, unassigned: true })).toBe('default');
     expect(nodeTone({ ...project, active: false, overdue: true })).toBe(
       'muted'
     );
     const initiative = node({ kind: 'initiative', status: 'overdue' });
-    expect(nodeTone(initiative)).toBe('accent');
+    expect(nodeTone(initiative)).toBe('danger');
     expect(nodeTone({ ...initiative, active: false })).toBe('muted');
     const milestone = node({ kind: 'milestone', status: 'at_risk' });
     expect(nodeTone({ ...milestone, active: false })).toBe('muted');
@@ -268,7 +270,7 @@ describe('node flags', () => {
     expect(nodeTone(node({ overdue: true, active: false }))).toBe('default');
   });
 
-  test('issue marks: closed filled, unassigned hatched, owned hollow', () => {
+  test('issue marks: closed filled, unassigned hatched, owned hollow ink', () => {
     expect(
       issueMark({ open: false, unassigned: true, stateName: 'Done' })
     ).toEqual({ status: 'done', label: 'Done' });
@@ -277,7 +279,9 @@ describe('node flags', () => {
     ).toEqual({ status: 'missing', label: 'Backlog, unassigned' });
     expect(
       issueMark({ open: true, unassigned: false, stateName: 'In Progress' })
-    ).toEqual({ status: 'on_track', label: 'In Progress' });
+    ).toEqual({ status: 'open', label: 'In Progress' });
+    // An owned open issue makes no status claim of its own (its milestone
+    // does), so it never takes the milestone's on-track green.
   });
 });
 
@@ -332,7 +336,7 @@ describe('buildGraphPage on the demo workspace', () => {
     expect(model.legend.some((item) => item.mark === 'weight')).toBe(true);
   });
 
-  test('an overdue milestone floods, says so and names its project', () => {
+  test('an overdue milestone floods red, says so and names its project', () => {
     const model = page({ level: 'milestone' });
     const overdue = model.nodes.find(
       (n) => n.tags?.includes('OVERDUE') === true
@@ -340,7 +344,7 @@ describe('buildGraphPage on the demo workspace', () => {
     expect(overdue).toBeDefined();
     if (overdue === undefined) return;
     expect(overdue.status).toBe('overdue');
-    expect(overdue.tone).toBe('accent');
+    expect(overdue.tone).toBe('danger');
     const milestone = snapshot.milestones.get(overdue.id);
     const project = snapshot.projects.get(milestone?.projectId ?? '');
     expect(overdue.sublabel?.startsWith(`${project?.name} · `)).toBe(true);
@@ -491,7 +495,7 @@ describe('nodes with no blocking relation', () => {
       if (closed) expect(row.due).not.toMatch(/overdue|in \d+ days/);
       if (issue?.assigneeId === null && !closed) {
         expect(row.context).toBe('Unassigned');
-        expect(row.contextTone).toBe('accent');
+        expect(row.contextTone).toBe('warning');
       }
     }
     const inside = model.nodes.filter((n) => n.external !== true).length;
@@ -654,7 +658,8 @@ describe('every level on the demo workspace', () => {
     const platform = model.nodes[0];
     expect(platform?.sublabel).toBe('5 projects · Dec 20');
     expect(platform?.tags).toEqual(['OVERDUE', 'CYCLE', 'CYCLE INSIDE']);
-    expect(platform?.tone).toBe('accent');
+    // Its next milestones are overdue: the red flood, not the purple.
+    expect(platform?.tone).toBe('danger');
     expect(platform?.group).toBeUndefined();
     expect(model.isolated?.title).toBe(
       '1 initiative has no blocking relations'
@@ -674,7 +679,8 @@ describe('every level on the demo workspace', () => {
         href: '/graph?initiative=none',
         external: false,
         rowLabel: 'No initiative, 1 project: open its graph',
-        tone: 'accent',
+        // At risk: the row's 2px rule in amber.
+        tone: 'warning',
       },
     ]);
     expect([
@@ -693,6 +699,15 @@ describe('every level on the demo workspace', () => {
       'Cycle — both ends wait',
       'Count — issue relations on one edge',
     ]);
+    // The swatches draw the status hues: the red flood, the amber rule.
+    expect(model.legend.slice(0, 3).map((item) => item.mark)).toEqual([
+      'node',
+      'node-overdue',
+      'node-warning',
+    ]);
+    expect(model.legend.some((item) => item.mark === 'node-accent')).toBe(
+      false
+    );
     expect(model.tabs).toEqual([
       {
         id: 'initiative',
@@ -752,7 +767,7 @@ describe('every level on the demo workspace', () => {
     ]);
     const delta = model.isolated?.rows.find((r) => r.id === 'proj-delta');
     expect(delta?.context).toBe('No lead');
-    expect(delta?.contextTone).toBe('accent');
+    expect(delta?.contextTone).toBe('warning');
     expect(delta?.href).toBe('/graph?project=proj-delta');
     expect(model.isolated?.dueLabel).toBe('Next milestone');
     const deltaNode = graphOf({ level: 'project' }).nodes.find(
@@ -865,14 +880,15 @@ describe('every level on the demo workspace', () => {
         {
           label: 'Next milestone',
           value: 'Dual-write · Oct 18 · 3 days overdue',
-          tone: 'accent',
+          tone: 'danger',
         },
         {
           label: 'Progress',
           value: '0/4 done · 2 open issues unassigned',
-          tone: 'accent',
+          tone: 'warning',
         },
-        { label: 'Allocation', value: 'Allocating 2', tone: 'default' },
+        // The register's allocation chip tone (§8.2): info allocating.
+        { label: 'Allocation', value: 'Allocating 2', tone: 'info' },
         {
           label: 'Scope',
           value:
@@ -929,7 +945,8 @@ describe('every level on the demo workspace', () => {
           label: 'At risk',
           value:
             'Atlas billing migration › Dual-write (overdue); Harbor API v3 › Public beta (at risk)',
-          tone: 'accent',
+          // One of them is overdue: red, not amber.
+          tone: 'danger',
         },
       ],
       links: [
@@ -1243,7 +1260,7 @@ describe('one issue’s chain', () => {
       'node',
       'node-focus',
       'node-overdue',
-      'node-accent',
+      'node-warning',
       'node-cycle',
       'node-muted',
       'edge-default',
@@ -1618,5 +1635,104 @@ describe('a chain past the draw limits', () => {
       count: '38',
       href: '/graph?chain=c1',
     });
+  });
+});
+
+describe('status colours (architecture §8.2)', () => {
+  const { page } = fixture();
+
+  /** The non-default tones of a node's panel, as [label, tone]. */
+  function panelTones(
+    model: ReturnType<typeof page>,
+    id: string
+  ): [string, string | undefined][] {
+    return (model.details[id]?.properties ?? [])
+      .filter((p) => p.tone !== undefined && p.tone !== 'default')
+      .map((p) => [p.label, p.tone]);
+  }
+
+  test('milestone boxes: overdue red, at risk amber, never the accent', () => {
+    const model = page({ level: 'milestone' });
+    expect(model.nodes.map((n) => [n.id, n.tone])).toEqual([
+      ['ms-atlas-2', 'danger'],
+      ['ms-juniper-1', 'default'],
+      ['ms-beacon-1', 'warning'],
+      ['ms-atlas-3', 'default'],
+    ]);
+    const tones = [
+      ...model.nodes.map((n) => n.tone),
+      ...(model.isolated?.rows ?? []).flatMap((r) => [
+        r.tone,
+        r.contextTone,
+        r.dueTone,
+      ]),
+      ...Object.values(model.details).flatMap((d) =>
+        d.properties.map((p) => p.tone)
+      ),
+    ];
+    expect(tones).not.toContain('accent');
+  });
+
+  test('a milestone’s dates follow dueTone: overdue red, undated amber', () => {
+    const model = page({ level: 'milestone' });
+    expect(panelTones(model, 'ms-atlas-2')).toEqual([
+      ['Due', 'danger'],
+      ['Progress', 'warning'],
+      ['Risk reasons', 'warning'],
+    ]);
+    // No target date is a missing input: amber, in the panel and the row.
+    expect(panelTones(model, 'ms-compass-3')[0]).toEqual(['Due', 'warning']);
+    const row = model.isolated?.rows.find((r) => r.id === 'ms-compass-3');
+    expect([row?.due, row?.dueTone]).toEqual(['No target date', 'warning']);
+    // At-risk rows carry the box's amber rule; a later date stays ink.
+    const harbor = model.isolated?.rows.find((r) => r.id === 'ms-harbor-1');
+    expect([harbor?.tone, harbor?.dueTone]).toEqual(['warning', 'default']);
+  });
+
+  test('project panels: the next milestone’s date, progress, allocation', () => {
+    const model = page({ level: 'project' });
+    expect(model.nodes.map((n) => [n.id, n.tone])).toEqual([
+      ['proj-atlas', 'danger'],
+      ['proj-juniper', 'default'],
+      ['proj-beacon', 'warning'],
+    ]);
+    expect(panelTones(model, 'proj-atlas')).toEqual([
+      ['Next milestone', 'danger'],
+      ['Progress', 'warning'],
+      ['Allocation', 'info'],
+    ]);
+    // Blocked allocation and a missing lead are amber.
+    expect(panelTones(model, 'proj-delta')).toEqual([
+      ['Lead', 'warning'],
+      ['Progress', 'warning'],
+      ['Allocation', 'warning'],
+    ]);
+  });
+
+  test('issues: overdue red, unassigned amber, closed muted', () => {
+    const model = page({ level: 'issue', milestoneId: 'ms-atlas-2' });
+    expect(model.nodes.map((n) => [n.id, n.tone])).toEqual([
+      ['iss-eng-10', 'danger'],
+      ['iss-eng-12', 'danger'],
+      ['iss-eng-23', 'default'],
+      ['iss-eng-16', 'default'],
+    ]);
+    expect(panelTones(model, 'iss-eng-12')).toEqual([
+      ['Assignee', 'warning'],
+      ['Milestone', 'danger'],
+    ]);
+    expect(
+      (model.isolated?.rows ?? []).map((r) => [
+        r.id,
+        r.tone,
+        r.contextTone,
+        r.dueTone,
+      ])
+    ).toEqual([
+      ['iss-eng-11', 'danger', 'default', 'danger'],
+      ['iss-eng-13', 'danger', 'warning', 'danger'],
+      // Closed: a muted row, its date and empty assignee quiet.
+      ['iss-eng-14', 'muted', 'default', 'default'],
+    ]);
   });
 });

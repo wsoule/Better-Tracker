@@ -242,8 +242,10 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
         <RegisterCell
           label="Next milestone"
           sub={
-            next.dueTone === 'accent' ? (
-              <span className={css.accentText}>{next.dueLabel}</span>
+            next.dueTone !== 'default' && next.dueTone !== 'muted' ? (
+              <span className={css.toneText} data-tone={next.dueTone}>
+                {next.dueLabel}
+              </span>
             ) : (
               next.dueLabel
             )
@@ -274,16 +276,26 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
       <RegisterCell
         label="Lead"
         variant={row.lead === null ? 'mono' : 'value'}
-        tone={row.lead === null ? 'accent' : 'default'}
+        tone={row.lead !== null ? 'default' : row.active ? 'warning' : 'muted'}
       >
         {row.lead ?? 'No lead'}
       </RegisterCell>
+      {/* The chip carries the tone; a blocked project's reason line under
+          it takes the amber too, as the timeline drawer and its Blocked
+          banner say it (architecture §8.2 "allocation"). A muted cell
+          greys its value; the blue and ink chips colour only themselves. */}
       <RegisterCell
         label="Allocation"
-        tone={row.allocation.tone}
+        tone={
+          row.allocation.tone === 'warning' || row.allocation.tone === 'muted'
+            ? row.allocation.tone
+            : 'default'
+        }
         sub={row.allocation.detail}
       >
-        <Chip tone={row.allocation.tone}>{row.allocation.label}</Chip>
+        <Chip tone={row.allocation.tone} filled={row.allocation.filled}>
+          {row.allocation.label}
+        </Chip>
       </RegisterCell>
       <RegisterCell align="end">
         <span className={css.links}>

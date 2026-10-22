@@ -101,12 +101,14 @@ import '@better-tracker/ui/styles.css';
 `--foreground`, `--border`, `--muted`, `--accent`, `--accent-hover`,
 `--on-accent`, `--accent-ink`, `--accent-ink-hover`, `--accent-ink-inverse`,
 `--ink-soft`, `--grey-2..4`, `--grey-2-ink`, `--hairline-faint`, `--hatch`,
-`--tint`, the `*-inverse` set, `--font-sans`, `--font-mono`, the easing curves),
-a small reset, and the shared classes the components use by name (`.block`,
-`.blockBar`, `.blockKey`, `.blockTitle`, `.blockMeta`, `.srOnly`, `.skipLink`,
-`.page`, `.key`, `.label`, `.muted`, `.mono`, `.accentLink`, `.button`,
-`.buttonPrimary`, `.input`, `.select`, `.textarea`, `.notice`, `.hatched`,
-`.empty`). Everything else is in CSS modules.
+`--tint`, the `*-inverse` set, the status hues `--red`, `--amber`, `--green`,
+`--blue`, `--grey` with their `-ink`, `-ink-inverse` and `--on-*` steps,
+`--font-sans`, `--font-mono`, the easing curves), the `data-tone` hook, a small
+reset, and the shared classes the components use by name (`.block`, `.blockBar`,
+`.blockKey`, `.blockTitle`, `.blockMeta`, `.srOnly`, `.skipLink`, `.page`,
+`.key`, `.label`, `.muted`, `.mono`, `.accentLink`, `.button`, `.buttonPrimary`,
+`.input`, `.select`, `.textarea`, `.notice`, `.hatched`, `.empty`). Everything
+else is in CSS modules.
 
 ### Page mode (default)
 
@@ -155,8 +157,20 @@ value in both themes). Purple **text** uses `--accent-ink` (a lighter purple in
 dark, where `#9747ff` is only 4.25:1 on the paper), `--accent-ink-hover` when
 hovered or focused, and `--accent-ink-inverse` on a `--foreground` hover flood;
 dim grey text uses `--grey-2-ink` (`--grey-2` is 3.2:1 on white, so it stays for
-separators, furniture and disabled controls). A component that floods a row with
-ink swaps these along with `--background` and `--foreground`:
+separators, furniture and disabled controls). The purple never means a status.
+
+Status has its own hues (see "Status vocabulary"): `--red`, `--amber`,
+`--green`, `--blue` and `--grey` are MARK colours (fills, outlines, bars,
+glyphs; 3:1 on the paper and on a flood's ink, so they never swap), `--red-ink`,
+`--amber-ink`, `--green-ink` and `--blue-ink` are their TEXT colours (4.5:1),
+`--<hue>-ink-inverse` the text on an ink flood, and `--on-<hue>` the text on a
+fill. Rather than naming a hue, a component puts `data-tone` on the element and
+uses the hook's `--tone` (mark), `--tone-ink` (text) and `--on-tone`, which
+`tokens.css` defines for every `UiTone`.
+
+A component that floods a row with ink swaps the text tokens along with
+`--background` and `--foreground` (`test/styles-contrast.test.ts` checks every
+such block):
 
 ```css
 .row:hover {
@@ -164,6 +178,10 @@ ink swaps these along with `--background` and `--foreground`:
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
 }
 ```
@@ -267,28 +285,54 @@ anchors for `/api/*`).
 
 ## Status vocabulary
 
-Status uses only the system's own marks, never new hues:
+Status keeps the system's square marks and colours them with the status hues
+(owner decision 2026-10-22; the full table is in `docs/architecture.md` §8.2
+"Status colours"). The shape always differs too, and the label is always there
+for assistive tech, so colour is never the only cue:
 
-| `UiStatus` | mark                                          |
-| ---------- | --------------------------------------------- |
-| `done`     | filled ink square                             |
-| `on_track` | hollow ink square                             |
-| `at_risk`  | hollow accent square (2px)                    |
-| `overdue`  | filled accent square                          |
-| `missing`  | hatched square (an input is missing)          |
-| `muted`    | prop on `StatusMark`: hollow grey, any status |
+| `UiStatus` | mark                                                     |
+| ---------- | -------------------------------------------------------- |
+| `done`     | filled ink square (never green: see below)               |
+| `on_track` | hollow square, 1px green edge                            |
+| `at_risk`  | hollow square, 2px amber edge                            |
+| `overdue`  | filled red square                                        |
+| `missing`  | hatched grey square (an input is missing)                |
+| `open`     | hollow square, 1px ink edge (no status claim of its own) |
+| `muted`    | prop on `StatusMark`: hollow, `--grey` edge, any status  |
+
+Done and overdue share the filled square, so they differ in lightness as well as
+hue: done stays ink, because a green fill is as light as the red one and the two
+would look the same without red-green vision or in greyscale. Green is the
+on-track edge and done's words.
 
 The other shared vocabularies:
 
-- `UiTone`: `default` (ink), `muted` (grey), `accent` ("needs action").
+- `UiTone`: `default` (ink), `muted` (grey: inactive, nothing to do), `accent`
+  (the purple: new, unread, selected; never a status) and the `SemanticTone`s
+  `danger` (red: overdue, failed, urgent), `warning` (amber: at risk, blocked,
+  unassigned, a missing input), `success` (green: on track, done, met,
+  succeeded) and `info` (blue: in progress, running). Components emit it as
+  `data-tone`. `Chip`, `Notice`, `AlertStrip` (default `accent`),
+  `ProgressRule`, `RegisterRow` (a 2px left rule), `RegisterCell` and
+  `StatsStrip` draw every tone; `Button variant="danger"` is red.
 - `TaskStateKind` (Linear's state types): `triage`, `backlog`, `unstarted`,
-  `started`, `completed`, `canceled`, drawn by `StateGlyph`.
+  `started`, `completed`, `canceled`, drawn by `StateGlyph` (in progress blue,
+  done green, triage / backlog / canceled grey, todo ink).
 - `TaskPriority`: `0` none, `1` urgent, `2` high, `3` medium, `4` low, drawn by
-  `PriorityGlyph`.
-- `ChipTone`: `default`, `muted`, `accent`, `inverse`.
-- Graph: `GraphNodeTone` (`default`, `accent`, `muted`), `GraphNodeTag`
-  (`UNASSIGNED`, `OVERDUE`, `CYCLE` or any string), `GraphEdgeKind` (`default`,
-  `risk`, `cycle`, `cross`, `resolved`).
+  `PriorityGlyph` (urgent in red).
+- `ChipTone`: any `UiTone` (a status tone is the ink chip's outline and text in
+  the hue; with `filled` a slab of the hue with its `--on-<hue>` text, for the
+  chips that were filled before the status hues), or `inverse`.
+- `ShellNavItem.countTone`: `accent` (new, unread) or a status tone (e.g.
+  `warning` for blocked projects) turns the count into a square chip in that
+  colour.
+- Graph: `GraphNodeTone` (any `UiTone`: `danger` / `warning` / `success` /
+  `info` draw a 2px rule in the hue, `muted` a faint box with its status mark in
+  grey, `accent` a purple rule for a host's own emphasis, never a status),
+  `GraphNodeTag` (`UNASSIGNED` a filled amber chip, inverted on the red flood;
+  `OVERDUE` floods the box red, `CYCLE` a dashed red outline, or any string),
+  `GraphEdgeKind` (`default`, `risk` amber, `cycle` dashed red, `cross`,
+  `resolved`). `GraphLegendMark` adds `node-warning` (the amber rule).
 - `ToastKind`: `info`, `error`.
 
 Every status mark carries a text label for assistive tech (`label` /

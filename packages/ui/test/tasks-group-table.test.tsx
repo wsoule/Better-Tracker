@@ -64,7 +64,7 @@ const SECTIONS: TaskSectionData[] = [
         statusLabel: 'Overdue',
         dueLabel: 'Oct 19',
         daysLeftLabel: '2 days overdue',
-        dueTone: 'accent',
+        dueTone: 'danger',
         progress: { done: 4, total: 7 },
         rows: [
           row('a-1', {
@@ -610,7 +610,7 @@ describe('TaskGroupTable review additions', () => {
     expect(view.queryByText('Nothing in this section')).toBeNull();
   });
 
-  test('a muted group is never loud: grey mark, no accent date or progress', () => {
+  test('a muted group is never loud: grey mark, no status date, grey progress', () => {
     const view = renderTable({
       sections: [
         {
@@ -625,8 +625,8 @@ describe('TaskGroupTable review additions', () => {
               statusLabel: 'Overdue · inactive project',
               dueLabel: 'Oct 16',
               daysLeftLabel: 'Inactive project',
-              dueTone: 'accent',
-              progress: { done: 0, total: 2, tone: 'accent' },
+              dueTone: 'danger',
+              progress: { done: 0, total: 2, tone: 'danger' },
               muted: true,
               rows: [row('f-1')],
             },
@@ -636,8 +636,8 @@ describe('TaskGroupTable review additions', () => {
               status: 'overdue',
               statusLabel: 'Overdue',
               dueLabel: 'Oct 19',
-              dueTone: 'accent',
-              progress: { done: 1, total: 2, tone: 'accent' },
+              dueTone: 'danger',
+              progress: { done: 1, total: 2, tone: 'danger' },
               rows: [row('a-1')],
             },
           ],
@@ -660,14 +660,14 @@ describe('TaskGroupTable review additions', () => {
       [...el.querySelectorAll('[data-tone]')].map((n) =>
         n.getAttribute('data-tone')
       );
-    // The due date, then the progress rule.
-    expect(tones(quiet)).toEqual(['default', 'default']);
+    // The due date (ink), then the progress rule (the inactive grey).
+    expect(tones(quiet)).toEqual(['default', 'muted']);
     const loud = header('loud');
     expect(
       within(loud as HTMLElement)
         .getByRole('img', { name: 'Overdue' })
         .hasAttribute('data-muted')
     ).toBe(false);
-    expect(tones(loud)).toEqual(['accent', 'accent']);
+    expect(tones(loud)).toEqual(['danger', 'danger']);
   });
 });

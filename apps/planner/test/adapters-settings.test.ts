@@ -331,13 +331,21 @@ describe('status', () => {
     const byId = new Map(rows.map((r) => [r.id, r]));
     expect(byId.has('source')).toBe(false);
     expect(byId.get('installed')?.value).toBe('Ana Moreno');
-    expect(byId.get('access')?.value).toBe('Working');
+    // Working is green, a failed sync red, no webhook yet grey
+    // (architecture §8.2 "settings status").
+    expect(byId.get('access')).toMatchObject({
+      value: 'Working',
+      tone: 'success',
+    });
     expect(byId.get('sync')).toMatchObject({
       value: 'Oct 21, 2:00 PM UTC · failed',
       sub: 'Linear answered 503',
-      tone: 'accent',
+      tone: 'danger',
     });
-    expect(byId.get('webhook')?.value).toBe('None received yet');
+    expect(byId.get('webhook')).toMatchObject({
+      value: 'None received yet',
+      tone: 'muted',
+    });
   });
 
   test('a revoked installation and no sync are loud; demo says so', () => {
@@ -349,12 +357,28 @@ describe('status', () => {
       demo: true,
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
-    expect(byId.get('source')?.value).toBe('Demo workspace');
+    expect(byId.get('source')).toMatchObject({
+      value: 'Demo workspace',
+      tone: 'muted',
+    });
+    // Revoked is red; never synced is a warning.
     expect(byId.get('access')).toMatchObject({
       value: 'Revoked: reinstall from Setup',
-      tone: 'accent',
+      tone: 'danger',
     });
-    expect(byId.get('sync')).toMatchObject({ value: 'Never', tone: 'accent' });
+    expect(byId.get('sync')).toMatchObject({ value: 'Never', tone: 'warning' });
+    // Not installed is a warning too.
+    const none = statusRows({
+      installation: null,
+      syncState: null,
+      users: USER_MAP,
+      timeZone: 'UTC',
+      demo: false,
+    });
+    expect(none.find((r) => r.id === 'installation')).toMatchObject({
+      value: 'Not installed',
+      tone: 'warning',
+    });
   });
 });
 
@@ -409,7 +433,9 @@ describe('digest preview', () => {
       due: null,
       dueNote: null,
       href: '/timeline?project=p1',
-      tone: 'accent',
+      tone: 'warning',
+      chipFilled: true,
+      rowTone: 'warning',
     });
     expect(isDigestPreviewModel(model)).toBe(true);
     expect(isDigestPreviewModel({ day: 1 })).toBe(false);
@@ -481,11 +507,77 @@ describe('digest preview', () => {
     });
   });
 
-  test('the accent marks what needs action; at risk stays ink', () => {
-    expect(noticeTone('overdue')).toBe('accent');
-    expect(noticeTone('invalid_due_soon')).toBe('accent');
-    expect(noticeTone('allocation_blocked')).toBe('accent');
-    expect(noticeTone('at_risk')).toBe('default');
+  test('overdue is danger; at risk, invalid due soon and stopped are warnings', () => {
+    expect(noticeTone('overdue')).toBe('danger');
+    expect(noticeTone('invalid_due_soon')).toBe('warning');
+    expect(noticeTone('allocation_blocked')).toBe('warning');
+    expect(noticeTone('at_risk')).toBe('warning');
+  });
+
+  test('at risk keeps its row plain; overdue rules its row in red', () => {
+    const notice = {
+      kind: 'overdue' as const,
+      subjectKind: 'milestone' as const,
+      subjectId: 'm1',
+      projectId: 'p1',
+      milestoneId: 'm1',
+      key: 'overdue:m1',
+      targetDate: '2026-10-18',
+      daysLeft: -3,
+      reasons: [],
+      gaps: [],
+      blockReason: null,
+      openIssueIds: ['i1'],
+      unassignedIssueIds: [],
+      recipientIds: ['u-ana'],
+      occurrence: 1,
+    };
+    const item = {
+      projectName: 'Atlas',
+      milestoneName: 'Dual-write',
+      leadName: 'Ana Moreno',
+      openCount: 1,
+      unassignedCount: 0,
+      lines: [],
+      url: 'https://planner.example/timeline?milestone=m1',
+    };
+    const model = digestPreview({
+      day: '2026-10-21',
+      mode: 'preview',
+      digests: [
+        {
+          recipientId: 'u-ana',
+          recipientName: 'Ana Moreno',
+          recipientEmail: null,
+          day: '2026-10-21',
+          items: [
+            { ...item, notice },
+            {
+              ...item,
+              notice: {
+                ...notice,
+                kind: 'at_risk' as const,
+                key: 'at_risk:m1',
+                targetDate: '2026-10-24',
+                daysLeft: 3,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(
+      model.digests[0]?.items.map((i) => [i.kindLabel, i.tone, i.rowTone])
+    ).toEqual([
+      ['Overdue', 'danger', 'danger'],
+      ['At risk', 'warning', 'default'],
+    ]);
+    // The chips keep their shapes: overdue the filled chip (a red slab),
+    // at risk the outline (now amber).
+    expect(model.digests[0]?.items.map((i) => i.chipFilled)).toEqual([
+      true,
+      false,
+    ]);
   });
 
   test('nobody to tell is said plainly', () => {
@@ -530,16 +622,23 @@ describe('notifications', () => {
       USER_MAP
     );
     expect(rows.map((r) => [r.statusLabel, r.statusTone, r.channel])).toEqual([
-      ['Sent', 'inverse', 'Slack DM'],
+      ['Sent', 'success', 'Slack DM'],
       ['Preview', 'muted', 'Outbox'],
-      ['Undeliverable', 'accent', 'Slack DM'],
+      ['Undeliverable', 'danger', 'Slack DM'],
     ]);
+    // Sent and undeliverable keep their filled chips (green and red
+    // slabs); a preview stays the outline.
+    expect(rows.map((r) => r.statusFilled)).toEqual([true, false, true]);
     expect(rows[0]).toMatchObject({
       recipient: 'Ben Carter',
       day: 'Oct 21, 2026',
       items: '0 items',
     });
-    expect(rows[2]?.rowTone).toBe('accent');
+    expect(rows.map((r) => r.rowTone)).toEqual([
+      'default',
+      'default',
+      'danger',
+    ]);
   });
 });
 

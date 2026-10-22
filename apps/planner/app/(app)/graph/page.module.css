@@ -94,8 +94,10 @@
   overflow-wrap: anywhere;
 }
 
-.accentText {
-  color: var(--accent-ink);
+/* A panel value in its status tone (data-tone: danger red, warning amber,
+   info blue, muted grey; architecture §8.2), in the TEXT colour. */
+.toneText {
+  color: var(--tone-ink);
 }
 
 /* Nodes with no blocking relation, listed under the canvas: a hairline

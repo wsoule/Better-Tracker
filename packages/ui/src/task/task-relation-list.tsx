@@ -75,7 +75,7 @@ function RowBody({
               <span
                 className={
                   assignee === null && resolved !== true
-                    ? styles.accent
+                    ? styles.unassigned
                     : undefined
                 }
               >

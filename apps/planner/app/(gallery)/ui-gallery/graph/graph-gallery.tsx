@@ -6,6 +6,7 @@ import {
   blockerIndex,
   Button,
   Chip,
+  type ChipTone,
   DependencyGraph,
   type GraphLegendItem,
   GraphLegend,
@@ -107,6 +108,17 @@ function NodeRow({
   );
 }
 
+/* A flag chip's tone: the status hue of what it says (architecture §8.2:
+   OVERDUE red, UNASSIGNED amber, both still filled chips, as slabs of the
+   hue); CYCLE stays ink, as on the box, and any other flag (+N MORE) keeps
+   the filled accent it had. */
+function flagTone(tag: string): ChipTone {
+  if (tag === 'OVERDUE') return 'danger';
+  if (tag === 'UNASSIGNED') return 'warning';
+  if (tag === 'CYCLE') return 'default';
+  return 'accent';
+}
+
 /* The selection panel the /graph page opens: what the node is, what it
    waits on (the same upstream chain the graph lights), what it holds up. */
 function SelectionPanel({
@@ -163,7 +175,7 @@ function SelectionPanel({
       {node === undefined ? null : (
         <div className={styles.panel}>
           {tags.includes('OVERDUE') ? (
-            <AlertStrip label="Overdue">
+            <AlertStrip label="Overdue" tone="danger">
               {holdsUp.length === 0
                 ? 'Past its date.'
                 : `Past its date, and ${holdsUp.length} ${holdsUp.length === 1 ? 'node waits' : 'nodes wait'} on it.`}
@@ -196,7 +208,8 @@ function SelectionPanel({
                       {tags.map((tag) => (
                         <Chip
                           key={tag}
-                          tone={tag === 'CYCLE' ? 'default' : 'accent'}
+                          tone={flagTone(tag)}
+                          filled={tag === 'OVERDUE' || tag === 'UNASSIGNED'}
                         >
                           {tag}
                         </Chip>
@@ -246,7 +259,7 @@ function SelectionPanel({
 
 const EPIC_LEGEND: GraphLegendItem[] = [
   { mark: 'node', label: 'Task' },
-  { mark: 'node-accent', label: 'Needs you' },
+  { mark: 'node-warning', label: 'Needs you' },
   { mark: 'node-muted', label: 'Landed' },
   { mark: 'edge-default', label: 'Blocks' },
   { mark: 'edge-risk', label: 'Waits on you' },
@@ -260,7 +273,7 @@ const CHAIN_LEGEND: GraphLegendItem[] = [
     label: 'Focus',
     note: 'the issue this chain is about',
   },
-  { mark: 'node-accent', label: 'Needs action', note: 'open and unassigned' },
+  { mark: 'node-warning', label: 'Needs action', note: 'open and unassigned' },
   { mark: 'edge-default', label: 'Blocks' },
   {
     mark: 'edge-risk',

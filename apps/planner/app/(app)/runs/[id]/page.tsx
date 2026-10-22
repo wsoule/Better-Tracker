@@ -74,8 +74,12 @@ export default async function RunPage({
         <div className={css.titleRow}>
           <h1 className={css.title}>{model.heading}</h1>
           <span className={css.chips}>
-            <Chip tone={model.modeTone}>{model.modeLabel}</Chip>
-            <Chip tone={model.statusTone}>{model.statusLabel}</Chip>
+            <Chip tone={model.modeTone} filled={model.modeFilled}>
+              {model.modeLabel}
+            </Chip>
+            <Chip tone={model.statusTone} filled={model.statusFilled}>
+              {model.statusLabel}
+            </Chip>
           </span>
         </div>
         <p className={css.receipts}>{model.receipts}</p>
@@ -92,7 +96,7 @@ export default async function RunPage({
           }))}
         />
         {model.error !== null ? (
-          <Notice label="Error" role="alert">
+          <Notice label="Error" tone="danger" role="alert">
             {model.error}
           </Notice>
         ) : null}
@@ -144,6 +148,7 @@ function ProjectBlock({
       {group.block !== null ? (
         <Notice
           label="Blocked"
+          tone="warning"
           action={
             <Link href={group.href} className="accentLink">
               Timeline lane
@@ -202,14 +207,16 @@ function IssueRow({ row }: { row: RunIssueRow }) {
         {row.stateMove ?? '—'}
       </RegisterCell>
       <RegisterCell label="Outcome">
-        <Chip tone={row.outcomeTone}>{row.outcomeLabel}</Chip>
+        <Chip tone={row.outcomeTone} filled={row.outcomeFilled}>
+          {row.outcomeLabel}
+        </Chip>
       </RegisterCell>
       <RegisterCell label="Note" tone={row.reasonTone}>
         {row.reason ?? '—'}
       </RegisterCell>
     </>
   );
-  const tone = row.outcome === 'failed' ? 'accent' : 'default';
+  const tone = row.outcome === 'failed' ? 'danger' : 'default';
   if (row.href === null) return <RegisterRow tone={tone}>{cells}</RegisterRow>;
   return (
     <RegisterRow

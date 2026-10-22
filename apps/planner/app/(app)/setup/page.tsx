@@ -103,7 +103,7 @@ export default async function SetupPage() {
               )}
             </div>
             {notSynced ? (
-              <Notice label="FIRST SYNC PENDING" role="status">
+              <Notice label="FIRST SYNC PENDING" tone="warning" role="status">
                 The first sync from Linear has not landed, so changes are paused
                 for everyone. It is retried on every page and every worker run.
                 If it keeps failing, the web service&apos;s logs say why; when
@@ -145,7 +145,7 @@ export default async function SetupPage() {
       </header>
       {revoked && installation.revokedAt !== null ? (
         <div className="block">
-          <Notice label="REINSTALL NEEDED" role="status">
+          <Notice label="REINSTALL NEEDED" tone="danger" role="status">
             Linear rejected the app&apos;s grant for{' '}
             {installation.workspaceName} on{' '}
             {formatInstant(

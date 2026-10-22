@@ -23,8 +23,9 @@
   color: var(--accent-ink);
 }
 
+/* The clipboard refused: an error, in the red status hue. */
 .copy[data-state='failed'] {
-  border-color: var(--accent);
+  border-color: var(--red);
 }
 
 .meta {

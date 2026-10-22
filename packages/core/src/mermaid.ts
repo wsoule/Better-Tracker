@@ -32,6 +32,11 @@ export function escapeMermaidLabel(text: string): string {
     .replace(/["#%&()<>[\]`{|}]/g, (ch) => MERMAID_ESCAPES[ch] ?? ch);
 }
 
+/** Risk nodes and risk-chain edges: the amber status hue (`--amber`). */
+const MERMAID_RISK = '#c27d0a';
+/** Cycle nodes: the red status hue (`--red`). */
+const MERMAID_CYCLE = '#d92d20';
+
 /**
  * Whether a node is drawn as a risk (the `risk` class). An issue or a
  * milestone: it is unassigned/overdue itself or waits on such an issue. A
@@ -63,7 +68,8 @@ export function isRiskNode(node: GraphNode): boolean {
  * …) so they never depend on Linear ids; labels are quoted and escaped;
  * open edges use `-->`, resolved ones `-.->`, and edges summarising more
  * than one relation carry the count. Risk, cycle and external nodes get
- * classes, and risk-chain edges an accent link style. A chain also marks
+ * classes (risk in the amber status hue, cycles in the red one), and
+ * risk-chain edges an amber link style. A chain also marks
  * its focus (the `focus` class) and, when the chain was cut, says how many
  * of its issues are shown in a comment.
  */
@@ -99,9 +105,11 @@ export function toMermaid(graph: DependencyGraph): string {
       `  %% Showing the nearest ${kept} of ${kept + chain.hidden} issues on this chain`
     );
   }
+  // The light theme's status MARK hexes (ui tokens.css --amber, --red;
+  // architecture §8.2), never the purple accent, which is not a status.
   lines.push(
-    '  classDef risk stroke:#9747ff,stroke-width:2px',
-    '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+    `  classDef risk stroke:${MERMAID_RISK},stroke-width:2px`,
+    `  classDef cycle stroke:${MERMAID_CYCLE},stroke-dasharray:5 3`,
     '  classDef external stroke-dasharray:3 3,opacity:0.7'
   );
   if (chain !== null) lines.push('  classDef focus stroke-width:3px');
@@ -120,7 +128,7 @@ export function toMermaid(graph: DependencyGraph): string {
     if (ids.length > 0) lines.push(`  class ${ids.join(',')} ${name}`);
   }
   if (riskEdges.length > 0) {
-    lines.push(`  linkStyle ${riskEdges.join(',')} stroke:#9747ff`);
+    lines.push(`  linkStyle ${riskEdges.join(',')} stroke:${MERMAID_RISK}`);
   }
   return `${lines.join('\n')}\n`;
 }
