@@ -265,6 +265,87 @@ describe('TaskRelationList: async removal', () => {
     );
   });
 
+  test('removing the last row moves focus to the section heading’s Add control', async () => {
+    let finish = (): void => undefined;
+    function Host() {
+      const [items, setItems] = useState(['ENG-12']);
+      return (
+        <TaskDetail
+          {...props({
+            relations: {
+              blockedBy: items.map((key) =>
+                relation(key, {
+                  onRemove: () =>
+                    new Promise<void>((resolve) => {
+                      finish = () => {
+                        setItems([]);
+                        resolve();
+                      };
+                    }),
+                })
+              ),
+              blocks: [],
+            },
+            sectionMeta: {
+              blockedBy: <button type="button">Add blocked by</button>,
+              blocks: <button type="button">Add blocks</button>,
+            },
+          })}
+        />
+      );
+    }
+    render(<Host />);
+    const remove = screen.getByRole('button', { name: 'Remove ENG-12' });
+    remove.focus();
+    fireEvent.click(remove);
+    await act(async () => {
+      finish();
+      await Promise.resolve();
+    });
+    expect(screen.queryByRole('button', { name: 'Remove ENG-12' })).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Add blocked by' })
+    );
+  });
+
+  test('without a control in the section, the last row hands focus to the heading', async () => {
+    let finish = (): void => undefined;
+    function Host() {
+      const [items, setItems] = useState(['ENG-12']);
+      return (
+        <TaskDetail
+          {...props({
+            relations: {
+              blockedBy: items.map((key) =>
+                relation(key, {
+                  onRemove: () =>
+                    new Promise<void>((resolve) => {
+                      finish = () => {
+                        setItems([]);
+                        resolve();
+                      };
+                    }),
+                })
+              ),
+              blocks: [],
+            },
+          })}
+        />
+      );
+    }
+    render(<Host />);
+    const remove = screen.getByRole('button', { name: 'Remove ENG-12' });
+    remove.focus();
+    fireEvent.click(remove);
+    await act(async () => {
+      finish();
+      await Promise.resolve();
+    });
+    const heading = screen.getByRole('heading', { name: /^Blocked by\W+0$/ });
+    expect(document.activeElement).toBe(heading);
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+  });
+
   test('a rejection prints under the row and the row stays', async () => {
     render(
       <TaskRelationList

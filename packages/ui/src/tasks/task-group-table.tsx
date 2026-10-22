@@ -601,6 +601,18 @@ function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
           <span className={styles.titleText} data-nav-target="">
             {primary}
           </span>
+          {row.externalHref !== undefined ? (
+            <Link
+              href={row.externalHref}
+              className={styles.linkOut}
+              target="_blank"
+              rel="noreferrer noopener"
+              aria-label={row.externalLabel ?? `Open ${row.key} in a new tab`}
+              title={row.externalLabel ?? `Open ${row.key} in a new tab`}
+            >
+              <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
+            </Link>
+          ) : null}
           {row.chips !== undefined && row.chips.length > 0 ? (
             <span className={styles.chips}>
               {row.chips.map((chip) => (

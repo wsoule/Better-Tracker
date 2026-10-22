@@ -321,6 +321,33 @@
   vertical-align: -1px;
 }
 
+/* The separate ↗ link beside the title (the tracker, in a new tab): it
+   sits above the stretched title link so it stays its own target. */
+.linkOut {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: -2px 0;
+  color: var(--muted);
+}
+
+.linkOut:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+  color: var(--accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .linkOut:hover {
+    color: var(--accent);
+  }
+}
+
 .chips {
   display: inline-flex;
   flex-wrap: wrap;

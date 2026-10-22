@@ -241,6 +241,13 @@ export interface TaskRowData {
   href?: string;
   /** Opens in a new tab (e.g. straight to Linear). */
   external?: boolean;
+  /** A second, separate link after the title, drawn as a small ↗ icon
+   * that opens in a new tab (the issue in the tracker, while the title
+   * opens the host's own view). */
+  externalHref?: string;
+  /** Accessible name of that icon link ("Open ATL-142 in Linear").
+   * Default "Open {key} in a new tab". */
+  externalLabel?: string;
   project?: string;
   /** Human state name, e.g. "In Progress". */
   state: string;

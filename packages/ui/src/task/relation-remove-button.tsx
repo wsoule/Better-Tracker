@@ -6,12 +6,38 @@ import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
 import { saveErrorMessage } from '../edit/save-state';
 import styles from './task-relation-list.module.css';
 
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled])';
+
+/**
+ * Where focus goes when the removed row was the list's last one (the list
+ * itself is about to be replaced by its empty note): the first control of
+ * the surrounding section outside the list (in TaskDetail that is the
+ * heading's "Add" picker), else the section's heading, made focusable for
+ * the moment. Without it focus would fall to <body>, outside a drawer's
+ * Tab trap, and a keyboard user would lose their place.
+ */
+function sectionFallback(list: Element | null): HTMLElement | null {
+  const section = list?.closest('section');
+  if (section === null || section === undefined || list === null) return null;
+  for (const element of section.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+    if (!list.contains(element)) return element;
+  }
+  const headingId = section.getAttribute('aria-labelledby');
+  const heading =
+    headingId === null ? null : section.ownerDocument.getElementById(headingId);
+  if (heading === null) return null;
+  if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
+  return heading;
+}
+
 /**
  * A relation row's remove button. When `onRemove` returns a promise the
  * button is busy (and the row muted) until it settles; a rejection prints
  * its message under the row. When the removal lands the row goes away, and
  * focus moves to a neighbouring row's remove button instead of being lost
- * with it.
+ * with it (or, for the last row, to the section's "Add" control or
+ * heading).
  */
 export function RelationRemoveButton({
   taskKey,
@@ -41,7 +67,9 @@ export function RelationRemoveButton({
       const pick = (sibling: Element | null | undefined) =>
         sibling?.querySelector<HTMLButtonElement>('[data-relation-remove]');
       const next =
-        pick(item?.nextElementSibling) ?? pick(item?.previousElementSibling);
+        pick(item?.nextElementSibling) ??
+        pick(item?.previousElementSibling) ??
+        sectionFallback(item?.parentElement ?? null);
       next?.focus({ preventScroll: true });
     };
   }, []);

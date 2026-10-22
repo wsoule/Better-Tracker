@@ -174,6 +174,46 @@ describe('TaskGroupTable structure', () => {
     expect(link.hasAttribute('data-host-link')).toBe(false);
   });
 
+  test('a row can carry a separate ↗ link beside an in-app title', () => {
+    const onOpenRow = mock((_row: TaskRowData, _group: TaskGroupData) => {});
+    const sections: TaskSectionData[] = [
+      {
+        id: 'week',
+        label: 'This week',
+        groups: [
+          {
+            id: 'g1',
+            title: 'Cutover',
+            rows: [
+              row('a-1', {
+                href: '/week?issue=A-1',
+                externalHref: 'https://linear.app/x/issue/A-1',
+                externalLabel: 'Open A-1 in Linear',
+              }),
+              row('a-2'),
+            ],
+          },
+        ],
+      },
+    ];
+    const view = renderTable({ sections, onOpenRow });
+    const title = view.getByRole('link', { name: 'Issue a-1' });
+    expect(title.getAttribute('href')).toBe('/week?issue=A-1');
+    expect(title.getAttribute('target')).toBeNull();
+    const out = view.getByRole('link', { name: 'Open A-1 in Linear' });
+    expect(out.getAttribute('href')).toBe('https://linear.app/x/issue/A-1');
+    expect(out.getAttribute('target')).toBe('_blank');
+    expect(out.getAttribute('rel')).toContain('noopener');
+    // The title keeps the row's own behaviour; the icon is its own link,
+    // outside the title's nav target.
+    fireEvent.click(title);
+    expect(onOpenRow).toHaveBeenCalledTimes(1);
+    expect(out.closest('[data-nav-target]')).toBeNull();
+    expect(title.closest('[data-nav-target]')).not.toBeNull();
+    // Rows without one draw no extra link.
+    expect(view.queryByRole('link', { name: /A-2 in/ })).toBeNull();
+  });
+
   test('columns are configurable', () => {
     const view = renderTable({ columns: ['due'] });
     const item = view.getByRole('link', { name: 'Issue a-1' }).closest('li');

@@ -411,8 +411,10 @@
   white-space: nowrap;
 }
 
+/* The hint (an issue key, a date) keeps its full width up to 45% of the
+   row; the label gives way first, so "ENG-124" never reads "ENG-…". */
 .hint {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   max-width: 45%;
   overflow: hidden;
