@@ -1,10 +1,14 @@
 import { edgeKey } from './layout';
 import type { GraphEdgeData, UpstreamChain } from './types';
 
-// "What is this waiting on?": the transitive blockers of a node, for the
-// hover/focus highlight and for a host's "Waits on" list. Pure and
-// cycle-safe; the index is built once per edge list, and each walk visits
-// every node and edge at most once.
+// "What is this waiting on, and what does it hold up?": the transitive
+// blockers of a node (upstream) and the nodes that transitively wait on it
+// (downstream), for the hover/focus highlight and a host's "Waits on" and
+// "Holds up" lists. Pure and cycle-safe; the index is built once per edge
+// list, and each walk visits every node and edge at most once.
+
+/** The transitive waiters of one node: the same shape as UpstreamChain. */
+export type DownstreamChain = UpstreamChain;
 
 /** Edges grouped by the node that waits on them (`to`). */
 export type BlockerIndex = ReadonlyMap<string, readonly GraphEdgeData[]>;
@@ -48,12 +52,16 @@ export function waiterIndex(
 }
 
 /**
- * Breadth-first walk from `id` against the edge direction: its blockers,
- * their blockers, and so on. Returns them nearest first (never `id`
- * itself, even when a cycle leads back to it) with the keys of every edge
- * walked, so a renderer can light exactly that sub-graph.
+ * Breadth-first walk from `id` over `index`, stepping to each edge's `end`
+ * (`from` walks upstream, `to` downstream). Returns the nodes reached,
+ * nearest first and never `id` itself (even when a cycle leads back to
+ * it), with the keys of every edge walked.
  */
-export function upstreamChain(id: string, index: BlockerIndex): UpstreamChain {
+function walk(
+  id: string,
+  index: BlockerIndex,
+  end: 'from' | 'to'
+): UpstreamChain {
   const nodeIds: string[] = [];
   const edgeKeys = new Set<string>();
   const visited = new Set<string>([id]);
@@ -62,11 +70,35 @@ export function upstreamChain(id: string, index: BlockerIndex): UpstreamChain {
     const current = queue[head];
     for (const edge of index.get(current) ?? []) {
       edgeKeys.add(edgeKey(edge.from, edge.to));
-      if (visited.has(edge.from)) continue;
-      visited.add(edge.from);
-      nodeIds.push(edge.from);
-      queue.push(edge.from);
+      const next = edge[end];
+      if (visited.has(next)) continue;
+      visited.add(next);
+      nodeIds.push(next);
+      queue.push(next);
     }
   }
   return { id, nodeIds, edgeKeys };
+}
+
+/**
+ * Breadth-first walk from `id` against the edge direction: its blockers,
+ * their blockers, and so on. Returns them nearest first (never `id`
+ * itself, even when a cycle leads back to it) with the keys of every edge
+ * walked, so a renderer can light exactly that sub-graph.
+ */
+export function upstreamChain(id: string, index: BlockerIndex): UpstreamChain {
+  return walk(id, index, 'from');
+}
+
+/**
+ * Breadth-first walk from `id` along the edge direction, over a
+ * `waiterIndex`: what it holds up, what those hold up, and so on. Nearest
+ * first, cycle-safe and never `id` itself, like upstreamChain; resolved
+ * edges are skipped when the index was built without them (the default).
+ */
+export function downstreamChain(
+  id: string,
+  index: BlockerIndex
+): DownstreamChain {
+  return walk(id, index, 'to');
 }

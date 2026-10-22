@@ -186,11 +186,50 @@ export type {
 } from './timeline/types';
 
 // ---- graph family (src/graph): the dependency graph (architecture §8.4
-// Graph, §2.10) — the pure dagre layout, upstream-chain helpers, the
-// pan/zoom DependencyGraph, its legend and the Copy Mermaid block. Props
-// are typed in ./graph/types.
-export { blockerIndex, upstreamChain, waiterIndex } from './graph/chain';
-export type { BlockerIndex, BlockerIndexOptions } from './graph/chain';
+// Graph, §2.10) — the pure dagre layout, the upstream/downstream chain
+// helpers and path walks (both paths, "Ready next", the critical path and
+// the readout copy), the pan/zoom DependencyGraph, its legend and the Copy
+// Mermaid block. Props are typed in ./graph/types.
+export {
+  blockerIndex,
+  downstreamChain,
+  upstreamChain,
+  waiterIndex,
+} from './graph/chain';
+export type {
+  BlockerIndex,
+  BlockerIndexOptions,
+  DownstreamChain,
+} from './graph/chain';
+export {
+  chainPhrase,
+  defaultGraphPathWords,
+  describePaths,
+  longestChain,
+  longestChains,
+  nameList,
+  nodePaths,
+  PATH_GROUP_CAP,
+  PATH_NAME_BUDGET,
+  PATH_NAME_CAP,
+  pathContext,
+  pathNameCounts,
+  pathNamePhrase,
+  pathNodeName,
+  readoutText,
+  resolvePathWords,
+  sccGroups,
+} from './graph/paths';
+export type {
+  ChainEdge,
+  LongestChains,
+  NodePaths,
+  OpenChain,
+  PathContext,
+  PathNameCounts,
+  PathNode,
+  PathReadout,
+} from './graph/paths';
 export { DependencyGraph } from './graph/dependency-graph';
 export { defaultGraphLegend, GraphLegend } from './graph/graph-legend';
 export {
@@ -206,14 +245,18 @@ export type {
   GraphDirection,
   GraphEdgeData,
   GraphEdgeKind,
+  GraphHighlight,
   GraphLayout,
   GraphLayoutOptions,
   GraphLegendItem,
   GraphLegendMark,
   GraphLegendProps,
   GraphNodeData,
+  GraphNodeReadiness,
   GraphNodeTag,
   GraphNodeTone,
+  GraphPathWords,
+  GraphReadinessState,
   LaidOutEdge,
   LaidOutGroup,
   LaidOutNode,

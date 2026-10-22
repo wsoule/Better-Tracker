@@ -127,6 +127,68 @@ export interface GraphLayout {
   groups: LaidOutGroup[];
 }
 
+/** The highlight a graph is drawn with (the planner's `?highlight=`). */
+export type GraphHighlight = 'status' | 'risk' | 'critical';
+
+/** Where a node stands in the blocking flow (architecture §2.10). */
+export type GraphReadinessState = 'ready' | 'blocked' | 'done';
+
+/**
+ * What a host knows about a node's readiness over all of its data, not
+ * only the drawn part (the planner fills it from core's GraphNode
+ * readiness fields). The path walks (paths.ts) read it; hosts without it
+ * get their drawn-edge fallbacks.
+ */
+export interface GraphNodeReadiness {
+  /** done: closed; blocked: open with an open blocker; ready otherwise. */
+  state: GraphReadinessState;
+  /** The chip word ("Ready", "Blocked by 2", "Clear"); '' when done. */
+  label: string;
+  /** Distinct open blockers (a self-loop counts); may exceed the drawn ones. */
+  blockedBy: number;
+  /** What finishing it alone would free; may exceed the drawn ones. */
+  unblocks: number;
+  /**
+   * False when nothing in it can start although nothing outside holds it
+   * up (a box whose every open issue waits on another inside it). Default
+   * true. "Start with" never points at such a node.
+   */
+  canStart?: boolean;
+}
+
+/**
+ * Wording of the path readout (paths.ts `defaultGraphPathWords` holds the
+ * defaults); hosts override any part. `{n}`, `{names}`, `{k}`, `{s}` and
+ * `{unit}` are filled in.
+ */
+export interface GraphPathWords {
+  /** The drawn thing, singular and plural, for "{n} {unit}". */
+  unit: readonly [one: string, other: string];
+  waitsOn: string;
+  startWith: string;
+  waitsOnNone: string;
+  waitsOnOutside: string;
+  startsOutside: string;
+  selfLoop: string;
+  blockersDone: string;
+  holdsUp: string;
+  holdsUpNone: string;
+  unblock: string;
+  /** The pill on what finishing the active node alone would unblock. */
+  next: string;
+  notDrawn: string;
+  /** The readout's state word for a done node without a statusLabel. */
+  done: string;
+  noLongerBlocks: string;
+  step: string;
+  through: string;
+  offChain: string;
+  tapAgain: string;
+  hint: string;
+  tapHint: string;
+  more: string;
+}
+
 /** The transitive blockers of one node (see upstreamChain). */
 export interface UpstreamChain {
   /** The node the chain was computed for. */
