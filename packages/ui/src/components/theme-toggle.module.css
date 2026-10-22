@@ -23,12 +23,23 @@
   display: none;
 }
 
-:global(html[data-theme='dark']) .sun {
+/* Dark on <html> or on a [data-bt-ui] wrapper; "system" follows the OS. */
+:global([data-theme='dark']) .sun {
   display: block;
 }
 
-:global(html[data-theme='dark']) .moon {
+:global([data-theme='dark']) .moon {
   display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :global([data-theme='system']) .sun {
+    display: block;
+  }
+
+  :global([data-theme='system']) .moon {
+    display: none;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

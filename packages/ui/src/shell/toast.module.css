@@ -59,7 +59,7 @@
 }
 
 .error .label {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .message {
@@ -76,14 +76,14 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
   border-bottom: 1px solid currentColor;
   white-space: nowrap;
 }
 
 .action:hover,
 .action:focus-visible {
-  color: var(--accent-hover);
+  color: var(--accent-ink-hover);
 }
 
 .dismiss {

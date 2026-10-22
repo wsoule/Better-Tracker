@@ -41,7 +41,13 @@
    content moves right until it meets the bar's end. It sticks 10px past
    the lane column (--timeline-lane-width, set by the chart from
    LANE_WIDTH). It wraps onto a clipped second line, so in a narrow
-   bar the trailing receipts drop out whole before the name truncates. */
+   bar the trailing receipts drop out whole before the name truncates.
+   Its width is also capped to the part of the bar still visible beside
+   the lane column: the bar's end (--bar-end, track px) less the chart's
+   scroll offset (--timeline-scroll-x), the 10px gap and the bar's right
+   border and padding (13px). Without the cap a bar mostly scrolled under
+   the lane column keeps its full-width content pinned to its end, and the
+   column covers the name ("ards 0/2 NEXT"). */
 .content {
   position: sticky;
   left: calc(var(--timeline-lane-width, 264px) + 10px);
@@ -52,7 +58,10 @@
   align-items: center;
   column-gap: 8px;
   min-width: 0;
-  max-width: 100%;
+  max-width: min(
+    100%,
+    calc(var(--bar-end, 100000px) - var(--timeline-scroll-x, 0px) - 23px)
+  );
   height: 24px;
   overflow: hidden;
 }
@@ -93,7 +102,7 @@
 
 .missingLine {
   font-weight: 700;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .cue {
@@ -121,7 +130,7 @@
 }
 
 .at_risk .progress {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
@@ -171,7 +180,7 @@
 
 .muted .progress,
 .muted .tag {
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .selected {
@@ -196,7 +205,7 @@
   }
 
   .bar:hover .label {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .done:hover {

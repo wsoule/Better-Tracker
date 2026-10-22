@@ -80,12 +80,12 @@
 }
 
 .input:focus-visible ~ .label {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {
   .checkbox:not([data-disabled='true']):hover .label {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .checkbox:not([data-disabled='true']):hover .glyph {

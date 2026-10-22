@@ -20,7 +20,10 @@ const FOCUSABLE =
 function sectionFallback(list: Element | null): HTMLElement | null {
   const section = list?.closest('section');
   if (section === null || section === undefined || list === null) return null;
-  for (const element of section.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+  // Array.from: a host's lib may lack DOM.Iterable (see shell/dom.ts).
+  for (const element of Array.from(
+    section.querySelectorAll<HTMLElement>(FOCUSABLE)
+  )) {
     if (!list.contains(element)) return element;
   }
   const headingId = section.getAttribute('aria-labelledby');
@@ -77,9 +80,11 @@ export function RelationRemoveButton({
   function remove(): void {
     if (pending) return;
     setError(null);
-    let result: void | Promise<unknown>;
+    // Typed without `void` so a host compiling without strictNullChecks
+    // still sees a promise after the undefined check below.
+    let result: Promise<unknown> | undefined;
     try {
-      result = onRemove();
+      result = onRemove() as Promise<unknown> | undefined;
     } catch (thrown) {
       result = Promise.reject(thrown);
     }

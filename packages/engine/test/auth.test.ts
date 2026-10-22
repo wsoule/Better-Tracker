@@ -108,8 +108,9 @@ describe('startOAuth', () => {
       { intent: 'signin', scope: 'read', actor: null, prompt: null },
       { intent: 'grant_write', scope: 'read,write', actor: null, prompt: null },
       {
+        // initiative:read: an actor=app user sees initiatives only with it.
         intent: 'install',
-        scope: 'read,write',
+        scope: 'read,write,initiative:read',
         actor: 'app',
         prompt: 'consent',
       },

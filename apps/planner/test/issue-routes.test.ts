@@ -509,6 +509,28 @@ describe('GET /api/issues/[id] and /api/issues/search', () => {
     expect(calls).toEqual([]);
   });
 
+  test('the issue read and the search load the mirror as the person sees it', async () => {
+    // Architecture §2.13: the engine narrows the mirror to the viewer's
+    // teams only when it is told who the viewer is.
+    const viewers: unknown[] = [];
+    const { engine } = recordingEngine();
+    engine.load = (_workspaceId, viewer) => {
+      viewers.push(viewer);
+      return Promise.resolve({ snapshot });
+    };
+    const who = actor();
+    await getIssue(
+      send('GET', '/api/issues/ENG-24'),
+      'ENG-24',
+      resolver(engine, who)
+    );
+    await searchIssues(
+      send('GET', '/api/issues/search?q=analytics'),
+      resolver(engine, who)
+    );
+    expect(viewers).toEqual([who, who]);
+  });
+
   test('search answers mirror hits, private and bounded', async () => {
     const { engine } = recordingEngine();
     const response = await searchIssues(

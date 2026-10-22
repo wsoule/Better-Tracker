@@ -222,23 +222,57 @@ function parseEpochMs(value: string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-// When Linear says the exhausted limit resets, in epoch ms. Linear sends a
-// requests window and a complexity window; prefer the one whose `remaining`
-// is used up, else the latest reset either header gives.
-export function rateLimitResetMs(headers: Headers): number | null {
-  const windows = (['requests', 'complexity'] as const).map((kind) => ({
-    reset: parseEpochMs(headers.get(`x-ratelimit-${kind}-reset`)),
-    remaining: parseEpochMs(headers.get(`x-ratelimit-${kind}-remaining`)),
-  }));
-  const exhausted = windows.filter(
-    (w) => w.reset !== null && (w.remaining === null || w.remaining <= 0)
-  );
-  const pool = exhausted.length > 0 ? exhausted : windows;
+// A `remaining` count; null when the header is absent or not a number.
+function parseCount(value: string | null): number | null {
+  if (value === null || value.trim() === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Retry-After as an instant in epoch ms: delay-seconds (what the SDK
+// reads) or an HTTP date. Null when absent or unreadable.
+function retryAfterMs(value: string | null, nowMs: number): number | null {
+  if (value === null || value.trim() === '') return null;
+  const trimmed = value.trim();
+  if (/^\d+(\.\d+)?$/.test(trimmed)) return nowMs + Number(trimmed) * 1000;
+  const date = Date.parse(trimmed);
+  return Number.isNaN(date) ? null : date;
+}
+
+/**
+ * When Linear says the refused request may be retried, in epoch ms, or
+ * null (the caller then backs off). In order: `Retry-After` (seconds or a
+ * date; the official SDK reads it); the endpoint window
+ * (`x-ratelimit-endpoint-requests-*`, Linear's per-endpoint limit) when it
+ * is used up; else the latest reset of the global windows (requests,
+ * complexity) that are used up. A window that still has requests left
+ * did not cause the refusal, so its reset is never used; a reset sent
+ * without a `remaining` count counts as used up.
+ */
+export function rateLimitResetMs(
+  headers: Headers,
+  nowMs: number
+): number | null {
+  const retryAfter = retryAfterMs(headers.get('retry-after'), nowMs);
+  if (retryAfter !== null) return Math.max(retryAfter, nowMs);
+
+  const exhausted = (prefix: string): number | null => {
+    const reset = parseEpochMs(headers.get(`${prefix}-reset`));
+    const remaining = parseCount(headers.get(`${prefix}-remaining`));
+    return reset !== null && (remaining === null || remaining <= 0)
+      ? reset
+      : null;
+  };
+  const endpoint = exhausted('x-ratelimit-endpoint-requests');
+  if (endpoint !== null) return endpoint;
+
   let latest: number | null = null;
-  for (const w of pool) {
-    if (w.reset !== null && (latest === null || w.reset > latest)) {
-      latest = w.reset;
-    }
+  for (const prefix of [
+    'x-ratelimit-requests',
+    'x-ratelimit-complexity',
+  ] as const) {
+    const reset = exhausted(prefix);
+    if (reset !== null && (latest === null || reset > latest)) latest = reset;
   }
   return latest;
 }
@@ -319,7 +353,7 @@ export function createGraphqlClient(
 
       // Rate limiting arrives as HTTP 429, or HTTP 400 with RATELIMITED.
       if (status === 429 || errors.some(isRateLimitError)) {
-        const resetMs = rateLimitResetMs(response.headers);
+        const resetMs = rateLimitResetMs(response.headers, now());
         const retryAt =
           resetMs === null ? null : new Date(resetMs).toISOString();
         const waitMs =
@@ -373,7 +407,12 @@ export function createGraphqlClient(
       const data = isRecord(json) ? json['data'] : undefined;
       const hasData = isRecord(data);
 
-      if (errors.length > 0 && !hasData) {
+      // Any error fails the request, even next to data: Linear nulls a
+      // field that failed (an assignee, a project), and the mappers would
+      // read that null as "none" (allocation would then overwrite a
+      // person's assignment). Aliased batches recover per alias from the
+      // errors' paths (runAliasedBatch), so nothing needs the partial data.
+      if (errors.length > 0) {
         const kind = classifyGraphqlErrors(errors);
         const first = errors[0];
         const detail =
@@ -392,13 +431,6 @@ export function createGraphqlClient(
       }
       if (!hasData) {
         throw new LinearApiError('graphql', `Linear ${op} returned no data`);
-      }
-      if (errors.length > 0) {
-        // Partial success: nullable fields failed but data is usable.
-        logger.warn('linear returned partial data', {
-          operation: op,
-          errors: errors.map((e) => e.message),
-        });
       }
       return data as T;
     }

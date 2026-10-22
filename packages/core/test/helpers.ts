@@ -18,6 +18,7 @@ import type {
   MilestoneMeta,
   Project,
   Snapshot,
+  Team,
   Tuning,
   User,
   WorkflowState,
@@ -214,12 +215,33 @@ export function issuesIn(
   );
 }
 
+/**
+ * A public team (every workspace member sees it, §2.13) with no recorded
+ * members unless given.
+ */
+export function team(
+  id: string,
+  key: string,
+  name: string,
+  overrides: Partial<Team> = {}
+): Team {
+  return {
+    id,
+    key,
+    name,
+    visibility: 'public',
+    parentId: null,
+    memberIds: [],
+    ...overrides,
+  };
+}
+
 /** A workspace with a lead user and the default team unless overridden. */
 export function workspace(parts: Partial<WorkspaceData> = {}): WorkspaceData {
   return {
     workspaceId: 'ws-1',
     users: [user('lead'), user('wyat'), user('shanzer')],
-    teams: [{ id: TEAM, key: 'ENG', name: 'Engineering' }],
+    teams: [team(TEAM, 'ENG', 'Engineering')],
     states: teamStates(),
     initiatives: [],
     projects: [],

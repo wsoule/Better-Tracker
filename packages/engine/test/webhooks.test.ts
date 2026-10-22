@@ -69,6 +69,48 @@ describe('issue events', () => {
     );
   });
 
+  // fetchIssue knows only the timestamp approximation of lastStateChangeAt
+  // (latest of created / started / completed / canceled); the mirror's
+  // value may be history-refined by the sync.
+  test("a refetch keeps the mirror's refined state time unless the state moved", async () => {
+    const approximate: GatewayWrapper = (gateway) => ({
+      ...gateway,
+      fetchIssue: async (id) => {
+        const issue = await gateway.fetchIssue(id);
+        return issue === null
+          ? null
+          : {
+              ...issue,
+              lastStateChangeAt:
+                issue.startedAt ?? issue.completedAt ?? issue.createdAt,
+            };
+      },
+    });
+    const h = await linearHarness(approximate);
+    const refined = (await snapshot(h)).issues.get('iss-eng-13');
+    expect(refined?.lastStateChangeAt).not.toBe(refined?.createdAt);
+
+    // An unrelated edit (a new title) keeps the refined value.
+    fixtureIssue(h.fixture, 'iss-eng-13').title = 'Renamed';
+    await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-13'));
+    expect((await snapshot(h)).issues.get('iss-eng-13')).toMatchObject({
+      title: 'Renamed',
+      lastStateChangeAt: refined?.lastStateChangeAt,
+    });
+
+    // A move Linear reports (updatedFrom.stateId) dates from updatedAt,
+    // even between two states of one type (startedAt stays as it was).
+    const moved = fixtureIssue(h.fixture, 'iss-eng-13');
+    moved.updatedAt = h.clock.now().toISOString();
+    await h.engine.handleWebhook({
+      ...event('Issue', 'update', 'iss-eng-13'),
+      updatedFrom: { stateId: moved.stateId, updatedAt: refined?.updatedAt },
+    });
+    expect(
+      (await snapshot(h)).issues.get('iss-eng-13')?.lastStateChangeAt
+    ).toBe(h.clock.now().toISOString());
+  });
+
   test('replaces every relation touching the issue', async () => {
     const h = await linearHarness();
     h.fixture.data.relations = h.fixture.data.relations.filter(
@@ -185,6 +227,28 @@ describe('project, initiative and user events', () => {
     s = await snapshot(h);
     expect(s.projects.has('proj-juniper')).toBe(false);
     expect(s.milestones.has('ms-juniper-1')).toBe(false);
+  });
+
+  test('a reopened project comes back with its issues, not only its milestones', async () => {
+    const h = await linearHarness();
+    const juniper = h.fixture.data.projects.find(
+      (p) => p.id === 'proj-juniper'
+    );
+    if (juniper === undefined) throw new Error('fixture changed');
+    const issueIds = h.fixture.data.issues
+      .filter((i) => i.projectId === 'proj-juniper')
+      .map((i) => i.id);
+    expect(issueIds.length).toBeGreaterThan(0);
+    juniper.statusType = 'completed';
+    await h.engine.handleWebhook(event('Project', 'update', 'proj-juniper'));
+    expect((await snapshot(h)).issues.has(issueIds[0] ?? '')).toBe(false);
+
+    juniper.statusType = 'started';
+    await h.engine.handleWebhook(event('Project', 'update', 'proj-juniper'));
+    const s = await snapshot(h);
+    expect(s.projects.has('proj-juniper')).toBe(true);
+    expect(s.milestones.has('ms-juniper-1')).toBe(true);
+    for (const id of issueIds) expect(s.issues.has(id)).toBe(true);
   });
 
   test('initiatives and users are refetched or deleted', async () => {

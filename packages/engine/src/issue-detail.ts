@@ -4,7 +4,8 @@
 // and the team's labels and estimate scale are read live with the viewer's
 // own token, so Linear's permissions decide what they see. When their token
 // cannot be refreshed right now (a transient failure) the app's reads
-// instead; a grant Linear rejected for good is never bridged that way. When
+// instead; a grant Linear rejected for good, or any failure that is not
+// transient, is never bridged that way. When
 // the live read fails the page still renders from the mirror, with `extra`
 // null and the reason.
 
@@ -38,18 +39,48 @@ interface LiveRead {
   source: 'actor' | 'app' | null;
 }
 
-/** Thrown by readerFor when Linear rejected the viewer's grant for good. */
-class DeadGrant extends Error {}
+/**
+ * Thrown by readerFor when the viewer's own token cannot be had and the
+ * failure is not one the app's token may bridge (§7.2).
+ */
+class NoViewerReader extends Error {}
 
 const DEAD_GRANT_MESSAGE =
   'Linear no longer accepts your sign-in; sign in again to see the description, labels and comments.';
+const NOT_AS_YOU_MESSAGE =
+  'The planner could not read Linear as you right now (its Linear sign-in for you failed); the description, labels and comments could not be loaded.';
+
+/**
+ * True when getting the viewer's gateway failed for a transient reason,
+ * the only case the app's token may stand in (§7.2): the token endpoint
+ * could not be reached or timed out (OAuthError `network_error`), answered
+ * 5xx or 429, or a transport/server failure. Any other OAuth `error` code
+ * (`invalid_client` after a secret rotation, `invalid_request`,
+ * `unauthorized_client`, …) and any other error (the store) is not
+ * transient, so Linear's per-person permissions are never bypassed for it.
+ * Checked by name as well, since another bundled copy of the linear
+ * package fails instanceof.
+ */
+function isTransientViewerFailure(error: unknown): boolean {
+  if (isLinearApiError(error)) {
+    return (
+      error.kind === 'network' ||
+      error.kind === 'server' ||
+      error.kind === 'rate_limited'
+    );
+  }
+  if (!(error instanceof Error) || error.name !== 'OAuthError') return false;
+  const { code, status } = error as { code?: unknown; status?: unknown };
+  if (code === 'network_error') return true;
+  return typeof status === 'number' && (status >= 500 || status === 429);
+}
 
 // The viewer's gateway, else the app's: a session whose token cannot be
-// refreshed right now (Linear's token endpoint unreachable) still gets the
-// page, read as the app. A grant Linear rejected for good (invalid_grant:
-// the person revoked the planner or lost access, EngineAuthError
-// 'not_signed_in') is not bridged with the app's token: Linear has said
-// this person may no longer read through the planner.
+// refreshed right now for a transient reason (Linear's token endpoint
+// unreachable or failing) still gets the page, read as the app. A grant
+// Linear rejected for good (invalid_grant: the person revoked the planner
+// or lost access, EngineAuthError 'not_signed_in') and every other
+// failure is not bridged with the app's token.
 async function readerFor(
   rt: EngineRuntime,
   actor: Actor,
@@ -63,9 +94,16 @@ async function readerFor(
   } catch (error) {
     if (error instanceof EngineAuthError && error.code === 'not_signed_in') {
       log.warn("the viewer's Linear grant is dead; showing the mirror only");
-      throw new DeadGrant(DEAD_GRANT_MESSAGE);
+      throw new NoViewerReader(DEAD_GRANT_MESSAGE);
     }
-    log.warn('cannot read Linear as the viewer; reading as the app', {
+    if (!isTransientViewerFailure(error)) {
+      log.error(
+        'cannot read Linear as the viewer, and the failure is not transient; showing the mirror only',
+        { error }
+      );
+      throw new NoViewerReader(NOT_AS_YOU_MESSAGE);
+    }
+    log.warn('cannot read Linear as the viewer right now; reading as the app', {
       error,
     });
     return {
@@ -125,7 +163,7 @@ async function readLive(
     }
     return { extra, labels, source, error: null };
   } catch (error) {
-    if (error instanceof DeadGrant) {
+    if (error instanceof NoViewerReader) {
       return { extra: null, labels: [], source: null, error: error.message };
     }
     log.warn('live issue read failed; showing the mirror only', { error });
@@ -144,7 +182,9 @@ export async function getIssueDetail(
   issueId: string
 ): Promise<IssueDetailResult> {
   const workspaceId = actor.session.workspaceId;
-  const loaded = await loadWorkspace(rt, workspaceId);
+  // Narrowed to what the viewer may see (§2.13): an issue of a team they
+  // cannot see reads as not found, as an unknown one does.
+  const loaded = await loadWorkspace(rt, workspaceId, { viewer: actor });
   const detail =
     typeof issueId === 'string'
       ? buildIssueDetail({

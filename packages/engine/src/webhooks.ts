@@ -7,7 +7,9 @@
 // recorded on the delivery and logged, never thrown to the route.
 
 import {
+  elapsedMs,
   isOpenState,
+  type IsoDateTime,
   type Issue,
   type Project,
   type Snapshot,
@@ -17,6 +19,7 @@ import type { Logger } from '@better-tracker/logger';
 import type { MirrorEntity, MirrorRef } from '@better-tracker/store';
 
 import { type EngineRuntime, errorMessage } from './runtime';
+import { fullSync } from './sync';
 import { EngineAuthError, type Engine } from './types';
 
 export type WebhookEvent = Parameters<Engine['handleWebhook']>[0];
@@ -118,6 +121,51 @@ async function projectRefresh(
   };
 }
 
+// The later of two instants (the first when either does not parse).
+function laterOf(a: IsoDateTime, b: IsoDateTime): IsoDateTime {
+  return (elapsedMs(b, a) ?? 0) > 0 ? b : a;
+}
+
+/**
+ * `fetched` (an issue as the gateway returned it, refetched or written)
+ * keeping the mirror's lastStateChangeAt when that is later. Outside a
+ * write that moved the state, the gateway only knows the timestamp
+ * approximation (latest of created/started/completed/canceled), while the
+ * mirror's value may be refined from issue history by the full sync; an
+ * unrelated change must not make the issue look stalled (§7.2 applies the
+ * same rule to people's edits). For an issue whose state did not move.
+ */
+export function withMirroredStateTime(
+  fetched: Issue,
+  mirrored: Issue | undefined
+): Issue {
+  if (mirrored === undefined) return fetched;
+  const kept = laterOf(mirrored.lastStateChangeAt, fetched.lastStateChangeAt);
+  return kept === fetched.lastStateChangeAt
+    ? fetched
+    : { ...fetched, lastStateChangeAt: kept };
+}
+
+// The refetched issue an Issue webhook writes to the mirror. A state move
+// (Linear's updatedFrom names stateId, or the state differs from the
+// mirror's) happened by the issue's updatedAt, which beats the
+// approximation (a move between two started states leaves startedAt as it
+// was); otherwise the mirror's possibly refined time is kept.
+function refetchedIssue(
+  event: WebhookEvent,
+  fetched: Issue,
+  mirrored: Issue | undefined
+): Issue {
+  const stateMoved =
+    (event.updatedFrom !== null && 'stateId' in event.updatedFrom) ||
+    (mirrored !== undefined && mirrored.stateId !== fetched.stateId);
+  if (!stateMoved) return withMirroredStateTime(fetched, mirrored);
+  return {
+    ...fetched,
+    lastStateChangeAt: laterOf(fetched.lastStateChangeAt, fetched.updatedAt),
+  };
+}
+
 /**
  * Whether the mirror keeps an issue without a project: only open ones,
  * exactly the set fetchWorkspace mirrors (issues of mirrored projects are
@@ -167,7 +215,10 @@ async function issueChanges(
   // Replace every relation touching the issue with Linear's current set.
   const relations = await gateway.fetchIssueRelations(issueId);
   changes.remove.push(...relationRefsTouching(snapshot, issueId));
-  changes.upsert.push({ kind: 'issue', entity: issue });
+  changes.upsert.push({
+    kind: 'issue',
+    entity: refetchedIssue(event, issue, snapshot.issues.get(issueId)),
+  });
   for (const relation of relations) {
     changes.upsert.push({ kind: 'relation', entity: relation });
   }
@@ -286,7 +337,39 @@ async function applyWebhook(
     removals: changes.remove.length,
     version,
   });
+  await syncForNewProjects(rt, workspaceId, changes, view.snapshot, log);
   return 'processed';
+}
+
+// A project the mirror did not have (reopened, or newly visible to the
+// app) arrives through projectRefresh with its milestones but none of its
+// issues: there is no per-project issue read, and fetchWorkspace left the
+// closed project's issues out. A full sync brings them in at once instead
+// of leaving its milestones empty until the next periodic sync. Its
+// failure is logged (fullSync records it on sync_state); the webhook's own
+// change is already applied.
+async function syncForNewProjects(
+  rt: EngineRuntime,
+  workspaceId: string,
+  changes: MirrorChanges,
+  snapshot: Snapshot,
+  log: Logger
+): Promise<void> {
+  const added: string[] = [];
+  for (const entry of changes.upsert) {
+    if (entry.kind === 'project' && !snapshot.projects.has(entry.entity.id)) {
+      added.push(entry.entity.id);
+    }
+  }
+  if (added.length === 0) return;
+  log.info('a project joined the mirror; syncing to bring its issues', {
+    projectIds: added,
+  });
+  try {
+    await fullSync(rt, workspaceId);
+  } catch (error) {
+    log.warn('the sync for a newly mirrored project failed', { error });
+  }
 }
 
 /**

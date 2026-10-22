@@ -16,6 +16,11 @@ import {
   firstParam,
   LANDING_FEATURES,
 } from '../../lib/adapters/landing';
+import {
+  DEFAULT_RETURN_TO,
+  sanitizeReturnTo,
+  signInHref,
+} from '../../lib/auth-cookies';
 import { getPageContext } from '../../lib/load';
 import DemoNotice from './components/demo-notice';
 import { PageCrumb } from './components/page-crumb';
@@ -43,7 +48,9 @@ async function loadDemo(
    mode, a picker of fictional people) and what the tool does. A failed
    sign-in comes back here as ?auth_error=<code> and is said in words;
    a signed-in person who hit one (install, write access) sees it too
-   instead of being bounced to My week. */
+   instead of being bounced to My week. ?returnTo=<path> (a page opened
+   signed out, such as a digest's timeline link) is passed on to the
+   sign-in, so it lands there instead of on My week. */
 export default async function HomePage({
   searchParams,
 }: {
@@ -54,9 +61,13 @@ export default async function HomePage({
     searchParams,
   ]);
   const errorMessage = authErrorMessage(firstParam(params.auth_error));
+  const returnTo = sanitizeReturnTo(
+    firstParam(params.returnTo),
+    DEFAULT_RETURN_TO
+  );
 
   if (actor !== null) {
-    if (errorMessage === null) redirect('/week');
+    if (errorMessage === null) redirect(returnTo);
     return (
       <div className="page">
         <div className="block">
@@ -127,7 +138,7 @@ export default async function HomePage({
                 dates, project leads, issues), always as you.
               </p>
               <div className={styles.actions}>
-                <Button href="/api/auth/linear?intent=signin" variant="primary">
+                <Button href={signInHref(returnTo)} variant="primary">
                   Sign in with Linear
                 </Button>
               </div>
@@ -154,6 +165,9 @@ export default async function HomePage({
                 <RegisterCell align="end">
                   <form method="post" action="/api/auth/demo">
                     <input type="hidden" name="userId" value={row.id} />
+                    {returnTo !== DEFAULT_RETURN_TO ? (
+                      <input type="hidden" name="returnTo" value={returnTo} />
+                    ) : null}
                     <Button type="submit" size="sm" variant="secondary">
                       {row.action}
                     </Button>

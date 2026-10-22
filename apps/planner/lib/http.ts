@@ -6,6 +6,7 @@ import {
 import { createLogger } from '@better-tracker/logger';
 import type { ZodType } from 'zod';
 
+import { readLimitedText } from './body';
 import { engineAuthCode, engineInputCode } from './engine-errors';
 import { jsonError, rejectCrossOrigin } from './origin';
 import { getRequestContext } from './session';
@@ -100,14 +101,28 @@ export function errorResponse(
   return jsonError(500, 'internal', 'Something went wrong. It was logged.');
 }
 
-/** Parses and validates a JSON body; a Response means "send this 400". */
+/**
+ * The largest JSON body any planner route reads: an issue description at
+ * its 100,000-character limit, escaped, fits with room to spare. Bigger
+ * bodies are refused unread (413), before zod's per-field limits.
+ */
+export const MAX_JSON_BYTES = 1024 * 1024;
+
+/**
+ * Parses and validates a JSON body (at most MAX_JSON_BYTES); a Response
+ * means "send this" (413 too_large, 400 invalid_json or invalid).
+ */
 export async function readJson<T>(
   request: Request,
   schema: ZodType<T>
 ): Promise<T | Response> {
+  const text = await readLimitedText(request, MAX_JSON_BYTES);
+  if (text === null) {
+    return jsonError(413, 'too_large', 'Request body is too large.');
+  }
   let raw: unknown;
   try {
-    raw = await request.json();
+    raw = JSON.parse(text);
   } catch {
     return jsonError(400, 'invalid_json', 'Request body must be JSON.');
   }

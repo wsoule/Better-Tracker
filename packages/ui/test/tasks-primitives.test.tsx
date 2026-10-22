@@ -235,4 +235,18 @@ describe('Notice and EmptyState', () => {
     expect(box?.classList.contains('empty')).toBe(true);
     expect(box?.classList.contains('hatched')).toBe(true);
   });
+
+  test('EmptyState puts an optional mono key above the sentence', () => {
+    const { getByText } = render(
+      <EmptyState label="No runs">
+        No allocation runs yet. Runs appear here after the daily run.
+      </EmptyState>
+    );
+    const key = getByText('No runs');
+    expect(key.classList.contains('label')).toBe(true);
+    // One paragraph: the key, then the sentence (not in the mono label).
+    expect(key.parentElement?.textContent).toBe(
+      'No runsNo allocation runs yet. Runs appear here after the daily run.'
+    );
+  });
 });

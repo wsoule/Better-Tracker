@@ -1,4 +1,5 @@
 import { addDays, type MilestoneMeta } from '@better-tracker/core';
+import type { LinearGateway } from '@better-tracker/linear';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import {
@@ -7,6 +8,7 @@ import {
   type Engine,
   EngineAuthError,
   EngineInputError,
+  LinearApiError,
 } from '../src/index';
 import {
   actorFor,
@@ -329,6 +331,16 @@ describe('done means', () => {
       EngineInputError,
       'invalid'
     );
+    // A NUL used to reach Postgres and fail as a 500; DEL and other C0
+    // characters are refused the same way (a tab is fine).
+    for (const text of ['a\u0000b', 'a\u007fb', 'a\u0007b']) {
+      await rejectsWith(
+        h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', text),
+        EngineInputError,
+        'invalid'
+      );
+    }
+    await h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', 'a\tb');
     await h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', 'é'.repeat(280));
 
     await h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', '   ');
@@ -623,6 +635,81 @@ describe('edits run as the person, only while installed', () => {
           .map((entry) => entry.action)
           .sort()
       ).toEqual(['milestone.done_means', 'milestone.weight']);
+    } finally {
+      await own.close();
+    }
+  });
+});
+
+describe('milestone date and project lead: Linear refusals', () => {
+  // Linear's refusals of these two writes map like issue edits' (§7.2), so
+  // the web layer answers 403 / 401 / 429 instead of 502.
+  test('map to engine error codes, and nothing is written', async () => {
+    let failWith: Error = new Error('unset');
+    const own = await createDemoHarness({
+      wrap: (gateway): LinearGateway => ({
+        ...gateway,
+        updateMilestoneTargetDate: () => Promise.reject(failWith),
+        updateProjectLead: () => Promise.reject(failWith),
+      }),
+    });
+    try {
+      const ana = await actorFor(own, 'user-ana');
+      const cases: [
+        LinearApiError,
+        typeof EngineAuthError | typeof EngineInputError,
+        string,
+      ][] = [
+        [
+          new LinearApiError(
+            'forbidden',
+            'Linear denied access to ProjectUpdate'
+          ),
+          EngineAuthError,
+          'linear_forbidden',
+        ],
+        [
+          new LinearApiError('unauthorized', 'token rejected'),
+          EngineAuthError,
+          'not_signed_in',
+        ],
+        [
+          new LinearApiError('rate_limited', 'limited', {
+            retryAt: '2026-10-21T16:00:00.000Z',
+          }),
+          EngineInputError,
+          'rate_limited',
+        ],
+      ];
+      for (const [error, type, code] of cases) {
+        failWith = error;
+        await rejectsWith(
+          own.engine.setMilestoneTargetDate(ana, 'ms-harbor-1', '2026-12-01'),
+          type,
+          code
+        );
+        await rejectsWith(
+          own.engine.setProjectLead(ana, 'proj-harbor', 'user-chloe'),
+          type,
+          code
+        );
+      }
+      failWith = new LinearApiError('forbidden', 'denied');
+      expect(
+        await caughtError(
+          own.engine.setProjectLead(ana, 'proj-harbor', 'user-chloe')
+        )
+      ).toMatchObject({
+        message: 'Linear does not let you change the project lead (denied).',
+      });
+      // Transport failures stay LinearApiError (502).
+      failWith = new LinearApiError('server', 'HTTP 503');
+      expect(
+        await caughtError(
+          own.engine.setMilestoneTargetDate(ana, 'ms-harbor-1', '2026-12-01')
+        )
+      ).toBe(failWith);
+      expect(await own.engine.listAudit(WORKSPACE_ID, 5)).toEqual([]);
     } finally {
       await own.close();
     }

@@ -11,6 +11,9 @@ import {
   mapPriority,
   mapProject,
   mapProjectStatusType,
+  mapTeam,
+  mapTeamMembership,
+  mapTeamVisibility,
   mapUser,
   mapWorkflowState,
   mapWorkflowStateType,
@@ -267,9 +270,61 @@ describe('mapUser', () => {
       avatarUrl: 'https://a',
       active: true,
       app: true,
+      guest: false,
     });
     expect(mapUser(userNode('u', { email: null })).email).toBeNull();
     expect(mapUser(userNode('u', { active: false })).active).toBe(false);
+    expect(mapUser(userNode('g', { guest: true })).guest).toBe(true);
+  });
+});
+
+describe('mapTeam', () => {
+  test('visibility, parent and the members read beside it', () => {
+    expect(
+      mapTeam(
+        {
+          id: 'team-sec',
+          key: 'SEC',
+          name: 'Security',
+          visibility: 'private',
+          parent: { id: 'team-eng' },
+        },
+        ['u1', 'u2']
+      )
+    ).toEqual({
+      id: 'team-sec',
+      key: 'SEC',
+      name: 'Security',
+      visibility: 'private',
+      parentId: 'team-eng',
+      memberIds: ['u1', 'u2'],
+    });
+    expect(
+      mapTeam({
+        id: 't',
+        key: 'T',
+        name: 'T',
+        visibility: 'public',
+        parent: null,
+      })
+    ).toMatchObject({ parentId: null, memberIds: [] });
+  });
+
+  test('an unknown visibility reads as private, and is logged', () => {
+    const { logger, lines } = recordingLogger();
+    expect(mapTeamVisibility('secret-ish', logger)).toBe('private');
+    expect(mapTeamVisibility(undefined)).toBe('private');
+    expect(mapTeamVisibility('restricted')).toBe('restricted');
+    expect(lines.map((l) => l.message)).toEqual([
+      'unknown Linear team visibility; treating it as private',
+    ]);
+  });
+
+  test('memberships map to pairs; a broken node is dropped', () => {
+    expect(
+      mapTeamMembership({ team: { id: 't1' }, user: { id: 'u1' } })
+    ).toEqual({ teamId: 't1', userId: 'u1' });
+    expect(mapTeamMembership({ team: null, user: { id: 'u1' } })).toBeNull();
   });
 });
 

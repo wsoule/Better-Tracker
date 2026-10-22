@@ -54,7 +54,7 @@ a.inner:focus-visible {
 
 .accent .value,
 .accent .note {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .muted .value {
@@ -68,6 +68,9 @@ a.inner:focus-visible {
   .cell:has(a:focus-visible) {
     --background: var(--ink);
     --foreground: var(--paper);
+    --accent-ink: var(--accent-ink-inverse);
+    --accent-ink-hover: var(--accent-ink-inverse);
+    --grey-2-ink: var(--muted-inverse);
     --muted: var(--muted-inverse);
   }
 }

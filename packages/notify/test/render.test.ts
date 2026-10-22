@@ -6,7 +6,7 @@ import {
   renderDigest,
   type SlackBlock,
 } from '../src/render';
-import { CONTEXT, makeDigest, makeItem } from './helpers';
+import { CONTEXT, makeDigest, makeIssue, makeItem } from './helpers';
 
 // The mrkdwn text of every section block, in order.
 function sectionTexts(blocks: SlackBlock[]): string[] {
@@ -376,6 +376,151 @@ describe('renderDigest', () => {
       '• first second',
       'Due Oct 23, 2026 · 4 open · 3 unassigned',
     ]);
+  });
+
+  test('names the open issues as linked bullets, unassigned first', () => {
+    const digest = makeDigest([
+      makeItem({
+        lines: ['3 open issues unassigned', '1/6 done with 5 days left'],
+        openCount: 5,
+        unassignedCount: 3,
+        openIssues: [
+          makeIssue('ENG-30', 'Draft the copy', false),
+          makeIssue('ENG-31', 'Wire the wizard', true),
+          makeIssue('OPS-1', 'Provision the sandbox', true),
+          makeIssue('ENG-34', 'Review the flow', false),
+          makeIssue('ENG-32', 'Track completion', true),
+        ],
+      }),
+    ]);
+    const { text, blocks } = renderDigest(digest, CONTEXT);
+    const [section] = sectionTexts(blocks);
+    expect(section.split('\n')).toEqual([
+      '*<https://planner.example.com/timeline?milestone=ms-1|Orion › Beta>*',
+      'Due in 2 days — at risk',
+      '• 3 open issues unassigned',
+      '• 1/6 done with 5 days left',
+      'Due Oct 23, 2026 · 5 open · 3 unassigned',
+      '• <https://planner.example.com/issues/ENG-31|ENG-31> Wire the wizard — unassigned',
+      '• <https://planner.example.com/issues/OPS-1|OPS-1> Provision the sandbox — unassigned',
+      '• <https://planner.example.com/issues/ENG-32|ENG-32> Track completion — unassigned',
+      '• <https://planner.example.com/issues/ENG-30|ENG-30> Draft the copy',
+      '• <https://planner.example.com/issues/ENG-34|ENG-34> Review the flow',
+    ]);
+    // The compact top-level text does not list issues.
+    expect(text).toBe(
+      'Milestone Planner: 1 milestone needs attention\n• Orion › Beta — Due in 2 days — at risk'
+    );
+  });
+
+  test('names at most 10 issues and counts the rest, with how many are unassigned', () => {
+    const unassigned = Array.from({ length: 13 }, (_, i) =>
+      makeIssue(`ENG-${i + 1}`, `Task ${i + 1}`, true)
+    );
+    const assigned = Array.from({ length: 4 }, (_, i) =>
+      makeIssue(`ENG-${i + 50}`, `Owned ${i + 1}`, false)
+    );
+    const [mostlyFree] = sectionTexts(
+      renderDigest(
+        makeDigest([makeItem({ openIssues: [...assigned, ...unassigned] })]),
+        CONTEXT
+      ).blocks
+    );
+    const lines = mostlyFree.split('\n');
+    const issueLines = lines.slice(
+      lines.findIndex((l) => l.startsWith('Due Oct')) + 1
+    );
+    expect(issueLines).toHaveLength(11);
+    expect(issueLines[0]).toBe(
+      '• <https://planner.example.com/issues/ENG-1|ENG-1> Task 1 — unassigned'
+    );
+    expect(issueLines[9]).toContain('|ENG-10> Task 10 — unassigned');
+    expect(issueLines[10]).toBe('• …and 7 more open issues (3 unassigned)');
+
+    const [mostlyOwned] = sectionTexts(
+      renderDigest(
+        makeDigest([
+          makeItem({
+            openIssues: [
+              makeIssue('ENG-1', 'Free', true),
+              ...Array.from({ length: 10 }, (_, i) =>
+                makeIssue(`ENG-${i + 2}`, `Owned ${i}`, false)
+              ),
+            ],
+          }),
+        ]),
+        CONTEXT
+      ).blocks
+    );
+    expect(mostlyOwned.split('\n').at(-1)).toBe('• …and 1 more open issue');
+  });
+
+  test('escapes issue titles and keys, and long lists stay under 3000 chars', () => {
+    const [section] = sectionTexts(
+      renderDigest(
+        makeDigest([
+          makeItem({
+            openIssues: [
+              {
+                ...makeIssue('ENG|9>', 'Fix <b> & <i>\nnow', true),
+                url: 'https://planner.example.com/issues/ENG-9',
+              },
+            ],
+          }),
+        ]),
+        CONTEXT
+      ).blocks
+    );
+    expect(section.split('\n').at(-1)).toBe(
+      '• <https://planner.example.com/issues/ENG-9|ENG9> Fix &lt;b&gt; &amp; &lt;i&gt; now — unassigned'
+    );
+
+    // Lines fill the section, yet the issues are still counted, not dropped.
+    const crowded = makeItem({
+      lines: Array.from({ length: 40 }, (_, i) => `${i} ${'&'.repeat(2000)}`),
+      openIssues: Array.from({ length: 10 }, (_, i) =>
+        makeIssue(`ENG-${i}`, '<'.repeat(500), i % 2 === 0)
+      ),
+    });
+    const [full] = sectionTexts(
+      renderDigest(makeDigest([crowded]), CONTEXT).blocks
+    );
+    expect(full.length).toBeLessThanOrEqual(3000);
+    expect(full).toContain('Due Oct 23, 2026 · 4 open · 3 unassigned');
+    expect(full.split('\n').at(-1)).toMatch(
+      /^• …and \d+ more open issues?( \(\d+ unassigned\))?$/
+    );
+    // Named issues plus the counted rest add up to all ten.
+    const named = full.split('\n').filter((l) => l.includes('/issues/ENG-'));
+    const rest = Number(/and (\d+) more open/.exec(full)![1]);
+    expect(named.length + rest).toBe(10);
+
+    // Long titles alone: some issues are named, the rest counted, all fits.
+    const titled = makeItem({
+      openIssues: Array.from({ length: 10 }, (_, i) => ({
+        ...makeIssue(`ENG-${i}`, '&'.repeat(5000), true),
+        url: `https://planner.example.com/issues/${'x'.repeat(900)}${i}`,
+      })),
+    });
+    const [long] = sectionTexts(
+      renderDigest(makeDigest([titled]), CONTEXT).blocks
+    );
+    expect(long.length).toBeLessThanOrEqual(3000);
+    expect(long).not.toMatch(/&(?!amp;|lt;|gt;)/);
+    expect(long.split('\n').at(-1)).toMatch(
+      /^• …and \d+ more open issues \(\d+ unassigned\)$/
+    );
+  });
+
+  test('a stored digest without openIssues renders the counts only', () => {
+    const item = makeItem();
+    delete item.openIssues;
+    const [section] = sectionTexts(
+      renderDigest(makeDigest([item]), CONTEXT).blocks
+    );
+    expect(section.split('\n').at(-1)).toBe(
+      'Due Oct 23, 2026 · 4 open · 3 unassigned'
+    );
   });
 
   test('is deterministic', () => {

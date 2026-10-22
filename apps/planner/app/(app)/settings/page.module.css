@@ -92,7 +92,7 @@
 }
 
 .formStatusDirty {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .formHint {
@@ -150,7 +150,7 @@
   letter-spacing: 0.04em;
   line-height: 1.4;
   text-align: right;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .statusList {

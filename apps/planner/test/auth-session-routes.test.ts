@@ -154,6 +154,25 @@ describe('POST /api/auth/demo', () => {
     expect(missing.headers.get('location')).toBe('/?auth_error=not_found');
   });
 
+  test('opens the page the picker was reached from (returnTo), never another site', async () => {
+    const back = await demo(
+      post('/api/auth/demo', {
+        origin: APP,
+        body: `userId=user-ana&returnTo=${encodeURIComponent('/timeline?milestone=ms-harbor-1')}`,
+      })
+    );
+    expect(back.headers.get('location')).toBe(
+      '/timeline?milestone=ms-harbor-1'
+    );
+    const away = await demo(
+      post('/api/auth/demo', {
+        origin: APP,
+        body: `userId=user-ana&returnTo=${encodeURIComponent('//evil.example/x')}`,
+      })
+    );
+    expect(away.headers.get('location')).toBe('/week');
+  });
+
   test('a deactivated person or the app user reads as demo_inactive', async () => {
     signInError = engineError('EngineInputError', 'invalid');
     const response = await demo(

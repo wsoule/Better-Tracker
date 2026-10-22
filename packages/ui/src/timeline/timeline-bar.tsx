@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  type CSSProperties,
   type KeyboardEvent,
   memo,
   type NamedExoticComponent,
@@ -212,7 +213,14 @@ function TimelineBarViewImpl({
         mode === 'drag' ? styles.dragging : undefined,
         mode !== null ? styles.editing : undefined
       )}
-      style={{ left, top: geometry.top, width }}
+      style={
+        {
+          left,
+          top: geometry.top,
+          width,
+          '--bar-end': `${left + width}px`,
+        } as CSSProperties
+      }
       data-bar-id={bar.id}
     >
       <button

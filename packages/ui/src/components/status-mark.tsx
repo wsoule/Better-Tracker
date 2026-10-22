@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import type { UiStatus } from '../types';
 import styles from './status-mark.module.css';
 
@@ -7,12 +9,7 @@ import styles from './status-mark.module.css';
    hatched. The label is always available to assistive tech. `muted`
    draws any status as a hollow grey square (an inactive project's
    milestone, which is never loud), like the timeline's inactive lanes. */
-export default function StatusMark({
-  status,
-  label,
-  showLabel = false,
-  muted = false,
-}: {
+export interface StatusMarkProps {
   status: UiStatus;
   /** Human wording, e.g. "At risk". */
   label: string;
@@ -20,7 +17,14 @@ export default function StatusMark({
   showLabel?: boolean;
   /** Greys only, whatever the status (the label still says it). */
   muted?: boolean;
-}) {
+}
+
+export default function StatusMark({
+  status,
+  label,
+  showLabel = false,
+  muted = false,
+}: StatusMarkProps): ReactNode {
   return (
     <span className={styles.wrap}>
       <span

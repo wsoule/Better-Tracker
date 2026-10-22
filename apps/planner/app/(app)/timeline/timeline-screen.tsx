@@ -366,6 +366,7 @@ export default function TimelineScreen({
 
       <MilestoneDrawer
         open={requestedId !== null || issueRequested !== null}
+        milestoneId={requestedId}
         loading={requestedId !== null && drawerId !== requestedId}
         model={drawerId === requestedId ? drawer : null}
         fallbackTitle={requested?.label ?? 'Milestone'}

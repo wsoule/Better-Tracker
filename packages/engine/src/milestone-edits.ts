@@ -15,15 +15,31 @@ import {
   type Snapshot,
 } from '@better-tracker/core';
 
+import { linearWrite } from './linear-errors';
 import { requireWriteScope } from './permissions';
 import { type EngineRuntime, requireInstallation } from './runtime';
 import { type Actor, EngineInputError } from './types';
+import { viewerSnapshot } from './visibility';
 
 /** Inclusive bounds of the display weight override (§7.1). */
 export const WEIGHT_MIN = -1000;
 export const WEIGHT_MAX = 1000;
 // Any line break, including the Unicode line and paragraph separators.
 const LINE_BREAK = /[\r\n\u2028\u2029]/;
+
+/**
+ * True when text holds a control character other than tab: C0 (U+0000 to
+ * U+001F, line breaks included) or DEL (U+007F). People never mean to type
+ * them; Postgres refuses U+0000 in text, and a title made of them reads
+ * as blank. Callers check line breaks first for their own message.
+ */
+export function hasControlCharacter(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if ((code < 0x20 && code !== 0x09) || code === 0x7f) return true;
+  }
+  return false;
+}
 
 /** Longest accepted "done means…" text, in characters (§7.1). */
 export const DONE_MEANS_MAX_LENGTH = 280;
@@ -43,24 +59,39 @@ function invalid(message: string): EngineInputError {
 }
 
 /**
- * The actor's workspace snapshot for an edit. The workspace must still have
- * an active installation (an uninstalled app must not keep writing to
- * Linear or changing its data), and a conflict when it was never synced.
- * Shared with the issue edits (issue-edits.ts).
+ * The workspace snapshots for an edit by `actor`: `visible`, the mirror
+ * narrowed to what they may see (§2.13), which every lookup and validation
+ * uses (an entity of a team they cannot see reads as not found), and
+ * `full`, the whole mirror, for deciding what a write changes in it. The
+ * workspace must still have an active installation (an uninstalled app
+ * must not keep writing to Linear or changing its data), and a conflict
+ * when it was never synced. Shared with the issue edits (issue-edits.ts).
  */
-export async function snapshotFor(
+export async function snapshotsFor(
   rt: EngineRuntime,
   actor: Actor
-): Promise<Snapshot> {
-  await requireInstallation(rt, actor.session.workspaceId);
-  const view = await rt.mirror.current(actor.session.workspaceId);
+): Promise<{ full: Snapshot; visible: Snapshot }> {
+  const workspaceId = actor.session.workspaceId;
+  await requireInstallation(rt, workspaceId);
+  const view = await rt.mirror.current(workspaceId);
   if (view === null) {
     throw new EngineInputError(
       'conflict',
       'The workspace has not been synced from Linear yet.'
     );
   }
-  return view.snapshot;
+  return {
+    full: view.snapshot,
+    visible: viewerSnapshot(view.snapshot, workspaceId, actor).snapshot,
+  };
+}
+
+/** The mirror narrowed to what `actor` may see (snapshotsFor's `visible`). */
+export async function snapshotFor(
+  rt: EngineRuntime,
+  actor: Actor
+): Promise<Snapshot> {
+  return (await snapshotsFor(rt, actor)).visible;
 }
 
 function findMilestone(snapshot: Snapshot, milestoneId: unknown): Milestone {
@@ -92,8 +123,9 @@ function findProject(snapshot: Snapshot, projectId: unknown): Project {
 }
 
 /**
- * Validates a "done means…" text: trimmed, one line, at most
- * DONE_MEANS_MAX_LENGTH characters; empty (or null) clears it.
+ * Validates a "done means…" text: trimmed, one line, no control
+ * characters (tab aside), at most DONE_MEANS_MAX_LENGTH characters; empty
+ * (or null) clears it.
  */
 export function normalizeDoneMeans(text: unknown): string | null {
   if (text === null) return null;
@@ -102,6 +134,9 @@ export function normalizeDoneMeans(text: unknown): string | null {
   if (trimmed === '') return null;
   if (LINE_BREAK.test(trimmed)) {
     throw invalid('"Done means…" must be a single line.');
+  }
+  if (hasControlCharacter(trimmed)) {
+    throw invalid('"Done means…" cannot contain control characters.');
   }
   if (characterCount(trimmed) > DONE_MEANS_MAX_LENGTH) {
     throw invalid(
@@ -147,9 +182,10 @@ export async function setMilestoneTargetDate(
   if (before.targetDate === targetDate) return;
 
   const gateway = await rt.linear.forSession(actor.session);
-  const updated = await gateway.updateMilestoneTargetDate(
-    milestoneId,
-    targetDate
+  // Linear's refusals map like issue edits' (§7.2): forbidden → 403,
+  // a rejected token → sign in again, rate limit → 429.
+  const updated = await linearWrite('change the milestone date', () =>
+    gateway.updateMilestoneTargetDate(milestoneId, targetDate)
   );
   await rt.store.applyMirrorChanges(workspaceId, {
     upsert: [{ kind: 'milestone', entity: updated }],
@@ -194,7 +230,9 @@ export async function setProjectLead(
   if (before.leadId === leadId) return;
 
   const gateway = await rt.linear.forSession(actor.session);
-  const updated = await gateway.updateProjectLead(projectId, leadId);
+  const updated = await linearWrite('change the project lead', () =>
+    gateway.updateProjectLead(projectId, leadId)
+  );
   await rt.store.applyMirrorChanges(workspaceId, {
     upsert: [{ kind: 'project', entity: updated }],
     remove: [],

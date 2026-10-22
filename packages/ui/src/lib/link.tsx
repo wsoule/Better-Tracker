@@ -18,13 +18,16 @@ function PlainLink({ children, ...rest }: UiLinkProps) {
 
 const LinkContext = createContext<UiLinkComponent>(PlainLink);
 
+export interface UiLinkProviderProps {
+  /** The host's link component (it receives UiLinkProps). */
+  link: UiLinkComponent;
+  children: ReactNode;
+}
+
 export function UiLinkProvider({
   link,
   children,
-}: {
-  link: UiLinkComponent;
-  children: ReactNode;
-}) {
+}: UiLinkProviderProps): ReactNode {
   return <LinkContext.Provider value={link}>{children}</LinkContext.Provider>;
 }
 

@@ -1,0 +1,7 @@
+/* The family links are long sentences: let them wrap on a phone instead
+   of running past the frame (.accentLink is nowrap for short links). Two
+   classes so this wins over the global primitive in any sheet order. */
+:global(.accentLink).link {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

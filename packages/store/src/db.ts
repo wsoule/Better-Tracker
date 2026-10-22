@@ -94,6 +94,15 @@ function toError(value: unknown): Error {
 export const READ_COMMITTED_STARTUP_OPTION: string =
   '-c default_transaction_isolation=read\\ committed';
 
+/**
+ * Longest wait for a pooled connection: opening a new one, or waiting for
+ * a free one when the pool is full (node-postgres' connectionTimeoutMillis,
+ * whose default 0 waits forever). An unreachable database then fails each
+ * call within this time, so /api/health answers 503 and page requests
+ * fail instead of hanging until the OS gives up on TCP.
+ */
+export const PG_CONNECT_TIMEOUT_MS = 10_000;
+
 /** Connection settings for node-postgres' Pool. */
 export interface PgConnectionConfig {
   connectionString: string;
@@ -198,6 +207,12 @@ export async function openPgSql(
   return pgSqlOverPools((config) => new PgPool(config), databaseUrl, logger);
 }
 
+/** Overrides for pgSqlOverPools (tests shorten the connect timeout). */
+export interface PgPoolOptions {
+  /** Defaults to PG_CONNECT_TIMEOUT_MS. */
+  connectTimeoutMs?: number;
+}
+
 /**
  * openPgSql over pools made by makePool (tests pass fakes). It starts with
  * a pool whose connections carry the store's startup option. When opening
@@ -211,10 +226,13 @@ export async function openPgSql(
 export function pgSqlOverPools(
   makePool: (config: PoolConfig) => Pool,
   databaseUrl: string,
-  logger?: SqlLogger
+  logger?: SqlLogger,
+  poolOptions: PgPoolOptions = {}
 ): Sql {
+  const connectionTimeoutMillis =
+    poolOptions.connectTimeoutMs ?? PG_CONNECT_TIMEOUT_MS;
   const newPool = (config: PoolConfig): Pool => {
-    const pool = makePool(config);
+    const pool = makePool({ ...config, connectionTimeoutMillis });
     // An idle client losing its connection emits 'error' on the pool;
     // without a listener Node treats it as unhandled and kills the process.
     pool.on('error', (error) => {

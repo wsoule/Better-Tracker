@@ -3,8 +3,8 @@ import { Button } from '@better-tracker/ui';
 import MessageBlock from './components/message-block';
 import { PageCrumb } from './components/page-crumb';
 
-/* notFound() anywhere under (app): a milestone, project or run id that
-   does not exist (or no longer does in Linear). */
+/* notFound() anywhere under (app): an issue, milestone, project or run
+   that does not exist (or no longer does in Linear), or an unknown path. */
 export default function NotFound() {
   return (
     <MessageBlock
@@ -21,8 +21,9 @@ export default function NotFound() {
       }
     >
       <p>
-        The link may be old or mistyped, or the project or milestone it pointed
-        to was removed or archived in Linear.
+        The link may be old or mistyped, or what it pointed to (an issue,
+        project, milestone or run) was removed or archived in Linear, or is not
+        visible to you.
       </p>
       <PageCrumb label="Not found" />
     </MessageBlock>

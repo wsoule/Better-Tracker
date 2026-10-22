@@ -371,7 +371,7 @@ describe('createEngineFromEnv in real mode', () => {
       const url = new URL(start.url);
       expect(url.searchParams.get('actor')).toBe('app');
       expect(url.searchParams.get('prompt')).toBe('consent');
-      expect(url.searchParams.get('scope')).toBe('read,write');
+      expect(url.searchParams.get('scope')).toBe('read,write,initiative:read');
     } finally {
       await engine.close();
       await rm(dir, { recursive: true, force: true });

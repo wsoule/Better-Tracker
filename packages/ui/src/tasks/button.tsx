@@ -3,7 +3,14 @@
 import { Link } from '../lib/link';
 import styles from './button.module.css';
 import { cx } from './class-names';
-import type { ButtonProps } from './types';
+import type { ButtonAsLinkProps, ButtonProps } from './types';
+
+/* A type guard rather than `props.href !== undefined`: hosts compile this
+   source with their own flags, and without strictNullChecks (Dispatch's
+   apps/desktop) a check against undefined does not narrow the union. */
+function isLink(props: ButtonProps): props is ButtonAsLinkProps {
+  return typeof props.href === 'string';
+}
 
 /* The system's button: a mono uppercase label in a square box that floods
    the accent on hover (gated off touch). 2px is emphasis, so primary and
@@ -44,7 +51,7 @@ export function Button(props: ButtonProps) {
     </>
   );
 
-  if (props.href !== undefined) {
+  if (isLink(props)) {
     const external = props.external === true;
     return (
       <Link

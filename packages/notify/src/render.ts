@@ -3,7 +3,7 @@
 // the accessible fallback. Slack's hard limits (docs/architecture.md §6) are
 // enforced here so a big digest is truncated visibly instead of rejected.
 
-import type { Digest, DigestItem } from '@better-tracker/core';
+import type { Digest, DigestIssue, DigestItem } from '@better-tracker/core';
 
 import type { DeliveryContext } from './types';
 
@@ -77,6 +77,10 @@ const URL_MAX = 1000;
 const DATE_MAX = 32;
 /** Blocks that are always present: the header and the divider below it. */
 const FIXED_BLOCKS = 2;
+/** Most open issues one section names before "…and N more open issues". */
+const ISSUES_MAX = 10;
+/** Longest escaped issue title inside an issue bullet. */
+const ISSUE_TITLE_MAX = 120;
 
 const MONTHS = [
   'Jan',
@@ -305,19 +309,27 @@ function renderHeaderText(appName: string, count: number): string {
 
 /**
  * One item's section: bold linked title, kind line, the item's lines as
- * bullets, then due date and counts. Bullets that would push the text past
- * 3000 chars are replaced by "• …and N more".
+ * bullets, due date and counts, then the open issues by name (see
+ * renderIssueBullets). Bullets that would push the text past 3000 chars are
+ * replaced by "• …and N more". Room for the issue list's own "more" bullet
+ * is kept while the lines are placed, so long lines never hide the issues
+ * without saying how many there are.
  */
 function renderSectionText(item: DigestItem): string {
   const title = `*${mrkdwnLink(item.url, itemLabel(item))}*`;
   const kind = describeItemKind(item);
   const counts = countsLine(item);
+  const issues = unassignedFirst(item.openIssues ?? []);
+  const issueReserve =
+    issues.length === 0
+      ? 0
+      : 1 + moreIssuesBullet(issues.length, issues.length).length;
 
   const lines = item.lines.map(singleLine).filter((line) => line !== '');
   // Reserve room for the "more" bullet using the largest count it can show.
   const moreReserve = `\n• ${ELLIPSIS}and ${lines.length} more`.length;
   const bullets: string[] = [];
-  let used = title.length + 1 + kind.length + 1 + counts.length;
+  let used = title.length + 1 + kind.length + 1 + counts.length + issueReserve;
   for (let i = 0; i < lines.length; i++) {
     const bullet = `• ${escapeAndTruncate(lines[i], LINE_MAX)}`;
     const reserve = i < lines.length - 1 ? moreReserve : 0;
@@ -329,7 +341,66 @@ function renderSectionText(item: DigestItem): string {
     used += 1 + bullet.length;
   }
 
-  return [title, kind, ...bullets, counts].join('\n');
+  const issueBullets = renderIssueBullets(
+    issues,
+    SLACK_LIMITS.sectionText - used + issueReserve
+  );
+  return [title, kind, ...bullets, counts, ...issueBullets].join('\n');
+}
+
+// Unassigned issues first (what a lead acts on), each group keeping the
+// display order the digest gives.
+function unassignedFirst(issues: readonly DigestIssue[]): DigestIssue[] {
+  return [
+    ...issues.filter((issue) => issue.unassigned),
+    ...issues.filter((issue) => !issue.unassigned),
+  ];
+}
+
+// "• <url|ENG-31> Wire the wizard — unassigned" (the marker only when no one
+// is assigned); the title is kept to one line, escaped and capped.
+function issueBullet(issue: DigestIssue): string {
+  const key = mrkdwnLink(issue.url, singleLine(issue.identifier));
+  const title = escapeAndTruncate(singleLine(issue.title), ISSUE_TITLE_MAX);
+  const named = title === '' ? key : `${key} ${title}`;
+  return `• ${named}${issue.unassigned ? ' — unassigned' : ''}`;
+}
+
+// "• …and 3 more open issues (2 unassigned)", the part in parentheses only
+// when some of the rest are unassigned.
+function moreIssuesBullet(count: number, unassigned: number): string {
+  const noun = count === 1 ? 'issue' : 'issues';
+  const tail = unassigned > 0 ? ` (${unassigned} unassigned)` : '';
+  return `• ${ELLIPSIS}and ${count} more open ${noun}${tail}`;
+}
+
+/**
+ * The open issues of one section as linked bullets (design §7.5: the message
+ * says what is open and what is unassigned). At most ISSUES_MAX are named,
+ * and only as many as fit in `budget` chars (each bullet costs its length
+ * plus a newline); the rest are counted in a final moreIssuesBullet, which
+ * always fits when `budget` covers the longest one this list can produce.
+ */
+function renderIssueBullets(
+  issues: readonly DigestIssue[],
+  budget: number
+): string[] {
+  const longestMore = 1 + moreIssuesBullet(issues.length, issues.length).length;
+  const out: string[] = [];
+  let used = 0;
+  for (let i = 0; i < issues.length; i++) {
+    const bullet = issueBullet(issues[i]);
+    const reserve = i < issues.length - 1 ? longestMore : 0;
+    if (i >= ISSUES_MAX || used + 1 + bullet.length + reserve > budget) {
+      const rest = issues.slice(i);
+      const unassigned = rest.filter((issue) => issue.unassigned).length;
+      out.push(moreIssuesBullet(rest.length, unassigned));
+      break;
+    }
+    out.push(bullet);
+    used += 1 + bullet.length;
+  }
+  return out;
 }
 
 /**

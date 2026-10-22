@@ -406,6 +406,7 @@ function NodePanel({
         breadcrumb={issue.breadcrumb}
         actions={issue.actions}
         closeLabel={issue.closeLabel}
+        contentKey={issue.contentKey}
       >
         {issue.body}
       </SlideOver>
@@ -415,6 +416,7 @@ function NodePanel({
     <SlideOver
       open={selectedId !== null && detail !== undefined}
       onClose={onClose}
+      contentKey={shown === null ? undefined : `node:${shown}`}
       title={detail?.title ?? ''}
       breadcrumb={detail?.breadcrumb}
     >

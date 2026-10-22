@@ -2,7 +2,7 @@ import type { Actor, Engine } from '@better-tracker/engine';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
-import { SESSION_COOKIE } from './auth-cookies';
+import { SESSION_COOKIE, signInLocation } from './auth-cookies';
 import { getEngine } from './runtime';
 
 /** httpOnly cookie holding the opaque session token (only its hash is stored). */
@@ -26,12 +26,12 @@ export async function getRequestContext(): Promise<RequestContext> {
   return { engine, actor };
 }
 
-/** For pages: signed-out visitors go to the landing page. */
-export async function requireActor(): Promise<{
+/** For pages: signed-out visitors go to the landing page (with returnTo). */
+export async function requireActor(returnTo?: string): Promise<{
   engine: Engine;
   actor: Actor;
 }> {
   const { engine, actor } = await getRequestContext();
-  if (actor === null) redirect('/');
+  if (actor === null) redirect(signInLocation(returnTo));
   return { engine, actor };
 }

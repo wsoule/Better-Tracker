@@ -41,6 +41,7 @@ import {
 } from './runtime';
 import { fullSync } from './sync';
 import { type Actor, EngineAuthError, EngineInputError } from './types';
+import { withMirroredStateTime } from './webhooks';
 
 /** Why a planned assignment was not applied in a live run. */
 export type StaleReason =
@@ -266,9 +267,17 @@ async function applyAction(
     return;
   }
 
+  // Without a state move the gateway returns only the approximated
+  // lastStateChangeAt; keep the mirror's (possibly history-refined) value
+  // when later, or the warnings that follow in runDaily could call the
+  // milestone stalled.
+  const mirrored =
+    toStateId === null
+      ? withMirroredStateTime(updated, snapshot.issues.get(action.issueId))
+      : updated;
   try {
     await rt.store.applyMirrorChanges(workspaceId, {
-      upsert: [{ kind: 'issue', entity: updated }],
+      upsert: [{ kind: 'issue', entity: mirrored }],
       remove: [],
     });
   } catch (error) {

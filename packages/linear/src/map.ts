@@ -22,6 +22,7 @@ import {
   type Project,
   type ProjectStatusType,
   type Team,
+  type TeamVisibility,
   type User,
   type WorkflowState,
   type WorkflowStateType,
@@ -221,16 +222,61 @@ export function mapUser(value: unknown): User {
     avatarUrl: optionalString(node, 'avatarUrl'),
     active: requireBoolean(node, 'active', 'User'),
     app: requireBoolean(node, 'app', 'User'),
+    guest: optionalBoolean(node, 'guest') === true,
   };
 }
 
-export function mapTeam(value: unknown): Team {
+/**
+ * Linear's Team.visibility. An unknown value reads as `private` (visible to
+ * the team's members only) and is logged: when unsure, show less.
+ */
+export function mapTeamVisibility(
+  value: unknown,
+  logger?: LinearLogger
+): TeamVisibility {
+  if (value === 'public' || value === 'private' || value === 'restricted') {
+    return value;
+  }
+  logger?.warn('unknown Linear team visibility; treating it as private', {
+    visibility: value,
+  });
+  return 'private';
+}
+
+/**
+ * A Team node (TeamFields). `memberIds` are the team's members from the
+ * memberships read beside the teams (empty when none are known).
+ */
+export function mapTeam(
+  value: unknown,
+  memberIds: readonly string[] = [],
+  logger?: LinearLogger
+): Team {
   const node = asNode(value, 'Team');
+  const parent = optionalObject(node, 'parent');
   return {
     id: requireString(node, 'id', 'Team'),
     key: requireString(node, 'key', 'Team'),
     name: requireString(node, 'name', 'Team'),
+    visibility: mapTeamVisibility(node['visibility'], logger),
+    parentId: parent === null ? null : optionalString(parent, 'id'),
+    memberIds: [...memberIds],
   };
+}
+
+/**
+ * A TeamMembership node ({ team { id } user { id } }) as a pair, or null
+ * when either end is missing.
+ */
+export function mapTeamMembership(
+  value: unknown
+): { teamId: string; userId: string } | null {
+  const node = asNode(value, 'TeamMembership');
+  const team = optionalObject(node, 'team');
+  const user = optionalObject(node, 'user');
+  const teamId = team === null ? null : optionalString(team, 'id');
+  const userId = user === null ? null : optionalString(user, 'id');
+  return teamId === null || userId === null ? null : { teamId, userId };
 }
 
 export function mapWorkflowState(
@@ -423,9 +469,12 @@ export const NO_ESTIMATES: EstimateScale = {
 };
 
 /**
- * A Team node (EstimateScaleFields, with up to two `parent` levels) as the
+ * A Team node (EstimateScaleFields, with its `parent` chain) as the
  * estimate scale its issues use. A sub-team with inheritIssueEstimation
- * takes its parent's settings, following parents while they inherit too.
+ * takes its parent's settings, following parents while they inherit too
+ * (every level may inherit). A chain that still inherits where the query
+ * stopped (deeper than TEAM_ANCESTOR_LEVELS) uses the last team read, and
+ * is logged.
  * An unknown issueEstimationType (Linear sends a free string) reads as
  * `notUsed` and is logged, so the planner never offers values Linear would
  * reject.
@@ -435,10 +484,17 @@ export function mapEstimateScale(
   logger?: LinearLogger
 ): EstimateScale {
   let node = asNode(value, 'Team');
-  for (let depth = 0; depth < 3; depth++) {
-    if (optionalBoolean(node, 'inheritIssueEstimation') !== true) break;
+  while (optionalBoolean(node, 'inheritIssueEstimation') === true) {
     const parent = optionalObject(node, 'parent');
-    if (parent === null) break;
+    if (parent === null) {
+      if (node['parent'] === undefined) {
+        logger?.warn(
+          'Linear team inherits estimates from beyond the levels read',
+          { teamId: optionalString(node, 'id') }
+        );
+      }
+      break;
+    }
     node = parent;
   }
   const type = optionalString(node, 'issueEstimationType') ?? 'notUsed';

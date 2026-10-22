@@ -20,6 +20,7 @@ import {
   statusRows,
   watcherRows,
 } from '../../../lib/adapters/settings';
+import { currentHref } from '../../../lib/issue-load';
 import {
   type InstalledContext,
   orSetup,
@@ -53,10 +54,10 @@ export default async function SettingsPage({
 }) {
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
-  const context = await requireInstalledActor();
-  const { engine, workspaceId } = context;
+  const context = await requireInstalledActor(currentHref('/settings', params));
+  const { engine, actor, workspaceId } = context;
   const section = parseSettingsSection(params);
-  const loaded = await orSetup(engine.load(workspaceId));
+  const loaded = await orSetup(engine.load(workspaceId, actor));
 
   return (
     <>
@@ -179,7 +180,7 @@ async function renderSection(
       const rows = notificationRows(records, snapshot.users);
       if (rows.length === 0) {
         return (
-          <EmptyState>
+          <EmptyState label="No digests">
             No digests recorded yet. The daily run records at most one per
             person per day; Status → Preview today’s digests shows what it would
             send now.
@@ -229,11 +230,13 @@ async function renderSection(
       );
     }
     case 'audit': {
-      const entries = await orSetup(engine.listAudit(workspaceId, LIST_LIMIT));
+      const entries = await orSetup(
+        engine.listAudit(workspaceId, LIST_LIMIT, context.actor)
+      );
       const rows = auditRows(entries, snapshot, timeZone);
       if (rows.length === 0) {
         return (
-          <EmptyState>
+          <EmptyState label="No edits">
             No edits yet. Re-dated milestones, leads, weights, “done means…”,
             issue edits and settings changes appear here, with who made them.
           </EmptyState>

@@ -14,8 +14,10 @@ import { beforeEach, describe, expect, test } from 'bun:test';
 import type { AllocationRun } from '../lib/adapters/runs';
 import type { ApiActorResolver } from '../lib/timeline-edits';
 import {
+  createResyncCooldown,
   patchSettings,
   previewWarnings,
+  RESYNC_COOLDOWN_MS,
   resync,
   startRun,
 } from '../lib/workspace-routes';
@@ -107,7 +109,7 @@ const DIGEST: Digest = {
 interface Calls {
   runs: { mode: string; trigger: string }[];
   syncs: string[];
-  previews: { workspaceId: string; previewOnly?: boolean }[];
+  previews: { workspaceId: string; previewOnly?: boolean; viewer?: unknown }[];
   patches: unknown[];
 }
 
@@ -276,7 +278,7 @@ describe('POST /api/runs', () => {
 describe('POST /api/sync', () => {
   test('a member resyncs their own workspace: 200 { sync }', async () => {
     const { status, body } = await read(
-      await resync(json('POST', {}), member())
+      await resync(json('POST', {}), member(), createResyncCooldown())
     );
     expect(status).toBe(200);
     expect((body.sync as { ok: boolean }).ok).toBe(true);
@@ -284,11 +286,34 @@ describe('POST /api/sync', () => {
   });
 
   test('options are refused; a lost installation is 403', async () => {
-    expect((await resync(json('POST', { full: 1 }), member())).status).toBe(
-      400
-    );
+    const cooldown = createResyncCooldown();
+    expect(
+      (await resync(json('POST', { full: 1 }), member(), cooldown)).status
+    ).toBe(400);
     failWith = new EngineAuthError('not_installed', 'Install the app first.');
-    expect((await resync(json('POST', {}), member())).status).toBe(403);
+    expect((await resync(json('POST', {}), member(), cooldown)).status).toBe(
+      403
+    );
+  });
+
+  test('a second resync within a minute is 429 with Retry-After, never reaching the engine', async () => {
+    let now = Date.parse('2026-10-22T09:00:00.000Z');
+    const cooldown = createResyncCooldown(() => now);
+    expect((await resync(json('POST', {}), member(), cooldown)).status).toBe(
+      200
+    );
+    now += 15_000;
+    const again = await resync(json('POST', {}), member(), cooldown);
+    expect(again.status).toBe(429);
+    expect(again.headers.get('Retry-After')).toBe('45');
+    expect(errorCode((await read(again)).body)).toBe('resync_cooldown');
+    expect(calls.syncs).toEqual(['org-1']);
+    // Once the minute is over it syncs again.
+    now += RESYNC_COOLDOWN_MS;
+    expect((await resync(json('POST', {}), member(), cooldown)).status).toBe(
+      200
+    );
+    expect(calls.syncs).toEqual(['org-1', 'org-1']);
   });
 });
 
@@ -298,8 +323,14 @@ describe('POST /api/warnings/preview', () => {
       await previewWarnings(json('POST', {}), member())
     );
     expect(status).toBe(200);
+    // The person asking is the viewer: each digest is narrowed to what
+    // they may see (architecture §2.13).
     expect(calls.previews).toEqual([
-      { workspaceId: 'org-1', previewOnly: true },
+      {
+        workspaceId: 'org-1',
+        previewOnly: true,
+        viewer: actor(false),
+      },
     ]);
     const preview = body.preview as {
       heading: string;

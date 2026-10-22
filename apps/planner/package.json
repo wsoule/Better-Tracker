@@ -10,7 +10,6 @@
     "@better-tracker/linear": "workspace:*",
     "@better-tracker/logger": "workspace:*",
     "@better-tracker/ui": "workspace:*",
-    "@dagrejs/dagre": "catalog:",
     "lucide-react": "catalog:",
     "next": "catalog:",
     "react": "catalog:",
@@ -18,6 +17,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

@@ -46,9 +46,11 @@ export default async function WeekPage({
 }) {
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
-  const { engine, actor, workspaceId } = await requireInstalledActor();
+  const { engine, actor, workspaceId } = await requireInstalledActor(
+    currentHref('/week', params)
+  );
   const viewerId = actor.session.userId;
-  const loaded = await orSetup(engine.load(workspaceId));
+  const loaded = await orSetup(engine.load(workspaceId, actor));
   const users = loaded.snapshot.data.users;
   const knownUserIds = new Set(
     users.filter((user) => !user.app).map((user) => user.id)

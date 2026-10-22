@@ -14,8 +14,8 @@ export async function GET(request: Request): Promise<Response> {
   const workspaceId = actor.session.workspaceId;
   try {
     const [timeline, week] = await Promise.all([
-      engine.getTimelineView(workspaceId),
-      engine.getWeekView(workspaceId, actor.session.userId),
+      engine.getTimelineView(workspaceId, actor),
+      engine.getWeekView(workspaceId, actor.session.userId, actor),
     ]);
     return Response.json(buildPaletteIndex({ timeline, week }), {
       headers: { 'Cache-Control': 'private, no-store' },

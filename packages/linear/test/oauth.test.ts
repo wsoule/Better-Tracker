@@ -9,6 +9,7 @@ import {
   isInvalidGrant,
   LINEAR_REVOKE_URL,
   LINEAR_TOKEN_URL,
+  OAUTH_TIMEOUT_MS,
   OAuthError,
   parseScopes,
   refreshTokens,
@@ -264,6 +265,53 @@ describe('token endpoint', () => {
       ).code
     ).toBe('invalid_response');
     expect(isInvalidGrant(server)).toBe(false);
+  });
+});
+
+describe('token endpoint timeout', () => {
+  // A token endpoint that never answers: the call only ends when its
+  // signal aborts (refreshes run inside a row lock, so they must end).
+  const stalled = (
+    seen: (AbortSignal | null | undefined)[]
+  ): ((url: string, init: RequestInit) => Promise<Response>) => {
+    return (_url, init) => {
+      seen.push(init.signal);
+      return new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () =>
+          reject(init.signal?.reason)
+        );
+      });
+    };
+  };
+
+  test('a stalled refresh, exchange or revoke fails as network_error', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const fetch = stalled(seen);
+    const options = { timeoutMs: 20 };
+    for (const call of [
+      refreshTokens(config, 'r', fetch, options),
+      exchangeCode(config, { code: 'c', codeVerifier: 'v' }, fetch, options),
+      revokeToken(config, 't', 'refresh_token', fetch, options),
+    ]) {
+      const error = await captureOAuthError(call);
+      expect(error.code).toBe('network_error');
+      expect(error.status).toBeNull();
+    }
+    expect(seen).toHaveLength(3);
+  });
+
+  test('every call carries a signal by default (OAUTH_TIMEOUT_MS)', async () => {
+    expect(OAUTH_TIMEOUT_MS).toBe(15_000);
+    const signals: (AbortSignal | null | undefined)[] = [];
+    const fetch = (_url: string, init: RequestInit): Promise<Response> => {
+      signals.push(init.signal);
+      return Promise.resolve(
+        jsonResponse({ access_token: 'a', refresh_token: 'b', expires_in: 1 })
+      );
+    };
+    await refreshTokens(config, 'r', fetch);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[0]?.aborted).toBe(false);
   });
 });
 

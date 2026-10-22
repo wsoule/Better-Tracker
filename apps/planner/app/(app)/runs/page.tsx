@@ -43,11 +43,11 @@ const HEADER = [
    decision 2026-10-22: no roles); the route enforces the live gate too.
    Each row opens the run's detail. */
 export default async function RunsPage() {
-  const { engine, workspaceId } = await requireInstalledActor();
+  const { engine, actor, workspaceId } = await requireInstalledActor('/runs');
   const [runs, loaded] = await orSetup(
     Promise.all([
       engine.listRuns(workspaceId, RUN_LIMIT),
-      engine.load(workspaceId),
+      engine.load(workspaceId, actor),
     ])
   );
   const page = buildRunsPage({
@@ -72,7 +72,7 @@ export default async function RunsPage() {
             meta={`Times in ${loaded.settings.timezone}`}
           />
           {page.rows.length === 0 ? (
-            <EmptyState>
+            <EmptyState label="No runs">
               No allocation runs yet. Runs appear here after the scheduled daily
               run, or when someone starts one with Preview (dry run).
             </EmptyState>

@@ -279,3 +279,25 @@ export function redirectWithCookies(
 export function authErrorLocation(code: string): string {
   return `/?auth_error=${encodeURIComponent(code)}`;
 }
+
+/**
+ * The landing page for a signed-out visitor of `returnTo` (a page's own
+ * path and query, e.g. a digest's /timeline?milestone=… link): "/" with
+ * ?returnTo=, which the sign-in button and the demo picker pass on, so
+ * signing in lands on that page instead of My week. Unsafe or default
+ * targets give a plain "/".
+ */
+export function signInLocation(returnTo?: string): string {
+  const safe = sanitizeReturnTo(returnTo, DEFAULT_RETURN_TO);
+  return safe === DEFAULT_RETURN_TO
+    ? '/'
+    : `/?returnTo=${encodeURIComponent(safe)}`;
+}
+
+/** The "Sign in with Linear" link, carrying a sanitized returnTo. */
+export function signInHref(returnTo?: string): string {
+  const safe = sanitizeReturnTo(returnTo, DEFAULT_RETURN_TO);
+  return safe === DEFAULT_RETURN_TO
+    ? '/api/auth/linear?intent=signin'
+    : `/api/auth/linear?intent=signin&returnTo=${encodeURIComponent(safe)}`;
+}

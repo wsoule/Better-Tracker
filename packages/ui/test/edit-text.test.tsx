@@ -135,6 +135,30 @@ describe('InlineTextField', () => {
     expect(save).toHaveBeenCalledWith('Typo tolerance');
   });
 
+  test('the editor is as tall as its text plus padding and borders', () => {
+    // happy-dom has no layout: give the textarea a 30px line, 2px + 2px
+    // padding and 1px + 1px borders.
+    const proto = HTMLTextAreaElement.prototype;
+    const props = ['scrollHeight', 'offsetHeight', 'clientHeight'] as const;
+    const values = { scrollHeight: 34, offsetHeight: 36, clientHeight: 34 };
+    for (const name of props) {
+      Object.defineProperty(proto, name, {
+        configurable: true,
+        get: () => values[name],
+      });
+    }
+    try {
+      render(<TitleHost save={() => undefined} />);
+      fireEvent.click(titleButton());
+      // border-box: 30 + 4 + 2, so the -3px margins leave the text's line.
+      expect(editor().style.height).toBe('36px');
+    } finally {
+      for (const name of props) {
+        delete (proto as unknown as Record<string, unknown>)[name];
+      }
+    }
+  });
+
   test('pasted line breaks become spaces', () => {
     render(<TitleHost save={() => undefined} />);
     fireEvent.click(titleButton());

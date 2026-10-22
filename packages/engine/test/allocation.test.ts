@@ -342,6 +342,52 @@ describe('live run', () => {
     expect(h.fixture.comments).toHaveLength(5);
   });
 
+  // The real gateway returns only the timestamp approximation for
+  // lastStateChangeAt when no state was sent (latest of created / started
+  // / completed / canceled); the mirror's value may be history-refined and
+  // must survive an assign-only write, or the warnings that follow in
+  // runDaily could call the milestone stalled.
+  test("an assign-only write keeps the mirror's refined state time", async () => {
+    const wrap: GatewayWrapper = (gateway, actor) =>
+      actor === 'app'
+        ? {
+            ...gateway,
+            updateIssue: async (id, input) => {
+              const issue = await gateway.updateIssue(id, input);
+              return input.stateId === undefined
+                ? { ...issue, lastStateChangeAt: issue.createdAt }
+                : issue;
+            },
+          }
+        : gateway;
+    harness = await createDemoHarness({ wrap });
+    const h = harness;
+    const before = (await h.engine.load(WORKSPACE_ID)).snapshot;
+    const refined = {
+      eng13: before.issues.get('iss-eng-13'),
+      eng12: before.issues.get('iss-eng-12'),
+    };
+    expect(refined.eng13?.lastStateChangeAt).not.toBe(refined.eng13?.createdAt);
+
+    const run = await h.engine.runAllocation({
+      workspaceId: WORKSPACE_ID,
+      mode: 'live',
+      trigger: 'schedule',
+      actor: null,
+    });
+    expect(run.summary?.assigned).toBe(5);
+    const after = (await h.engine.load(WORKSPACE_ID)).snapshot;
+    // ENG-13 stayed in Todo: its refined time is kept.
+    expect(after.issues.get('iss-eng-13')).toMatchObject({
+      assigneeId: 'user-chloe',
+      lastStateChangeAt: refined.eng13?.lastStateChangeAt,
+    });
+    // ENG-12 moved Backlog → Todo: the write's time is the new one.
+    expect(after.issues.get('iss-eng-12')?.lastStateChangeAt).toBe(
+      h.clock.now().toISOString()
+    );
+  });
+
   test('anyone signed in can start a live run', async () => {
     harness = await createDemoHarness();
     const h = harness;

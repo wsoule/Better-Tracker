@@ -1,6 +1,7 @@
 import { BlockBar, StatusMark, ThemeToggle } from '@better-tracker/ui';
 
 import { THEME_STORAGE_KEY } from '../../fonts';
+import css from './index.module.css';
 
 export const metadata = { title: 'UI gallery' };
 
@@ -24,27 +25,27 @@ export default function GalleryIndex() {
           <StatusMark status="missing" label="Missing input" showLabel />
         </div>
         <p className="empty">
-          <a className="accentLink" href="/ui-gallery/tasks">
+          <a className={`accentLink ${css.link}`} href="/ui-gallery/tasks">
             Tasks · primitives, task table, deadlines, registers
           </a>
         </p>
         <p className="empty">
-          <a className="accentLink" href="/ui-gallery/task">
+          <a className={`accentLink ${css.link}`} href="/ui-gallery/task">
             Task · task detail drawer and page, relations, description, activity
           </a>
         </p>
         <p className="empty">
-          <a className="accentLink" href="/ui-gallery/shell">
+          <a className={`accentLink ${css.link}`} href="/ui-gallery/shell">
             Shell · app frame, command palette, toasts, slide-over, skeletons
           </a>
         </p>
         <p className="empty">
-          <a className="accentLink" href="/ui-gallery/timeline">
+          <a className={`accentLink ${css.link}`} href="/ui-gallery/timeline">
             Timeline · Gantt chart, re-dating, dependencies, phone cards
           </a>
         </p>
         <p className="empty">
-          <a className="accentLink" href="/ui-gallery/graph">
+          <a className={`accentLink ${css.link}`} href="/ui-gallery/graph">
             Graph · dependency graph, upstream chains, legend, Copy Mermaid
           </a>
         </p>

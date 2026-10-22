@@ -10,6 +10,9 @@
   --task-key-col: 68px;
 
   position: relative;
+  /* Rows stack by the table's own width (below), not the viewport's: in
+     the sidebar shell a 1024px window leaves the table about 680px. */
+  container: task-table / inline-size;
 }
 
 /* ---- column header ----------------------------------------------------- */
@@ -34,7 +37,7 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .headTitle {
@@ -129,15 +132,22 @@
   transform: rotate(90deg);
 }
 
+/* One line: mark, PROJECT ›, milestone, count. When it does not fit the
+   project crumb ellipsizes first and the milestone name wraps in place, so
+   the count never drops onto a line of its own. */
 .groupHeading {
   display: flex;
   flex: 0 1 auto;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px 10px;
   min-width: 0;
   margin: 0;
   font: inherit;
+}
+
+.groupHeading > * {
+  flex: none;
 }
 
 .eyebrow {
@@ -150,11 +160,24 @@
   white-space: nowrap;
 }
 
+.groupHeading > .eyebrow {
+  flex: 0 100 auto;
+  min-width: 4em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.groupHeading > .groupTitle,
+.groupHeading > .groupLink {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
 .crumb {
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .groupTitle,
@@ -178,7 +201,7 @@
 }
 
 .groupLink:focus-visible {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .count {
@@ -231,7 +254,7 @@
   }
 
   .groupLink:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
     border-bottom-color: currentColor;
   }
 }
@@ -284,11 +307,11 @@
   white-space: nowrap;
 }
 
+/* Inline flow, not flex: the ↗ link and the chips follow the title's last
+   word (a word joiner keeps the ↗ on that word's line) instead of dropping
+   to a line of their own when the title wraps. */
 .titleWrap {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 5px 12px;
+  display: block;
   min-width: 0;
 }
 
@@ -332,19 +355,20 @@
   justify-content: center;
   width: 20px;
   height: 20px;
-  margin: -2px 0;
+  margin: -2px 0 -2px 8px;
+  vertical-align: middle;
   color: var(--muted);
 }
 
 .linkOut:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 0;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {
   .linkOut:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -353,6 +377,8 @@
   flex-wrap: wrap;
   gap: 6px;
   max-width: 100%;
+  margin-left: 12px;
+  vertical-align: 1px;
 }
 
 .cell {
@@ -391,7 +417,7 @@
 }
 
 .accentText {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .mutedText {
@@ -406,7 +432,7 @@
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .section > .emptyLine {
@@ -423,6 +449,9 @@
 .row:has(.titleLink:focus-visible) {
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
   --ink-soft: var(--ink-soft-inverse);
@@ -453,6 +482,9 @@
   .row:hover {
     --background: var(--ink);
     --foreground: var(--paper);
+    --accent-ink: var(--accent-ink-inverse);
+    --accent-ink-hover: var(--accent-ink-inverse);
+    --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);
     --ink-soft: var(--ink-soft-inverse);
@@ -462,10 +494,14 @@
 
 /* ---- phone: rows stack -------------------------------------------------- */
 
-@media (width <= 900px) {
+/* Narrower than ~720px the three fixed columns (352px) leave the title too
+   little room: a phone, or the week page's main column beside the
+   deadlines between roughly 900 and 1100px windows. */
+@container task-table (width < 720px) {
   /* Row padding (4) + toggle (26) + gap (10): keys sit under the group's
-     status mark, as on desktop. */
-  .root {
+     status mark, as on desktop. (A container query cannot style the
+     container itself, so the sections take the narrower indent.) */
+  .section {
     --task-indent: 40px;
     --task-key-col: 60px;
   }
@@ -487,6 +523,7 @@
   /* The heading keeps its line beside the toggle and wraps inside. */
   .groupHeading {
     flex: 1 1 0;
+    flex-wrap: wrap;
   }
 
   .groupMeta {

@@ -80,7 +80,7 @@
 }
 
 .accentText {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .dash {

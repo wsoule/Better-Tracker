@@ -166,8 +166,10 @@ export interface NoticeProps {
 }
 
 export interface EmptyStateProps {
-  /** Honest copy in the mono register: "Nothing due this week". */
+  /** The explanation, in the body face: "Nothing due this week." */
   children: ReactNode;
+  /** A short mono key above it ("No runs"), when the sentence is long. */
+  label?: string;
   action?: ReactNode;
   /** Hatch the box (an input is missing rather than nothing to show). */
   hatched?: boolean;

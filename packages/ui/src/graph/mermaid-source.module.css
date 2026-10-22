@@ -20,7 +20,7 @@
 /* The confirmation is the accent at 2px: the one emphasised state. */
 .copy[data-state='copied'] {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .copy[data-state='failed'] {
@@ -67,7 +67,7 @@
 
 .glyph {
   margin-left: auto;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-family: var(--font-mono);
   font-size: 16px;
   font-weight: 500;
@@ -76,7 +76,7 @@
 
 .details[open] .summaryLabel,
 .summary:focus-visible .summaryLabel {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {

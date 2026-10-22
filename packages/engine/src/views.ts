@@ -1,5 +1,6 @@
 // Read models for the web app: thin wrappers that run the core builders
-// over load(), plus the run log, notification and audit listings.
+// over load(), narrowed to what the viewer may see when one is given
+// (§2.13), plus the run log, notification and audit listings.
 
 import {
   buildDependencyGraph,
@@ -18,7 +19,7 @@ import type { RunEntry } from '@better-tracker/store';
 
 import { loadWorkspace } from './load';
 import type { EngineRuntime } from './runtime';
-import { EngineInputError } from './types';
+import { type Actor, EngineInputError } from './types';
 
 /**
  * Applied live assignments as core's RecentAllocation (My week's "new"
@@ -47,13 +48,17 @@ export function toRecentAllocations(
   return recent;
 }
 
-/** My week for `userId` (§7.1 of the design). */
+/**
+ * My week for `userId` (§7.1 of the design), as `viewer` may see it
+ * (§2.13): viewing someone else's week shows only what the viewer can see.
+ */
 export async function getWeekView(
   rt: EngineRuntime,
   workspaceId: string,
-  userId: string
+  userId: string,
+  viewer?: Actor
 ): Promise<WeekView> {
-  const loaded = await loadWorkspace(rt, workspaceId);
+  const loaded = await loadWorkspace(rt, workspaceId, { viewer });
   if (!loaded.snapshot.users.has(userId)) {
     throw new EngineInputError(
       'not_found',
@@ -73,12 +78,13 @@ export async function getWeekView(
   });
 }
 
-/** The timeline (§7.2 of the design). */
+/** The timeline (§7.2 of the design), as `viewer` may see it. */
 export async function getTimelineView(
   rt: EngineRuntime,
-  workspaceId: string
+  workspaceId: string,
+  viewer?: Actor
 ): Promise<TimelineView> {
-  const loaded = await loadWorkspace(rt, workspaceId);
+  const loaded = await loadWorkspace(rt, workspaceId, { viewer });
   return buildTimelineView({
     snapshot: loaded.snapshot,
     ctx: loaded.ctx,
@@ -91,9 +97,10 @@ export async function getTimelineView(
 export async function getGraph(
   rt: EngineRuntime,
   workspaceId: string,
-  scope: GraphScope
+  scope: GraphScope,
+  viewer?: Actor
 ): Promise<DependencyGraph> {
-  const loaded = await loadWorkspace(rt, workspaceId);
+  const loaded = await loadWorkspace(rt, workspaceId, { viewer });
   const raw = scope as unknown as Record<string, unknown> | null;
   if (raw === null || typeof raw !== 'object') {
     throw new EngineInputError('invalid', 'A graph scope is required.');
@@ -139,9 +146,10 @@ export async function getGraph(
 export async function getMilestoneDetail(
   rt: EngineRuntime,
   workspaceId: string,
-  milestoneId: string
+  milestoneId: string,
+  viewer?: Actor
 ): Promise<MilestoneDetail> {
-  const loaded = await loadWorkspace(rt, workspaceId);
+  const loaded = await loadWorkspace(rt, workspaceId, { viewer });
   const detail = buildMilestoneDetail({
     snapshot: loaded.snapshot,
     ctx: loaded.ctx,

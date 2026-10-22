@@ -5,6 +5,7 @@ import {
   parseProjectFilter,
   PROJECT_QUERY_MAX,
 } from '../../../lib/adapters/projects';
+import { currentHref } from '../../../lib/issue-load';
 import {
   loadTimelineView,
   orSetup,
@@ -27,11 +28,13 @@ export default async function ProjectsPage({
 }) {
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
-  const { engine, workspaceId } = await requireInstalledActor();
+  const { engine, actor, workspaceId } = await requireInstalledActor(
+    currentHref('/projects', params)
+  );
   const [timeline, loaded] = await orSetup(
     Promise.all([
       loadTimelineView(engine, workspaceId),
-      engine.load(workspaceId),
+      engine.load(workspaceId, actor),
     ])
   );
   const statusNames = new Map(

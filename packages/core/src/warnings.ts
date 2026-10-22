@@ -9,6 +9,7 @@ import { isIssueOpen, milestoneTargetDate } from './snapshot';
 import type {
   AllocationPlan,
   Digest,
+  DigestIssue,
   DigestItem,
   EvalContext,
   IsoDate,
@@ -21,6 +22,12 @@ import type {
   WarningMemory,
   WarningPlan,
 } from './types';
+import {
+  scopeSeesProject,
+  type ViewerScope,
+  viewerScope,
+  visibleDigest,
+} from './visibility';
 
 const KIND_ORDER: Record<NoticeKind, number> = {
   overdue: 0,
@@ -39,16 +46,39 @@ function subjectKey(kind: WarningMemory['subjectKind'], id: string): string {
 // users dropped.
 function activeRecipients(
   snapshot: Snapshot,
-  ids: readonly (string | null)[]
+  ids: readonly (string | null)[],
+  canSee: (userId: string) => boolean
 ): string[] {
   const seen = new Set<string>();
   const recipients: string[] = [];
   for (const id of ids) {
     if (id === null || seen.has(id)) continue;
     seen.add(id);
-    if (snapshot.users.get(id)?.active === true) recipients.push(id);
+    if (snapshot.users.get(id)?.active === true && canSee(id)) {
+      recipients.push(id);
+    }
   }
   return recipients;
+}
+
+// Whether a person may see a project (§2.13), with each person's scope
+// worked out once per planWarnings call: a lead or watcher outside the
+// project's teams (a guest, or a private team they are not in) is not told
+// about it, so their digest never names it.
+function projectVisibility(
+  snapshot: Snapshot
+): (userId: string, projectId: string) => boolean {
+  const scopes = new Map<string, ViewerScope>();
+  return (userId, projectId) => {
+    const project = snapshot.projects.get(projectId);
+    if (project === undefined) return false;
+    let scope = scopes.get(userId);
+    if (scope === undefined) {
+      scope = viewerScope(snapshot, userId);
+      scopes.set(userId, scope);
+    }
+    return scopeSeesProject(scope, project);
+  };
 }
 
 // The open issues of a milestone in display order, plus the unassigned ones
@@ -160,6 +190,7 @@ export function planWarnings(input: {
 
   const notices: Notice[] = [];
   const memory: WarningMemory[] = [];
+  const sees = projectVisibility(snapshot);
 
   // Records the outcome for one subject and, when the rule says so, emits
   // its notice.
@@ -216,10 +247,11 @@ export function planWarnings(input: {
         blockReason: null,
         openIssueIds: issues.open,
         unassignedIssueIds: issues.unassigned,
-        recipientIds: activeRecipients(snapshot, [
-          project?.leadId ?? null,
-          ...input.watcherUserIds,
-        ]),
+        recipientIds: activeRecipients(
+          snapshot,
+          [project?.leadId ?? null, ...input.watcherUserIds],
+          (id) => sees(id, milestone.projectId)
+        ),
         occurrence,
       };
     });
@@ -260,10 +292,11 @@ export function planWarnings(input: {
           blockReason: plan.blockReason,
           openIssueIds: issues.open,
           unassignedIssueIds: issues.unassigned,
-          recipientIds: activeRecipients(snapshot, [
-            ...input.watcherUserIds,
-            project?.leadId ?? null,
-          ]),
+          recipientIds: activeRecipients(
+            snapshot,
+            [...input.watcherUserIds, project?.leadId ?? null],
+            (id) => sees(id, plan.projectId)
+          ),
           occurrence,
         };
       }
@@ -343,6 +376,31 @@ function noticeLines(
   return lines;
 }
 
+// The open issues a notice counts, named so the message says what is open
+// and what is unassigned (§7.5), each linked to its planner issue page.
+// Keeps `openIssueIds` order (display order); ids missing from the snapshot
+// are skipped.
+function digestIssues(
+  snapshot: Snapshot,
+  notice: Notice,
+  baseUrl: string
+): DigestIssue[] {
+  const unassigned = new Set(notice.unassignedIssueIds);
+  const issues: DigestIssue[] = [];
+  for (const id of notice.openIssueIds) {
+    const issue = snapshot.issues.get(id);
+    if (issue === undefined) continue;
+    issues.push({
+      id,
+      identifier: issue.identifier,
+      title: issue.title,
+      unassigned: unassigned.has(id),
+      url: `${baseUrl}/issues/${encodeURIComponent(issue.identifier)}`,
+    });
+  }
+  return issues;
+}
+
 /**
  * One digest per recipient for today (§6.8). Items are sorted overdue →
  * at_risk → invalid_due_soon → allocation_blocked, then by milestone
@@ -419,6 +477,7 @@ export function buildDigests(input: {
       leadName: lead?.name ?? null,
       openCount: notice.openIssueIds.length,
       unassignedCount: notice.unassignedIssueIds.length,
+      openIssues: digestIssues(snapshot, notice, baseUrl),
       lines: noticeLines(snapshot, ctx, assessment, notice),
       url,
     };
@@ -434,13 +493,16 @@ export function buildDigests(input: {
   for (const [recipientId, items] of itemsByRecipient) {
     const user = snapshot.users.get(recipientId);
     if (user === undefined) continue;
-    digests.push({
+    // What this recipient may see (§2.13): items about projects outside
+    // their teams go, and each item names only the issues they can see.
+    const digest = visibleDigest(snapshot, viewerScope(snapshot, recipientId), {
       recipientId,
       recipientName: user.name,
       recipientEmail: user.email,
       day: ctx.today,
       items: items.sort(compareItems),
     });
+    if (digest.items.length > 0) digests.push(digest);
   }
   return digests.sort((a, b) => {
     const na = a.recipientName.toLowerCase();

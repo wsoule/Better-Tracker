@@ -77,14 +77,14 @@
 }
 
 a.cardName:focus-visible {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* Cards only draw at ≤ 900px, so the desktop width gate cannot apply;
    hover is still kept off touch screens. */
 @media (hover: hover) {
   a.cardName:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -98,7 +98,7 @@ a.cardName:focus-visible {
 }
 
 .cardSubAccent {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
@@ -154,7 +154,7 @@ a.cardName:focus-visible {
 }
 
 .rowMetaAccent {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
@@ -168,7 +168,7 @@ a.cardName:focus-visible {
 }
 
 .rowDueAccent {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .cardMuted .rowName,
@@ -183,5 +183,5 @@ a.cardName:focus-visible {
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }

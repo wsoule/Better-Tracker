@@ -78,8 +78,12 @@ when it sends people to Linear (arch §7 auth):
 - Anyone who edits issues, milestone dates or project leads grants `read,write`
   once, so Linear credits those edits to that person. There is no PM role:
   everyone signed in can edit everything (design §12, 2026-10-22).
-- The install uses `read,write` with `actor=app`. An `actor=app` install cannot
-  request `admin`.
+- The install uses `read,write,initiative:read` with `actor=app`. An `actor=app`
+  app user sees the workspace's initiatives only through `initiative:read`
+  (Linear changelog 2025-08-14; research: Linear OAuth 2.0 scopes), and every
+  sync reads them to group the timeline by initiative. An `actor=app` install
+  cannot request `admin`. An installation made before this scope was added must
+  be installed again from `/setup` so its grant carries it.
 
 What the planner relies on (arch §4.1, research: Linear OAuth 2.0, Q3–Q4):
 
@@ -95,6 +99,14 @@ What the planner relies on (arch §4.1, research: Linear OAuth 2.0, Q3–Q4):
   teams outside that grant, are invisible to the planner. An admin can change
   team access later in Linear. The next full sync then adds or drops those
   teams' data.
+- **Granted private teams stay private.** The planner reads team visibility and
+  membership and shows a private team's projects, milestones, issues, relations
+  and log entries only to its members; a Linear **guest** sees only the teams
+  they belong to, and no initiatives (arch §2.13). Membership changes show after
+  the next full sync (Linear sends no webhook for them). Digests follow the same
+  rule: a lead or watcher is never told about a project they cannot see, and a
+  digest names only issues its recipient can see. Guests can still do every
+  planner-only action everyone signed in can (settings, runs, resync).
 - If the workspace has **Third-Party App Approvals** turned on (paid plans), a
   member's first sign-in may become an approval request for an admin or owner
   (research: Linear OAuth 2.0, Q3). **Verify this in your workspace** before
@@ -204,13 +216,17 @@ One Railway project with three services:
      first build log** that Railway used `deploy/Dockerfile`. If it did not, use
      `/deploy/Dockerfile`.
 
-The image installs dependencies with `pnpm install --frozen-lockfile` and runs
-`scripts/build-all.sh`, which builds every package, the worker and the web app.
-**The build never touches the database.** Private networking exists only at
-runtime, not during the build (research: Railway deployment, "Private networking
-hostnames and protocol"). The Dockerfile declares no build arguments, so no
-variable or secret is baked into the image. Each service builds its own image
-from the same Dockerfile.
+The image downloads the locked dependencies with `pnpm fetch` (a layer that
+changes only with `pnpm-lock.yaml` and `pnpm-workspace.yaml`), installs them
+offline with `pnpm install --frozen-lockfile`, and runs `scripts/build-all.sh`,
+which builds every package, the worker and the web app. The image then ships
+only production dependencies (a fresh `pnpm install --prod`, no Next build
+cache). The web app starts from `apps/planner`; the worker's start command runs
+from the image's `/app`. **The build never touches the database.** Private
+networking exists only at runtime, not during the build (research: Railway
+deployment, "Private networking hostnames and protocol"). The Dockerfile
+declares no build arguments, so no variable or secret is baked into the image.
+Each service builds its own image from the same Dockerfile.
 
 ### `web` service
 
@@ -356,14 +372,14 @@ safely. There is no build-time or pre-deploy migration step.
    whose Slack email differs from their Linear email are reported as
    undeliverable once warnings are live.
 7. **Go live.** Anyone signed in switches **allocation** and **warnings** to
-   live in Settings → Modes (the switch is in Settings → Audit). Allocation
-   stays a dry run until someone switches it (design §7.4). The scheduled daily
-   job runs once per local day, so if today's already ran (as a dry run), the
-   first scheduled live allocation is tomorrow's; anyone can start one now with
-   **Runs → Run now**. When warnings go live, the warning memory resets, so the
-   first live run announces everything that is notable at that moment. A preview
-   digest already recorded today still counts as today's digest, so that first
-   live announcement goes out the next day (arch §7.1).
+   live in Settings → Modes (Settings → Audit records who switched it).
+   Allocation stays a dry run until someone switches it (design §7.4). The
+   scheduled daily job runs once per local day, so if today's already ran (as a
+   dry run), the first scheduled live allocation is tomorrow's; anyone can start
+   one now with **Runs → Run now**. When warnings go live, the warning memory
+   resets, so the first live run announces everything that is notable at that
+   moment. A preview digest already recorded today still counts as today's
+   digest, so that first live announcement goes out the next day (arch §7.1).
 
 ## 5. Operations
 
@@ -481,9 +497,11 @@ and nobody gets a second digest on the same day.
 - a token refresh is rejected (`invalid_grant`).
 
 Settings and `/setup` then show that a reinstall is needed. The worker stops
-syncing that workspace, and the error logs say why (arch §7.1). A Linear admin
-reinstalls from `/setup` and picks the teams again. A person whose own grant
-died simply signs in again.
+syncing that workspace, and every worker run reports it as a failed workspace
+(exit 1, an error log naming the reinstall), so the cron job turns red instead
+of quietly doing nothing while allocation and warnings have stopped (arch §7.1,
+§9). A Linear admin reinstalls from `/setup` and picks the teams again. A person
+whose own grant died simply signs in again.
 
 **Backups.** Back up the Railway Postgres database with whatever your Railway
 plan provides, or with `pg_dump` over a temporary public TCP proxy. With libpq,

@@ -57,7 +57,7 @@
   }
 
   .clear:not(:disabled):hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -76,6 +76,13 @@
 .clear:disabled {
   color: var(--muted);
   cursor: default;
+}
+
+/* 16px keeps iOS from zooming into the field (touch screens of any width). */
+@media (width <= 640px), (pointer: coarse) {
+  .input {
+    font-size: 16px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

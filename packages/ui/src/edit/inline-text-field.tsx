@@ -24,10 +24,14 @@ function singleLine(text: string): string {
   return text.replace(/\s*[\r\n]+\s*/g, ' ');
 }
 
-/** Grows a textarea to its content (where CSS field-sizing cannot). */
+/** Grows a textarea to its content (where CSS field-sizing cannot).
+    scrollHeight is content + padding, but the box is border-box, so the
+    borders are added back: without them the editor came out 2px shorter
+    than the text it replaces and everything below moved up on open. */
 function fitHeight(el: HTMLTextAreaElement): void {
   el.style.height = 'auto';
-  el.style.height = `${el.scrollHeight}px`;
+  const borders = el.offsetHeight - el.clientHeight;
+  el.style.height = `${el.scrollHeight + borders}px`;
 }
 
 /**

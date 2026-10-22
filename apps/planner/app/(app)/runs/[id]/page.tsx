@@ -49,11 +49,16 @@ export default async function RunPage({
   params: Promise<{ id: string }>;
 }) {
   const { id: raw } = await params;
-  const { engine, workspaceId } = await requireInstalledActor();
+  const { engine, actor, workspaceId } = await requireInstalledActor(
+    `/runs/${encodeURIComponent(raw)}`
+  );
   const id = parseRunId(raw);
   if (id === null) notFound();
   const [found, loaded] = await orSetup(
-    Promise.all([engine.getRun(workspaceId, id), engine.load(workspaceId)])
+    Promise.all([
+      engine.getRun(workspaceId, id, actor),
+      engine.load(workspaceId, actor),
+    ])
   );
   if (found === null) notFound();
   const model = buildRunDetail({
@@ -107,7 +112,7 @@ export default async function RunPage({
           </div>
         </section>
         {model.groups.length === 0 ? (
-          <EmptyState>
+          <EmptyState label="Nothing logged">
             This run logged nothing: no active project had an open milestone to
             plan.
           </EmptyState>

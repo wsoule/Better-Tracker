@@ -6,6 +6,8 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   parseCollapsed,
@@ -212,6 +214,27 @@ describe('TaskGroupTable structure', () => {
     expect(title.closest('[data-nav-target]')).not.toBeNull();
     // Rows without one draw no extra link.
     expect(view.queryByRole('link', { name: /A-2 in/ })).toBeNull();
+    // A word joiner glues the ↗ to the title's last word, so a wrapped
+    // title never leaves the icon on a line of its own.
+    expect(out.previousSibling?.textContent).toBe('\u2060');
+  });
+
+  test('rows stack by the table’s own width, not the viewport’s', () => {
+    // In the sidebar shell a 1024px window leaves the week table ~680px
+    // wide: a viewport query kept three fixed columns and a 70px title.
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'tasks',
+        'task-group-table.module.css'
+      ),
+      'utf8'
+    );
+    expect(css).toContain('container: task-table / inline-size;');
+    expect(css).toMatch(/@container task-table \(width < 720px\)/);
+    expect(css).not.toMatch(/@media \(width <= 900px\)/);
   });
 
   test('columns are configurable', () => {

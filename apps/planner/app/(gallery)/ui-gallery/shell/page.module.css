@@ -62,7 +62,7 @@
 }
 
 .monoAccent {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .progress {
@@ -94,7 +94,7 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
   border-bottom: 1px solid currentColor;
 }
 
@@ -103,6 +103,9 @@
   .row:focus-within {
     --background: var(--ink);
     --foreground: var(--paper);
+    --accent-ink: var(--accent-ink-inverse);
+    --accent-ink-hover: var(--accent-ink-inverse);
+    --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);
     --grey-3: var(--hairline-inverse);

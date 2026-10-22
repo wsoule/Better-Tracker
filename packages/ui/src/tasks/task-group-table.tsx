@@ -602,6 +602,11 @@ function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
             {primary}
           </span>
           {row.externalHref !== undefined ? (
+            // U+2060 WORD JOINER: no line break between the title's last
+            // word and the ↗.
+            <>{'\u2060'}</>
+          ) : null}
+          {row.externalHref !== undefined ? (
             <Link
               href={row.externalHref}
               className={styles.linkOut}

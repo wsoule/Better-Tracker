@@ -31,12 +31,15 @@ import type {
   MilestoneDrawerModel,
 } from '../../../lib/adapters/timeline';
 import { notSavedToast, sendJson } from '../../../lib/api-client';
+import { escapeResetsDraft } from '../../../lib/escape';
 import { formatDate } from '../../../lib/format';
 import type { IssueDrawerParts } from '../components/issue-drawer';
 import css from './page.module.css';
 
 interface MilestoneDrawerProps {
   open: boolean;
+  /** The milestone the URL asks for (?milestone=), loaded or not. */
+  milestoneId: string | null;
   /** A milestone was requested and its details are still on the way. */
   loading: boolean;
   model: MilestoneDrawerModel | null;
@@ -112,6 +115,7 @@ function useSave(): {
    a newly clicked milestone the panel is already open with a skeleton. */
 export default function MilestoneDrawer({
   open,
+  milestoneId,
   loading,
   model,
   fallbackTitle,
@@ -155,6 +159,7 @@ export default function MilestoneDrawer({
         breadcrumb={issue.breadcrumb}
         actions={issue.actions}
         closeLabel={issue.closeLabel}
+        contentKey={issue.contentKey}
       >
         {issue.body}
       </SlideOver>
@@ -164,6 +169,7 @@ export default function MilestoneDrawer({
     <SlideOver
       open={open}
       onClose={onClose}
+      contentKey={`milestone:${milestoneId ?? ''}`}
       title={ready ? model.title : fallbackTitle}
       breadcrumb={
         ready
@@ -729,6 +735,11 @@ function WeightField({
           placeholder="None"
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) =>
+            escapeResetsDraft(event, !unchanged, () =>
+              setDraft(current === null ? '' : String(current))
+            )
+          }
         />
         <Button size="sm" type="submit" disabled={unchanged || busy}>
           {busy ? 'Saving' : 'Save'}
@@ -809,6 +820,7 @@ function DoneMeansField({
             event.preventDefault();
             submit();
           }
+          escapeResetsDraft(event, draft !== current, () => setDraft(current));
         }}
       />
       <span className={css.fieldRow}>

@@ -3,12 +3,7 @@ import type { ReactNode } from 'react';
 /* The hatched titlebar every block opens with (the chrome zone of a
    technical drawing), using the global .blockBar classes so the whole app
    reads as one register. */
-export default function BlockBar({
-  index,
-  title,
-  meta,
-  children,
-}: {
+export interface BlockBarProps {
   /** Two-digit section key, e.g. "01". */
   index: string;
   title: string;
@@ -16,7 +11,14 @@ export default function BlockBar({
   meta?: ReactNode;
   /** Extra controls placed before the meta. */
   children?: ReactNode;
-}) {
+}
+
+export default function BlockBar({
+  index,
+  title,
+  meta,
+  children,
+}: BlockBarProps): ReactNode {
   return (
     <div className="blockBar">
       <span className="blockKey">{index}</span>

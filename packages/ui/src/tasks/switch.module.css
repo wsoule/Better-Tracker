@@ -43,12 +43,12 @@
 }
 
 .switch:focus-visible .label {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {
   .switch:not(:disabled):hover .label {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 

@@ -146,7 +146,7 @@
 }
 
 .liveError .liveKey {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .empty {
@@ -210,7 +210,7 @@
   font-size: 9.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .body {
@@ -361,7 +361,7 @@
   }
 
   .point:hover .pointLabel {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .point:hover .pointMark {
@@ -435,12 +435,12 @@
 }
 
 a.laneName:focus-visible {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {
   a.laneName:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -465,12 +465,12 @@ a.laneName:focus-visible {
 }
 
 .laneSubAccent {
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 700;
 }
 
 .laneEdges {
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .laneMuted .laneName {
@@ -486,7 +486,7 @@ a.laneName:focus-visible {
 }
 
 .laneFocus .laneName {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .laneFocus .track {

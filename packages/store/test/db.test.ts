@@ -246,8 +246,8 @@ describe('pgSqlOverPools: a pooler that refuses the startup option', () => {
       ]);
       expect([a, b, tx]).toEqual([[{ ok: 1 }], [{ ok: 1 }], [{ ok: 1 }]]);
       expect(made.map((m) => m.config)).toEqual([
-        pgConnectionConfig(URL),
-        { connectionString: URL },
+        { ...pgConnectionConfig(URL), connectionTimeoutMillis: 10_000 },
+        { connectionString: URL, connectionTimeoutMillis: 10_000 },
       ]);
       expect(made[1]?.ran).toEqual([
         'SELECT 1 AS ok',
@@ -303,6 +303,43 @@ describe('pgSqlOverPools: a pooler that refuses the startup option', () => {
     [null, false],
   ])('isStartupOptionRefused(%p) is %p', (error, expected) => {
     expect(isStartupOptionRefused(error)).toBe(expected);
+  });
+});
+
+describe('pgSqlOverPools: an unreachable database', () => {
+  test('a server that never answers fails the call within the connect timeout', async () => {
+    const { createServer } = await import('node:net');
+    const { Pool: PgPool } = await import('pg');
+    // Accepts TCP connections and never says a word, like a host whose
+    // packets are dropped after the handshake.
+    const sockets: import('node:net').Socket[] = [];
+    const server = createServer((socket) => sockets.push(socket));
+    await new Promise<void>((resolve) =>
+      server.listen(0, '127.0.0.1', resolve)
+    );
+    const address = server.address();
+    const port =
+      typeof address === 'object' && address !== null ? address.port : 0;
+    const silent = pgSqlOverPools(
+      (config) => new PgPool(config),
+      `postgres://nobody@127.0.0.1:${port}/x`,
+      undefined,
+      { connectTimeoutMs: 200 }
+    );
+    try {
+      const started = Date.now();
+      const error = await rejection(silent.query('SELECT 1'));
+      expect(error.message).toMatch(/timeout/i);
+      expect(Date.now() - started).toBeLessThan(5_000);
+      const txError = await rejection(
+        silent.transaction((tx) => tx.query('SELECT 1'))
+      );
+      expect(txError.message).toMatch(/timeout/i);
+    } finally {
+      await silent.close();
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 });
 

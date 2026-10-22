@@ -39,6 +39,11 @@ import {
   getTimelineView,
   getWeekView,
 } from './views';
+import {
+  viewerSnapshot,
+  visibleAuditEntries,
+  visibleRunEntries,
+} from './visibility';
 import { runWarnings } from './warning-run';
 import { handleWebhook } from './webhooks';
 
@@ -57,9 +62,9 @@ export function createEngine(deps: EngineDeps): Engine {
     signOut: (token) => signOut(rt, token),
     listDemoUsers: () => listDemoUsers(rt),
 
-    load: async (workspaceId): Promise<LoadedWorkspace> => {
+    load: async (workspaceId, viewer): Promise<LoadedWorkspace> => {
       // Hand out the contract's shape only (no internal eval context).
-      const loaded = await loadWorkspace(rt, workspaceId);
+      const loaded = await loadWorkspace(rt, workspaceId, { viewer });
       return {
         workspaceId: loaded.workspaceId,
         snapshot: loaded.snapshot,
@@ -73,16 +78,34 @@ export function createEngine(deps: EngineDeps): Engine {
     },
     getSettings: async (workspaceId) =>
       (await readSettings(rt, workspaceId)).settings,
-    getWeekView: (workspaceId, userId) => getWeekView(rt, workspaceId, userId),
-    getTimelineView: (workspaceId) => getTimelineView(rt, workspaceId),
-    getGraph: (workspaceId, scope) => getGraph(rt, workspaceId, scope),
-    getMilestoneDetail: (workspaceId, milestoneId) =>
-      getMilestoneDetail(rt, workspaceId, milestoneId),
+    getWeekView: (workspaceId, userId, viewer) =>
+      getWeekView(rt, workspaceId, userId, viewer),
+    getTimelineView: (workspaceId, viewer) =>
+      getTimelineView(rt, workspaceId, viewer),
+    getGraph: (workspaceId, scope, viewer) =>
+      getGraph(rt, workspaceId, scope, viewer),
+    getMilestoneDetail: (workspaceId, milestoneId, viewer) =>
+      getMilestoneDetail(rt, workspaceId, milestoneId, viewer),
     listRuns: (workspaceId, limit) => deps.store.listRuns(workspaceId, limit),
-    getRun: (workspaceId, runId) => deps.store.getRun(workspaceId, runId),
+    getRun: async (workspaceId, runId, viewer) => {
+      const found = await deps.store.getRun(workspaceId, runId);
+      if (found === null || viewer === undefined) return found;
+      const loaded = await loadWorkspace(rt, workspaceId, { viewer });
+      const seen = viewerSnapshot(loaded.fullSnapshot, workspaceId, viewer);
+      return {
+        run: found.run,
+        entries: visibleRunEntries(loaded.fullSnapshot, seen, found.entries),
+      };
+    },
     listNotifications: (workspaceId, limit) =>
       deps.store.listNotifications(workspaceId, { limit }),
-    listAudit: (workspaceId, limit) => deps.store.listAudit(workspaceId, limit),
+    listAudit: async (workspaceId, limit, viewer) => {
+      const entries = await deps.store.listAudit(workspaceId, limit);
+      if (viewer === undefined) return entries;
+      const loaded = await loadWorkspace(rt, workspaceId, { viewer });
+      const seen = viewerSnapshot(loaded.fullSnapshot, workspaceId, viewer);
+      return visibleAuditEntries(loaded.fullSnapshot, seen, entries);
+    },
     getInstallation: async (workspaceId) => {
       const installation = await deps.store.getInstallation(workspaceId);
       return installation === null ? null : publicInstallation(installation);
@@ -104,6 +127,10 @@ export function createEngine(deps: EngineDeps): Engine {
     listWorkspaceIds: async () =>
       (await deps.store.listInstallations())
         .filter((installation) => installation.revokedAt === null)
+        .map((installation) => installation.workspaceId),
+    listRevokedWorkspaceIds: async () =>
+      (await deps.store.listInstallations())
+        .filter((installation) => installation.revokedAt !== null)
         .map((installation) => installation.workspaceId),
 
     setMilestoneTargetDate: (actor, milestoneId, targetDate) =>

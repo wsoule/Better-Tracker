@@ -251,6 +251,42 @@ describe('planAllocation: blocked and quiet outcomes', () => {
     });
   });
 
+  test.each([
+    ['no lead', { leadId: null }, [user('lead')], 'no_lead'],
+    [
+      'a deactivated lead',
+      {},
+      [user('lead', { active: false })],
+      'lead_inactive',
+    ],
+  ] as const)(
+    'a project with %s and no open milestone is still blocked (design §6.1)',
+    (_name, overrides, users, blockReason) => {
+      const done = issue('d', {
+        projectId: 'p1',
+        milestoneId: 'm1',
+        stateId: STATE.done,
+      });
+      const p1 = projectPlan(
+        plan(
+          workspace({
+            users: [...users],
+            projects: [project('p1', overrides)],
+            milestones: [milestone('m1', 'p1')],
+            issues: [done],
+          })
+        ),
+        'p1'
+      );
+      expect(p1).toMatchObject({
+        outcome: 'blocked',
+        blockReason,
+        nextMilestoneId: null,
+        actions: [],
+      });
+    }
+  );
+
   test.each<[ProjectStatusType, ProjectAllocationOutcome]>([
     ['backlog', 'inactive'],
     ['paused', 'inactive'],

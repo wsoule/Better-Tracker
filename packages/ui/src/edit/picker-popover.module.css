@@ -139,7 +139,7 @@
   }
 
   .quiet:not(:disabled):hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -163,7 +163,7 @@
 }
 
 .placeholder.accent {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .placeholder.plain {
@@ -302,6 +302,8 @@
   font-size: 12px;
   font-weight: 400;
   letter-spacing: 0.01em;
+  /* A placeholder longer than the field ends in "…", not mid-word. */
+  text-overflow: ellipsis;
 }
 
 .input:focus-visible {
@@ -388,6 +390,9 @@
 .option[data-active='true'] {
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
   --ink-soft: var(--ink-soft-inverse);
@@ -471,7 +476,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* On the active fill the accent would be too faint: the row's own ink. */
@@ -525,7 +530,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .errorText {

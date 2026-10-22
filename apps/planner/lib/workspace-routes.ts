@@ -150,18 +150,63 @@ export async function startRun<E extends RunEngine>(
 
 export type SyncEngine = Pick<Engine, 'fullSync'>;
 
-/** POST /api/sync {}: a full resync from Linear. 200 { sync }. */
+/** Minimum time between two resyncs of one workspace started from the web. */
+export const RESYNC_COOLDOWN_MS = 60_000;
+
+/**
+ * When the last web resync of each workspace was accepted. A full sync
+ * pages every Linear connection with the app's token, whose hourly quota
+ * allocation, webhook refetches and the worker's sync share, so the route
+ * accepts one per workspace per minute (the engine also joins concurrent
+ * syncs of a workspace into one). Per process, like the engine.
+ */
+export interface ResyncCooldown {
+  now: () => number;
+  acceptedAt: Map<string, number>;
+}
+
+export function createResyncCooldown(
+  now: () => number = Date.now
+): ResyncCooldown {
+  return { now, acceptedAt: new Map() };
+}
+
+const processCooldown = createResyncCooldown();
+
+/**
+ * POST /api/sync {}: a full resync from Linear. 200 { sync }; 429
+ * resync_cooldown with Retry-After (seconds) when this workspace was
+ * resynced from the web less than RESYNC_COOLDOWN_MS ago.
+ */
 export async function resync<E extends SyncEngine>(
   request: Request,
-  resolve: ApiActorResolver<E>
+  resolve: ApiActorResolver<E>,
+  cooldown: ResyncCooldown = processCooldown
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
   const body = await readJson(request, emptyBodySchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
+  const workspaceId = actor.session.workspaceId;
+  const now = cooldown.now();
+  const last = cooldown.acceptedAt.get(workspaceId);
+  if (last !== undefined && now - last < RESYNC_COOLDOWN_MS) {
+    const seconds = Math.max(
+      1,
+      Math.ceil((last + RESYNC_COOLDOWN_MS - now) / 1000)
+    );
+    return jsonError(
+      429,
+      'resync_cooldown',
+      `Resynced less than a minute ago. Try again in ${seconds} s.`,
+      {},
+      { 'Retry-After': String(seconds) }
+    );
+  }
+  cooldown.acceptedAt.set(workspaceId, now);
   try {
-    const sync = await engine.fullSync(actor.session.workspaceId);
+    const sync = await engine.fullSync(workspaceId);
     return Response.json({ sync });
   } catch (error) {
     return errorResponse(error);
@@ -184,9 +229,11 @@ export async function previewWarnings<E extends PreviewEngine>(
   if (body instanceof Response) return body;
   const { engine, actor } = context;
   try {
+    // Everyone's digests, as far as the person asking may see (§2.13).
     const result = await engine.runWarnings({
       workspaceId: actor.session.workspaceId,
       previewOnly: true,
+      viewer: actor,
     });
     return Response.json({ preview: digestPreview(result) });
   } catch (error) {

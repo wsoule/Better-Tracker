@@ -256,6 +256,16 @@ interface MirrorInsertRow {
   data: unknown;
 }
 
+/**
+ * How long withInstallationLock / withSessionLock wait for the row lock
+ * (Postgres lock_timeout, local to the lock's transaction). A holder
+ * refreshes tokens with Linear, which the OAuth client bounds at 15 s
+ * (OAUTH_TIMEOUT_MS in @better-tracker/linear), so waiters normally get
+ * the lock well within this; past it they fail with 55P03 instead of
+ * piling up on pool connections behind a stuck holder.
+ */
+const TOKEN_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '30s'";
+
 const INSTALLATION_COLUMNS = `workspace_id, workspace_name, url_key, app_user_id,
   installed_by_user_id, revoked_at, access_token_enc, refresh_token_enc,
   token_expires_at, token_scopes, created_at, updated_at`;
@@ -388,11 +398,12 @@ function withoutRetiredSettings(
 const LONE_SURROGATE =
   /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
 
-// Makes a string storable in jsonb. jsonb rejects U+0000 and lone
-// surrogates outright, so a single such character in one mirrored title
-// would otherwise fail a whole replaceMirror (and every later full sync).
-// NUL is dropped; a lone surrogate becomes U+FFFD, the same replacement a
-// UTF-8 encoder makes for plain text parameters.
+// Makes a string storable in jsonb and text columns. jsonb rejects U+0000
+// and lone surrogates outright, so a single such character in one mirrored
+// title would otherwise fail a whole replaceMirror (and every later full
+// sync); text rejects U+0000 too. NUL is dropped; a lone surrogate becomes
+// U+FFFD, the same replacement a UTF-8 encoder makes for plain text
+// parameters. write() applies it to every string parameter.
 function storableString(value: string): string {
   return value.replaceAll('\u0000', '').replace(LONE_SURROGATE, '�');
 }
@@ -632,8 +643,16 @@ class SqlStore implements Store {
   // with a serialization error instead, and an ON CONFLICT DO NOTHING
   // claim reports that error rather than "already claimed". Plain reads
   // stay single statements.
+  // Runs one write statement in its own transaction. String parameters
+  // go through storableString first: Postgres rejects U+0000 in text as
+  // in jsonb ("invalid byte sequence"), so a NUL in free text (an error
+  // message, "done means…") must not fail the write. The engine refuses
+  // control characters in what people type; this is the backstop.
   private write<T>(text: string, params?: readonly SqlParam[]): Promise<T[]> {
-    return this.sql.transaction((tx) => tx.query<T>(text, params));
+    const cleaned = params?.map((param) =>
+      typeof param === 'string' ? storableString(param) : param
+    );
+    return this.sql.transaction((tx) => tx.query<T>(text, cleaned));
   }
 
   // The four token columns shared by installations and sessions, in the
@@ -762,6 +781,8 @@ class SqlStore implements Store {
    * writes fn's rotated tokens in the same transaction, so a concurrent
    * refresher waits and then sees the new refresh token. fn must not call
    * the store itself: on PGlite the transaction owns the only connection.
+   * A waiter gives up after 30 s (TOKEN_LOCK_TIMEOUT, Postgres 55P03)
+   * instead of holding a pool connection behind a stuck holder.
    */
   withInstallationLock<T>(
     workspaceId: string,
@@ -770,6 +791,7 @@ class SqlStore implements Store {
     ) => Promise<{ result: T; tokens?: StoredTokens }>
   ): Promise<T> {
     return this.sql.transaction(async (tx) => {
+      await tx.query(TOKEN_LOCK_TIMEOUT);
       const rows = await tx.query<InstallationRow>(
         `SELECT ${INSTALLATION_COLUMNS} FROM installations
          WHERE workspace_id = $1 FOR UPDATE`,
@@ -852,6 +874,7 @@ class SqlStore implements Store {
     fn: (session: Session) => Promise<{ result: T; tokens?: StoredTokens }>
   ): Promise<T> {
     return this.sql.transaction(async (tx) => {
+      await tx.query(TOKEN_LOCK_TIMEOUT);
       const rows = await tx.query<SessionRow>(
         `SELECT ${SESSION_COLUMNS} FROM sessions WHERE id = $1 FOR UPDATE`,
         [sessionId]

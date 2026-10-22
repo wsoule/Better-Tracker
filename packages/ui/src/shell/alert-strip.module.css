@@ -15,7 +15,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
   white-space: nowrap;
 }
 
@@ -37,7 +37,7 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
   border-bottom: 1px solid currentColor;
   white-space: nowrap;
   transition: color 0.15s ease;
@@ -45,7 +45,7 @@
 
 .action:hover,
 .action:focus-visible {
-  color: var(--accent-hover);
+  color: var(--accent-ink-hover);
 }
 
 @media (width <= 640px) {

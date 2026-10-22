@@ -21,7 +21,7 @@
 
 .rowKey {
   flex: 0 0 52px;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 700;

@@ -48,11 +48,17 @@ import {
 
 const DAY_MS = 86_400_000;
 
-/** Scopes requested per intent (comma-separated in the authorize URL). */
+/**
+ * Scopes requested per intent (comma-separated in the authorize URL). The
+ * install adds `initiative:read`: Linear's 2025-08-14 changelog gives an
+ * actor=app user the workspace's initiatives only through that scope
+ * (research.md, Linear OAuth 2.0 scopes), and every full sync reads them
+ * (the timeline groups projects by initiative).
+ */
 export const OAUTH_SCOPES: Record<OAuthIntent, readonly string[]> = {
   signin: ['read'],
   grant_write: ['read', 'write'],
-  install: ['read', 'write'],
+  install: ['read', 'write', 'initiative:read'],
 };
 
 /** Tokens demo-mode sessions and the demo installation carry. */

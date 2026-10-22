@@ -34,6 +34,13 @@
   flex: 1 1 260px;
 }
 
+/* The key on its own line above the sentence. */
+.emptyKey {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--foreground);
+}
+
 .emptyAction {
   flex: none;
   font-family: var(--font-body);

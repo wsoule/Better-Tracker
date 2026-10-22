@@ -31,16 +31,42 @@ tasks:
       - 'public/**/*'
       - 'next.config.ts'
       - 'tsconfig.json'
+      - 'global.d.ts'
     outputs:
       - '.next'
     env:
       NEXT_TELEMETRY_DISABLED: '1'
 
+  # Same port as dev (3000 + the worktree offset) unless PORT is set.
   start:
-    script: 'next start --port "${PORT:-3000}"'
+    script:
+      'PORT="${PORT:-$(( ${WORKTREE_PORT_OFFSET:-0} + 3000 ))}" && next start
+      --port "$PORT"'
     deps:
       - 'build'
     options:
       cache: false
       persistent: true
       runInCI: 'skip'
+      envFile: '/.env.worktree'
+
+  # Browser smoke test (Playwright, e2e/*.e2e.ts, playwright.config.ts): a
+  # production build served by `next start` in demo mode on E2E_PORT
+  # (default 3390 + the worktree offset). Needs a Chromium for Playwright
+  # 1.56 (`playwright install chromium`, or PLAYWRIGHT_CHROMIUM_PATH /
+  # PLAYWRIGHT_BROWSERS_PATH pointing at one). A `moon ci` target in
+  # .github/workflows/ci.yml, which installs that Chromium first, so it runs
+  # in CI whenever the planner or anything it depends on changed. moon ci
+  # runs only the targets it is given, so the graph edge pulls it in nowhere
+  # else.
+  test-e2e:
+    command: 'playwright test'
+    deps:
+      - 'build'
+    inputs:
+      - 'e2e/**/*'
+      - 'playwright.config.ts'
+    options:
+      cache: false
+      runInCI: true
+      envFile: '/.env.worktree'

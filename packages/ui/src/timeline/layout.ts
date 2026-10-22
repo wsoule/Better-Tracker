@@ -204,7 +204,7 @@ function packLane(bars: { left: number; right: number }[]): {
   lineOf: number[];
 } {
   const order = bars
-    .map((b, i) => i)
+    .map((_bar, i) => i)
     .sort((a, b) => {
       const ba = bars[a];
       const bb = bars[b];

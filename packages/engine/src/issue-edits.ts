@@ -39,7 +39,12 @@ import {
   isLinearApiError,
   linearWrite,
 } from './linear-errors';
-import { characterCount, snapshotFor } from './milestone-edits';
+import {
+  characterCount,
+  hasControlCharacter,
+  snapshotFor,
+  snapshotsFor,
+} from './milestone-edits';
 import { requireWriteScope } from './permissions';
 import { type EngineRuntime } from './runtime';
 import { type Actor, EngineInputError, type IssueUpdateResult } from './types';
@@ -139,6 +144,9 @@ export function normalizeIssuePatch(raw: unknown): IssuePatch {
     if (trimmed === '') throw invalid('The title cannot be empty.');
     if (LINE_BREAK.test(trimmed)) {
       throw invalid('The title must be a single line.');
+    }
+    if (hasControlCharacter(trimmed)) {
+      throw invalid('The title cannot contain control characters.');
     }
     if (characterCount(trimmed) > ISSUE_TITLE_MAX_LENGTH) {
       throw invalid(
@@ -625,7 +633,7 @@ export async function updateIssue(
     op: 'issue_update',
   });
   return rt.serialize(`issue\u0000${workspaceId}\u0000${issueId}`, async () => {
-    const snapshot = await snapshotFor(rt, actor);
+    const { full, visible: snapshot } = await snapshotsFor(rt, actor);
     const issue = findIssue(snapshot, issueId);
     const linearPatch = checkAgainstMirror(snapshot, issue, patch);
 
@@ -673,12 +681,7 @@ export async function updateIssue(
             ),
           }
         : written;
-    await patchMirror(
-      rt,
-      workspaceId,
-      issueMirrorChanges(snapshot, updated),
-      log
-    );
+    await patchMirror(rt, workspaceId, issueMirrorChanges(full, updated), log);
     await audit(
       rt,
       actor,
@@ -757,7 +760,7 @@ export async function addBlocker(
   return rt.serialize(
     `relations\u0000${workspaceId}\u0000${issueId}`,
     async () => {
-      const snapshot = await snapshotFor(rt, actor);
+      const { full, visible: snapshot } = await snapshotsFor(rt, actor);
       const issue = findIssue(snapshot, issueId);
       const blocker = findIssue(snapshot, blockerIssueId, 'blocking issue');
       if (blocker.id === issue.id)
@@ -778,7 +781,7 @@ export async function addBlocker(
       await refreshRelations(
         rt,
         workspaceId,
-        snapshot,
+        full,
         [issue.id, blocker.id],
         { upsert: [{ kind: 'relation', entity: relation }], remove: [] },
         log
@@ -817,7 +820,7 @@ export async function removeRelation(
 ): Promise<void> {
   requireWriteScope(actor);
   const workspaceId = actor.session.workspaceId;
-  const snapshot = await snapshotFor(rt, actor);
+  const { full, visible: snapshot } = await snapshotsFor(rt, actor);
   const relation =
     typeof relationId === 'string'
       ? snapshot.data.relations.find((r) => r.id === relationId)
@@ -846,7 +849,7 @@ export async function removeRelation(
   await refreshRelations(
     rt,
     workspaceId,
-    snapshot,
+    full,
     [relation.blockedId, relation.blockerId],
     { upsert: [], remove: [{ kind: 'relation', id: relation.id }] },
     log

@@ -31,6 +31,21 @@ export const HISTORY_PAGE_SIZE = 50;
  * direction of `orderBy: createdAt`, so the gateway sorts what it read
  * oldest first and reports `commentsTruncated` when more remain.
  */
+/**
+ * Ancestors read above an issue's team for estimate inheritance: Linear
+ * nests teams up to five levels deep (Enterprise; changelog 2026-04-09,
+ * "multi-level sub-teams"), so the deepest team has four.
+ */
+export const TEAM_ANCESTOR_LEVELS = 4;
+
+// `{ ...EstimateScaleFields parent { …levels more… } }` for the issue
+// detail's team: the team itself plus `levels` ancestors.
+function estimateScaleChain(levels: number): string {
+  return levels === 0
+    ? '{ ...EstimateScaleFields }'
+    : `{ ...EstimateScaleFields parent ${estimateScaleChain(levels - 1)} }`;
+}
+
 export const ISSUE_COMMENTS_PAGE_SIZE = 50;
 export const ISSUE_COMMENTS_MAX_PAGES = 4;
 export const ISSUE_COMMENTS_MAX: number =
@@ -54,13 +69,19 @@ fragment UserFields on User {
   active
   avatarUrl
   app
+  guest
 }`;
 
+// visibility (public | private | restricted; Team.private is deprecated in
+// its favour) and the parent decide who may see a team (architecture
+// §2.13); members come from TEAM_MEMBERSHIPS_QUERY.
 const TEAM_FIELDS = `
 fragment TeamFields on Team {
   id
   key
   name
+  visibility
+  parent { id }
 }`;
 
 const WORKFLOW_STATE_FIELDS = `
@@ -164,7 +185,8 @@ fragment CommentFields on Comment {
 }`;
 
 // A team's estimate settings. A sub-team may inherit them from its parent,
-// so the issue detail reads two parent levels with the same fragment.
+// at every level, so the issue detail reads the team's ancestors with the
+// same fragment (TEAM_ANCESTOR_LEVELS of them).
 const ESTIMATE_SCALE_FIELDS = `
 fragment EstimateScaleFields on Team {
   id
@@ -226,6 +248,19 @@ query Teams($first: Int!, $after: String) {
   }
 }
 ${TEAM_FIELDS}`;
+
+/**
+ * Every team membership the app can see (root connection, archived ones
+ * left out by default): who belongs to which team, for per-viewer
+ * visibility.
+ */
+export const TEAM_MEMBERSHIPS_QUERY: string = `
+query TeamMemberships($first: Int!, $after: String) {
+  teamMemberships(first: $first, after: $after) {
+    nodes { team { id } user { id } }
+    ${PAGE_INFO}
+  }
+}`;
 
 export const WORKFLOW_STATES_QUERY: string = `
 query WorkflowStates($first: Int!, $after: String) {
@@ -454,13 +489,7 @@ query IssueDetail($id: String!) {
     dueDate
     archivedAt
     trashed
-    team {
-      ...EstimateScaleFields
-      parent {
-        ...EstimateScaleFields
-        parent { ...EstimateScaleFields }
-      }
-    }
+    team ${estimateScaleChain(TEAM_ANCESTOR_LEVELS)}
     labels(first: ${ISSUE_LABELS_PAGE_SIZE}, includeArchived: true) {
       nodes { ...IssueLabelFields }
       ${PAGE_INFO}

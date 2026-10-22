@@ -18,6 +18,7 @@ import {
   type EngineConfig,
   type EngineDeps,
   type LinearProvider,
+  type SyncResult,
 } from './types';
 
 /** An indexed mirror and the store version it was built from. */
@@ -41,6 +42,13 @@ export interface MirrorCache {
   forget(workspaceId: string): void;
 }
 
+/** A full sync running in this process (single-flight per workspace). */
+export interface InFlightSync {
+  /** rt.clock() when it started, in epoch ms. */
+  startedAtMs: number;
+  result: Promise<SyncResult>;
+}
+
 export interface EngineRuntime {
   deps: EngineDeps;
   store: Store;
@@ -58,6 +66,8 @@ export interface EngineRuntime {
    * not overwrite each other within this process.
    */
   serialize<T>(key: string, fn: () => Promise<T>): Promise<T>;
+  /** The full sync each workspace has running, if any (see fullSync). */
+  syncs: Map<string, InFlightSync>;
 }
 
 /**
@@ -147,6 +157,7 @@ export function createRuntime(deps: EngineDeps): EngineRuntime {
     fetch: deps.fetch,
     mirror: createMirrorCache(deps.store),
     serialize: createKeyedSerializer(),
+    syncs: new Map(),
   };
 }
 

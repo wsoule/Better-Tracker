@@ -82,6 +82,8 @@
   font-size: 13px;
   font-weight: 400;
   letter-spacing: 0.01em;
+  /* A placeholder longer than the field ends in "…", not mid-word. */
+  text-overflow: ellipsis;
 }
 
 .input:focus-visible {
@@ -147,7 +149,7 @@
 }
 
 .groupError {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .groupCount {
@@ -175,6 +177,9 @@
 .option[aria-selected='true'] {
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
   --ink-soft: var(--ink-soft-inverse);
@@ -204,9 +209,14 @@
   white-space: nowrap;
 }
 
+/* The hint gives way first: it starts from no width and only takes the
+   room the label leaves, so on a phone "Schema cutover" stays whole and its
+   project hint ellipsizes. (A large shrink factor still took a fraction of
+   a pixel from the label, which ellipsized it.) The label shrinks only once
+   the hint is down to its 3em. */
 .optionHint {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 1 1 0;
+  min-width: 3em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -224,7 +234,7 @@
 
 .hit {
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -394,6 +404,13 @@
 }
 
 /* ---- phones ---------------------------------------------------------- */
+
+/* 16px keeps iOS from zooming into the field (touch screens of any width). */
+@media (width <= 640px), (pointer: coarse) {
+  .input {
+    font-size: 16px;
+  }
+}
 
 @media (width <= 640px) {
   .layer {

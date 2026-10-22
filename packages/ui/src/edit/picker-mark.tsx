@@ -12,7 +12,11 @@ import type { PickerMark } from './types';
    a client module, so a read-only face renders on the server too. The
    marks are decorative (the label is always printed beside them) except
    the status square, which names its status. */
-export function PickerMarkView({ mark }: { mark: PickerMark }): ReactNode {
+export interface PickerMarkViewProps {
+  mark: PickerMark;
+}
+
+export function PickerMarkView({ mark }: PickerMarkViewProps): ReactNode {
   switch (mark.kind) {
     case 'state':
       return <StateGlyph kind={mark.state} size={13} />;

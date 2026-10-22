@@ -43,7 +43,12 @@ tsconfig.tsbuildinfo
 !.env.example
 # Local PGlite data (planner dev server, worker in dev)
 .data/
+# Playwright output (planner e2e)
+test-results/
+playwright-report/
 
 # moon (generated per-clone/worktree state)
 .moon/cache/
 .moon/hooks/
+# Tarballs from `pnpm pack` (packages/ui/README.md)
+*.tgz

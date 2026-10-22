@@ -3,9 +3,11 @@ import { z } from 'zod';
 
 import {
   authErrorLocation,
+  DEFAULT_RETURN_TO,
   isSecureUrl,
   readCookie,
   redirectWithCookies,
+  sanitizeReturnTo,
   SESSION_COOKIE,
   sessionCookie,
 } from '../../../../lib/auth-cookies';
@@ -13,13 +15,18 @@ import { authErrorCode, signOutQuietly } from '../../../../lib/auth-flow';
 import { jsonError, rejectCrossOrigin } from '../../../../lib/origin';
 import { getEngine } from '../../../../lib/runtime';
 
-const demoForm = z.object({ userId: z.string().trim().min(1).max(200) });
+const demoForm = z.object({
+  userId: z.string().trim().min(1).max(200),
+  // Where the picker was opened from (sanitized below; default My week).
+  returnTo: z.string().max(2048).optional(),
+});
 
 /**
- * POST /api/auth/demo (form field userId): demo mode only (404 elsewhere),
- * same-origin only. Signs in as a fictional person, ends the session it
- * replaces, and opens My week with a 303. Failures go back to the picker
- * with ?auth_error=<code>.
+ * POST /api/auth/demo (form fields userId, optional returnTo): demo mode
+ * only (404 elsewhere), same-origin only. Signs in as a fictional person,
+ * ends the session it replaces, and opens returnTo (a relative path, else
+ * My week) with a 303. Failures go back to the picker with
+ * ?auth_error=<code>.
  */
 export async function POST(request: Request): Promise<Response> {
   const engine = await getEngine();
@@ -46,7 +53,8 @@ export async function POST(request: Request): Promise<Response> {
     if (previous !== undefined && previous !== result.sessionToken) {
       after(() => signOutQuietly(engine, previous));
     }
-    return redirectWithCookies('/week', [
+    const target = sanitizeReturnTo(parsed.data.returnTo, DEFAULT_RETURN_TO);
+    return redirectWithCookies(target, [
       sessionCookie(result.sessionToken, result.session.expiresAt, {
         secure: isSecureUrl(engine.config.appUrl),
         nowMs: Date.now(),

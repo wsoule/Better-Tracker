@@ -121,11 +121,76 @@ function bootstrapSettings(input: {
 }
 
 /**
- * Full resync of one workspace. On success the mirror is replaced and the
- * sync recorded as ok; on failure the failure is recorded on sync_state and
- * the error rethrown (the mirror is left as it was).
+ * How long a caller waits for the full sync already running for its
+ * workspace, counted from that sync's start on the engine clock. One
+ * GraphQL attempt may take up to its 30 s timeout and a request makes up
+ * to four attempts, so a sync still running after two minutes is treated
+ * as stuck: later callers then run their own instead of waiting on it.
+ */
+export const SYNC_JOIN_WAIT_MS = 120_000;
+
+/** What raceJoin resolves with when the running sync took too long. */
+const GAVE_UP = Symbol('gave up waiting');
+
+// The running sync's outcome, or GAVE_UP once `waitMs` of real time pass.
+async function raceJoin(
+  running: Promise<SyncResult>,
+  waitMs: number
+): Promise<SyncResult | typeof GAVE_UP> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof GAVE_UP>((resolve) => {
+    timer = setTimeout(() => resolve(GAVE_UP), waitMs);
+  });
+  try {
+    return await Promise.race([running, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Full resync of one workspace, single-flight per workspace within this
+ * process: a caller that finds a sync running for its workspace shares
+ * that sync's result (or its error) instead of paging all of Linear again
+ * with the app's token, whose hourly quota allocation and webhooks share.
+ * The wait is bounded (SYNC_JOIN_WAIT_MS from the running sync's start),
+ * so a hung sync never holds later callers: past it they run their own,
+ * which then becomes the one others join. See runFullSync for what a sync
+ * does.
  */
 export async function fullSync(
+  rt: EngineRuntime,
+  workspaceId: string
+): Promise<SyncResult> {
+  const running = rt.syncs.get(workspaceId);
+  if (running !== undefined) {
+    const waitMs =
+      running.startedAtMs + SYNC_JOIN_WAIT_MS - rt.clock().getTime();
+    if (waitMs > 0) {
+      const joined = await raceJoin(running.result, waitMs);
+      if (joined !== GAVE_UP) return joined;
+    }
+    rt.logger.warn('a full sync is still running; starting another', {
+      workspaceId,
+      runningSince: new Date(running.startedAtMs).toISOString(),
+    });
+  }
+  const own = runFullSync(rt, workspaceId);
+  const entry = { startedAtMs: rt.clock().getTime(), result: own };
+  rt.syncs.set(workspaceId, entry);
+  const forget = (): void => {
+    if (rt.syncs.get(workspaceId) === entry) rt.syncs.delete(workspaceId);
+  };
+  own.then(forget, forget);
+  return own;
+}
+
+/**
+ * One full resync. On success the mirror is replaced and the sync recorded
+ * as ok; on failure the failure is recorded on sync_state and the error
+ * rethrown (the mirror is left as it was).
+ */
+async function runFullSync(
   rt: EngineRuntime,
   workspaceId: string
 ): Promise<SyncResult> {

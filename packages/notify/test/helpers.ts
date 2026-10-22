@@ -3,6 +3,7 @@
 
 import type {
   Digest,
+  DigestIssue,
   DigestItem,
   Notice,
   NoticeKind,
@@ -26,6 +27,7 @@ export interface ItemOverrides {
   lines?: string[];
   openCount?: number;
   unassignedCount?: number;
+  openIssues?: DigestIssue[];
   url?: string;
   id?: string;
 }
@@ -61,6 +63,7 @@ export function makeItem(overrides: ItemOverrides = {}): DigestItem {
     leadName: 'Ana',
     openCount: overrides.openCount ?? 4,
     unassignedCount: overrides.unassignedCount ?? 3,
+    openIssues: overrides.openIssues ?? [],
     lines: overrides.lines ?? [
       '3 open issues unassigned',
       '3/7 done with 2 days left',
@@ -68,6 +71,21 @@ export function makeItem(overrides: ItemOverrides = {}): DigestItem {
     url:
       overrides.url ??
       `https://planner.example.com/timeline?milestone=${encodeURIComponent(id)}`,
+  };
+}
+
+/** One open issue for a digest item, linked to its planner issue page. */
+export function makeIssue(
+  identifier: string,
+  title: string,
+  unassigned: boolean
+): DigestIssue {
+  return {
+    id: `id-${identifier}`,
+    identifier,
+    title,
+    unassigned,
+    url: `https://planner.example.com/issues/${identifier}`,
   };
 }
 

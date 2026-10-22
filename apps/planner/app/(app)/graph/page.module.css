@@ -76,7 +76,7 @@
 }
 
 .accentText {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* Nodes with no blocking relation, listed under the canvas: a hairline

@@ -21,7 +21,7 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .list {
@@ -67,6 +67,9 @@
 .selected {
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
   --ink-soft: var(--ink-soft-inverse);
@@ -97,6 +100,9 @@
 .linked:has(.overlay:focus-visible) {
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
   --ink-soft: var(--ink-soft-inverse);
@@ -114,6 +120,9 @@
   .linked:hover {
     --background: var(--ink);
     --foreground: var(--paper);
+    --accent-ink: var(--accent-ink-inverse);
+    --accent-ink-hover: var(--accent-ink-inverse);
+    --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);
     --ink-soft: var(--ink-soft-inverse);
@@ -148,7 +157,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .cellValue {
@@ -191,7 +200,7 @@
 
 .toneAccent .cellValue,
 .toneAccent .cellSub {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .toneMuted .cellValue {

@@ -17,6 +17,7 @@ import {
   milestone,
   project,
   STATE,
+  team,
   TEAM,
   teamStates,
   user,
@@ -38,8 +39,8 @@ function scenario(overrides: Partial<WorkspaceData> = {}): WorkspaceData {
       user('robot', { name: 'Robot', app: true }),
     ],
     teams: [
-      { id: TEAM, key: 'ENG', name: 'Engineering' },
-      { id: 'team-ops', key: 'OPS', name: 'Operations' },
+      team(TEAM, 'ENG', 'Engineering'),
+      team('team-ops', 'OPS', 'Operations'),
     ],
     states: [...teamStates(), ...teamStates('team-ops')],
     projects: [
@@ -335,6 +336,32 @@ describe('buildIssueEditOptions', () => {
     expect(options.projects[0]?.milestones).toEqual([
       { id: 'mA1', name: 'First', targetDate: day(-2) },
       { id: 'mA2', name: 'Second', targetDate: day(20) },
+    ]);
+  });
+
+  test('states follow their type group first: position only orders within one', () => {
+    const data = scenario();
+    // Linear numbers positions per type group, so a backlog state added
+    // later can carry a position above Done's.
+    data.states.push({
+      id: 'icebox',
+      teamId: TEAM,
+      name: 'Icebox',
+      type: 'backlog',
+      position: 50,
+    });
+    const { snapshot, ctx } = evaluate(data);
+    expect(
+      buildIssueEditOptions(snapshot, ctx, TEAM).states.map((s) => s.name)
+    ).toEqual([
+      'Triage',
+      'Backlog',
+      'Icebox',
+      'Todo',
+      'In Progress',
+      'Done',
+      'Canceled',
+      'Duplicate',
     ]);
   });
 

@@ -113,12 +113,12 @@
 }
 
 .keyLink:focus-visible {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {
   .keyLink:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
     border-color: currentcolor;
   }
 }

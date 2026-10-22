@@ -589,7 +589,8 @@ export function TimelineChart({
 
   // Status lines clear themselves; errors stay until the next action.
   useEffect(() => {
-    if (message?.tone !== 'status' || message.key === 'Saving') return;
+    if (message?.tone !== 'status' || message.key === 'Saving')
+      return undefined;
     const timer = setTimeout(() => setMessage(null), 6000);
     return () => clearTimeout(timer);
   }, [message]);
@@ -605,6 +606,9 @@ export function TimelineChart({
   const onScroll = useCallback(() => {
     const el = scrollerRef.current;
     if (el === null) return;
+    // Bars narrow their sticky label to the part of the bar that is not
+    // under the lane column (timeline-bar.module.css, .content).
+    el.style.setProperty('--timeline-scroll-x', `${el.scrollLeft}px`);
     const visible = Math.max(0, el.clientWidth - LANE_WIDTH);
     centerDay.current = (el.scrollLeft + visible / 2) / dayWidthRef.current;
   }, []);

@@ -39,7 +39,7 @@
 }
 
 .back:focus-visible {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .backLabel {
@@ -65,7 +65,7 @@
 
 @media (hover: hover) and (width >= 901px) {
   .back:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 

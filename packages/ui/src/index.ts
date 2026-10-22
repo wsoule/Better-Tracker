@@ -3,12 +3,25 @@
 // ./lib/link.tsx), so the package carries no framework or domain coupling.
 // Import '@better-tracker/ui/styles.css' once, globally, in the host.
 export * from './types';
-export { Link, UiLinkProvider } from './lib/link';
+export { Link, UiLinkProvider, type UiLinkProviderProps } from './lib/link';
 export { themeScript } from './lib/theme';
-export { default as BlockBar } from './components/block-bar';
-export { default as StatusMark } from './components/status-mark';
-export { default as Tabs, type TabItem } from './components/tabs';
-export { default as ThemeToggle } from './components/theme-toggle';
+export {
+  default as BlockBar,
+  type BlockBarProps,
+} from './components/block-bar';
+export {
+  default as StatusMark,
+  type StatusMarkProps,
+} from './components/status-mark';
+export {
+  default as Tabs,
+  type TabItem,
+  type TabsProps,
+} from './components/tabs';
+export {
+  default as ThemeToggle,
+  type ThemeToggleProps,
+} from './components/theme-toggle';
 
 // ---- tasks family (src/tasks): primitives, the grouped task table,
 // deadlines, stats strip and registers. Props are typed in ./tasks/types.
@@ -254,7 +267,7 @@ export type {
 // error printed beside it. Props are typed in ./edit/types.
 export { DateField, isCompleteDate } from './edit/date-field';
 export { InlineTextField } from './edit/inline-text-field';
-export { PickerMarkView } from './edit/picker-mark';
+export { PickerMarkView, type PickerMarkViewProps } from './edit/picker-mark';
 export { PickerPopover } from './edit/picker-popover';
 export {
   type Placement,

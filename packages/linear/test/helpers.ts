@@ -168,6 +168,7 @@ export function userNode(
     active: true,
     avatarUrl: null,
     app: false,
+    guest: false,
     ...overrides,
   };
 }

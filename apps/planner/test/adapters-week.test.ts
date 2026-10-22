@@ -392,6 +392,8 @@ describe('buildWeekPage header and stats', () => {
     expect(quiet.attention).toEqual([]);
     expect(quiet.attentionEmpty).toBe('You lead no projects');
     expect(quiet.deadlines.map((g) => g.items.length)).toEqual([0, 0, 0, 0]);
+    // Nothing overdue: the group is not painted in the accent.
+    expect(quiet.deadlines[0]?.tone).toBe('default');
   });
 });
 

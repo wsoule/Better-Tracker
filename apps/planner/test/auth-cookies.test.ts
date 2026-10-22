@@ -14,6 +14,8 @@ import {
   sanitizeReturnTo,
   serializeCookie,
   sessionCookie,
+  signInHref,
+  signInLocation,
 } from '../lib/auth-cookies';
 import { signValue, verifyValue } from '../lib/signed-cookie';
 
@@ -234,6 +236,27 @@ describe('resolveSessionSecret', () => {
     expect(resolveSessionSecret({}, true, random)).toBe('r'.repeat(43));
     expect(resolveSessionSecret({ SESSION_SECRET: 'x' }, true, random)).toBe(
       'r'.repeat(43)
+    );
+  });
+});
+
+describe('signInLocation and signInHref (a deep link opened signed out)', () => {
+  test('carry the page back through the landing page and OAuth', () => {
+    expect(signInLocation('/timeline?milestone=ms-harbor-1')).toBe(
+      '/?returnTo=%2Ftimeline%3Fmilestone%3Dms-harbor-1'
+    );
+    expect(signInHref('/issues/ENG-24')).toBe(
+      '/api/auth/linear?intent=signin&returnTo=%2Fissues%2FENG-24'
+    );
+  });
+
+  test('the default page and unsafe targets give the plain forms', () => {
+    expect(signInLocation()).toBe('/');
+    expect(signInLocation('/week')).toBe('/');
+    expect(signInLocation('//evil.example')).toBe('/');
+    expect(signInHref(undefined)).toBe('/api/auth/linear?intent=signin');
+    expect(signInHref('https://evil.example')).toBe(
+      '/api/auth/linear?intent=signin'
     );
   });
 });

@@ -107,7 +107,7 @@
 }
 
 .accent {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* A blocker that has landed no longer holds anything back. */
@@ -141,12 +141,12 @@
 .remove:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {
   .remove:not([aria-disabled='true']):hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -181,7 +181,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .empty {
@@ -199,6 +199,9 @@
 .interactive:active {
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --muted: var(--muted-inverse);
   --ink-soft: var(--ink-soft-inverse);
   --grey-3: var(--hairline-inverse);
@@ -209,6 +212,9 @@
   .interactive:hover {
     --background: var(--ink);
     --foreground: var(--paper);
+    --accent-ink: var(--accent-ink-inverse);
+    --accent-ink-hover: var(--accent-ink-inverse);
+    --grey-2-ink: var(--muted-inverse);
     --muted: var(--muted-inverse);
     --ink-soft: var(--ink-soft-inverse);
     --grey-3: var(--hairline-inverse);

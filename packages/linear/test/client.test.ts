@@ -121,6 +121,61 @@ describe('createGraphqlClient: rate limits', () => {
     expect(waits[0]).toBeLessThan(6_000);
   });
 
+  test('an endpoint limit waits for its own reset, not the global one', async () => {
+    const { sleep, waits } = recordingSleep();
+    const { fetch, calls } = scriptedFetch([
+      jsonResponse(rateLimitedBody, {
+        status: 429,
+        headers: {
+          'retry-after': '5',
+          'x-ratelimit-endpoint-requests-remaining': '0',
+          'x-ratelimit-endpoint-requests-reset': String(NOW + 5_000),
+          'x-ratelimit-requests-remaining': '4900',
+          'x-ratelimit-requests-reset': String(NOW + 50 * 60_000),
+        },
+      }),
+      dataResponse({ ok: 1 }),
+    ]);
+    const client = createGraphqlClient({
+      accessToken: TOKEN,
+      fetch,
+      sleep,
+      now: () => NOW,
+    });
+    expect(await client.request<unknown>(QUERY)).toEqual({ ok: 1 });
+    expect(calls).toHaveLength(2);
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeGreaterThanOrEqual(5_000);
+    expect(waits[0]).toBeLessThan(6_000);
+  });
+
+  test('Retry-After alone decides the wait, and a long one fails with retryAt', async () => {
+    const { sleep, waits } = recordingSleep();
+    const { fetch, calls } = scriptedFetch([
+      jsonResponse(rateLimitedBody, {
+        status: 400,
+        headers: { 'retry-after': '30' },
+      }),
+      dataResponse({ ok: 1 }),
+      jsonResponse(rateLimitedBody, {
+        status: 400,
+        headers: { 'retry-after': '600' },
+      }),
+    ]);
+    const client = createGraphqlClient({
+      accessToken: TOKEN,
+      fetch,
+      sleep,
+      now: () => NOW,
+    });
+    expect(await client.request<unknown>(QUERY)).toEqual({ ok: 1 });
+    expect(waits).toEqual([30_250]);
+    const error = await captureError(client.request(QUERY));
+    expect(error.kind).toBe('rate_limited');
+    expect(error.retryAt).toBe(new Date(NOW + 600_000).toISOString());
+    expect(calls).toHaveLength(3);
+  });
+
   test('extensions.type "ratelimited" alone is recognised', async () => {
     const { sleep, waits } = recordingSleep();
     const { fetch } = scriptedFetch([
@@ -414,21 +469,40 @@ describe('createGraphqlClient: GraphQL errors', () => {
     expect(error.message).toContain('Could not find referenced Issue.');
   });
 
-  test('partial data with errors is returned and logged', async () => {
-    const { logger, lines } = recordingLogger();
-    const { fetch } = scriptedFetch([
+  test('partial data with errors fails: a nulled field is not "none"', async () => {
+    // Linear nulls a nullable field that failed; read as data, this
+    // issue would look unassigned.
+    const { fetch, calls } = scriptedFetch([
       jsonResponse({
-        data: { viewer: { id: 'u1' }, other: null },
-        errors: [{ message: 'other failed' }],
+        data: { issue: { id: 'i1', assignee: null } },
+        errors: [{ message: 'Internal error', path: ['issue', 'assignee'] }],
       }),
     ]);
-    const data = await createGraphqlClient({
-      accessToken: TOKEN,
-      fetch,
-      logger,
-    }).request(QUERY);
-    expect(data).toEqual({ viewer: { id: 'u1' }, other: null });
-    expect(lines.some((l) => l.level === 'warn')).toBe(true);
+    const error = await captureError(
+      createGraphqlClient({ accessToken: TOKEN, fetch }).request(QUERY)
+    );
+    expect(error.kind).toBe('graphql');
+    expect(error.message).toContain('Internal error');
+    expect(error.cause).toBeInstanceOf(LinearGraphqlErrors);
+    expect((error.cause as LinearGraphqlErrors).errors[0]?.path).toEqual([
+      'issue',
+      'assignee',
+    ]);
+    // Not retried: the same query would fail the same way.
+    expect(calls).toHaveLength(1);
+  });
+
+  test('a nested "not found" next to data is not read as a missing entity', async () => {
+    const { fetch } = scriptedFetch([
+      jsonResponse({
+        data: { issue: { id: 'i1', project: null } },
+        errors: [{ message: 'Entity not found', path: ['issue', 'project'] }],
+      }),
+    ]);
+    const error = await captureError(
+      createGraphqlClient({ accessToken: TOKEN, fetch }).request(QUERY)
+    );
+    expect(error.kind).toBe('graphql');
   });
 
   test('a 200 without data, or invalid JSON, is a graphql error', async () => {
@@ -477,16 +551,59 @@ describe('client helpers', () => {
       'x-ratelimit-complexity-remaining': '0',
       'x-ratelimit-complexity-reset': '1000',
     });
-    expect(rateLimitResetMs(headers)).toBe(1000);
+    expect(rateLimitResetMs(headers, NOW)).toBe(1000);
     expect(
       rateLimitResetMs(
         new Headers({
           'x-ratelimit-requests-reset': '5',
           'x-ratelimit-complexity-reset': '9',
-        })
+        }),
+        NOW
       )
     ).toBe(9);
-    expect(rateLimitResetMs(new Headers())).toBeNull();
+    expect(rateLimitResetMs(new Headers(), NOW)).toBeNull();
+  });
+
+  test('rateLimitResetMs: Retry-After, then the endpoint window, never a window with room', () => {
+    const globalRoom = {
+      'x-ratelimit-requests-remaining': '4900',
+      'x-ratelimit-requests-reset': String(NOW + 50 * 60_000),
+      'x-ratelimit-complexity-remaining': '1900000',
+      'x-ratelimit-complexity-reset': String(NOW + 50 * 60_000),
+    };
+    expect(rateLimitResetMs(new Headers({ 'retry-after': '30' }), NOW)).toBe(
+      NOW + 30_000
+    );
+    expect(
+      rateLimitResetMs(
+        new Headers({
+          'retry-after': new Date(NOW + 7_000).toUTCString(),
+        }),
+        NOW
+      )
+    ).toBe(NOW + 7_000);
+    expect(
+      rateLimitResetMs(
+        new Headers({
+          ...globalRoom,
+          'x-ratelimit-endpoint-requests-remaining': '0',
+          'x-ratelimit-endpoint-requests-reset': String(NOW + 5_000),
+        }),
+        NOW
+      )
+    ).toBe(NOW + 5_000);
+    // Nothing is used up: no reset applies, the caller backs off.
+    expect(rateLimitResetMs(new Headers(globalRoom), NOW)).toBeNull();
+    expect(
+      rateLimitResetMs(
+        new Headers({
+          ...globalRoom,
+          'x-ratelimit-endpoint-requests-remaining': '3',
+          'x-ratelimit-endpoint-requests-reset': String(NOW + 5_000),
+        }),
+        NOW
+      )
+    ).toBeNull();
   });
 
   test('parseGraphqlErrors ignores junk entries', () => {

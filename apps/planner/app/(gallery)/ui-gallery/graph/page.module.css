@@ -41,7 +41,7 @@
 .panelEmpty {
   padding: 12px 14px;
   border: 1px solid var(--hairline-faint);
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.1em;
@@ -93,6 +93,9 @@
   .nodeRow:hover {
     --background: var(--ink);
     --foreground: var(--paper);
+    --accent-ink: var(--accent-ink-inverse);
+    --accent-ink-hover: var(--accent-ink-inverse);
+    --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);
 

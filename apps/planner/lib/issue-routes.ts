@@ -151,7 +151,8 @@ function pageFor(id: string): string {
 }
 
 export type IssueReadEngine = Pick<Engine, 'getIssueDetail'> & {
-  load(workspaceId: string): Promise<{ snapshot: Snapshot }>;
+  /** `viewer`: the mirror narrowed to what that person may see (§2.13). */
+  load(workspaceId: string, viewer?: Actor): Promise<{ snapshot: Snapshot }>;
 };
 
 /**
@@ -170,7 +171,7 @@ export async function getIssue<E extends IssueReadEngine>(
   if (key === null) return notFound();
   const { engine, actor } = context;
   try {
-    const { snapshot } = await engine.load(actor.session.workspaceId);
+    const { snapshot } = await engine.load(actor.session.workspaceId, actor);
     const issue = findIssue(snapshot.issues, key);
     if (issue === undefined) return notFound();
     const result = await engine.getIssueDetail(actor, issue.id);
@@ -291,7 +292,8 @@ export async function deleteRelation<E extends RelationEngine>(
 }
 
 export type SearchEngine = {
-  load(workspaceId: string): Promise<{ snapshot: Snapshot }>;
+  /** `viewer`: the mirror narrowed to what that person may see (§2.13). */
+  load(workspaceId: string, viewer?: Actor): Promise<{ snapshot: Snapshot }>;
 };
 
 /**
@@ -314,7 +316,7 @@ export async function searchIssues<E extends SearchEngine>(
   const near = parseEntityId(params.get('near') ?? '');
   const { engine, actor } = context;
   try {
-    const { snapshot } = await engine.load(actor.session.workspaceId);
+    const { snapshot } = await engine.load(actor.session.workspaceId, actor);
     return Response.json(
       { results: searchIssueMirror(snapshot, query, { near }) },
       { headers: { 'Cache-Control': 'private, no-store' } }

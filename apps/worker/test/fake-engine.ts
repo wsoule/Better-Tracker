@@ -84,6 +84,8 @@ export const NO_CLEANUP: CleanupResult = {
 export function fakeEngine(
   options: {
     workspaces?: string[];
+    /** Installed workspaces whose grant is dead (not recorded in calls). */
+    revoked?: string[];
     timezones?: Record<string, string>;
     now?: () => Date;
     overrides?: Partial<WorkerEngine>;
@@ -100,6 +102,7 @@ export function fakeEngine(
       calls.push('listWorkspaceIds');
       return Promise.resolve(options.workspaces ?? ['ws-a', 'ws-b']);
     },
+    listRevokedWorkspaceIds: () => Promise.resolve(options.revoked ?? []),
     workspaceTimezone: (id) => {
       calls.push(`workspaceTimezone:${id}`);
       return Promise.resolve(options.timezones?.[id] ?? 'UTC');

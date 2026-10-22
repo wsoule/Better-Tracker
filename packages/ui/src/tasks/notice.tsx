@@ -29,16 +29,23 @@ export function Notice({
   );
 }
 
-/* Empty states are honest copy in the mono register (.empty), never an
-   illustration; hatched when the emptiness is a missing input. */
+/* Empty states are honest copy (.empty), never an illustration: an
+   optional mono key, then the sentence in the body face; hatched when the
+   emptiness is a missing input. */
 export function EmptyState({
   children,
+  label,
   action,
   hatched = false,
 }: EmptyStateProps) {
   return (
     <div className={cx('empty', hatched ? 'hatched' : undefined, styles.empty)}>
-      <p className={styles.emptyText}>{children}</p>
+      <p className={styles.emptyText}>
+        {label !== undefined && label !== '' ? (
+          <span className={cx('label', styles.emptyKey)}>{label}</span>
+        ) : null}
+        {children}
+      </p>
       {action !== undefined ? (
         <div className={styles.emptyAction}>{action}</div>
       ) : null}

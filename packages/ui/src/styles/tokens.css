@@ -1,7 +1,18 @@
 /* Analytics competitors-site token block, reset and block chrome, verbatim
    (wsoule/Analytics), except the accent: purple instead of Analytics'
    orange. The host app must also set html[data-theme] before first paint
-   (see THEME_SCRIPT in src/lib/theme.ts). */
+   (see themeScript in src/lib/theme.ts).
+
+   SCOPE. By default this sheet styles the whole document (the planner owns
+   its page). A host that embeds the components in an app with its own
+   design system (Dispatch: Tailwind, its own --accent/--border/--muted…)
+   puts data-bt-ui-scoped on <html> and data-bt-ui on each wrapper element:
+   the tokens are then declared on the wrapper only, and the reset, block
+   chrome and primitive classes (.block, .button, .label…) apply only inside
+   it, so nothing leaks into the host's own UI. Every selector below is
+   written as :where(<unscoped html>, [data-bt-ui]) <selector>, which adds
+   no specificity, so the unscoped cascade is exactly the old global one.
+   Dark mode in a wrapper: data-theme="dark" on the wrapper or on <html>. */
 
 /* ============================================================================
    TOKENS: the source of truth.
@@ -9,7 +20,8 @@
    dark by swapping this block. New colours are DERIVED, never invented.
    ========================================================================== */
 
-:root {
+:root:where(:not([data-bt-ui-scoped])),
+[data-bt-ui] {
   /* constants: the two papers and inks, so a tile can swap them locally for a
      hover flood without a cyclic variable reference */
   --paper: #ffffff;
@@ -23,10 +35,17 @@
   --accent: #9747ff; /* the one purple */
   --accent-hover: #7f36f0; /* pressed / darker purple */
   --on-accent: #ffffff; /* text sitting on a purple fill, both themes */
+  /* The purple as TEXT (keys, links, "needs action" words): the accent
+     itself on white (4.51:1), a lighter step in dark, where #9747ff reads
+     4.25:1. Fills, marks, rules and outlines keep --accent. */
+  --accent-ink: #9747ff;
+  --accent-ink-hover: #7f36f0; /* hovered / focused accent text, 5.69:1 */
+  --accent-ink-inverse: #9747ff; /* accent text ON a --foreground flood */
 
   /* derived, named by job, not by lightness */
   --ink-soft: #1a1a1a; /* strong body copy, one step off full ink */
-  --grey-2: #8f8f8f; /* dim notes (no dark override: sits mid in both) */
+  --grey-2: #8f8f8f; /* dim furniture (no dark override: sits mid in both) */
+  --grey-2-ink: #6e6e6e; /* dim TEXT: #8f8f8f is 3.2:1 on white, this 5.1:1 */
   --grey-3: #b3b3b3; /* faint furniture: idle chips, rules */
   --grey-4: #d4d4d4; /* ghost */
   --hairline-faint: rgba(0, 0, 0, 0.15); /* sub-weight rules */
@@ -48,13 +67,16 @@
   ); /* sub-weight rules ON an --accent flood (both themes) */
 
   /* three voices */
+  /* The next/font variables, else the family by name: a host without
+     next/font (Vite) must still get a font stack, and an undefined var()
+     with no fallback would invalidate the whole stack (browser serif). */
   --font-sans:
-    var(--font-geist), -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica,
-    Arial, sans-serif;
+    var(--font-geist, Geist), -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    Helvetica, Arial, sans-serif;
   --font-body: var(--font-sans);
   --font-mono:
-    var(--font-jetbrains), 'Fira Code', Menlo, Monaco, Consolas,
-    'Liberation Mono', monospace;
+    var(--font-jetbrains, 'JetBrains Mono'), 'Fira Code', Menlo, Monaco,
+    Consolas, 'Liberation Mono', monospace;
 
   /* furniture */
   --nav-h: 80px;
@@ -66,12 +88,22 @@
    ink, identical purple. Full-contrast inversions glare, so ink is #ededed and
    paper is #0f0f0f. The faint values are stepped UP: light lines on dark ground
    read weaker than the reverse. */
-html[data-theme='dark'] {
+html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
+[data-bt-ui][data-theme='dark'],
+[data-theme='dark']
+  [data-bt-ui]:not([data-theme='light'], [data-theme='system']) {
   --paper: #0f0f0f;
   --ink: #ededed;
   --border: #ededed;
   --muted: #a3a3a3;
   /* --accent, --accent-hover, --on-accent deliberately unchanged */
+  /* accent TEXT steps lighter instead (contrast on #0f0f0f, and on the
+     --tint wash): 5.63:1 (4.84:1), hovered 6.54:1; on the #ededed ink flood
+     the darker purple, 4.86:1 */
+  --accent-ink: #a66bff;
+  --accent-ink-hover: #b47aff;
+  --accent-ink-inverse: #7f36f0;
+  --grey-2-ink: #8f8f8f; /* 5.93:1 on #0f0f0f */
 
   --ink-soft: #d2d2d2;
   --grey-3: #565656;
@@ -86,30 +118,68 @@ html[data-theme='dark'] {
   color-scheme: dark;
 }
 
+/* data-theme="system": the block above whenever the OS is dark, for a host
+   that follows the OS live with no theme script (Dispatch wires its own dark
+   mode to prefers-color-scheme): data-theme="system" on <html> or on a
+   [data-bt-ui] wrapper. The declarations must stay identical to the block
+   above (test/styles-scope.test.ts compares them). */
+@media (prefers-color-scheme: dark) {
+  html[data-theme='system']:where(:not([data-bt-ui-scoped])),
+  [data-bt-ui][data-theme='system'],
+  [data-theme='system'] [data-bt-ui]:not([data-theme='light']) {
+    --paper: #0f0f0f;
+    --ink: #ededed;
+    --border: #ededed;
+    --muted: #a3a3a3;
+    --accent-ink: #a66bff;
+    --accent-ink-hover: #b47aff;
+    --accent-ink-inverse: #7f36f0;
+    --grey-2-ink: #8f8f8f;
+
+    --ink-soft: #d2d2d2;
+    --grey-3: #565656;
+    --grey-4: #333333;
+    --hairline-faint: rgba(255, 255, 255, 0.22);
+    --hatch: rgba(255, 255, 255, 0.08);
+    --tint: rgba(255, 255, 255, 0.08);
+    --hairline-inverse: rgba(0, 0, 0, 0.18);
+    --muted-inverse: #595959;
+    --ink-soft-inverse: #1a1a1a;
+
+    color-scheme: dark;
+  }
+}
+
 /* ============================================================================
    RESET
    ========================================================================== */
 
-*,
-*::before,
-*::after {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]),
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) *,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) *::before,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) *::after {
   box-sizing: border-box;
 }
 
-html,
-body {
+html:where(:not([data-bt-ui-scoped])),
+:where(html:not([data-bt-ui-scoped])) body {
   /* clip, NOT hidden: hidden silently turns the root into a scroll container
      and breaks every position: sticky on the page. */
   overflow-x: clip;
   max-width: 100%;
 }
 
-html {
+html:where(:not([data-bt-ui-scoped])) {
   -webkit-text-size-adjust: 100%;
 }
 
-body {
+:where(html:not([data-bt-ui-scoped])) body {
   margin: 0;
+}
+
+/* The page's paper and voice; a scoped wrapper carries them itself. */
+:where(html:not([data-bt-ui-scoped])) body,
+:where([data-bt-ui]) {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-body);
@@ -118,31 +188,31 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1,
-h2,
-h3,
-h4,
-p,
-figure,
-blockquote,
-ul,
-ol {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) h1,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) h2,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) h3,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) h4,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) p,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) figure,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) blockquote,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ul,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ol {
   margin: 0;
   padding: 0;
 }
 
-ul,
-ol {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ul,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ol {
   list-style: none;
 }
 
 /* Links are undecorated by doctrine; affordance is supplied per component. */
-a {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) a {
   color: inherit;
   text-decoration: none;
 }
 
-button {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) button {
   font: inherit;
   color: inherit;
   background: none;
@@ -153,33 +223,33 @@ button {
   border-radius: 0;
 }
 
-img,
-svg {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) img,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) svg {
   display: block;
 }
 
-table {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) table {
   border-collapse: separate;
   border-spacing: 0;
 }
 
-::selection {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ::selection {
   background: var(--accent);
   color: var(--on-accent);
 }
 
-:focus-visible {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  html {
+  html:where(:not([data-bt-ui-scoped])) {
     scroll-behavior: smooth;
   }
 }
 
-.srOnly {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .srOnly {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -191,7 +261,7 @@ table {
   border: 0;
 }
 
-.skipLink {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .skipLink {
   position: absolute;
   left: 12px;
   top: -200px;
@@ -207,7 +277,7 @@ table {
   text-transform: uppercase;
 }
 
-.skipLink:focus {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .skipLink:focus {
   top: 12px;
 }
 
@@ -218,14 +288,14 @@ table {
    one register rather than six sections.
    ========================================================================== */
 
-.block {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .block {
   max-width: 1440px;
   margin: 40px auto 0;
   padding: 0 48px;
   scroll-margin-top: calc(var(--nav-h) + 12px);
 }
 
-.blockBar {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockBar {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -242,16 +312,16 @@ table {
   );
 }
 
-.blockKey {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockKey {
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.14em;
-  color: var(--accent);
+  color: var(--accent-ink);
   white-space: nowrap;
 }
 
-.blockTitle {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockTitle {
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 600;
@@ -259,7 +329,7 @@ table {
   text-transform: uppercase;
 }
 
-.blockMeta {
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockMeta {
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 9.5px;
@@ -269,17 +339,17 @@ table {
 }
 
 @media (width <= 768px) {
-  .block {
+  :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .block {
     padding: 0 16px;
     margin-top: 32px;
   }
-  .blockBar {
+  :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockBar {
     height: auto;
     flex-wrap: wrap;
     gap: 4px 12px;
     padding: 10px 14px;
   }
-  .blockMeta {
+  :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockMeta {
     margin-left: 0;
     flex-basis: 100%;
     white-space: normal;

@@ -26,7 +26,7 @@ export async function loadIssueModel(
   key: string,
   returnTo: string
 ): Promise<IssueTaskModel | null> {
-  const loaded = await engine.load(actor.session.workspaceId);
+  const loaded = await engine.load(actor.session.workspaceId, actor);
   const issue = findIssue(loaded.snapshot.issues, key);
   if (issue === undefined) return null;
   let result: Awaited<ReturnType<Engine['getIssueDetail']>>;

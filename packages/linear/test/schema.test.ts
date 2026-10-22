@@ -296,9 +296,9 @@ describe('queries.ts against the Linear schema', () => {
   }
 
   test('the complexity estimate counts connections by first', () => {
-    // The connection object (1) + 50 × (a user: 1 + 7 scalars × 0.1, and
-    // pageInfo: 1 + 2 × 0.1) = 1 + 50 × 2.9 = 146.
-    expect(estimateComplexity(queries.USERS_QUERY, { first: 50 })).toBe(146);
+    // The connection object (1) + 50 × (a user: 1 + 8 scalars × 0.1, and
+    // pageInfo: 1 + 2 × 0.1) = 1 + 50 × 3 = 151.
+    expect(estimateComplexity(queries.USERS_QUERY, { first: 50 })).toBe(151);
     expect(
       estimateComplexity(queries.USERS_QUERY, { first: 100 })
     ).toBeGreaterThan(estimateComplexity(queries.USERS_QUERY, { first: 50 }));

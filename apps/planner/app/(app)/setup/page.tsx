@@ -44,7 +44,7 @@ async function installContext(
    grant: reinstall), and not installed (what an install does, then the
    button). Installing itself is Linear's admin consent screen. */
 export default async function SetupPage() {
-  const { engine, actor } = await requirePageActor();
+  const { engine, actor } = await requirePageActor('/setup');
   const workspaceId = actor.session.workspaceId;
   const installation = await loadInstallation(engine, workspaceId);
   const state = setupState(installation);

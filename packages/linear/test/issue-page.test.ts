@@ -14,7 +14,9 @@ import { mapComment, mapEstimateScale, mapIssueLabel } from '../src/map';
 import {
   ISSUE_COMMENTS_MAX,
   ISSUE_COMMENTS_MAX_PAGES,
+  ISSUE_DETAIL_QUERY,
   PAGE_SIZE,
+  TEAM_ANCESTOR_LEVELS,
 } from '../src/queries';
 import {
   caught,
@@ -296,6 +298,51 @@ describe('estimate scale mapping', () => {
         })
       )
     ).toEqual({ type: 'tShirt', allowZero: true, extended: false });
+  });
+
+  test('inheritance follows every level up to the root (five-level teams)', () => {
+    // Level 5 inherits from 4, 3 and 2, which all inherit from the root.
+    let chain: Record<string, unknown> = teamNode({
+      id: 'root',
+      issueEstimationType: 'fibonacci',
+      issueEstimationExtended: false,
+    });
+    for (const id of ['level-2', 'level-3', 'level-4', 'level-5']) {
+      chain = teamNode({
+        id,
+        issueEstimationType: 'notUsed',
+        inheritIssueEstimation: true,
+        parent: chain,
+      });
+    }
+    expect(mapEstimateScale(chain)).toEqual({
+      type: 'fibonacci',
+      allowZero: false,
+      extended: false,
+    });
+    // The issue detail query reads that many ancestors.
+    expect(
+      ISSUE_DETAIL_QUERY.match(/parent \{ \.\.\.EstimateScaleFields/g)
+    ).toHaveLength(TEAM_ANCESTOR_LEVELS);
+    expect(TEAM_ANCESTOR_LEVELS).toBe(4);
+  });
+
+  test('a chain that inherits past the levels read is logged', () => {
+    const { logger, lines } = recordingLogger();
+    const { parent: _cut, ...topRead } = teamNode({
+      id: 'top-read',
+      issueEstimationType: 'linear',
+      inheritIssueEstimation: true,
+    });
+    expect(
+      mapEstimateScale(
+        teamNode({ inheritIssueEstimation: true, parent: topRead }),
+        logger
+      )
+    ).toEqual({ type: 'linear', allowZero: false, extended: true });
+    expect(lines.map((l) => l.message)).toEqual([
+      'Linear team inherits estimates from beyond the levels read',
+    ]);
   });
 
   test('an unknown scale reads as not used and is logged', () => {

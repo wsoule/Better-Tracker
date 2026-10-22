@@ -129,6 +129,7 @@ function person(
     avatarUrl: null,
     active: options.active ?? true,
     app: false,
+    guest: false,
   };
 }
 
@@ -151,15 +152,40 @@ function buildUsers(): User[] {
       avatarUrl: null,
       active: true,
       app: true,
+      guest: false,
     },
   ];
 }
 
 type TeamKey = 'eng' | 'ops';
 
+// Both teams are public, so every demo person sees the whole workspace
+// (per-viewer visibility, architecture §2.13); the members are who Linear
+// lists in each team.
 const TEAMS: readonly Team[] = [
-  { id: 'team-eng', key: 'ENG', name: 'Engineering' },
-  { id: 'team-ops', key: 'OPS', name: 'Operations' },
+  {
+    id: 'team-eng',
+    key: 'ENG',
+    name: 'Engineering',
+    visibility: 'public',
+    parentId: null,
+    memberIds: [
+      'user-ana',
+      'user-chloe',
+      'user-dev',
+      'user-femi',
+      'user-grace',
+      'user-hugo',
+    ],
+  },
+  {
+    id: 'team-ops',
+    key: 'OPS',
+    name: 'Operations',
+    visibility: 'public',
+    parentId: null,
+    memberIds: ['user-ana', 'user-ben', 'user-elena', 'user-femi'],
+  },
 ];
 
 type StateKey =
@@ -1398,7 +1424,10 @@ export function createFixtureWorkspace(today: IsoDate): WorkspaceData {
   return {
     workspaceId: FIXTURE_WORKSPACE.id,
     users: buildUsers(),
-    teams: TEAMS.map((team) => ({ ...team })),
+    teams: TEAMS.map((team) => ({
+      ...team,
+      memberIds: [...(team.memberIds ?? [])],
+    })),
     states: buildStates(),
     initiatives: buildInitiatives(today),
     projects: buildProjects(today),

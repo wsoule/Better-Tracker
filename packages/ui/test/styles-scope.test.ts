@@ -1,0 +1,116 @@
+import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+
+// The package's global sheets (tokens.css, primitives.css) must be scopable:
+// with data-bt-ui-scoped on <html> they may only reach inside [data-bt-ui]
+// wrappers, so an embedding host (Dispatch: Tailwind, its own --accent,
+// --border, --muted, a .block utility) keeps its own UI. Every selector
+// therefore starts from one of the scope forms below; a bare `button` or
+// `.block` added later would leak into the host and fails here.
+
+const SCOPE = ':where(html:not([data-bt-ui-scoped]), [data-bt-ui])';
+const ALLOWED_PREFIXES = [
+  // descendants of the unscoped page or of a wrapper (and the scope roots)
+  SCOPE,
+  // the page itself, only when unscoped
+  'html:where(:not([data-bt-ui-scoped]))',
+  ':where(html:not([data-bt-ui-scoped])) body',
+  ':root:where(:not([data-bt-ui-scoped]))',
+  "html[data-theme='dark']:where(:not([data-bt-ui-scoped]))",
+  "html[data-theme='system']:where(:not([data-bt-ui-scoped]))",
+  // a wrapper's own tokens and paper
+  '[data-bt-ui]',
+  ':where([data-bt-ui])',
+  "[data-theme='dark'] [data-bt-ui]",
+  "[data-theme='system'] [data-bt-ui]",
+];
+
+/** Every selector of every style rule in `css` (comments and at-rule
+    preludes skipped; rules nested in @media are included). */
+function selectorsOf(css: string): string[] {
+  const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const out: string[] = [];
+  for (const match of text.matchAll(/([^{};]+)\{/g)) {
+    const prelude = (match[1] ?? '').trim();
+    if (prelude === '' || prelude.startsWith('@')) continue;
+    for (const part of splitTopLevel(prelude)) out.push(part);
+  }
+  return out;
+}
+
+/** Splits a selector list on commas outside parentheses. */
+function splitTopLevel(list: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < list.length; i++) {
+    const ch = list[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === ',' && depth === 0) {
+      parts.push(list.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  parts.push(list.slice(start).trim());
+  return parts.map((p) => p.replace(/\s+/g, ' '));
+}
+
+const stylesDir = path.join(import.meta.dir, '..', 'src', 'styles');
+
+describe('global stylesheets are scopable', () => {
+  for (const file of ['tokens.css', 'primitives.css']) {
+    test(`${file}: every selector starts from a scope form`, () => {
+      const selectors = selectorsOf(
+        readFileSync(path.join(stylesDir, file), 'utf8')
+      );
+      expect(selectors.length).toBeGreaterThan(10);
+      const leaking = selectors.filter(
+        (s) => !ALLOWED_PREFIXES.some((prefix) => s.startsWith(prefix))
+      );
+      expect(leaking).toEqual([]);
+    });
+  }
+
+  test('index.css only imports the two scoped sheets', () => {
+    const index = readFileSync(path.join(stylesDir, 'index.css'), 'utf8');
+    expect(selectorsOf(index)).toEqual([]);
+    const imports = [...index.matchAll(/@import\s+'([^']+)'/g)].map(
+      (m) => m[1]
+    );
+    expect(imports).toEqual(['./tokens.css', './primitives.css']);
+  });
+
+  test('data-theme="system" uses exactly the dark tokens', () => {
+    const tokens = readFileSync(path.join(stylesDir, 'tokens.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/\s+/g, ' ');
+    // The declarations of the rule whose selector list starts with `head`.
+    const declarations = (head: string): string[] => {
+      const at = tokens.indexOf(head);
+      expect(at).toBeGreaterThanOrEqual(0);
+      const open = tokens.indexOf('{', at);
+      const body = tokens.slice(open + 1, tokens.indexOf('}', open));
+      return body
+        .split(';')
+        .map((d) => d.trim())
+        .filter(Boolean);
+    };
+    const dark = declarations("html[data-theme='dark']");
+    expect(dark.length).toBeGreaterThan(10);
+    expect(declarations("html[data-theme='system']")).toEqual(dark);
+    expect(tokens).toContain(
+      "@media (prefers-color-scheme: dark) { html[data-theme='system']"
+    );
+  });
+
+  test('the font stacks survive a host without next/font', () => {
+    const tokens = readFileSync(path.join(stylesDir, 'tokens.css'), 'utf8');
+    // var() with no fallback on an undefined property invalidates the
+    // whole declaration: the browser default serif would be used.
+    expect(tokens).toContain('var(--font-geist, Geist)');
+    expect(tokens).toContain("var(--font-jetbrains, 'JetBrains Mono')");
+    expect(tokens).not.toMatch(/var\(--font-(geist|jetbrains)\)/);
+  });
+});

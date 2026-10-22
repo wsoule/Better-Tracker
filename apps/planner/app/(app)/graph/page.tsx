@@ -7,7 +7,11 @@ import { buildGraphPage, parseGraphScope } from '../../../lib/adapters/graph';
 import { parseIssueParam } from '../../../lib/adapters/issue';
 import { engineInputCode } from '../../../lib/engine-errors';
 import { currentHref, loadIssueDrawer } from '../../../lib/issue-load';
-import { orSetup, requireInstalledActor } from '../../../lib/load';
+import {
+  orSetup,
+  requestViewer,
+  requireInstalledActor,
+} from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import GraphScreen from './graph-screen';
 import css from './page.module.css';
@@ -22,7 +26,7 @@ async function loadGraph(
   scope: GraphScope
 ): Promise<DependencyGraph | null> {
   try {
-    return await engine.getGraph(workspaceId, scope);
+    return await engine.getGraph(workspaceId, scope, await requestViewer());
   } catch (error) {
     if (engineInputCode(error) === 'not_found') return null;
     throw error;
@@ -44,12 +48,14 @@ export default async function GraphPage({
 }) {
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
-  const { engine, actor, workspaceId } = await requireInstalledActor();
+  const { engine, actor, workspaceId } = await requireInstalledActor(
+    currentHref('/graph', params)
+  );
   const scope = parseGraphScope(params);
   const [graph, loaded, issueDrawer] = await orSetup(
     Promise.all([
       loadGraph(engine, workspaceId, scope),
-      engine.load(workspaceId),
+      engine.load(workspaceId, actor),
       loadIssueDrawer(
         engine,
         actor,

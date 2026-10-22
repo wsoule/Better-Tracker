@@ -6,6 +6,7 @@ import {
 import { createLogger } from '@better-tracker/logger';
 import { after } from 'next/server';
 
+import { readLimitedText } from '../../../../lib/body';
 import { getEngine } from '../../../../lib/runtime';
 
 export const runtime = 'nodejs';
@@ -23,32 +24,6 @@ function empty(status: number): Response {
 }
 
 /**
- * Reads the raw body as text, giving up (null) once it passes `limit`
- * bytes, so a missing or lying Content-Length cannot make the route buffer
- * an unbounded upload.
- */
-async function readLimitedText(
-  request: Request,
-  limit: number
-): Promise<string | null> {
-  if (request.body === null) return '';
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > limit) {
-      await reader.cancel();
-      return null;
-    }
-    chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString('utf8');
-}
-
-/**
  * POST /api/webhooks/linear (architecture §4.1, §8.1). Linear wants a 2xx
  * within 5 seconds, so this only checks the delivery and acks: the raw
  * body (≤ 5 MiB, else 413) must carry a valid Linear-Signature HMAC and a
@@ -61,10 +36,6 @@ async function readLimitedText(
 export async function POST(request: Request): Promise<Response> {
   if (isFixtureEnv(process.env)) return empty(200);
 
-  const declared = Number(request.headers.get('content-length') ?? '0');
-  if (Number.isFinite(declared) && declared > MAX_WEBHOOK_BYTES) {
-    return empty(413);
-  }
   const raw = await readLimitedText(request, MAX_WEBHOOK_BYTES);
   if (raw === null) return empty(413);
 

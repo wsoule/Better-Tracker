@@ -45,6 +45,7 @@ packages/
   notify/    digest delivery: Slack DMs, outbox
   engine/    orchestration: sync, allocation, warnings, edits, read models
   logger/    structured JSON logger
+  ui/        portable React task UI (TS source, CSS modules; see its README)
 docs/
   architecture.md   this file
   design/           the design doc
@@ -54,7 +55,14 @@ docs/
 Dependency direction: `core` ← `linear`, `store`, `notify` ← `engine` ←
 `planner`, `worker`. `logger` is used by `engine`, `planner`, `worker`. Nothing
 imports `planner` or `worker`. No package may import from a sibling it does not
-list in `package.json`.
+list in `package.json`. `ui` imports no workspace package, no `next/*` and no
+`process.env`: it is also meant for the Dispatch desktop app (Vite + Tauri), so
+its props are plain data, links go through the host's `UiLinkProvider`, and its
+global sheet can be confined to `[data-bt-ui]` wrappers (`data-bt-ui-scoped` on
+`<html>`, `packages/ui/README.md`). Another repository installs it from the
+tarball `pnpm pack` makes in `packages/ui` (exact dependency versions, `src/`
+only); its noop moon `build` task links it into the planner's `^:build`, so a ui
+change re-runs the planner's build, typecheck, tests and e2e in CI.
 
 ### Conventions (binding for every package)
 
@@ -89,7 +97,10 @@ stylelint "**/*.css" --allow-empty-input                 # root:lint-css
 ```
 
 Build order (dependencies first): `logger`, `core` → `linear`, `store`, `notify`
-→ `engine` → `worker`, `planner`.
+→ `engine` → `worker`, `planner`. `scripts/build-all.sh` (the Docker build)
+derives it from the `package.json` workspace dependencies
+(`pnpm --recursive exec`, topological) and builds every project with a
+`tsdown.config.ts`, then the planner.
 
 ## 2. Domain rules (packages/core)
 
@@ -171,8 +182,12 @@ priority (urgent 1, high 2, medium 3, low 4, none 0 last); (5) milestone
 For each project, in timeline order:
 
 1. Status not in `tuning.activeProjectStatuses` → `inactive` (not loud).
-2. No next milestone → `no_open_milestone`.
-3. No lead → `blocked/no_lead`; lead deactivated → `blocked/lead_inactive`.
+2. No lead → `blocked/no_lead`; lead deactivated → `blocked/lead_inactive`. This
+   comes before the next milestone, so an active project without a working lead
+   is blocked (and reaches the digest as `allocation_blocked`, §2.9) even when
+   it has no open milestone (`nextMilestoneId` null): design §6.1 flags a
+   project with no lead everywhere.
+3. No next milestone → `no_open_milestone`.
 4. Next milestone fails the rubric → `blocked/next_milestone_invalid` with gaps.
    Never skips ahead to a later milestone.
 5. Otherwise, for each open issue in the next milestone (issue display order):
@@ -221,16 +236,20 @@ later slips again is re-announced.
 
 Recipients: milestone notices → project lead (if active) + watchers;
 `allocation_blocked` → watchers + lead (if any). Deduplicated, inactive users
-dropped. Watchers are `settings.watcherUserIds`, the only people the settings
-name (owner decision 2026-10-22: there is no PM list); it may be empty, and then
-only leads are told.
+dropped, and so is anyone who may not see the project (§2.13). Watchers are
+`settings.watcherUserIds`, the only people the settings name (owner decision
+2026-10-22: there is no PM list); it may be empty, and then only leads are told.
 
 Digests (§6.8): one per recipient per day, items sorted overdue → at_risk →
 invalid_due_soon → allocation_blocked, then by milestone display order. Each
 item carries the project, milestone, due date, days left, open count, unassigned
-count, plain lines ("3 open issues unassigned", "no state change in 9 days",
-"2/7 done with 2 days left", "missing: done means…"), and a deep link
-`<appUrl>/timeline?milestone=<id>` (or `?project=<id>`).
+count, the open issues themselves (`openIssues`: id, identifier, title, whether
+unassigned, and `<appUrl>/issues/<identifier>`, in display order, so the message
+names what's open and what's unassigned, design §7.5), plain lines ("3 open
+issues unassigned", "no state change in 9 days", "2/7 done with 2 days left",
+"missing: done means…"), and a deep link `<appUrl>/timeline?milestone=<id>` (or
+`?project=<id>`). `openIssues` is optional in the type only because digests
+stored before it existed lack it.
 
 ### 2.10 Dependency graph (§7.3)
 
@@ -301,9 +320,11 @@ count, plain lines ("3 open issues unassigned", "no state change in 9 days",
   considered); `onRiskChain` (it waits on one of those, or is itself unassigned
   or overdue and blocks an open issue).
 - `options` (`buildIssueEditOptions(snapshot, ctx, teamId)`): the team's
-  workflow states by `position`; assignable people (active, not app users) by
-  name; projects with their milestones (§2.6 order), active projects first in
-  timeline order, each with `includesTeam`.
+  workflow states by type group (triage, backlog, unstarted, started, completed,
+  canceled), then `position` (Linear orders positions only within a type group);
+  assignable people (active, not app users) by name; projects with their
+  milestones (§2.6 order), active projects first in timeline order, each with
+  `includesTeam`.
 
 Limits shared with the UI: `ISSUE_TITLE_MAX_LENGTH` 255 characters,
 `ISSUE_DESCRIPTION_MAX_LENGTH` 100,000 UTF-16 code units, `COMMENT_MAX_LENGTH`
@@ -313,6 +334,36 @@ Limits shared with the UI: `ISSUE_TITLE_MAX_LENGTH` 255 characters,
 stored as the Fibonacci numbers they translate to; `allowZero` adds 0; `notUsed`
 allows only "no estimate". `estimateOptions(scale)`,
 `isAllowedEstimate(scale, value)`, `estimateLabel(scale, value)`.
+
+### 2.13 Per-viewer visibility (`visibility.ts`)
+
+The mirror is read with the app's token, which sees every team the admin granted
+at install, private ones included. A person is shown only what Linear would show
+them (orchestrated decision 2026-10-22, from the review findings on guests and
+private teams):
+
+- `viewerScope(snapshot, userId)` → `{ userId, guest, teamIds, everything }`. A
+  member of a team (`Team.memberIds`) always sees it. Otherwise a guest
+  (`User.guest`, or a person the mirror does not know) sees nothing, and a
+  workspace member sees `public` teams and `restricted` ones (non-private teams
+  inside a private team's boundary) when they belong to the team or an ancestor
+  up to the nearest `private` one. A team whose visibility the mirror does not
+  know (written before it was read) is shown to its members only, so an old
+  mirror fails closed.
+- `visibleSnapshot(snapshot, scope)`: the mirror re-indexed without the hidden
+  teams and their workflow states, the projects none of whose teams is visible
+  (with their milestones), the issues whose team is hidden (or whose mirrored
+  project is), and every relation with a hidden end; a guest also gets no
+  initiatives (Linear's guests cannot see them) and projects without
+  `initiativeIds`. Users stay. When the viewer sees everything it returns the
+  snapshot itself. Views built on it are computed from what the viewer sees
+  (progress, status and the allocation plan of a project shared with a hidden
+  team count only its visible issues).
+- `scopeSeesProject`, `scopeSeesIssue`.
+- Warnings (§2.9): a lead or watcher who cannot see a notice's project is not
+  among its recipients, and each digest names only the open issues its recipient
+  can see (`visibleDigest`, also used for the Settings preview with the
+  previewing person's scope; counts and plain lines name nothing and stay).
 
 ## 3. Core API (packages/core/src/index.ts)
 
@@ -443,6 +494,23 @@ export function estimateOptions(scale: EstimateScale): EstimateOption[];
 export function isAllowedEstimate(scale: EstimateScale, value: number): boolean;
 export function estimateLabel(scale: EstimateScale, value: number): string;
 export function isEstimateScaleType(value: string): value is EstimateScaleType;
+// visibility.ts — per-viewer visibility (§2.13)
+export function viewerScope(snapshot: Snapshot, userId: string): ViewerScope;
+export function visibleSnapshot(
+  snapshot: Snapshot,
+  scope: ViewerScope
+): Snapshot;
+export function scopeSeesProject(scope: ViewerScope, project: Project): boolean;
+export function scopeSeesIssue(
+  snapshot: Snapshot,
+  scope: ViewerScope,
+  issue: Issue
+): boolean;
+export function visibleDigest(
+  snapshot: Snapshot,
+  scope: ViewerScope,
+  digest: Digest
+): Digest;
 // labels.ts — shared human copy for UI and digests
 export const RUBRIC_GAP_LABEL: Record<RubricGap, string>;
 export const RISK_REASON_LABEL: Record<RiskReason, string>;
@@ -474,7 +542,11 @@ The allocation comment (§7.4) is exactly:
 
 - `createLinearGateway({ accessToken, fetch?, logger?, endpoint? })` — real API
   over `fetch` (no SDK at runtime). Bearer token. Retries 429/5xx with bounded
-  backoff honoring reset headers; maps failures to `LinearApiError`.
+  backoff honoring reset headers; maps failures to `LinearApiError`. A response
+  whose `errors` is not empty fails even when it also carries `data` (Linear
+  nulls a field that failed, and a null assignee or project would read as
+  "none"); aliased batches set the failed aliases aside by the errors' paths and
+  retry the rest.
 - Queries live in `queries.ts` as plain strings and are validated against
   Linear's published schema in tests (`test/schema.test.ts` using `graphql`'s
   `buildSchema` + `validate`). See §4.1 for the schema source.
@@ -484,11 +556,21 @@ The allocation comment (§7.4) is exactly:
   approximation = latest of createdAt/startedAt/completedAt/canceledAt.
 - `fetchLastStateChanges(ids)` batches issue `history` lookups with aliases and
   returns the newest entry whose `toStateId` is set.
+- For per-viewer visibility (§2.13) `fetchWorkspace` also reads `User.guest`,
+  `Team.visibility` (`public | private | restricted`; the deprecated
+  `Team.private` is not used, an unknown value reads as `private`, logged) and
+  `Team.parent { id }`, and pages the root `teamMemberships` connection
+  (`{ team { id } user { id } }`, archived memberships left out) into
+  `Team.memberIds`. Linear sends no webhook for team memberships or teams, so a
+  membership change shows after the next full sync (every 15 minutes).
 - `oauth.ts`: `buildAuthorizeUrl`, `exchangeCode`, `refreshTokens`,
   `revokeToken`, PKCE helpers (`createPkcePair`). Details in §4.2.
   `exchangeCode` and `refreshTokens` take an optional last argument
   `{ now?: () => number }` (epoch ms, default `Date.now`) that `expires_in` is
-  counted from; the engine passes its own clock.
+  counted from; the engine passes its own clock. Every token-endpoint call
+  (exchange, refresh, revoke) is aborted after `OAUTH_TIMEOUT_MS` (15 s,
+  `timeoutMs` overrides) as `OAuthError('network_error')`: refreshes run inside
+  the store's row lock, which must not be held for undici's 300 s default.
 - `webhooks.ts`: `verifyWebhookSignature(rawBody, header, secret)` (constant
   time) and `parseWebhookEvent(json, nowMs)` → normalized
   `{ workspaceId, type, action, entityId, webhookTimestamp }` or a typed
@@ -504,16 +586,18 @@ The allocation comment (§7.4) is exactly:
 - **Issue page** (owner decision 2026-10-21; additive `LinearGateway` methods,
   real and fixture):
   - `fetchIssueDetail(issueId) → IssueExtras | null` — one `IssueDetail` query
-    (description, estimate, due date, the team's estimate settings with two
-    parent levels, the first 50 labels and comments), then every further label
-    page (an edit sends the full set back, so the set must be complete:
-    `labels(…, includeArchived: true)`, since Linear keeps an archived label on
-    the issues that carry it and the connection leaves archived ones out by
-    default) and up to 3 more comment pages: at most `ISSUE_COMMENTS_MAX` (200)
-    comments, sorted oldest first by `createdAt` (Linear does not document the
-    default direction of `orderBy: createdAt`, so which 200 an issue with more
-    keeps is not guaranteed), `commentsTruncated` when more remain. Null when
-    the issue is gone, archived or trashed. A blank description reads as null.
+    (description, estimate, due date, the team's estimate settings with its
+    ancestors up to `TEAM_ANCESTOR_LEVELS` (4: Linear nests teams five levels
+    deep, changelog 2026-04-09), the first 50 labels and comments), then every
+    further label page (an edit sends the full set back, so the set must be
+    complete: `labels(…, includeArchived: true)`, since Linear keeps an archived
+    label on the issues that carry it and the connection leaves archived ones
+    out by default) and up to 3 more comment pages: at most `ISSUE_COMMENTS_MAX`
+    (200) comments, sorted oldest first by `createdAt` (Linear does not document
+    the default direction of `orderBy: createdAt`, so which 200 an issue with
+    more keeps is not guaranteed), `commentsTruncated` when more remain. Null
+    when the issue is gone, archived or trashed. A blank description reads as
+    null.
   - `listIssueLabels(teamId) → IssueLabel[]` — root `issueLabels` filtered to
     the team's labels and workspace labels
     (`or: [{ team: { id: { eq } } }, { team: { null: true } }]`), every page;
@@ -613,9 +697,11 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   a String, one of `notUsed`, `exponential`, `fibonacci`, `linear`, `tShirt`
   (unknown → treated as `notUsed`, logged); `issueEstimationAllowZero`,
   `issueEstimationExtended`; a sub-team with `inheritIssueEstimation` uses its
-  parent's settings. Scale values: linear.app/docs/estimates (§2.12).
+  parent's settings, and every level may inherit (the chain is followed to the
+  first team that does not; one inheriting past the levels read is logged).
+  Scale values: linear.app/docs/estimates (§2.12).
 - Identity:
-  `{ viewer { id name displayName email active avatarUrl app } organization { id name urlKey } }`.
+  `{ viewer { id name displayName email active avatarUrl app guest } organization { id name urlKey } }`.
   With an actor=app token, `viewer` is the app user (`app: true`), never the
   installing human.
 - Rate limits (OAuth apps, per user/app user): 5,000 requests/h and 2,000,000
@@ -623,6 +709,13 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   `errors[].extensions.code == "RATELIMITED"` (the SDK also checks
   `extensions.type == "ratelimited"`); reset headers
   `x-ratelimit-requests-reset` / `x-ratelimit-complexity-reset` are epoch ms.
+  The wait (`rateLimitResetMs`) comes from `Retry-After` (seconds or a date,
+  which the SDK reads) first, then the endpoint window
+  (`x-ratelimit-endpoint-requests-remaining` 0 → its `-reset`, research.md Q7),
+  then the latest reset among the global windows that are used up; a window with
+  requests left never decides it, and with none of these the client backs off
+  (500 ms, doubling). A wait beyond 60 s fails at once with `rate_limited` and
+  `retryAt`.
 
 **OAuth 2.0** (one Linear OAuth app, two actor modes)
 
@@ -643,8 +736,11 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   `token_type_hint`.
 - `actor=app` (admin-only install, workspace-scoped): writes are attributed to
   the app user, which is what allocation comments should say. Scopes
-  `read,write` (actor=app cannot request `admin`). The app only sees the teams
-  the admin picks at install — document this in setup.
+  `read,write,initiative:read` (actor=app cannot request `admin`;
+  `initiative:read` is how an app user gets the workspace's initiatives,
+  changelog 2025-08-14, research.md "Linear OAuth 2.0" scopes, and the sync
+  reads them). The app only sees the teams the admin picks at install — document
+  this in setup.
 - Per-user sign-in uses the default actor (user) with `read`; anyone signed in
   may upgrade to `read,write` (`grant_write`) so their edits are attributed to
   them in Linear: milestone dates and project leads (anyone's since the owner
@@ -770,6 +866,18 @@ Tables (all keyed by `workspace_id`):
   `runMode` and `runTrigger`. Migration 4 adds
   `allocation_entries_issue_idx (workspace_id, issue_id, created_at DESC)`.
 
+Bounded waits: every pg pool connection is opened, or a free one waited for,
+within `PG_CONNECT_TIMEOUT_MS` (10 s, `connectionTimeoutMillis`), so an
+unreachable database fails calls (and `/api/health` answers 503) instead of
+hanging until TCP gives up; there is no statement timeout (migrations and
+advisory locks may wait). `withInstallationLock` / `withSessionLock` run
+`SET LOCAL lock_timeout = '30s'` before `SELECT … FOR UPDATE`: the holder's
+token refresh is bounded at 15 s (`OAUTH_TIMEOUT_MS`, §4), so a waiter past 30 s
+fails with 55P03 instead of piling up on pool connections. `write()` (every
+single-statement write) drops U+0000 from string parameters like `jsonParam`
+does, since Postgres refuses it in text as in jsonb; the engine refuses control
+characters in what people type (§7.1), this is the backstop.
+
 Token encryption: AES-256-GCM, key = 32 bytes from `TOKEN_ENCRYPTION_KEY`
 (base64), random 12-byte IV per value, stored as `v1:<iv>:<tag>:<ciphertext>`
 (base64url). Session cookie tokens are 32 random bytes (base64url); only their
@@ -817,6 +925,13 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 - `createOutboxChannel()`: `delivers = false`; the engine records digests with
   status `preview`.
 - `renderDigest(digest, ctx) → { text, blocks }` is exported and unit-tested.
+  Each item's section is the linked title, the kind line, the plain lines as
+  bullets, "Due <date> · N open · M unassigned", then the open issues as
+  `• <issue url|KEY> Title` bullets (" — unassigned" on those with no assignee),
+  unassigned first, at most 10, the rest counted as "• …and N more open issues
+  (M unassigned)". Room for that last bullet is kept while the lines are placed,
+  so the issues are never dropped silently. The top-level `text` lists items
+  only, not issues.
 
 ## 7. Engine (packages/engine)
 
@@ -827,6 +942,29 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   re-indexes. Settings + milestone meta are read every call (small). Computes
   `today` (workspace tz), assessments, allocation plan. No mirror yet → runs
   `fullSync` first (if installed).
+- **Per-viewer visibility** (§2.13; `visibility.ts`, the one place views apply
+  it): `load`, `getWeekView`, `getTimelineView`, `getGraph`,
+  `getMilestoneDetail`, `getRun`, `listAudit` and `runWarnings({ previewOnly })`
+  take an additive optional `viewer: Actor`; with it the mirror is narrowed
+  (`visibleSnapshot`, cached per mirror snapshot and set of visible teams)
+  before anything is built, so the assessments and the allocation plan are
+  computed over what that person sees. Every read the web app makes for a person
+  passes it (§8.1); only the worker's jobs (sync, allocation, the warnings sent
+  to leads and watchers) and tests read the whole mirror. A viewer of another
+  workspace is `wrong_workspace`. The issue page and every edit
+  (`getIssueDetail`, `updateIssue`, `addComment`, `addBlocker`,
+  `removeRelation`, milestone and project edits) look entities up in the
+  viewer's narrowed mirror, so an issue of a team they cannot see is `not_found`
+  like an unknown one, while what a write changes in the mirror is decided on
+  the whole mirror. `getRun` and `listAudit` leave out entries about a project,
+  milestone or issue the viewer cannot see; an entry about one the mirror no
+  longer holds (a closed project, a deleted issue) cannot be placed in a team,
+  so members see it and guests do not. The digest preview narrows each
+  recipient's digest to what the previewing person sees. A mirror written before
+  team visibility was mirrored is synced by `load` first (if that sync fails it
+  is read as it is, which shows people nothing). Guests keep every planner-only
+  power the owner decision gives everyone signed in (settings, runs); only what
+  they see is narrowed.
 - **getSettings(workspaceId)** (additive): the saved settings over the defaults,
   exactly as `load` reports them, with no sync, no mirror read and no
   installation check (the timezone as saved, even if invalid). The worker reads
@@ -838,7 +976,14 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   settings with no watchers): `WATCHER_EMAILS` matches, else the installer
   (`bootstrapWatchers`; app users never, unmatched emails logged at warn) →
   `replaceMirror`. Later syncs never touch saved settings, so an emptied watcher
-  list stays empty.
+  list stays empty. Single-flight per workspace within a process: a caller that
+  finds a sync running for its workspace (the web resync, the worker, `load`'s
+  first sync, a webhook's) shares its result or its error instead of paging
+  Linear again with the app's token, whose hourly quota allocation and webhooks
+  share. The wait is bounded: past `SYNC_JOIN_WAIT_MS` (2 minutes) from the
+  running sync's start on the engine clock, a caller runs its own (logged at
+  warn), which later callers then join, so a hung sync never holds the daily job
+  or a takeover. The web route adds a per-workspace cooldown (§8.1).
 - **handleWebhook**: `recordWebhookDelivery` (duplicate → `'duplicate'`), then
   by `type`: `Issue` → `fetchIssue` + `fetchIssueRelations` (replace every
   relation touching that issue) and, when the issue's milestone is not mirrored
@@ -847,8 +992,16 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   are gone); `Initiative` → `fetchInitiative`; `User` → `fetchUser`; `OAuthApp`
   with action `revoked` → `markInstallationRevoked`. Fetch returning null or
   action `remove` → delete from the mirror (a removed project also drops its
-  milestones). Anything else → `'ignored'`. Errors are recorded on the delivery
-  and logged; the periodic resync heals drift.
+  milestones). Anything else → `'ignored'`. A refetched issue keeps the mirror's
+  `lastStateChangeAt` when that is later (`withMirroredStateTime`: `fetchIssue`
+  knows only the timestamp approximation, the sync's value may be
+  history-refined), unless its state moved (`updatedFrom.stateId`, or a state
+  other than the mirror's): then the issue's `updatedAt`. When an Issue or
+  Project event brings a project the mirror did not have (reopened, or newly
+  visible), its milestones come with it but its issues cannot (there is no
+  per-project issue read), so a `fullSync` follows at once (its failure is
+  logged; the webhook's own change stays applied). Errors are recorded on the
+  delivery and logged; the periodic resync heals drift.
 - **runAllocation** (§7.4, §6.3, §6.12, §9 safety):
   1. `store.startRun` (null → `EngineInputError('conflict')`); a run still
      `running` `ALLOCATION_RUN_STALE_MINUTES` (30) after it started counts as
@@ -863,7 +1016,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
      (assign-then-comment: a rerun never double-comments, because the issue is
      no longer unassigned). Record `applied` with the comment id, or `failed`
      with the error. Continue past failures. Patch the mirror with the returned
-     issue.
+     issue; when no state was sent it keeps the mirror's later (possibly
+     history-refined) `lastStateChangeAt`, as people's edits do (§7.2), since
+     `runDaily`'s warnings read that mirror next.
   6. `finishRun` with status `succeeded` / `partial` (some failed) / `failed`
      (threw). Idempotent by construction: assigned issues are never reassigned.
 - **runWarnings**: `planWarnings` with stored memory → `buildDigests` → for each
@@ -890,24 +1045,26 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   decision 2026-10-22: there is no PM role and no `not_pm` code). Linear writes
   (`setMilestoneTargetDate`, `setProjectLead`) require `actor.canWriteLinear`
   (else `needs_write_scope`) and go through `linear.forSession(actor.session)`
-  so Linear attributes them to the human. Weight, done-means and
-  `updateSettings` are tool-owned writes and need only the session. Each edit
-  patches the mirror (or settings) and appends an audit entry under the person's
-  id.
+  so Linear attributes them to the human; Linear's refusals of them map through
+  `engineErrorFromLinear` like issue edits' (§7.2: forbidden → 403
+  `linear_forbidden`, a rejected token → 401 `not_signed_in`, rate limit → 429).
+  Weight, done-means and `updateSettings` are tool-owned writes and need only
+  the session. Each edit patches the mirror (or settings) and appends an audit
+  entry under the person's id.
 - **runAllocation** from a person (`trigger: 'manual'`): anyone signed in to
   that workspace (else `wrong_workspace`), either mode; the live writes go out
   as the app, so no write grant is needed. The web route keeps live runs off
   until someone switches allocation live (§8.1).
 - **auth**: `startOAuth(intent)` creates state + PKCE pair. Scopes: `signin` →
   `read`; `grant_write` → `read,write` (for anyone signed in: owner decisions
-  2026-10-21 and 2026-10-22); `install` → `read,write` with `actor=app`.
-  `finishSignIn` exchanges the code, asks `whoAmI`, creates a session
-  (`sessionDays`). `finishInstall` exchanges with the app actor, checks the
-  workspace matches the actor's and saves the installation (anyone signed in may
-  install or reinstall: only a Linear admin can grant `actor=app`); it writes no
-  settings, and the web route then schedules the first `fullSync`, which
-  bootstraps the watchers. `authenticate` refreshes the session's Linear token
-  when needed (under `withSessionLock`) and returns
+  2026-10-21 and 2026-10-22); `install` → `read,write,initiative:read` with
+  `actor=app` (§4.1). `finishSignIn` exchanges the code, asks `whoAmI`, creates
+  a session (`sessionDays`). `finishInstall` exchanges with the app actor,
+  checks the workspace matches the actor's and saves the installation (anyone
+  signed in may install or reinstall: only a Linear admin can grant
+  `actor=app`); it writes no settings, and the web route then schedules the
+  first `fullSync`, which bootstraps the watchers. `authenticate` refreshes the
+  session's Linear token when needed (under `withSessionLock`) and returns
   `Actor { session, canWriteLinear }` (no role).
 
 ### 7.1 Engine exports and boot
@@ -967,17 +1124,20 @@ and `engineErrorFromLinear`. `DONE_MEANS_MAX_LENGTH`, `WEIGHT_MIN` and
   the row lock is released, after re-reading the row: a reinstall saved in
   between (different tokens) is left alone. From then on Settings and `/setup`
   see `revokedAt`, `listWorkspaceIds` skips the workspace (the worker stops
-  retrying it every tick) and `forApp` fails fast without calling Linear. A
-  session or installation row missing at lock time (`StoreNotFoundError`) maps
-  to `not_signed_in` / `not_installed`.
+  retrying it every tick) and `forApp` fails fast without calling Linear.
+  `listRevokedWorkspaceIds()` (additive) lists those workspaces, and the worker
+  reports each as a failed workspace on every run (§9), so allocation and
+  warnings never stop silently. A session or installation row missing at lock
+  time (`StoreNotFoundError`) maps to `not_signed_in` / `not_installed`.
 
 Validation done by the engine (never trust the client): dates via
 `isValidIsoDate`; lead must be an active, non-app mirrored user or null; weight
-an integer in [-1000, 1000] or null; done-means trimmed, single line, ≤ 280
-chars, empty → null; settings: no `pmUserIds` key (refused with "pmUserIds is no
-longer a setting…"), watchers may be an empty list, valid IANA timezone, tuning
-integers within sane ranges (1–90 days), known modes; user ids must exist in the
-mirror; issue edits as listed in §7.2.
+an integer in [-1000, 1000] or null; done-means trimmed, single line, no control
+characters other than tab (C0, DEL), ≤ 280 chars, empty → null; settings: no
+`pmUserIds` key (refused with "pmUserIds is no longer a setting…"), watchers may
+be an empty list, valid IANA timezone, tuning integers within sane ranges (1–90
+days), known modes; user ids must exist in the mirror; issue edits as listed in
+§7.2.
 
 Engine decisions made while building it (binding for callers):
 
@@ -1096,29 +1256,35 @@ else (there is no role to check since the owner decision of 2026-10-22).
   (`listIssueLabels(team)`) are read live in parallel with the **actor's own
   token** (`linear.forSession`); when that gateway cannot be had because its
   refresh failed for a transient reason the app's reads instead
-  (`extraSource: 'app'`, logged at warn). A grant Linear rejected for good
+  (`extraSource: 'app'`, logged at warn). Transient means the token endpoint was
+  unreachable or timed out (`OAuthError` `network_error`) or answered 5xx or 429
+  (or a Linear transport/server failure). A grant Linear rejected for good
   (`EngineAuthError('not_signed_in')`: revoked, lost access) is never bridged
   with the app's token: `extra` null, `extraSource` null, "Linear no longer
-  accepts your sign-in; …". A live failure never throws: `extra` null, `labels`
-  [], `estimateScale` null and `extraError` a sentence ("Linear did not answer;
-  …"). An issue the person's token does not get back reads "Linear does not show
-  this issue to your account: it is in a team you cannot see, or it was deleted
-  or archived." (Linear answers not found for both). `allocationHistory` =
+  accepts your sign-in; …". Neither is any other failure (another OAuth `error`
+  code such as `invalid_client` after a secret rotation, a store error): `extra`
+  null, `extraSource` null, "The planner could not read Linear as you right now
+  …", logged at error. A live failure never throws: `extra` null, `labels` [],
+  `estimateScale` null and `extraError` a sentence ("Linear did not answer; …").
+  An issue the person's token does not get back reads "Linear does not show this
+  issue to your account: it is in a team you cannot see, or it was deleted or
+  archived." (Linear answers not found for both). `allocationHistory` =
   `listRunEntriesForIssue(…, ISSUE_HISTORY_LIMIT)` (20). `canEdit` =
   `actor.canWriteLinear`.
 - **updateIssue(actor, issueId, patch) → IssueUpdateResult**
   `{ issue, changed }`. Validated before Linear is called
   (`normalizeIssuePatch`, then the mirror): only `IssuePatch` keys and at least
-  one value; title trimmed, one line, 1–255 characters; description ≤ 100,000
-  (blank → null); state of the issue's team; assignee an active non-app mirrored
-  user or null; priority an integer 0–4; project mirrored or null; milestone of
-  the target project (an issue without a project has none), and a project change
-  without a milestone also sends `projectMilestoneId: null` (the old project's
-  milestone is cleared); due date a calendar date or null; estimate a
-  non-negative integer allowed by the team's live scale (`notUsed` refuses any)
-  or null; labels the team's live usable labels or ones the issue carries now
-  (an archived or inherited label may stay, never be added anew), at most one
-  per single-select group, duplicates dropped. The current values of
+  one value; title trimmed, one line, no control characters other than tab (C0,
+  DEL: a NUL used to reach Postgres as a 500), 1–255 characters; description ≤
+  100,000 (blank → null); state of the issue's team; assignee an active non-app
+  mirrored user or null; priority an integer 0–4; project mirrored or null;
+  milestone of the target project (an issue without a project has none), and a
+  project change without a milestone also sends `projectMilestoneId: null` (the
+  old project's milestone is cleared); due date a calendar date or null;
+  estimate a non-negative integer allowed by the team's live scale (`notUsed`
+  refuses any) or null; labels the team's live usable labels or ones the issue
+  carries now (an archived or inherited label may stay, never be added anew), at
+  most one per single-select group, duplicates dropped. The current values of
   description, due date, estimate and labels are read live (actor's token) only
   when the patch touches them. Values equal to the current ones are dropped;
   when nothing is left nothing is written (`changed: []`). Then
@@ -1193,21 +1359,46 @@ nothing is imported from it.
 | `POST /api/issues/[id]/blockers` | write access      | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                                                                        |
 | `DELETE /api/relations/[id]`     | write access      | removes a blocks relation (no body) → 204                                                                                                                                                                           |
 | `POST /api/runs`                 | signed in         | `{ mode: 'dry_run' \| 'live' }`                                                                                                                                                                                     |
-| `POST /api/sync`                 | signed in         | full resync                                                                                                                                                                                                         |
+| `POST /api/sync`                 | signed in         | full resync; 429 `resync_cooldown` with `Retry-After` within 60 s of the workspace's last web resync                                                                                                                |
 | `POST /api/warnings/preview`     | signed in         | digests without sending                                                                                                                                                                                             |
 | `PATCH /api/settings`            | signed in         | settings patch (audited)                                                                                                                                                                                            |
 | `GET /api/health`                | —                 | `{ ok, db }` for Railway healthchecks                                                                                                                                                                               |
+| `/ui-gallery/*`                  | demo mode only    | the `@better-tracker/ui` component gallery with fixture props (no engine); 404 unless `LINEAR_FIXTURE=1` or `next dev`, checked per request                                                                         |
 
 Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
 `APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
 `{state, codeVerifier, intent, returnTo}` signed with HMAC-SHA256
 (`SESSION_SECRET`), 10-minute expiry, compared in constant time. Mutating routes
 require same-origin `Origin` (or `Sec-Fetch-Site: same-origin`) and JSON bodies
-validated with zod. `returnTo` must be a relative path. Every page/route
-resolves the actor server-side; the UI never decides permissions.
+validated with zod, read through one limited reader (`readJson`: at most 1 MiB,
+else 413 `too_large` before anything is parsed; the webhook's limit is 5 MiB).
+`returnTo` must be a relative path. Every page/route resolves the actor
+server-side; the UI never decides permissions. Every engine read made for a
+person passes that actor as the `viewer` (§7, §2.13: pages, the palette, the
+issue read and search, the run detail, the audit and the digest preview;
+`lib/load.ts`'s cached view loaders take it from the request), so a private
+team's data reaches only its members and a guest sees only their teams. Every
+response carries `lib/security-headers.ts`: a Content-Security-Policy
+(`default-src 'self'`, `object-src 'none'`, `base-uri 'none'`,
+`frame-ancestors 'none'`, `connect-src 'self'`,
+`form-action 'self' https://linear.app`; `script-src` and `style-src` keep
+`'unsafe-inline'`, because Next streams the server-component payload as inline
+scripts, the layouts inline the pre-paint theme and sidebar scripts and React
+positions with style attributes; a nonce would need a proxy and dynamic
+rendering of every page; development adds `'unsafe-eval'`),
+`Strict-Transport-Security: max-age=31536000; includeSubDomains` (ignored by
+browsers over plain HTTP), `X-Frame-Options: DENY`, `nosniff`, a strict-origin
+referrer policy and a Permissions-Policy.
 
 Auth and frame details (decided while building `apps/planner`; binding):
 
+- A signed-out visit to a page (a digest's `/timeline?milestone=<id>` link
+  opened on a phone, say) redirects to `/?returnTo=<the page's path and query>`;
+  the landing page passes it on to "Sign in with Linear"
+  (`/api/auth/linear?intent=signin&returnTo=…`) and to the demo picker's form
+  (`POST /api/auth/demo` takes an optional `returnTo` field), so signing in
+  lands there, not on My week. A signed-in visitor of `/?returnTo=…` goes
+  straight there. The same `sanitizeReturnTo` rules apply at every hop.
 - `mp_oauth` is scoped to `Path=/api/auth`. `returnTo` must start with exactly
   one `/` (never `//` or `/\`), contain no control characters or spaces
   (browsers strip them, turning `/\t/x` into `//x`) and resolve to the same
@@ -1274,6 +1465,14 @@ binding):
   unknown key) → the engine, errors mapped by `errorResponse`. There is no role
   check: any signed-in person of the workspace may call all four (owner decision
   2026-10-22), and nobody is ever answered `not_pm`.
+- **Resync is one per workspace per minute from the web**: `POST /api/sync`
+  answers 429 `resync_cooldown` with `Retry-After` (seconds) when the same
+  workspace's last web resync was accepted less than 60 s ago (per process, like
+  the engine; a signed-out, cross-origin or invalid request does not start the
+  clock, a sync that fails does). A full sync pages every Linear connection with
+  the app's token, whose hourly quota allocation, webhook refetches and the
+  worker's sync share; the engine also joins concurrent syncs of a workspace
+  into one (§7). Settings → Status says "Not synced: …" for it.
 - **A live run is gated by the saved mode**: `POST /api/runs { mode: 'live' }`
   answers 409 `live_runs_off` while `settings.allocationMode` is `dry_run`
   (§7.4: dry run until someone switches it live in Settings → Modes, which
@@ -1339,24 +1538,44 @@ binding):
 
 The one deliberate departure from Analytics is the accent: purple `#9747ff`
 (pressed `#7f36f0`) instead of its orange, at the owner's request. Like the
-orange it is one value in both themes: 4.51:1 against white paper and for white
-text on a purple fill, 4.25:1 against the dark paper.
+orange it is one value in both themes for fills, marks, rules and outlines:
+4.51:1 against white paper and for white text on a purple fill. Purple TEXT uses
+`--accent-ink` instead, because #9747ff is only 4.25:1 on the dark paper: it is
+`#9747ff` in light and `#a66bff` in dark (5.63:1 on #0f0f0f, 4.84:1 on the
+`--tint` hover wash); hovered or focused purple text is `--accent-ink-hover`
+(`#7f36f0` in light, 5.69:1; `#b47aff` in dark, 6.54:1), and purple text on a
+`--foreground` hover flood is `--accent-ink-inverse` (`#9747ff` on black,
+4.66:1; `#7f36f0` on #ededed, 4.86:1). Dim grey TEXT likewise uses
+`--grey-2-ink` (`#6e6e6e` in light, 5.1:1 on white and 4.55:1 on the tint;
+`#8f8f8f` in dark, 5.93:1), while `--grey-2` stays for furniture, separators and
+disabled controls. Every hover flood swaps these three text tokens along with
+the paper and ink.
 
 Tokens (`--paper`, `--ink`, `--background`, `--foreground`, `--border`,
 `--muted`, `--accent #9747ff`, `--accent-hover #7f36f0`, `--on-accent`,
-`--ink-soft`, `--grey-2..4`, `--hairline-faint`, `--hatch`, `--tint`, the
+`--accent-ink`, `--accent-ink-hover`, `--accent-ink-inverse`, `--ink-soft`,
+`--grey-2..4`, `--grey-2-ink`, `--hairline-faint`, `--hatch`, `--tint`, the
 `*-inverse` set), light + dark via `html[data-theme]` with the pre-paint theme
-script, Geist + JetBrains Mono via `next/font/google`, body weight 300, zero
-radius, no shadows (overlays separate with a 1px ink border and a scrim derived
-from `--ink`, never blur), 1px hairlines collapsed with `-1px` margins, 2px only
-for emphasis, the hatched chrome titlebar (`.block` / `.blockBar` …), accent
-registration marks on the chrome, the grid tab strip (selected = ink fill, hover
-= accent flood), register rows whose hover swaps paper and ink tokens locally,
-the `Mark` square idiom, the 2px-accent explain panel, mono uppercase
-micro-labels with positive tracking, `:focus-visible` accent outline, hover
-floods gated behind `@media (hover: hover) and (min-width: 901px)`, and a
-designed `prefers-reduced-motion` state. Motion uses the Analytics curves
-(`--ease-out-quint` for drawers, `--ease-out-expo` for growth).
+script (`data-theme="system"` follows the OS through `prefers-color-scheme`, for
+a host with no theme script; the ui README), Geist + JetBrains Mono via
+`next/font/google`, body weight 300, zero radius, no shadows (overlays separate
+with a 1px ink border and a scrim derived from `--ink`, never blur), 1px
+hairlines collapsed with `-1px` margins, 2px only for emphasis, the hatched
+chrome titlebar (`.block` / `.blockBar` …), accent registration marks on the
+chrome, the grid tab strip (selected = ink fill, hover = accent flood), register
+rows whose hover swaps paper and ink tokens locally, the `Mark` square idiom,
+the 2px-accent explain panel, mono uppercase micro-labels with positive
+tracking, `:focus-visible` accent outline, hover floods gated behind
+`@media (hover: hover) and (min-width: 901px)`, and a designed
+`prefers-reduced-motion` state. Motion uses the Analytics curves
+(`--ease-out-quint` for drawers, `--ease-out-expo` for growth). Empty states
+(`.empty`, `EmptyState`) explain in the body face (sans 300, `--muted`,
+DESIGN.md §14.5: mono is for labels), with an optional short mono key above a
+long sentence ("No runs"). Form fields are 16px on phones and touch screens
+(`width <= 640px` or `pointer: coarse`), so iOS Safari does not zoom into them.
+A timeline bar's sticky label is capped to the part of the bar still visible
+beside the lane column (the bar's end less the chart's scroll offset), so the
+receipts drop out and the name stays readable rather than sliding under it.
 
 Status uses only the system's own marks (no new hues — DESIGN.md §3):
 
@@ -1374,19 +1593,20 @@ planner uses these marks, mono labels, and the accent only for "needs action"
 
 ### 8.3 Layout and interaction (from Gr8r Studio)
 
-- **Shell** (`app/components/shell/*`): a fixed left **sidebar** (252px) that is
-  the chrome zone — hatched background, 1px right hairline, accent registration
-  marks at its outer corners — containing: brand row (`MILESTONE PLANNER` mono +
-  workspace name + collapse button), primary nav (My week with a count of
-  this-week issues, Timeline, Projects, Graph, Runs), a `PROJECTS` section
-  listing active projects with the status mark of each project's next milestone
-  (click → `/timeline?project=<id>`), and a footer with Settings, the signed-in
-  user (no role chip: there are no roles since the owner decision of
-  2026-10-22), theme toggle and sign out. Active nav item = ink fill; hover =
-  accent flood. A 46px **topbar** (paper, bottom hairline): mono breadcrumb on
-  the left (`TIMELINE › ATLAS MIGRATION`), and on the right the "Search or jump
-  to… CTRL K" palette trigger. `[` collapses the sidebar to an icon rail (choice
-  remembered in localStorage).
+- **Shell** (`AppShell` and the rest of `packages/ui/src/shell/*`, wired up by
+  the planner's `app/(app)/components/planner-shell.tsx`): a fixed left
+  **sidebar** (252px) that is the chrome zone — hatched background, 1px right
+  hairline, accent registration marks at its outer corners — containing: brand
+  row (`MILESTONE PLANNER` mono + workspace name + collapse button), primary nav
+  (My week with a count of this-week issues, Timeline, Projects, Graph, Runs), a
+  `PROJECTS` section listing active projects with the status mark of each
+  project's next milestone (click → `/timeline?project=<id>`), and a footer with
+  Settings, the signed-in user (no role chip: there are no roles since the owner
+  decision of 2026-10-22), theme toggle and sign out. Active nav item = ink
+  fill; hover = accent flood. A 46px **topbar** (paper, bottom hairline): mono
+  breadcrumb on the left (`TIMELINE › ATLAS MIGRATION`), and on the right the
+  "Search or jump to… CTRL K" palette trigger. `[` collapses the sidebar to an
+  icon rail (choice remembered in localStorage).
 - **Phone (≤ 900px)**: sidebar becomes an off-canvas drawer opened from a topbar
   menu button; a fixed bottom **tab bar** (My week / Timeline / Projects / Graph
   / More) like Gr8r's phone layout; pages become single column.
@@ -1398,8 +1618,10 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   the user's open issues by identifier — fetched from `/api/palette` on first
   open), and _Navigation_ with two-key shortcuts (G W My week, G T Timeline, G P
   Projects, G G Graph, G R Runs, G S Settings). ↑/↓ move, ↵ selects, Tab cycles
-  sections, Esc closes; fuzzy match on label + identifier. `?` opens a shortcuts
-  sheet.
+  sections, Esc closes; fuzzy match on label + identifier (a hint matches only
+  as a substring or a run of word starts, "eng24" → `ENG-24`, so a project's
+  "Project · <lead>" hint never pulls it in by scattered letters). On a phone
+  the hint ellipsizes before the label. `?` opens a shortcuts sheet.
 - **Toasts**: bottom-right stack, 1px ink border (2px accent for errors), mono
   label + one sentence, auto-dismiss after 4 s, `aria-live="polite"`; used after
   saves, runs and copies.
@@ -1413,7 +1635,14 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   column): Status, Due date, Lead, Progress, Weight, Next milestone, Done
   means…; then the rubric checklist, risk reasons, issues, and "Waits on".
   Linkable via `?milestone=<id>`; Esc closes; focus is trapped while open and
-  returned on close.
+  returned on close. Esc in the Weight or "Done means…" field while it holds
+  unsaved text puts the saved value back instead (the drawer stays); the next
+  Esc closes. When the panel swaps its content in place (milestone → one of its
+  issues, a relation row → another issue, "‹ Back to <milestone>", a "Waits on"
+  row), SlideOver's `contentKey` changes: the body scrolls to the top and focus
+  that was in the panel, or fell to `<body>` because the focused row unmounted,
+  moves to the panel, so the new title is announced and Tab starts at the
+  header; focus on a page row that swapped it stays there.
 
 ### 8.4 Pages
 
@@ -1447,9 +1676,15 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   add "+1 in an inactive project" and the empty "Needs attention" names the
   inactive project it left out. The two columns sit side by side only while the
   content area (not the viewport) is at least 1040px wide; below that the
-  deadlines and attention panels stack under the list. Right column (Gr8r
-  "Upcoming deadlines"): milestones the user leads or has issues in, grouped
-  Overdue / Today / Tomorrow / This week (up to 6 days out); and "Needs
+  deadlines and attention panels stack under the list. The grouped table stacks
+  its rows (key and title, then state · priority · due) by its own width, under
+  720px (a container query, not the viewport's 900px: beside the deadlines a
+  901–1100px window leaves the table 550–750px); a group heading keeps the mark,
+  `PROJECT ›`, milestone and count on one line (the project ellipsizes first,
+  the milestone wraps in place), and a row's ↗ stays on its title's last line.
+  Right column (Gr8r "Upcoming deadlines"): milestones the user leads or has
+  issues in, grouped Overdue / Today / Tomorrow / This week (up to 6 days out;
+  "Overdue" takes the accent only when it holds something); and "Needs
   attention" for projects the user leads that are blocked (reason) or have
   unassigned next-milestone issues. Everyone gets a person picker (`?user=<id>`,
   honoured on the server for anyone signed in, only for people in the mirror).
@@ -1721,11 +1956,14 @@ Worker decisions made while building it (binding):
   as a warning (no tick may land before midnight).
 - **Exit codes**: `0` ok (including "no installed workspaces"); `1` when a
   workspace failed (its job threw, or an allocation run ended `failed` or
-  `partial`), a workspace-independent step failed (listing workspaces,
-  `cleanup`), boot failed, or the hard timeout fired; `2` usage error (unknown
-  command/option, missing `--dry-run|--live`, an option that does not apply).
-  Undelivered digests do not fail a run (they include people with no Slack
-  account); they are counted in the summary.
+  `partial`; and every workspace whose installation is revoked, which a run over
+  all workspaces lists with `listRevokedWorkspaceIds` and reports as failed with
+  an error log naming the reinstall, instead of skipping it in silence), a
+  workspace-independent step failed (listing workspaces, `cleanup`), boot
+  failed, or the hard timeout fired; `2` usage error (unknown command/option,
+  missing `--dry-run|--live`, an option that does not apply). Undelivered
+  digests do not fail a run (they include people with no Slack account); they
+  are counted in the summary.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
   `TICK_TIMEOUT_MINUTES`. The manual one-shot commands (`sync`, `daily`,
@@ -1809,7 +2047,9 @@ not read; a deploy that still sets it boots normally and logs one warning
   issue page: a member with write scope edits with their own token, one without
   write scope is refused before Linear is called, every validation, mirror
   refresh and audit, Linear error mapping, live-read failure and app-token
-  fallback.
+  fallback (transient failures only); per-viewer visibility (§2.13): a private
+  team and a guest across every read made for a person, the edits, run log,
+  audit, digests and their preview.
 - planner: unit tests for cookie signing/origin checks; the adapters; the route
   handlers with a fake actor resolver, and end to end on the demo engine
   (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),
@@ -1817,8 +2057,28 @@ not read; a deploy that still sets it boots normally and logs one warning
   switches allocation live and starts a live run, empties and refills the
   watchers, re-dates a milestone, sets its weight and "done means…" and sets a
   project lead, each audited under her name, while cross-origin and signed-out
-  requests are still refused first and the retired `pmUserIds` is a 400;
-  Playwright smoke in fixture mode (screens render, drag updates a date).
+  requests are still refused first and the retired `pmUserIds` is a 400; a
+  second resync within a minute is a 429; a JSON body past 1 MiB is a 413 before
+  it is parsed.
+- planner browser smoke (Playwright 1.56, `apps/planner/e2e/*.e2e.ts`,
+  `playwright.config.ts`; moon `planner:test-e2e`, which builds first; CI runs
+  it as a `moon ci` target whenever the planner or anything it depends on
+  changed, after installing Playwright's Chromium): a production build served by
+  `next start` in demo mode on `E2E_PORT` (default 3390 plus the worktree
+  offset) signs in as Chloe and checks that every screen renders without a page
+  error, that dragging a due date PATCHes the milestone and survives a reload,
+  that an issue's title edit saves, that Ctrl K opens the palette, that a drawer
+  swapped in place keeps focus in the panel, and that Esc in a drawer field with
+  unsaved text resets it before closing. It needs Playwright's Chromium
+  (`playwright install chromium`) or `PLAYWRIGHT_CHROMIUM_PATH` /
+  `PLAYWRIGHT_BROWSERS_PATH` pointing at one.
+- image: CI's `image` job builds `deploy/Dockerfile` and starts both services
+  from it in demo mode (the web app must answer `/api/health`, the worker's
+  `tick` must exit 0).
+- ui: component tests with happy-dom (`packages/ui/test`), the stylesheet scope
+  guard (`styles-scope.test.ts`), and `ui:typecheck-host`: the source under a
+  host's looser flags (`tsconfig.host.json`, not strict, like Dispatch's
+  `apps/desktop`).
 
 ## 12. Verified external facts
 

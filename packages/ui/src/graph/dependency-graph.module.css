@@ -431,6 +431,9 @@ div.node {
 .node.selected {
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
 

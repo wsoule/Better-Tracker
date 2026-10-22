@@ -56,7 +56,10 @@ export default function StatusActions() {
     const result = await sendJson('POST', '/api/sync', {});
     setSyncing(false);
     if (!result.ok) {
-      setNote(`Sync failed: ${result.message}`);
+      // resync_cooldown: one resync per workspace per minute (429).
+      setNote(
+        `${result.code === 'resync_cooldown' ? 'Not synced' : 'Sync failed'}: ${result.message}`
+      );
       toast({ kind: 'error', label: 'Sync', message: result.message });
       return;
     }

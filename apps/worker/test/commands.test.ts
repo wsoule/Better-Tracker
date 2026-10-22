@@ -1,6 +1,10 @@
 import type { WorkspaceSettings } from '@better-tracker/core';
 import type { Engine } from '@better-tracker/engine';
-import { silentLogger } from '@better-tracker/logger';
+import {
+  createLogger,
+  type Logger,
+  silentLogger,
+} from '@better-tracker/logger';
 import { describe, expect, test } from 'bun:test';
 
 import {
@@ -8,6 +12,7 @@ import {
   type CommandResult,
   exitCodeFor,
   oneLine,
+  REVOKED_INSTALLATION_ERROR,
   runCommand,
   summaryLine,
   workerEngineFrom,
@@ -20,6 +25,19 @@ import {
   fakeEngine,
   warningResult,
 } from './fake-engine';
+
+// A logger that keeps every line it writes (JSON), for log assertions.
+function recordingLogger(): { logger: Logger; lines: string[] } {
+  const lines: string[] = [];
+  return {
+    lines,
+    logger: createLogger({
+      name: 'test',
+      level: 'debug',
+      sink: (_level, line) => lines.push(line),
+    }),
+  };
+}
 
 function context(
   engine: FakeEngine,
@@ -192,6 +210,39 @@ describe('runCommand', () => {
     });
     expect(exitCodeFor(result)).toBe(0);
     expect(summaryLine(result)).toBe('daily ok — no installed workspaces');
+  });
+
+  test('a revoked installation fails the command loudly instead of being skipped', async () => {
+    const { logger, lines } = recordingLogger();
+    const engine = fakeEngine({ workspaces: ['ws-a'], revoked: ['ws-gone'] });
+    const result = await runCommand(
+      { ...context(engine, { now: new Date('2026-10-21T07:00:00Z') }), logger },
+      { name: 'tick', workspaceId: null }
+    );
+    expect(result.outcomes.map((o) => [o.workspaceId, o.ok])).toEqual([
+      ['ws-a', true],
+      ['ws-gone', false],
+    ]);
+    expect(result.outcomes[1]?.error).toBe(REVOKED_INSTALLATION_ERROR);
+    expect(exitCodeFor(result)).toBe(1);
+    expect(summaryLine(result)).toContain('FAILED (1 of 2 workspaces)');
+    expect(
+      lines.some(
+        (l) => l.includes('installation is revoked') && l.includes('ws-gone')
+      )
+    ).toBe(true);
+    // Only revoked ones: still a failure, and not "nothing to do".
+    const alone = await runCommand(
+      {
+        ...context(fakeEngine({ workspaces: [], revoked: ['ws-gone'] })),
+        logger,
+      },
+      { name: 'sync', workspaceId: null }
+    );
+    expect(exitCodeFor(alone)).toBe(1);
+    expect(lines.some((l) => l.includes('no installed workspaces'))).toBe(
+      false
+    );
   });
 
   test('daily passes --force and reports an already-claimed day', async () => {

@@ -117,6 +117,9 @@ export function useIssueDrawerState(
 
 /** The pieces a SlideOver draws for the issue. */
 export interface IssueDrawerParts {
+  /** The SlideOver's `contentKey` ("issue:ENG-24", by the requested key,
+      so loading → loaded is not a swap): a new one is a swap in place. */
+  contentKey: string;
   title: ReactNode;
   breadcrumb: ReactNode;
   actions: ReactNode;
@@ -214,15 +217,17 @@ export function useIssueDrawerParts(
       ) : (
         <BackCrumb back={back} taskKey={key} />
       );
+    const contentKey = `issue:${requested}`;
     if (missing) {
       return {
+        contentKey,
         title: 'Issue not found',
         breadcrumb: crumb(requested),
         actions: null,
         closeLabel: 'Close issue',
         body: (
           <div className={css.state}>
-            <EmptyState>
+            <EmptyState label="Not found">
               {`${requested} is not in the planner. It may be in a completed or canceled project, in a team the app cannot see, or deleted in Linear.`}
             </EmptyState>
           </div>
@@ -231,6 +236,7 @@ export function useIssueDrawerParts(
     }
     if (model === null) {
       return {
+        contentKey,
         title: fallbackTitle ?? requested,
         breadcrumb: crumb(requested),
         actions: null,
@@ -243,6 +249,7 @@ export function useIssueDrawerParts(
       };
     }
     return {
+      contentKey,
       title: <DrawerTitle key={model.issueId} model={model} />,
       breadcrumb: crumb(model.key),
       actions: <IssueHeaderActions model={model} compact />,
@@ -284,6 +291,7 @@ export function IssueDrawer({
       breadcrumb={shown?.breadcrumb}
       actions={shown?.actions}
       closeLabel={shown?.closeLabel ?? 'Close issue'}
+      contentKey={shown?.contentKey}
     >
       {shown?.body}
     </SlideOver>

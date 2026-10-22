@@ -1,17 +1,6 @@
 import type { NextConfig } from 'next';
 
-// Security headers applied to every response. The app renders no
-// third-party content, so framing is denied outright and referrers are
-// trimmed to the origin.
-const securityHeaders = [
-  { key: 'X-Frame-Options', value: 'DENY' },
-  { key: 'X-Content-Type-Options', value: 'nosniff' },
-  { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
-  {
-    key: 'Permissions-Policy',
-    value: 'camera=(), microphone=(), geolocation=()',
-  },
-];
+import { securityHeaders } from './lib/security-headers';
 
 const nextConfig: NextConfig = {
   devIndicators: false,
@@ -22,8 +11,17 @@ const nextConfig: NextConfig = {
   // @better-tracker/ui ships TypeScript + CSS-module source (like Dispatch's
   // @dispatch/ui); Next compiles it with the app.
   transpilePackages: ['@better-tracker/ui'],
+  // Security headers on every response (CSP, HSTS, framing, referrer;
+  // lib/security-headers.ts).
   headers() {
-    return Promise.resolve([{ source: '/:path*', headers: securityHeaders }]);
+    return Promise.resolve([
+      {
+        source: '/:path*',
+        headers: securityHeaders({
+          development: process.env.NODE_ENV === 'development',
+        }),
+      },
+    ]);
   },
 };
 

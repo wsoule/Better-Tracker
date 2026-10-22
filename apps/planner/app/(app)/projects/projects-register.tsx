@@ -155,7 +155,7 @@ export default function ProjectsRegister({
 
       {total === 0 ? (
         <div className={css.blocks}>
-          <EmptyState>
+          <EmptyState label="No projects">
             No open projects. Projects appear here once they exist in Linear and
             are not completed or canceled.
           </EmptyState>

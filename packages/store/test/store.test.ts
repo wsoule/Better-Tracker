@@ -213,6 +213,45 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(called).toBe(false);
       });
 
+      test('the token locks bound their wait with lock_timeout before locking', async () => {
+        // Records every statement the store sends, transactions included.
+        const statements: string[] = [];
+        const recording = (inner: Sql): Sql => ({
+          query: (text, params) => {
+            statements.push(text.replace(/\s+/g, ' ').trim());
+            return inner.query(text, params);
+          },
+          transaction: (fn) => inner.transaction((tx) => fn(recording(tx))),
+          close: () => inner.close(),
+        });
+        const watched = createSqlStore(recording(sql), {
+          encryptionKey: TEST_KEY,
+          now: () => clock,
+        });
+        const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
+        const { session } = await store.createSession({
+          workspaceId: ws,
+          userId: 'u-ana',
+          userName: 'Ana Lead',
+          tokens: tokens('user'),
+          expiresAt: '2026-11-20T08:00:00.000Z',
+        });
+        await watched.withInstallationLock(ws, () =>
+          Promise.resolve({ result: null })
+        );
+        await watched.withSessionLock(session.id, () =>
+          Promise.resolve({ result: null })
+        );
+        const locks = statements.flatMap((text, i) =>
+          text.endsWith('FOR UPDATE') ? [statements[i - 1]] : []
+        );
+        expect(locks).toEqual([
+          "SET LOCAL lock_timeout = '30s'",
+          "SET LOCAL lock_timeout = '30s'",
+        ]);
+      });
+
       test('concurrent refreshers are serialized by the row lock', async () => {
         const ws = newWorkspaceId();
         await store.saveInstallation(installation(ws));
@@ -529,6 +568,27 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         await store.upsertMilestoneMeta(ws, bumped);
         expect(await store.listMilestoneMeta(ws)).toEqual([alpha, bumped]);
         expect(await store.listMilestoneMeta(newWorkspaceId())).toEqual([]);
+      });
+
+      test('a NUL in free text is dropped instead of failing the write', async () => {
+        const ws = newWorkspaceId();
+        const meta = await store.updateMilestoneMetaField(
+          ws,
+          'm-alpha',
+          'doneMeans',
+          'a\u0000b',
+          'u-ana',
+          '2026-10-21T09:00:00.000Z'
+        );
+        expect(meta.doneMeans).toBe('ab');
+        await store.recordFullSync(ws, {
+          at: '2026-10-21T09:00:00.000Z',
+          ok: false,
+          error: 'Linear said \u0000 no',
+        });
+        expect((await store.getSyncState(ws))?.lastFullSyncError).toBe(
+          'Linear said  no'
+        );
       });
 
       test('updateMilestoneMetaField writes only its own column', async () => {

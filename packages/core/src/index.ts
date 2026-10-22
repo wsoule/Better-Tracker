@@ -16,3 +16,4 @@ export * from './views';
 export * from './estimates';
 export * from './issue-detail';
 export * from './labels';
+export * from './visibility';

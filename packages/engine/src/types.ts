@@ -296,7 +296,12 @@ export interface Engine {
   listDemoUsers(): Promise<User[]>;
 
   // --- reads ----------------------------------------------------------------
-  load(workspaceId: string): Promise<LoadedWorkspace>;
+  // Additive `viewer` (§2.13): the signed-in person a read is for. With it,
+  // the mirror is narrowed to the teams that person may see (a member: the
+  // public teams and the private ones they belong to; a guest: only their
+  // teams) before anything is built. Every read made for a person passes
+  // it; only the worker's own jobs and tests read the whole mirror.
+  load(workspaceId: string, viewer?: Actor): Promise<LoadedWorkspace>;
   /**
    * Additive: the workspace's saved settings layered over the defaults
    * (unconfigured workspaces get the defaults with DEFAULT_TIMEZONE), as
@@ -305,23 +310,39 @@ export interface Engine {
    * even when invalid.
    */
   getSettings(workspaceId: string): Promise<WorkspaceSettings>;
-  getWeekView(workspaceId: string, userId: string): Promise<WeekView>;
-  getTimelineView(workspaceId: string): Promise<TimelineView>;
-  getGraph(workspaceId: string, scope: GraphScope): Promise<DependencyGraph>;
+  getWeekView(
+    workspaceId: string,
+    userId: string,
+    viewer?: Actor
+  ): Promise<WeekView>;
+  getTimelineView(workspaceId: string, viewer?: Actor): Promise<TimelineView>;
+  getGraph(
+    workspaceId: string,
+    scope: GraphScope,
+    viewer?: Actor
+  ): Promise<DependencyGraph>;
   getMilestoneDetail(
     workspaceId: string,
-    milestoneId: string
+    milestoneId: string,
+    viewer?: Actor
   ): Promise<MilestoneDetail>;
   listRuns(workspaceId: string, limit: number): Promise<AllocationRun[]>;
+  /** With `viewer`, entries about what they cannot see are left out. */
   getRun(
     workspaceId: string,
-    runId: string
+    runId: string,
+    viewer?: Actor
   ): Promise<{ run: AllocationRun; entries: RunEntry[] } | null>;
   listNotifications(
     workspaceId: string,
     limit: number
   ): Promise<NotificationRecord[]>;
-  listAudit(workspaceId: string, limit: number): Promise<AuditEntry[]>;
+  /** With `viewer`, entries about what they cannot see are left out. */
+  listAudit(
+    workspaceId: string,
+    limit: number,
+    viewer?: Actor
+  ): Promise<AuditEntry[]>;
   getInstallation(workspaceId: string): Promise<Installation | null>;
 
   // --- jobs -------------------------------------------------------------------
@@ -356,6 +377,11 @@ export interface Engine {
     day?: IsoDate;
     /** Build digests without recording or sending anything. */
     previewOnly?: boolean;
+    /**
+     * Additive, with previewOnly: the person previewing (§2.13). Each
+     * digest then shows only the items and issues that person may see.
+     */
+    viewer?: Actor;
   }): Promise<WarningRunResult>;
   /** sync -> allocation (settings mode) -> warnings; once per day unless forced. */
   runDaily(input: {
@@ -370,6 +396,14 @@ export interface Engine {
     day?: IsoDate;
   }): Promise<DailyResult>;
   listWorkspaceIds(): Promise<string[]>;
+  /**
+   * Additive: workspaces whose installation lost its Linear grant
+   * (revokedAt set: uninstalled, or a refresh Linear rejected), which
+   * listWorkspaceIds leaves out. The worker reports each one as a failed
+   * workspace until an admin reinstalls, so allocation and warnings never
+   * stop silently.
+   */
+  listRevokedWorkspaceIds(): Promise<string[]>;
 
   // --- milestone, project and settings edits ----------------------------------
   // Open to every signed-in person (owner decision 2026-10-22). The Linear

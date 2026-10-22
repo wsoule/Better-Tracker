@@ -28,6 +28,7 @@ import {
   isValidIsoDate,
   type Notice,
   planWarnings,
+  visibleDigest,
   type WarningMemory,
   type WarningsMode,
 } from '@better-tracker/core';
@@ -39,7 +40,8 @@ import type {
 
 import { loadWorkspace } from './load';
 import { type EngineRuntime, errorMessage } from './runtime';
-import { EngineInputError, type WarningRunResult } from './types';
+import { type Actor, EngineInputError, type WarningRunResult } from './types';
+import { viewerSnapshot } from './visibility';
 
 /** Detail recorded when warnings are live but no channel is configured. */
 export const SLACK_NOT_CONFIGURED: string =
@@ -113,7 +115,12 @@ interface DeliveryOutcome {
 /** The engine's runWarnings. */
 export async function runWarnings(
   rt: EngineRuntime,
-  input: { workspaceId: string; day?: IsoDate; previewOnly?: boolean }
+  input: {
+    workspaceId: string;
+    day?: IsoDate;
+    previewOnly?: boolean;
+    viewer?: Actor;
+  }
 ): Promise<WarningRunResult> {
   const { workspaceId } = input;
   if (input.day !== undefined && !isValidIsoDate(input.day)) {
@@ -153,7 +160,18 @@ export async function runWarnings(
     failed: 0,
     alreadySent: 0,
   };
-  if (input.previewOnly === true) return result;
+  if (input.previewOnly === true) {
+    // The Settings preview shows everyone's digests to the person asking,
+    // so each one is narrowed to what that person may see (§2.13).
+    if (input.viewer === undefined) return result;
+    const { scope } = viewerSnapshot(snapshot, workspaceId, input.viewer);
+    return {
+      ...result,
+      digests: digests
+        .map((digest) => visibleDigest(snapshot, scope, digest))
+        .filter((digest) => digest.items.length > 0),
+    };
+  }
 
   const channel = rt.deps.channel;
   const delivering = settings.warningsMode === 'live' && channel.delivers;

@@ -79,7 +79,7 @@
 }
 
 .accent .label {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .muted .label {
@@ -100,7 +100,7 @@
 
 @media (hover: hover) and (width >= 901px) {
   .link:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 
@@ -119,7 +119,7 @@
 
 @media (hover: hover) and (width >= 901px) {
   .more:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 

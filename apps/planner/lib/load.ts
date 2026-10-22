@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { cache } from 'react';
 
 import { buildShellFrame, type ShellFrame } from './adapters/shell';
+import { signInLocation } from './auth-cookies';
 import { engineAuthCode } from './engine-errors';
 import { getRequestContext, type RequestContext } from './session';
 
@@ -35,22 +36,36 @@ export const loadInstallation: (
   engine.getInstallation(workspaceId)
 );
 
-/** The timeline view model, once per request. */
+/**
+ * The signed-in person this request reads for (§2.13: every view is
+ * narrowed to what they may see). Pages resolve the actor first, so a
+ * missing one is a bug, never a reason to read the whole mirror.
+ */
+export async function requestViewer(): Promise<Actor> {
+  const { actor } = await getPageContext();
+  if (actor === null) {
+    throw new Error('A view was read without a signed-in person.');
+  }
+  return actor;
+}
+
+/** The timeline view model as the request's person sees it, once per request. */
 export const loadTimelineView: (
   engine: Engine,
   workspaceId: string
 ) => ReturnType<Engine['getTimelineView']> = cache(
-  (engine: Engine, workspaceId: string) => engine.getTimelineView(workspaceId)
+  async (engine: Engine, workspaceId: string) =>
+    engine.getTimelineView(workspaceId, await requestViewer())
 );
 
-/** A person's My week view model, once per request. */
+/** A person's My week view model, as the request's person sees it. */
 export const loadWeekView: (
   engine: Engine,
   workspaceId: string,
   userId: string
 ) => ReturnType<Engine['getWeekView']> = cache(
-  (engine: Engine, workspaceId: string, userId: string) =>
-    engine.getWeekView(workspaceId, userId)
+  async (engine: Engine, workspaceId: string, userId: string) =>
+    engine.getWeekView(workspaceId, userId, await requestViewer())
 );
 
 /** True for an installation the app can use (present and not revoked). */
@@ -63,13 +78,17 @@ export function isNotInstalledError(error: unknown): boolean {
   return engineAuthCode(error) === 'not_installed';
 }
 
-/** For pages: the actor, or a redirect to the landing page. */
-export async function requirePageActor(): Promise<{
+/**
+ * For pages: the actor, or a redirect to the landing page carrying
+ * `returnTo` (the page's own path and query), so signing in comes back to
+ * it (a digest's deep link opened signed out, architecture §8.1).
+ */
+export async function requirePageActor(returnTo?: string): Promise<{
   engine: Engine;
   actor: Actor;
 }> {
   const { engine, actor } = await getPageContext();
-  if (actor === null) redirect('/');
+  if (actor === null) redirect(signInLocation(returnTo));
   return { engine, actor };
 }
 
@@ -84,8 +103,10 @@ export interface InstalledContext {
  * For every page that reads the workspace: signed out → "/", no working
  * installation (never installed, or Linear rejected the grant) → /setup.
  */
-export async function requireInstalledActor(): Promise<InstalledContext> {
-  const { engine, actor } = await requirePageActor();
+export async function requireInstalledActor(
+  returnTo?: string
+): Promise<InstalledContext> {
+  const { engine, actor } = await requirePageActor(returnTo);
   const workspaceId = actor.session.workspaceId;
   const installation = await loadInstallation(engine, workspaceId);
   if (installation === null || installation.revokedAt !== null) {

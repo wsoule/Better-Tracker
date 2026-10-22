@@ -27,7 +27,9 @@ export async function generateMetadata({
    "Copy link", the drawers' "Page" button and the command palette. */
 export default async function IssuePage({ params }: { params: Params }) {
   const { id } = await params;
-  const { engine, actor } = await requireInstalledActor();
+  const { engine, actor } = await requireInstalledActor(
+    `/issues/${encodeURIComponent(id)}`
+  );
   const key = id.trim();
   if (key === '' || key.length > 200) notFound();
   const model = await orSetup(

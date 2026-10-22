@@ -21,6 +21,15 @@ export const LINEAR_TOKEN_URL = 'https://api.linear.app/oauth/token';
 export const LINEAR_REVOKE_URL = 'https://api.linear.app/oauth/revoke';
 
 /**
+ * Longest wait for one token-endpoint call (default 15 s). Refreshes run
+ * inside a database row lock (the engine's withInstallationLock /
+ * withSessionLock), so a stalled endpoint must not hold the lock and its
+ * pool connection for undici's 300 s default; the stall becomes
+ * OAuthError('network_error'), which callers treat as transient.
+ */
+export const OAUTH_TIMEOUT_MS = 15_000;
+
+/**
  * A failed OAuth call. `code` is the OAuth `error` value when Linear sent
  * one (`invalid_grant`, `invalid_client`, `invalid_request`, …); otherwise
  * `server_error` (HTTP 5xx or an unexpected status), `network_error` (fetch
@@ -144,13 +153,15 @@ function errorFromResponse(
   );
 }
 
-// POSTs a form to a Linear OAuth endpoint; network failures become
-// OAuthError('network_error'), error statuses become their OAuth code.
+// POSTs a form to a Linear OAuth endpoint; network failures and calls
+// that outlast `timeoutMs` become OAuthError('network_error'), error
+// statuses become their OAuth code.
 async function postForm(
   url: string,
   form: Record<string, string>,
   fetchImpl: FetchLike,
-  action: string
+  action: string,
+  timeoutMs: number
 ): Promise<unknown> {
   let response: Response;
   try {
@@ -161,6 +172,7 @@ async function postForm(
         Accept: 'application/json',
       },
       body: new URLSearchParams(form).toString(),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (cause) {
     throw new OAuthError(
@@ -219,6 +231,8 @@ export interface TokenRequestOptions {
    * expiries follow an injected test clock.
    */
   now?: () => number;
+  /** Per-call timeout in ms (default OAUTH_TIMEOUT_MS). */
+  timeoutMs?: number;
 }
 
 function nowMs(options: TokenRequestOptions): number {
@@ -243,7 +257,8 @@ export async function exchangeCode(
       code_verifier: input.codeVerifier,
     },
     fetchImpl,
-    'code exchange'
+    'code exchange',
+    options.timeoutMs ?? OAUTH_TIMEOUT_MS
   );
   return toTokenSet(body, nowMs(options), 'code exchange');
 }
@@ -268,7 +283,8 @@ export async function refreshTokens(
       client_secret: config.clientSecret,
     },
     fetchImpl,
-    'refresh'
+    'refresh',
+    options.timeoutMs ?? OAUTH_TIMEOUT_MS
   );
   return toTokenSet(body, nowMs(options), 'refresh');
 }
@@ -278,7 +294,8 @@ export async function revokeToken(
   config: OAuthClientConfig,
   token: string,
   hint: 'access_token' | 'refresh_token',
-  fetchImpl: FetchLike = globalThis.fetch
+  fetchImpl: FetchLike = globalThis.fetch,
+  options: Pick<TokenRequestOptions, 'timeoutMs'> = {}
 ): Promise<void> {
   await postForm(
     LINEAR_REVOKE_URL,
@@ -289,6 +306,7 @@ export async function revokeToken(
       client_secret: config.clientSecret,
     },
     fetchImpl,
-    'revoke'
+    'revoke',
+    options.timeoutMs ?? OAUTH_TIMEOUT_MS
   );
 }

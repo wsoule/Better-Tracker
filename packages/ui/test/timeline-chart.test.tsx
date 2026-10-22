@@ -134,6 +134,29 @@ describe('bars', () => {
     ).toBeTruthy();
   });
 
+  test('give their sticky label the scroll offset and the bar end to fit in', () => {
+    // timeline-bar.module.css caps .content at --bar-end less
+    // --timeline-scroll-x, so a bar mostly under the lane column keeps its
+    // name readable instead of pinning full-width content to its end.
+    const { container, chart } = renderChart();
+    const item = chart
+      .getByRole('button', { name: /^Cutover rehearsal/ })
+      .closest('[data-bar-id]') as HTMLElement;
+    const left = Number.parseFloat(item.style.left);
+    const width = Number.parseFloat(item.style.width);
+    expect(item.style.getPropertyValue('--bar-end')).toBe(`${left + width}px`);
+    const scroller = container.querySelector(
+      '[style*="--timeline-scroll-x"]'
+    ) as HTMLElement | null;
+    expect(scroller).not.toBeNull();
+    if (scroller === null) return;
+    scroller.scrollLeft = 240;
+    fireEvent.scroll(scroller);
+    expect(scroller.style.getPropertyValue('--timeline-scroll-x')).toBe(
+      '240px'
+    );
+  });
+
   test('mark the selected bar as current', () => {
     const { chart } = renderChart({ selectedBarId: 'm-cutover' });
     const cutover = chart.getByRole('button', { name: /^Cutover, On track/ });

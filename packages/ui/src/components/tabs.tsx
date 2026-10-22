@@ -1,20 +1,47 @@
 'use client';
 
-import { type CSSProperties, type ReactNode, useRef, useState } from 'react';
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+  useId,
+  useRef,
+  useState,
+} from 'react';
 
 import styles from './tabs.module.css';
 
 /* Client-side tab strip from the competitors site: a grid of bordered tabs,
-   selected = ink fill, hover = accent flood, arrow-key roving focus. */
+   selected = ink fill, hover = accent flood, arrow-key roving focus. Element
+   ids are prefixed per instance (useId), so two strips with the same item
+   ids on one page keep their tab/panel pairs apart. */
 export type TabItem = { id: string; label: string; content: ReactNode };
 
-export default function Tabs({ items }: { items: TabItem[] }) {
-  const [active, setActive] = useState(items[0].id);
+export interface TabsProps {
+  items: TabItem[];
+  /** The tablist's accessible name. */
+  label?: string;
+}
+
+export default function Tabs({
+  items,
+  label = 'Sections',
+}: TabsProps): ReactNode {
+  const [chosen, setActive] = useState<string | null>(null);
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
+  const prefix = useId();
+  // The chosen tab while it still exists, else the first one.
+  const active = items.some((t) => t.id === chosen)
+    ? chosen
+    : (items[0]?.id ?? null);
 
   const select = setActive;
+  const tabId = (id: string) => `${prefix}tab-${id}`;
+  const panelId = (id: string) => `${prefix}panel-${id}`;
 
-  function onKey(e: React.KeyboardEvent, i: number) {
+  if (items.length === 0) return null;
+
+  function onKey(e: KeyboardEvent, i: number) {
     const n = items.length;
     const next = {
       ArrowRight: (i + 1) % n,
@@ -32,7 +59,7 @@ export default function Tabs({ items }: { items: TabItem[] }) {
     <div className={`block ${styles.wrap}`}>
       <div
         role="tablist"
-        aria-label="Sections"
+        aria-label={label}
         className={styles.tablist}
         style={{ '--tab-count': items.length } as CSSProperties}
       >
@@ -44,9 +71,9 @@ export default function Tabs({ items }: { items: TabItem[] }) {
             }}
             type="button"
             role="tab"
-            id={`tab-${t.id}`}
+            id={tabId(t.id)}
             aria-selected={t.id === active}
-            aria-controls={`panel-${t.id}`}
+            aria-controls={panelId(t.id)}
             tabIndex={t.id === active ? 0 : -1}
             className={styles.tab}
             onClick={() => select(t.id)}
@@ -60,8 +87,8 @@ export default function Tabs({ items }: { items: TabItem[] }) {
         <div
           key={t.id}
           role="tabpanel"
-          id={`panel-${t.id}`}
-          aria-labelledby={`tab-${t.id}`}
+          id={panelId(t.id)}
+          aria-labelledby={tabId(t.id)}
           hidden={t.id !== active}
           className={styles.panel}
         >

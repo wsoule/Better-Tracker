@@ -760,7 +760,13 @@ function buildDeadlines(
       )
       .map((entry) => entry.item);
   return [
-    { id: 'overdue', label: 'Overdue', tone: 'accent', items: sorted(overdue) },
+    {
+      id: 'overdue',
+      label: 'Overdue',
+      // The accent says "needs action" (§8.2): an empty group stays ink.
+      tone: overdue.length > 0 ? 'accent' : 'default',
+      items: sorted(overdue),
+    },
     { id: 'today', label: 'Today', items: sorted(today) },
     { id: 'tomorrow', label: 'Tomorrow', items: sorted(tomorrow) },
     { id: 'this-week', label: 'This week', items: sorted(soon) },

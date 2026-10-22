@@ -22,7 +22,9 @@ const FOCUSABLE = [
     that are hidden, inert or not rendered at this breakpoint. */
 export function focusableWithin(root: HTMLElement): HTMLElement[] {
   const out: HTMLElement[] = [];
-  for (const el of root.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+  // Array.from: iterating a NodeList directly needs lib "DOM.Iterable",
+  // which a host compiling this source (Dispatch: TS 5.9, lib DOM) lacks.
+  for (const el of Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE))) {
     if (el.closest('[hidden],[inert]') !== null) continue;
     if (
       typeof el.checkVisibility === 'function' &&

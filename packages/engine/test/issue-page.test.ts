@@ -4,7 +4,11 @@
 // write scope and nothing else, are validated before Linear is called,
 // go out with the person's token, patch the mirror at once and are audited.
 
-import { LinearApiError, type LinearGateway } from '@better-tracker/linear';
+import {
+  LinearApiError,
+  type LinearGateway,
+  OAuthError,
+} from '@better-tracker/linear';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import {
@@ -194,10 +198,13 @@ describe('getIssueDetail when Linear cannot be read', () => {
         return {
           ...base,
           // A transient failure of the token refresh (Linear's OAuth
-          // endpoint unreachable): the grant itself is still good.
+          // endpoint unreachable or timed out): the grant is still good.
           forSession: () =>
             Promise.reject(
-              new LinearApiError('network', 'token refresh timed out')
+              new OAuthError(
+                'network_error',
+                'Linear OAuth refresh request failed: timed out'
+              )
             ),
         };
       },
@@ -251,6 +258,87 @@ describe('getIssueDetail when Linear cannot be read', () => {
         'Linear no longer accepts your sign-in; sign in again to see the description, labels and comments.'
       );
       expect(appReads).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  });
+
+  // Only a transient refresh failure may be bridged (§7.2). A rotated
+  // client secret (invalid_client) or any other OAuth refusal must not
+  // let everyone read description, labels and comments as the app.
+  test.each([
+    [
+      'invalid_client',
+      new OAuthError('invalid_client', 'Linear OAuth refresh failed', {
+        status: 401,
+      }),
+    ],
+    [
+      'invalid_request',
+      new OAuthError('invalid_request', 'Linear OAuth refresh failed', {
+        status: 400,
+      }),
+    ],
+    ['a store error', new Error('connection terminated')],
+  ])("%s is not bridged with the app's token", async (_name, failure) => {
+    const appReads: string[] = [];
+    const h = await createDemoHarness({
+      linear: (fixture) => {
+        const base = fixtureProvider(fixture, {
+          wrap: (gateway, actor) =>
+            actor === 'app'
+              ? {
+                  ...gateway,
+                  fetchIssueDetail: (id) => {
+                    appReads.push(id);
+                    return gateway.fetchIssueDetail(id);
+                  },
+                }
+              : gateway,
+        });
+        return { ...base, forSession: () => Promise.reject(failure) };
+      },
+    });
+    try {
+      const member = await actorFor(h, 'user-dev');
+      appReads.length = 0;
+      const page = await h.engine.getIssueDetail(member, 'iss-eng-12');
+      expect(page.extra).toBeNull();
+      expect(page.extraSource).toBeNull();
+      expect(page.extraError).toBe(
+        'The planner could not read Linear as you right now (its Linear sign-in for you failed); the description, labels and comments could not be loaded.'
+      );
+      expect(appReads).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test.each([
+    [
+      'a 5xx',
+      new OAuthError('server_error', 'Linear OAuth refresh failed', {
+        status: 503,
+      }),
+    ],
+    [
+      'a 429',
+      new OAuthError('server_error', 'Linear OAuth refresh failed', {
+        status: 429,
+      }),
+    ],
+  ])('%s from the token endpoint is bridged', async (_name, failure) => {
+    const h = await createDemoHarness({
+      linear: (fixture) => ({
+        ...fixtureProvider(fixture),
+        forSession: () => Promise.reject(failure),
+      }),
+    });
+    try {
+      const member = await actorFor(h, 'user-dev');
+      const page = await h.engine.getIssueDetail(member, 'iss-eng-12');
+      expect(page.extraSource).toBe('app');
+      expect(page.extraError).toBeNull();
     } finally {
       await h.close();
     }
@@ -472,6 +560,11 @@ describe('issue edits: fields', () => {
       [{ owner: 'x' }, 'Unknown issue field: owner.'],
       [{ title: '   ' }, 'The title cannot be empty.'],
       [{ title: 'a\nb' }, 'The title must be a single line.'],
+      [{ title: '\u0000' }, 'The title cannot contain control characters.'],
+      [
+        { title: 'Fix \u001b[31m the bug' },
+        'The title cannot contain control characters.',
+      ],
       [{ title: 'x'.repeat(256) }, 'The title must be at most 255 characters.'],
       [
         { description: 'x'.repeat(100_001) },

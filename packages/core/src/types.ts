@@ -50,12 +50,35 @@ export interface User {
   active: boolean;
   /** An app user (e.g. this tool's own actor=app identity), never a person. */
   app: boolean;
+  /**
+   * A Linear guest: they see only the teams they are a member of (§2.13).
+   * Absent on mirrors written before 2026-10-22 (read as not a guest).
+   */
+  guest?: boolean;
 }
+
+/**
+ * Linear's Team.visibility: `public` teams are visible to every workspace
+ * member, `private` ones only to their members, and `restricted` ones are
+ * non-private teams inside a private team's boundary (a sub-team of a
+ * private team), visible to the members of that boundary.
+ */
+export type TeamVisibility = 'public' | 'private' | 'restricted';
 
 export interface Team {
   id: string;
   key: string;
   name: string;
+  /**
+   * Who may see the team's issues and projects (§2.13). Absent on mirrors
+   * written before 2026-10-22: such a team is shown to nobody until the
+   * next sync (the engine syncs such a mirror before reading it).
+   */
+  visibility?: TeamVisibility;
+  /** The parent team of a sub-team, else null (absent: unknown, none). */
+  parentId?: string | null;
+  /** Ids of the team's members (Linear team memberships; absent: none known). */
+  memberIds?: string[];
 }
 
 export interface WorkflowState {
@@ -63,7 +86,10 @@ export interface WorkflowState {
   teamId: string;
   name: string;
   type: WorkflowStateType;
-  /** Linear's ordering of states within a team; lower comes first. */
+  /**
+   * Linear's ordering of states within their type group (triage, backlog,
+   * …); lower comes first. Positions of different groups do not compare.
+   */
   position: number;
 }
 
@@ -324,9 +350,12 @@ export type ProjectAllocationOutcome =
   | 'allocate'
   /** Valid next milestone, nothing unassigned. */
   | 'nothing_to_do'
-  /** Missing input: reported loudly, nothing allocated. */
+  /**
+   * Missing input: reported loudly, nothing allocated. A missing or
+   * deactivated lead blocks even a project with no open milestone.
+   */
   | 'blocked'
-  /** Every milestone is complete (or there are none). */
+  /** Every milestone is complete (or there are none); the lead is fine. */
   | 'no_open_milestone'
   /** Project status is not in tuning.activeProjectStatuses. */
   | 'inactive';
@@ -427,6 +456,18 @@ export interface WarningPlan {
   memory: WarningMemory[];
 }
 
+/** One open issue a digest item names, so the message says what is open. */
+export interface DigestIssue {
+  id: string;
+  /** Human key such as `ENG-123`. */
+  identifier: string;
+  title: string;
+  /** No assignee in Linear (one of the notice's `unassignedIssueIds`). */
+  unassigned: boolean;
+  /** The planner's issue page, `<appUrl>/issues/<identifier>`. */
+  url: string;
+}
+
 export interface DigestItem {
   notice: Notice;
   projectName: string;
@@ -434,6 +475,12 @@ export interface DigestItem {
   leadName: string | null;
   openCount: number;
   unassignedCount: number;
+  /**
+   * The notice's open issues in display order (`notice.openIssueIds`), with
+   * the unassigned ones flagged. buildDigests always sets it; it is absent on
+   * digests stored before it existed (notification rows keep digest JSON).
+   */
+  openIssues?: DigestIssue[];
   /** Short, plain-language lines explaining why ("2 open issues unassigned"). */
   lines: string[];
   /** Deep link into the timeline for this subject. */
@@ -881,7 +928,10 @@ export interface IssueProjectOption {
 
 /** What the edit controls may offer, all from the mirror. */
 export interface IssueEditOptions {
-  /** The issue's team's workflow states in Linear's order (position). */
+  /**
+   * The issue's team's workflow states in Linear's order: type group
+   * (triage → canceled), then position within the group.
+   */
   states: WorkflowState[];
   /** Active people (no app users), by name. */
   assignees: { id: string; name: string; displayName: string }[];

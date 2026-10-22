@@ -416,6 +416,45 @@ describe('planWarnings: allocation_blocked', () => {
     });
   });
 
+  test('a project without a lead and no open milestone reaches the digest', () => {
+    const data = workspace({
+      projects: [project('p1', { name: 'Delta', leadId: null })],
+      milestones: [milestone('m1', 'p1', { targetDate: day(-3) })],
+      issues: [
+        issue('d', { projectId: 'p1', milestoneId: 'm1', stateId: STATE.done }),
+      ],
+    });
+    const result = warn(data);
+    const notices = result.notices.filter(
+      (n) => n.kind === 'allocation_blocked'
+    );
+    expect(notices).toEqual([
+      expect.objectContaining({
+        subjectId: 'p1',
+        milestoneId: null,
+        key: 'blocked:no_lead::',
+        blockReason: 'no_lead',
+        recipientIds: ['wyat', 'shanzer'],
+      }),
+    ]);
+    const evaluated = evaluate(data);
+    const digests = buildDigests({
+      ...evaluated,
+      notices: result.notices,
+      appUrl: 'https://x.test',
+    });
+    expect(digests.map((d) => d.recipientId).sort()).toEqual([
+      'shanzer',
+      'wyat',
+    ]);
+    expect(digests[0]?.items[0]).toMatchObject({
+      projectName: 'Delta',
+      milestoneName: null,
+      lines: ['no project lead, so nothing is being assigned'],
+      url: 'https://x.test/timeline?project=p1',
+    });
+  });
+
   test('a blocked project is told once until the reason changes', () => {
     const data = oneMilestone(day(20), [issue('u')], { leadId: null });
     const first = warn(data);
@@ -636,6 +675,62 @@ describe('buildDigests', () => {
         unassigned: 0,
         lines: ['no project lead, so nothing is being assigned'],
         url: 'https://planner.example.com/timeline?project=pC',
+      },
+    ]);
+  });
+
+  test('each item names its open issues, flags the unassigned and links them', () => {
+    const named = oneMilestone(day(3), [
+      issue('done1', {
+        assigneeId: 'ana',
+        stateId: STATE.done,
+        identifier: 'ENG-1',
+      }),
+      issue('done2', {
+        assigneeId: 'ana',
+        stateId: STATE.done,
+        identifier: 'ENG-2',
+      }),
+      issue('mine', {
+        assigneeId: 'ana',
+        identifier: 'ENG-7',
+        title: 'Write the docs',
+        priority: 2,
+      }),
+      issue('free', {
+        identifier: 'OPS-3',
+        title: 'Provision the sandbox',
+        priority: 1,
+      }),
+    ]);
+    const ev = evaluate(named);
+    const plan = planWarnings({
+      ...ev,
+      allocationPlan: planAllocation(ev.snapshot, ev.ctx, ev.assessments),
+      memory: [],
+      watcherUserIds: ['wyat'],
+    });
+    const [digest] = buildDigests({
+      ...ev,
+      notices: plan.notices,
+      appUrl: 'https://x.test/',
+    });
+    expect(digest?.items.map((i) => i.notice.kind)).toEqual(['at_risk']);
+    // Display order (priority first); done issues are not listed.
+    expect(digest?.items[0]?.openIssues).toEqual([
+      {
+        id: 'free',
+        identifier: 'OPS-3',
+        title: 'Provision the sandbox',
+        unassigned: true,
+        url: 'https://x.test/issues/OPS-3',
+      },
+      {
+        id: 'mine',
+        identifier: 'ENG-7',
+        title: 'Write the docs',
+        unassigned: false,
+        url: 'https://x.test/issues/ENG-7',
       },
     ]);
   });

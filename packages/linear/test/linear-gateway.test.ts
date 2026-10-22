@@ -50,6 +50,7 @@ function emptyWorkspaceHandlers(): Record<string, GraphqlHandler> {
     ProjectIssues: pagedHandler('issues', [[]]),
     OpenIssuesWithoutProject: pagedHandler('issues', [[]]),
     IssueRelations: pagedHandler('issueRelations', [[]]),
+    TeamMemberships: pagedHandler('teamMemberships', [[]]),
   };
 }
 
@@ -75,6 +76,7 @@ describe('whoAmI', () => {
         avatarUrl: null,
         active: true,
         app: false,
+        guest: false,
       },
       workspace: { id: 'org-1', name: 'Acme', urlKey: 'acme' },
     });
@@ -118,7 +120,33 @@ describe('fetchWorkspace', () => {
   test('maps every entity type and keeps only "blocks" relations', async () => {
     const handlers = emptyWorkspaceHandlers();
     handlers['Teams'] = pagedHandler('teams', [
-      [{ id: 'team-1', key: 'ENG', name: 'Engineering' }],
+      [
+        {
+          id: 'team-1',
+          key: 'ENG',
+          name: 'Engineering',
+          visibility: 'public',
+          parent: null,
+        },
+        {
+          id: 'team-2',
+          key: 'SEC',
+          name: 'Security',
+          visibility: 'private',
+          parent: { id: 'team-1' },
+        },
+      ],
+    ]);
+    // Memberships across pages, a repeated one counted once.
+    handlers['TeamMemberships'] = pagedHandler('teamMemberships', [
+      [
+        { team: { id: 'team-1' }, user: { id: 'u1' } },
+        { team: { id: 'team-2' }, user: { id: 'u2' } },
+      ],
+      [
+        { team: { id: 'team-1' }, user: { id: 'u2' } },
+        { team: { id: 'team-1' }, user: { id: 'u1' } },
+      ],
     ]);
     handlers['WorkflowStates'] = pagedHandler('workflowStates', [
       [
@@ -176,7 +204,22 @@ describe('fetchWorkspace', () => {
     const data = await gateway.fetchWorkspace();
 
     expect(data.teams).toEqual([
-      { id: 'team-1', key: 'ENG', name: 'Engineering' },
+      {
+        id: 'team-1',
+        key: 'ENG',
+        name: 'Engineering',
+        visibility: 'public',
+        parentId: null,
+        memberIds: ['u1', 'u2'],
+      },
+      {
+        id: 'team-2',
+        key: 'SEC',
+        name: 'Security',
+        visibility: 'private',
+        parentId: 'team-1',
+        memberIds: ['u2'],
+      },
     ]);
     expect(data.states.map((s) => [s.id, s.type])).toEqual([
       ['s1', 'unstarted'],
@@ -396,6 +439,51 @@ describe('fetchLastStateChanges', () => {
     expect([...result.keys()].sort()).toEqual(['a', 'c']);
   });
 
+  test('a field error next to data sets that alias aside, not the batch', async () => {
+    const seen: unknown[] = [];
+    const { gateway } = gatewayWith({
+      IssueStateSpans: (variables) => {
+        seen.push(variables);
+        if (seen.length === 1) {
+          // b's stateHistory failed; Linear nulls it and says where.
+          return jsonResponse({
+            data: {
+              i0: {
+                id: 'a',
+                stateHistory: connection([
+                  { startedAt: '2026-10-01T00:00:00.000Z', endedAt: null },
+                ]),
+              },
+              i1: { id: 'b', stateHistory: null },
+            },
+            errors: [
+              { message: 'Internal error', path: ['i1', 'stateHistory'] },
+            ],
+          });
+        }
+        return spansHandler({
+          a: [{ startedAt: '2026-10-01T00:00:00.000Z', endedAt: null }],
+        })(variables, {} as never);
+      },
+      IssueStateHistory: () =>
+        dataResponse({
+          i0: {
+            id: 'b',
+            history: connection([
+              { createdAt: '2026-10-05T00:00:00.000Z', toStateId: 's' },
+            ]),
+          },
+        }),
+    });
+    expect(await gateway.fetchLastStateChanges(['a', 'b'])).toEqual(
+      new Map([
+        ['a', '2026-10-01T00:00:00.000Z'],
+        ['b', '2026-10-05T00:00:00.000Z'],
+      ])
+    );
+    expect(seen).toEqual([{ id0: 'a', id1: 'b' }, { id0: 'a' }]);
+  });
+
   test('a stateHistory failure for the whole batch falls back to history', async () => {
     const { gateway } = gatewayWith({
       IssueStateSpans: () =>
@@ -609,6 +697,26 @@ describe('single-entity reads', () => {
       },
       { status: 400 }
     );
+
+  test('fetchIssue fails on partial data instead of reading a failed field as empty', async () => {
+    const { gateway } = gatewayWith({
+      Issue: (variables) =>
+        jsonResponse({
+          data: {
+            issue: {
+              ...issueNode(String(variables['id'])),
+              assignee: null,
+              archivedAt: null,
+              trashed: false,
+            },
+          },
+          errors: [{ message: 'Internal error', path: ['issue', 'assignee'] }],
+        }),
+    });
+    expect(await caught(gateway.fetchIssue('issue-1'))).toMatchObject({
+      kind: 'graphql',
+    });
+  });
 
   test('fetchIssue maps, and returns null when not found or archived', async () => {
     let mode: 'ok' | 'archived' | 'missing' = 'ok';

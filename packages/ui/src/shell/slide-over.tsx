@@ -25,6 +25,14 @@ const EXIT_MS = 320;
  * can swap its content), while Tab cycles inside the panel. Phone: a scrim
  * and a scroll lock make it modal. Esc closes from anywhere; focus returns
  * to whatever opened it. It stays mounted for the exit slide, then unmounts.
+ *
+ * Content swapped in place while open (a new `contentKey`: a relation row,
+ * a milestone's issue, a "Back to" crumb) scrolls the body back to the top
+ * and, when focus was in the panel or dropped to <body> because the link
+ * that had it unmounted, moves focus to the panel so the new title is
+ * announced and Tab starts from the header. Focus out on the page (a list
+ * row that swapped the drawer) stays put, and the element focus returns to
+ * on close is still the one that opened the panel.
  */
 export default function SlideOver({
   open,
@@ -34,9 +42,12 @@ export default function SlideOver({
   actions,
   closeLabel = 'Close',
   initialFocusRef,
+  contentKey,
   children,
 }: SlideOverProps): ReactNode {
   const panelRef = useRef<HTMLDivElement>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const shownKey = useRef<string | undefined>(undefined);
   const titleId = useId();
   const isPhone = useMediaQuery(PHONE_QUERY);
   const reduceMotion = useMediaQuery(REDUCED_MOTION_QUERY);
@@ -58,6 +69,20 @@ export default function SlideOver({
 
   useDialogFocus(panelRef, open, initialFocusRef);
   useScrollLock(open && isPhone);
+
+  useEffect(() => {
+    const previous = shownKey.current;
+    shownKey.current = open ? contentKey : undefined;
+    if (!open || previous === undefined || contentKey === undefined) return;
+    if (previous === contentKey) return;
+    const panel = panelRef.current;
+    if (panel === null) return;
+    if (bodyRef.current !== null) bodyRef.current.scrollTop = 0;
+    const active = document.activeElement;
+    if (active === null || active === document.body || panel.contains(active)) {
+      panel.focus({ preventScroll: true });
+    }
+  }, [open, contentKey]);
 
   // Esc closes from anywhere on the page, unless something nearer (the
   // palette, an open menu) already handled it.
@@ -122,7 +147,9 @@ export default function SlideOver({
             {title}
           </h2>
         </header>
-        <div className={styles.body}>{children}</div>
+        <div ref={bodyRef} className={styles.body}>
+          {children}
+        </div>
       </div>
     </>
   );

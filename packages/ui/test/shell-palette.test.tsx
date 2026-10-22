@@ -105,6 +105,21 @@ describe('fuzzyMatch', () => {
     expect(fuzzyMatch('atl', 'Prorate mid-cycle plan changes')).toBeNull();
   });
 
+  test('hints match as identifiers, not by scattered letters', () => {
+    // A context hint (a project lead) must not pull in unrelated entries.
+    expect(
+      fuzzyMatch('atl', 'Beacon search', 'Project · Dev Patel')
+    ).toBeNull();
+    expect(fuzzyMatch('eng24', 'Search analytics events', 'ENG-24')).toEqual({
+      score: expect.any(Number),
+      labelHits: [],
+      hintHits: [0, 1, 2, 4, 5],
+    });
+    expect(
+      fuzzyMatch('patel', 'Beacon search', 'Project · Dev Patel')?.hintHits
+    ).toEqual([14, 15, 16, 17, 18]);
+  });
+
   test('ranks a prefix above a scattered match', () => {
     const prefix = fuzzyMatch('time', 'Timeline');
     const scattered = fuzzyMatch('time', 'Toggle items menu everywhere');

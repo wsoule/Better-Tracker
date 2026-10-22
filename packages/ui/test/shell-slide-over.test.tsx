@@ -106,4 +106,76 @@ describe('SlideOver', () => {
     expect(document.activeElement).toBe(reschedule);
     expect(dialog.contains(document.activeElement)).toBe(true);
   });
+
+  // A drawer that swaps its content in place (milestone → issue, relation
+  // row → another issue, "Back to …"): the row that had focus unmounts.
+  function SwapHarness() {
+    const [open, setOpen] = useState(false);
+    const [shown, setShown] = useState('ms-1');
+    return (
+      <>
+        <button type="button" onClick={() => setOpen(true)}>
+          Open drawer
+        </button>
+        <button type="button" onClick={() => setShown('ms-2')}>
+          Page row ms-2
+        </button>
+        <SlideOver
+          open={open}
+          onClose={() => setOpen(false)}
+          title={shown === 'ms-1' ? 'Dual-write' : 'Schema cutover'}
+          contentKey={shown}
+        >
+          <div key={shown}>
+            <button
+              type="button"
+              onClick={() => setShown(shown === 'ms-1' ? 'ENG-10' : 'ms-1')}
+            >
+              {shown === 'ms-1' ? 'ENG-10' : 'Back to Dual-write'}
+            </button>
+          </div>
+        </SlideOver>
+      </>
+    );
+  }
+
+  test('a swap in place moves focus to the panel, not <body>', () => {
+    jest.useFakeTimers();
+    render(<SwapHarness />);
+    const opener = screen.getByRole('button', { name: 'Open drawer' });
+    opener.focus();
+    fireEvent.click(opener);
+    const dialog = screen.getByRole('dialog');
+    const body = dialog.lastElementChild as HTMLElement;
+    body.scrollTop = 200;
+    const row = screen.getByRole('button', { name: 'ENG-10' });
+    row.focus();
+    act(() => {
+      fireEvent.click(row);
+    });
+    expect(document.activeElement).toBe(dialog);
+    expect(body.scrollTop).toBe(0);
+    // And back: the crumb that had focus unmounts as well.
+    const back = screen.getByRole('button', { name: 'Back to Dual-write' });
+    back.focus();
+    act(() => {
+      fireEvent.click(back);
+    });
+    expect(document.activeElement).toBe(dialog);
+    // Closing still returns focus to what opened the panel.
+    fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(document.activeElement).toBe(opener);
+  });
+
+  test('a swap from a row on the page leaves focus on that row', () => {
+    render(<SwapHarness />);
+    fireEvent.click(screen.getByRole('button', { name: 'Open drawer' }));
+    const pageRow = screen.getByRole('button', { name: 'Page row ms-2' });
+    pageRow.focus();
+    act(() => {
+      fireEvent.click(pageRow);
+    });
+    expect(screen.getByRole('dialog', { name: 'Schema cutover' })).toBeTruthy();
+    expect(document.activeElement).toBe(pageRow);
+  });
 });

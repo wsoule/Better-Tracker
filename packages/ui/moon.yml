@@ -2,8 +2,29 @@ $schema: 'https://moonrepo.dev/schemas/project.json'
 
 # React components for the task UI, consumed as TypeScript source (like
 # Dispatch's @dispatch/ui): host apps compile it (Next via transpilePackages,
-# Vite natively), so there is no build task and no dist. Inherits test and
-# typecheck from the shared bun-common tasks. Not listed in the root
-# dependsOn because it produces no dist.
+# Vite natively), so there is no dist. Inherits test and typecheck from the
+# shared bun-common tasks. Not listed in the root dependsOn because it
+# produces no dist (type-aware lint reads the source directly).
 language: 'typescript'
 layer: 'library'
+
+tasks:
+  # Emits nothing. It exists so the planner's `^:build` deps (planner:build,
+  # planner:typecheck, planner:test) link to this project: a change under
+  # src/ then makes those planner tasks affected in `moon ci` and changes
+  # their cache hashes. Without it a ui-only change never reaches the one
+  # consumer that compiles this source.
+  build:
+    command: 'noop'
+    inputs:
+      - 'src/**/*'
+
+  # The source under a host's looser flags (tsconfig.host.json: not strict,
+  # like Dispatch's apps/desktop). No workspace dependencies, so no build.
+  typecheck-host:
+    command: 'tsc -p tsconfig.host.json --noEmit --pretty'
+    inputs:
+      - 'src/**/*'
+      - 'global.d.ts'
+      - 'tsconfig.json'
+      - 'tsconfig.host.json'

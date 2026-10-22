@@ -1,6 +1,13 @@
 'use client';
 
+import type { ReactNode } from 'react';
+
 import styles from './theme-toggle.module.css';
+
+export interface ThemeToggleProps {
+  /** localStorage key; must match the one passed to themeScript(). */
+  storageKey: string;
+}
 
 /* Stateless by design: both glyphs are always rendered (identical markup in
    both themes, so there is nothing to hydrate wrong) and CSS picks the visible
@@ -9,13 +16,15 @@ import styles from './theme-toggle.module.css';
    accent hover flood, inverted ink in dark. */
 export default function ThemeToggle({
   storageKey,
-}: {
-  /** localStorage key; must match the one passed to themeScript(). */
-  storageKey: string;
-}) {
+}: ThemeToggleProps): ReactNode {
   function toggle() {
     const el = document.documentElement;
-    const next = el.dataset.theme === 'dark' ? 'light' : 'dark';
+    // "system" (the OS decides) flips to the opposite of what shows now.
+    const dark =
+      el.dataset.theme === 'system'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+        : el.dataset.theme === 'dark';
+    const next = dark ? 'light' : 'dark';
     el.dataset.theme = next;
     try {
       localStorage.setItem(storageKey, next);

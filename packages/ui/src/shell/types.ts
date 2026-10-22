@@ -243,6 +243,10 @@ export interface SlideOverProps {
   closeLabel?: string;
   /** Receives focus on open instead of the panel itself. */
   initialFocusRef?: { readonly current: HTMLElement | null };
+  /** Names what the panel shows (an issue key, a milestone id). A new key
+      while open is a swap in place: the body scrolls to the top and focus
+      that was in the panel (or fell to <body>) moves to the panel. */
+  contentKey?: string;
   children?: ReactNode;
 }
 

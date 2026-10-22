@@ -54,6 +54,7 @@ import {
   mapMilestone,
   mapProject,
   mapTeam,
+  mapTeamMembership,
   mapUser,
   mapWorkflowState,
 } from './map';
@@ -91,6 +92,7 @@ import {
   STATE_CHANGE_BATCH_SIZE,
   STATE_HISTORY_PAGE_QUERY,
   TEAM_LABELS_QUERY,
+  TEAM_MEMBERSHIPS_QUERY,
   TEAMS_QUERY,
   USER_QUERY,
   USERS_QUERY,
@@ -763,6 +765,7 @@ export function createLinearGateway(
         projectIssueNodes,
         looseIssueNodes,
         relationNodes,
+        membershipNodes,
       ] = await Promise.all([
         client.request<unknown>(IDENTITY_QUERY),
         fetchAllPages(USERS_QUERY, 'users'),
@@ -774,7 +777,21 @@ export function createLinearGateway(
         fetchAllPages(PROJECT_ISSUES_QUERY, 'issues'),
         fetchAllPages(OPEN_ISSUES_WITHOUT_PROJECT_QUERY, 'issues'),
         fetchAllPages(WORKSPACE_RELATIONS_QUERY, 'issueRelations'),
+        fetchAllPages(TEAM_MEMBERSHIPS_QUERY, 'teamMemberships'),
       ]);
+
+      // Who belongs to which team (per-viewer visibility, §2.13).
+      const membersByTeam = new Map<string, string[]>();
+      for (const node of membershipNodes) {
+        const membership = mapTeamMembership(node);
+        if (membership === null) continue;
+        const members = membersByTeam.get(membership.teamId);
+        if (members === undefined) {
+          membersByTeam.set(membership.teamId, [membership.userId]);
+        } else if (!members.includes(membership.userId)) {
+          members.push(membership.userId);
+        }
+      }
 
       const organization = requireObject(
         asData(identity, 'Identity'),
@@ -808,7 +825,14 @@ export function createLinearGateway(
       return {
         workspaceId: requireString(organization, 'id', 'Organization'),
         users: userNodes.map(mapUser),
-        teams: teamNodes.map(mapTeam),
+        teams: teamNodes.map((node) => {
+          const id = optionalString(node, 'id');
+          return mapTeam(
+            node,
+            id === null ? [] : (membersByTeam.get(id) ?? []),
+            logger
+          );
+        }),
         states: stateNodes.map((node) => mapWorkflowState(node, logger)),
         initiatives: initiativeNodes.map(mapInitiative),
         projects,

@@ -21,6 +21,10 @@
     "types": ["bun", "react", "react-dom"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // Hosts compile this package as source with their own flags; these two
+    // are Dispatch's (apps/desktop/tsconfig.app.json), so keep them passing.
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
     "tsBuildInfoFile": "tsconfig.tsbuildinfo"
   }
 }

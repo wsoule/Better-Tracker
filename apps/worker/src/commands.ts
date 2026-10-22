@@ -30,6 +30,8 @@ export type AllocationRunResult = Awaited<ReturnType<Engine['runAllocation']>>;
 export interface WorkerEngine {
   readonly mode: 'linear' | 'fixture';
   listWorkspaceIds(): Promise<string[]>;
+  /** Installed workspaces whose app grant is dead (need a reinstall). */
+  listRevokedWorkspaceIds(): Promise<string[]>;
   workspaceTimezone(workspaceId: string): Promise<string>;
   fullSync(workspaceId: string): Promise<SyncResult>;
   runDaily(input: {
@@ -49,6 +51,7 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
   return {
     mode: engine.mode,
     listWorkspaceIds: () => engine.listWorkspaceIds(),
+    listRevokedWorkspaceIds: () => engine.listRevokedWorkspaceIds(),
     // getSettings, not load(): load syncs a workspace that was never
     // mirrored, and the tick decides on its own whether to sync.
     workspaceTimezone: async (workspaceId) => {
@@ -354,17 +357,22 @@ export async function runCommand(
   }
 
   let workspaceIds: string[];
+  let revokedIds: string[] = [];
   try {
-    workspaceIds =
-      command.workspaceId === null
-        ? await ctx.engine.listWorkspaceIds()
-        : [command.workspaceId];
+    if (command.workspaceId === null) {
+      [workspaceIds, revokedIds] = await Promise.all([
+        ctx.engine.listWorkspaceIds(),
+        ctx.engine.listRevokedWorkspaceIds(),
+      ]);
+    } else {
+      workspaceIds = [command.workspaceId];
+    }
   } catch (error) {
     ctx.logger.error('could not list installed workspaces', { error });
     result.problems.push(`listing workspaces: ${oneLine(error)}`);
     return result;
   }
-  if (workspaceIds.length === 0) {
+  if (workspaceIds.length === 0 && revokedIds.length === 0) {
     ctx.logger.warn('no installed workspaces; nothing to do', {
       command: command.name,
     });
@@ -433,5 +441,33 @@ export async function runCommand(
       await runCleanup(ctx, result);
       break;
   }
+  result.outcomes.push(...revokedOutcomes(ctx, command.name, revokedIds));
   return result;
+}
+
+/** Why a revoked workspace fails every command (architecture §9). */
+export const REVOKED_INSTALLATION_ERROR =
+  'the app lost its Linear access (uninstalled, or its authorization stopped working); an admin must install it again from /setup';
+
+// One failed outcome per workspace whose installation lost its Linear
+// grant: listWorkspaceIds leaves them out, and without this the worker
+// would exit 0 while allocation and every warning have stopped there.
+function revokedOutcomes(
+  ctx: CommandContext,
+  command: CommandName,
+  revokedIds: readonly string[]
+): WorkspaceOutcome[] {
+  return revokedIds.map((workspaceId) => {
+    ctx.logger.error('workspace skipped: its installation is revoked', {
+      command,
+      workspaceId,
+      remedy: 'an admin must install the app again from /setup',
+    });
+    return {
+      workspaceId,
+      ok: false,
+      detail: '',
+      error: REVOKED_INSTALLATION_ERROR,
+    };
+  });
 }

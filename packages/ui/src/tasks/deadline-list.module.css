@@ -24,7 +24,7 @@
 }
 
 .accent {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .count {
@@ -103,6 +103,9 @@
 
   --background: var(--ink);
   --foreground: var(--paper);
+  --accent-ink: var(--accent-ink-inverse);
+  --accent-ink-hover: var(--accent-ink-inverse);
+  --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
 }
@@ -111,6 +114,9 @@
   .link:hover {
     --background: var(--ink);
     --foreground: var(--paper);
+    --accent-ink: var(--accent-ink-inverse);
+    --accent-ink-hover: var(--accent-ink-inverse);
+    --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);
   }
@@ -123,7 +129,7 @@
   font-weight: 500;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--grey-2);
+  color: var(--grey-2-ink);
 }
 
 .more {
@@ -143,12 +149,12 @@
 
 .more:focus-visible {
   outline-offset: -2px;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (hover: hover) and (width >= 901px) {
   .more:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 

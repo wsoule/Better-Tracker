@@ -63,7 +63,7 @@
 }
 
 .missing .state {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 @media (width <= 768px) {

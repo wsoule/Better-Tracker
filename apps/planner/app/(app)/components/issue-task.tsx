@@ -549,7 +549,7 @@ export function useIssueTaskProps(
           label="Add blocked by"
           search={writes.search}
           exclude={exclude(model.relations.blockedBy)}
-          searchPlaceholder="Find the issue this waits on…"
+          searchPlaceholder="Issue this waits on…"
           onSelect={(task) => writes.addBlocker(model.issueId, task.id)}
           formatError={formatError}
         />
@@ -559,7 +559,7 @@ export function useIssueTaskProps(
           label="Add blocks"
           search={writes.search}
           exclude={exclude(model.relations.blocks)}
-          searchPlaceholder="Find the issue that waits on this…"
+          searchPlaceholder="Issue waiting on this…"
           onSelect={(task) => writes.addBlocker(task.id, model.issueId)}
           formatError={formatError}
         />

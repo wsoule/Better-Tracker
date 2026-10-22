@@ -78,7 +78,7 @@
 /* The accent as an outline: destructive or "needs action" commands. */
 .danger {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .button:disabled {
@@ -100,7 +100,7 @@
   }
 
   .quiet:not(:disabled):hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 }
 

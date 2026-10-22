@@ -72,7 +72,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
   white-space: nowrap;
 }
 
@@ -134,7 +134,7 @@
   font-family: var(--font-mono);
   font-size: 10.5px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--accent-ink);
   border-bottom: 1px solid currentcolor;
 }
 
@@ -163,7 +163,7 @@
 @media (hover: hover) and (width >= 901px) {
   .bannerLink:hover,
   .issueKeyLink:hover {
-    color: var(--accent-hover);
+    color: var(--accent-ink-hover);
     border-bottom-color: currentcolor;
   }
 }
@@ -271,7 +271,7 @@
 .reasons {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .note {
@@ -283,11 +283,11 @@
 .accentNote {
   font-size: 12px;
   line-height: 1.4;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .accent {
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .accentMono {
@@ -296,7 +296,7 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 .mono {
@@ -348,7 +348,7 @@
 
 .selectAccent {
   border-color: var(--accent);
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* Grows with the text where the browser can (one line of up to 280
@@ -438,7 +438,7 @@
 .issueOut:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 0;
-  color: var(--accent);
+  color: var(--accent-ink);
 }
 
 /* Register-row hover: paper and ink swap locally. */
@@ -453,7 +453,7 @@
   }
 
   .issueOut:hover {
-    color: var(--accent);
+    color: var(--accent-ink);
   }
 
   .issue:hover .issueKey,
@@ -474,13 +474,13 @@
 /* The drawer's grant_write link: the accent marks the one action here. */
 .editLink {
   font-weight: 500;
-  color: var(--accent);
+  color: var(--accent-ink);
   border-bottom: 1px solid currentcolor;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .editLink:hover {
-    color: var(--accent-hover);
+    color: var(--accent-ink-hover);
   }
 }
 

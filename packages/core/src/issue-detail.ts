@@ -24,7 +24,9 @@ import type {
   MilestoneAssessment,
   Project,
   Snapshot,
+  Team,
   User,
+  WorkflowStateType,
 } from './types';
 
 /** Longest issue title the planner sends, in characters (§7). */
@@ -33,6 +35,14 @@ export const ISSUE_TITLE_MAX_LENGTH = 255;
 export const ISSUE_DESCRIPTION_MAX_LENGTH = 100_000;
 /** Longest comment the planner sends, in characters (§7). */
 export const COMMENT_MAX_LENGTH = 10_000;
+
+// The team as the page shows it: id, key and name only (its visibility
+// and member list stay on the server).
+function teamRef(team: Team | undefined): IssueDetail['team'] {
+  return team === undefined
+    ? null
+    : { id: team.id, key: team.key, name: team.name };
+}
 
 // Plain code-unit comparison: deterministic on every host.
 function compareStrings(a: string, b: string): number {
@@ -238,8 +248,23 @@ function whyItMatters(
 }
 
 /**
+ * Linear's workflow columns, left to right. Linear orders states by
+ * `position` only within their type group (vendored SDL:
+ * WorkflowState.position), so the group comes first.
+ */
+const STATE_TYPE_ORDER: Record<WorkflowStateType, number> = {
+  triage: 0,
+  backlog: 1,
+  unstarted: 2,
+  started: 3,
+  completed: 4,
+  canceled: 5,
+};
+
+/**
  * The options the issue page's edit controls may offer, from the mirror:
- * the team's workflow states in Linear's order, active people (no app
+ * the team's workflow states in Linear's order (type group, then
+ * position), active people (no app
  * users) by name, and the projects with their milestones, active projects
  * first (timeline order), then the rest.
  */
@@ -251,6 +276,8 @@ export function buildIssueEditOptions(
   const states = snapshot.data.states
     .filter((state) => state.teamId === teamId)
     .sort((a, b) => {
+      const byType = STATE_TYPE_ORDER[a.type] - STATE_TYPE_ORDER[b.type];
+      if (byType !== 0) return byType;
       if (a.position !== b.position) return a.position - b.position;
       const byName = compareStrings(a.name, b.name);
       return byName !== 0 ? byName : compareStrings(a.id, b.id);
@@ -364,7 +391,7 @@ export function buildIssueDetail(input: {
       state === undefined
         ? null
         : { id: state.id, name: state.name, type: state.type },
-    team: snapshot.teams.get(issue.teamId) ?? null,
+    team: teamRef(snapshot.teams.get(issue.teamId)),
     assignee:
       issue.assigneeId === null
         ? null

@@ -26,8 +26,15 @@ function isWordStart(text: string, i: number): boolean {
  * Best match of one lowercase token inside `text`. A contiguous substring
  * wins (more if it starts a word or the text); otherwise the token must
  * appear as an in-order subsequence, scored by runs and word starts.
+ * `strict` (hints) keeps only subsequences where every character starts a
+ * word or continues a run ("eng24" → "ENG-24"), so a context hint such as a
+ * lead's name cannot match by scattered letters ("atl" in "Patel").
  */
-function matchToken(token: string, text: string): TokenHit | null {
+function matchToken(
+  token: string,
+  text: string,
+  strict = false
+): TokenHit | null {
   const lower = text.toLowerCase();
   const at = lower.indexOf(token);
   if (at >= 0) {
@@ -57,7 +64,7 @@ function matchToken(token: string, text: string): TokenHit | null {
   ) {
     anchors += 1;
     for (const preferStarts of [true, false]) {
-      const hit = matchSubsequence(token, text, lower, a, preferStarts);
+      const hit = matchSubsequence(token, text, lower, a, preferStarts, strict);
       if (hit !== null && (best === null || hit.score > best.score)) best = hit;
     }
   }
@@ -77,8 +84,10 @@ function matchSubsequence(
   text: string,
   lower: string,
   anchor: number,
-  preferStarts: boolean
+  preferStarts: boolean,
+  strict: boolean
 ): TokenHit | null {
+  if (strict && !isWordStart(text, anchor)) return null;
   const hits: number[] = [anchor];
   let score = 1 + (isWordStart(text, anchor) ? 2 : 0);
   let loose = 0;
@@ -111,7 +120,7 @@ function matchSubsequence(
     prev = i;
   }
   const span = hits[hits.length - 1] - hits[0] + 1;
-  if (loose > 0 && span > token.length * 2) return null;
+  if (loose > 0 && (strict || span > token.length * 2)) return null;
   // Spread-out matches are weak: penalise the distance they cover.
   score -= Math.min(6, Math.floor(span / 6));
   return { score, hits };
@@ -120,8 +129,9 @@ function matchSubsequence(
 /**
  * Scores `query` against a label and optional hint. Every whitespace-
  * separated token must match the label or the hint; label matches weigh a
- * little more. Returns null when any token misses. An empty query matches
- * everything with score 0.
+ * little more. In the hint a token must be a substring or a run of word
+ * starts (an identifier), not scattered letters. Returns null when any
+ * token misses. An empty query matches everything with score 0.
  */
 export function fuzzyMatch(
   query: string,
@@ -133,7 +143,7 @@ export function fuzzyMatch(
   for (const token of tokens) {
     const inLabel = matchToken(token, label);
     const inHint =
-      hint === undefined || hint === '' ? null : matchToken(token, hint);
+      hint === undefined || hint === '' ? null : matchToken(token, hint, true);
     if (inLabel === null && inHint === null) return null;
     if (
       inLabel !== null &&

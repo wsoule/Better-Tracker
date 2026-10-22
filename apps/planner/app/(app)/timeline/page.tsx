@@ -19,6 +19,7 @@ import { currentHref, loadIssueDrawer } from '../../../lib/issue-load';
 import {
   loadTimelineView,
   orSetup,
+  requestViewer,
   requireInstalledActor,
 } from '../../../lib/load';
 import css from './page.module.css';
@@ -36,7 +37,11 @@ async function loadDetail(
   milestoneId: string
 ): Promise<MilestoneDetail | null> {
   try {
-    return await engine.getMilestoneDetail(workspaceId, milestoneId);
+    return await engine.getMilestoneDetail(
+      workspaceId,
+      milestoneId,
+      await requestViewer()
+    );
   } catch (error) {
     if (engineInputCode(error) === 'not_found') return null;
     throw error;
@@ -61,7 +66,9 @@ export default async function TimelinePage({
 }) {
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
-  const { engine, actor, workspaceId } = await requireInstalledActor();
+  const { engine, actor, workspaceId } = await requireInstalledActor(
+    currentHref('/timeline', params)
+  );
   const state = parseTimelineState(params);
   const selection = parseTimelineSelection(params);
   const permissions = { canWriteLinear: actor.canWriteLinear };
@@ -69,8 +76,8 @@ export default async function TimelinePage({
   const [view, graph, loaded, detail, issueDrawer] = await orSetup(
     Promise.all([
       loadTimelineView(engine, workspaceId),
-      engine.getGraph(workspaceId, { level: 'milestone' }),
-      engine.load(workspaceId),
+      engine.getGraph(workspaceId, { level: 'milestone' }, actor),
+      engine.load(workspaceId, actor),
       selection.milestoneId === null
         ? Promise.resolve(null)
         : loadDetail(engine, workspaceId, selection.milestoneId),

@@ -12,7 +12,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 
 import { createEngine } from '../src/engine';
 import type { Engine, EngineConfig } from '../src/index';
-import { issuesNeedingStateHistory } from '../src/sync';
+import { issuesNeedingStateHistory, SYNC_JOIN_WAIT_MS } from '../src/sync';
 import {
   createClock,
   fixtureProvider,
@@ -286,6 +286,100 @@ describe('fullSync', () => {
     );
     expect((await s.engine.load(WORKSPACE_ID)).mirrorVersion).toBe(
       loaded.mirrorVersion
+    );
+  });
+});
+
+describe('fullSync is single-flight per workspace', () => {
+  test('concurrent callers share one sync and its result; later ones run again', async () => {
+    let fetches = 0;
+    let release: () => void = () => undefined;
+    let gated = false;
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: async () => {
+        fetches += 1;
+        if (gated) {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        }
+        return gateway.fetchWorkspace();
+      },
+    });
+    const s = await setup({ wrap });
+    await s.engine.fullSync(WORKSPACE_ID);
+    fetches = 0;
+
+    gated = true;
+    const first = s.engine.fullSync(WORKSPACE_ID);
+    const second = s.engine.fullSync(WORKSPACE_ID);
+    const third = s.engine.fullSync(WORKSPACE_ID);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    gated = false;
+    release();
+    const results = await Promise.all([first, second, third]);
+    expect(fetches).toBe(1);
+    expect(new Set(results.map((r) => r.version)).size).toBe(1);
+
+    // Once it finished, the next call syncs again.
+    const next = await s.engine.fullSync(WORKSPACE_ID);
+    expect(fetches).toBe(2);
+    expect(next.version).toBeGreaterThan(results[0]?.version ?? 0);
+  });
+
+  test('a joined failure is shared too', async () => {
+    let fail = false;
+    let release: () => void = () => undefined;
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: async () => {
+        if (!fail) return gateway.fetchWorkspace();
+        await new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        throw new LinearApiError('server', 'Linear is down');
+      },
+    });
+    const s = await setup({ wrap });
+    await s.engine.fullSync(WORKSPACE_ID);
+    fail = true;
+    const both = [
+      rejectionMessage(s.engine.fullSync(WORKSPACE_ID)),
+      rejectionMessage(s.engine.fullSync(WORKSPACE_ID)),
+    ];
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release();
+    expect(await Promise.all(both)).toEqual([
+      'Linear is down',
+      'Linear is down',
+    ]);
+  });
+
+  test('a sync stuck past SYNC_JOIN_WAIT_MS is not waited on', async () => {
+    let hang = false;
+    let fetches = 0;
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: () => {
+        fetches += 1;
+        return hang ? new Promise(() => undefined) : gateway.fetchWorkspace();
+      },
+    });
+    const s = await setup({ wrap });
+    await s.engine.fullSync(WORKSPACE_ID);
+    hang = true;
+    void s.engine.fullSync(WORKSPACE_ID);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    hang = false;
+    s.clock.set(
+      new Date(s.clock.now().getTime() + SYNC_JOIN_WAIT_MS).toISOString()
+    );
+    const own = await s.engine.fullSync(WORKSPACE_ID);
+    expect(own.ok).toBe(true);
+    expect(fetches).toBe(3);
+    expect(s.logs.some((l) => l.includes('a full sync is still running'))).toBe(
+      true
     );
   });
 });

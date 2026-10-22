@@ -80,8 +80,11 @@ function planProject(
   if (!ctx.tuning.activeProjectStatuses.includes(project.statusType)) {
     return emptyPlan(project.id, 'inactive', nextId);
   }
-  if (nextId === null) return emptyPlan(project.id, 'no_open_milestone', null);
 
+  // The lead comes before the next milestone (design §6.1: a project with
+  // no lead is flagged everywhere, the warning digest included), so an
+  // active project without a working lead is blocked even when it has no
+  // open milestone (nextMilestoneId is then null).
   if (project.leadId === null) {
     return {
       ...emptyPlan(project.id, 'blocked', nextId),
@@ -95,6 +98,7 @@ function planProject(
       blockReason: 'lead_inactive',
     };
   }
+  if (nextId === null) return emptyPlan(project.id, 'no_open_milestone', null);
 
   const rubric: RubricResult =
     assessments.get(nextId)?.rubric ??
