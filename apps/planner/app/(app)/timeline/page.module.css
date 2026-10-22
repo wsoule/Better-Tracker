@@ -1,87 +1,92 @@
-/* Timeline page furniture around the package components: the header, the
-   banner stack, the chart's toolbar inputs, and the drawer's contents
-   (edit fields, issue list, waits-on list). Built only from the shared
-   tokens; the chart, notices, drawer and property list style themselves. */
+/* Timeline page furniture around the package components, in Gr8r's look:
+   the page header, the banners (tinted callouts), the chart's toolbar
+   inputs, and the drawer's contents (edit fields, rubric, issue list,
+   waits-on list). Built only from the shared tokens; the chart, notices,
+   drawer and property list style themselves. Colour by tone comes from
+   data-tone (primitives.css gives --tone, --tone-ink, --tone-soft and
+   --tone-line). */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
 }
 
+/* Gr8r's page title and the quiet line under it. */
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
 }
 
 .receipts {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
 
 /* ---- banners ---------------------------------------------------------- */
 
-/* The page notices (not found, read only) and the banner block stack
-   with a small gap. */
+/* The page notices (not found, read only, write grant) and the banners
+   stack with a small gap. */
 .notices {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 20px auto 0;
   padding: 0 48px;
 }
 
-/* One block for every banner: a 1px hairline frame with the single 2px
-   accent rule down its left edge (2px is emphasis, spent once), and one
-   1px ruled row per banner, about 40px tall. */
-.banners {
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--accent);
-}
-
+/* One tinted callout per banner (Gr8r's alert): the tone's soft fill, no
+   border, an 8px radius, the icon in the hue, the lead-in in the tone's
+   ink and the sentence in --text. The tone comes from the adapter
+   (warning: no lead, no date, blocked; info: unplanned) as data-tone,
+   beside data-banner-id. */
 .bannerRows {
   display: flex;
   flex-direction: column;
+  gap: 6px;
 }
 
-.banner + .banner {
-  border-top: 1px solid var(--border);
+.banner {
+  border-radius: var(--r);
+  background: var(--tone-soft);
 }
 
 .bannerHead {
   display: flex;
   align-items: center;
-  gap: 4px 16px;
-  min-height: 40px;
-  padding: 5px 8px 5px 16px;
+  gap: 4px 10px;
+  min-height: 36px;
+  padding: 4px 4px 4px 12px;
+}
+
+.bannerIcon {
+  flex: none;
+  color: var(--tone);
 }
 
 .bannerKey {
   flex: 0 0 auto;
-  min-width: 112px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
+  min-width: 84px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--tone-ink, var(--text));
   white-space: nowrap;
 }
 
 .bannerText {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13.5px;
-  line-height: 1.45;
-  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text);
 }
 
 .bannerAction {
@@ -89,11 +94,15 @@
   margin-left: auto;
 }
 
+/* The expanded list sits inside the callout, on the surface, so each row
+   reads as plain content rather than more tint. */
 .bannerList {
   display: flex;
   flex-direction: column;
-  margin: 0 16px 8px;
-  border-top: 1px solid var(--hairline-faint);
+  margin: 0 6px 6px;
+  padding: 2px 0;
+  border-radius: var(--r-sm);
+  background: var(--surface);
 }
 
 .bannerList[hidden] {
@@ -104,38 +113,50 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 14px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--hairline-faint);
+  gap: 2px 12px;
+  padding: 7px 10px;
+}
+
+.bannerItem + .bannerItem {
+  border-top: 1px solid var(--divider);
 }
 
 .bannerLink {
-  font-weight: 500;
-  color: var(--foreground);
-  border-bottom: 1px solid var(--hairline-faint);
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur) ease;
 }
 
 .bannerDetail {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .bannerIssues {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 10px;
+  gap: 4px 8px;
 }
 
+/* Issue keys are ids: mono, quiet, underlined on hover like a title. */
 .issueKeyLink {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--accent-ink);
-  border-bottom: 1px solid currentcolor;
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  transition:
+    color var(--dur) ease,
+    text-decoration-color var(--dur) ease;
+}
+
+.bannerLink:focus-visible {
+  text-decoration-color: var(--border-strong);
 }
 
 /* Narrow: the key and the Show button share the first line, the sentence
@@ -143,7 +164,7 @@
 @media (width <= 768px) {
   .bannerHead {
     flex-wrap: wrap;
-    padding: 6px 6px 8px 12px;
+    padding: 6px 6px 8px 10px;
   }
 
   .bannerKey {
@@ -154,25 +175,24 @@
     flex-basis: 100%;
     order: 1;
   }
-
-  .bannerList {
-    margin: 0 12px 8px;
-  }
 }
 
 @media (hover: hover) and (width >= 901px) {
-  .bannerLink:hover,
+  .bannerLink:hover {
+    text-decoration-color: var(--border-strong);
+  }
+
   .issueKeyLink:hover {
-    color: var(--accent-ink-hover);
-    border-bottom-color: currentcolor;
+    color: var(--text);
+    text-decoration-color: currentcolor;
   }
 }
 
-/* ---- chart + toolbar ---------------------------------------------------- */
+/* ---- chart + toolbar -------------------------------------------------- */
 
 .chartWrap {
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 20px auto 0;
   padding: 0 48px 72px;
 }
 
@@ -180,20 +200,39 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+/* Gr8r's small search: a 13px magnifier in --text-4 inside a 26px field. */
+.searchWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 220px;
+  max-width: 100%;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-4);
+  pointer-events: none;
 }
 
 .search {
-  width: 220px;
-  max-width: 100%;
-  min-height: 28px;
-  padding: 4px 10px;
+  width: 100%;
+  min-height: var(--h-sm);
+  height: var(--h-sm);
+  padding: 0 10px 0 29px;
+  font-size: var(--fs-sm);
 }
 
 .select {
-  min-height: 28px;
-  padding: 4px 28px 4px 10px;
+  min-height: var(--h-sm);
+  height: var(--h-sm);
   max-width: 100%;
+  padding: 0 28px 0 10px;
+  font-size: var(--fs-sm);
 }
 
 /* Desktop: the toolbar is one row from about 1050px of chart width (a
@@ -212,7 +251,7 @@
     max-width: 430px;
   }
 
-  .search {
+  .searchWrap {
     flex: 1 1 220px;
     min-width: 100px;
   }
@@ -226,39 +265,38 @@
   }
 }
 
-/* ---- drawer ------------------------------------------------------------- */
+/* ---- drawer ----------------------------------------------------------- */
 
 .drawerLoading {
   padding-top: 6px;
 }
 
 .alert {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
+/* Gr8r's drawer section heading: --fs semibold, a quiet count after it;
+   sections 26px apart. */
 .subhead {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin: 28px 0 10px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  gap: 8px;
+  margin: 26px 0 10px;
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .subheadMeta {
-  margin-left: auto;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  font-weight: var(--fw-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 
 .para {
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--text-2);
 }
 
 .stack {
@@ -268,40 +306,18 @@
   min-width: 0;
 }
 
-.reasons {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--accent-ink);
-}
-
+/* A help line under a value: quiet, or in its tone's ink (data-tone). */
 .note {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
 }
 
-.accentNote {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--accent-ink);
-}
-
-.accent {
-  color: var(--accent-ink);
-}
-
-.accentMono {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-}
-
-.mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
+/* A value that is itself a status word ("No lead", "Unassigned"). */
+.toned[data-tone]:not([data-tone='default']),
+.note[data-tone]:not([data-tone='default']) {
+  font-weight: var(--fw-medium);
+  color: var(--tone-ink);
 }
 
 .progress {
@@ -325,13 +341,13 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
-.dateInput,
-.weightInput {
-  min-height: 32px;
-  padding: 4px 8px;
+/* The fields shrink before their Save button wraps under them. */
+.dateInput {
+  flex: 0 1 160px;
+  min-width: 0;
 }
 
 .weightInput {
@@ -339,16 +355,13 @@
 }
 
 .leadSelect {
-  min-height: 32px;
+  flex: 0 1 220px;
   min-width: 0;
-  width: 220px;
-  max-width: 100%;
-  padding: 4px 28px 4px 8px;
 }
 
-.selectAccent {
-  border-color: var(--accent);
-  color: var(--accent-ink);
+/* No lead: the field's edge in the warning tone. */
+.leadSelect[data-tone] {
+  border-color: var(--tone-line);
 }
 
 /* Grows with the text where the browser can (one line of up to 280
@@ -359,13 +372,16 @@
   field-sizing: content;
 }
 
-/* Issues: a hairline register; each row opens the issue in Linear. */
+/* Issues: one --r-lg panel, rows split by --divider; each row opens the
+   issue in this panel, its ↗ in Linear. */
 .issues {
+  overflow: hidden;
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .issues > li + li {
-  border-top: 1px solid var(--hairline-faint);
+  border-top: 1px solid var(--divider);
 }
 
 .issueItem {
@@ -374,101 +390,89 @@
 
 .issue {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 4px 12px;
-  padding: 9px 40px 9px 14px;
-  color: var(--foreground);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 9px 40px 9px 12px;
+  color: var(--text);
+  transition: background-color var(--dur) ease;
 }
 
 .issueKey {
   grid-row: span 2;
   padding-top: 2px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
   white-space: nowrap;
 }
 
 .issueTitle {
-  font-size: 13.5px;
+  font-size: var(--fs);
   line-height: 1.4;
-  color: var(--ink-soft);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .issueMeta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  gap: 2px 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .issueState {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  color: var(--text-2);
 }
 
 .issueClosed .issueTitle {
-  color: var(--muted);
+  color: var(--text-3);
 }
 
-/* The row's ↗ (the issue in Linear), a link of its own above the row's
-   right edge. */
+/* The row's ↗ (the issue in Linear): a 22px icon button of its own above
+   the row's right edge. */
 .issueOut {
   position: absolute;
   top: 7px;
-  right: 10px;
+  right: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  color: var(--muted);
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .issueOut:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 0;
-  color: var(--accent-ink);
+  outline-offset: 1px;
+  color: var(--text);
 }
 
-/* Register-row hover: paper and ink swap locally. */
+/* Gr8r's row hover: the --surface-2 fill; the ↗ fills on its own. */
 @media (hover: hover) and (width >= 901px) {
   .issue:hover {
-    background: var(--foreground);
-    color: var(--background);
-  }
-
-  .issueItem:has(.issue:hover) .issueOut {
-    color: var(--background);
+    background: var(--surface-2);
   }
 
   .issueOut:hover {
-    color: var(--accent-ink);
-  }
-
-  .issue:hover .issueKey,
-  .issue:hover .issueTitle,
-  .issue:hover .issueMeta,
-  .issue:hover .accent {
-    color: var(--background);
+    background: var(--surface-3);
+    color: var(--text);
   }
 }
 
 .editNote {
   margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
 }
 
 /* A Linear guest's one read-only notice, where the edit note would be. */
@@ -476,16 +480,19 @@
   margin-top: 10px;
 }
 
-/* The drawer's grant_write link: the accent marks the one action here. */
+/* The drawer's grant_write link: the one action here, an accent link. */
 .editLink {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--accent-ink);
-  border-bottom: 1px solid currentcolor;
+  text-decoration: underline;
+  text-decoration-color: var(--accent-line);
+  text-underline-offset: 3px;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .editLink:hover {
     color: var(--accent-ink-hover);
+    text-decoration-color: currentcolor;
   }
 }
 
@@ -496,24 +503,26 @@
 .waits {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .waits > li + li {
-  border-top: 1px solid var(--hairline-faint);
+  border-top: 1px solid var(--divider);
 }
 
 .waitLink {
   display: block;
-  padding: 9px 14px;
-  font-size: 13.5px;
-  color: var(--ink-soft);
+  padding: 9px 12px;
+  font-size: var(--fs);
+  color: var(--text);
+  transition: background-color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .waitLink:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
   }
 }
 
@@ -521,7 +530,7 @@
   margin-top: 12px;
 }
 
-/* ---- loading ------------------------------------------------------------ */
+/* ---- loading ---------------------------------------------------------- */
 
 .skeletonHead {
   display: flex;
@@ -533,9 +542,8 @@
 .skeletonToolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  padding: 10px 18px;
-  border: 1px solid var(--border);
+  gap: 8px;
+  margin-bottom: 44px;
 }
 
 @media (width <= 768px) {
@@ -545,30 +553,42 @@
   }
 
   .title {
-    font-size: 22px;
+    font-size: 21px;
   }
 
   .notices {
-    margin-top: 20px;
+    margin-top: 16px;
     padding: 0 16px;
   }
 
   .chartWrap {
-    margin-top: 20px;
+    margin-top: 16px;
     padding: 0 16px 56px;
   }
 
-  .search {
-    width: 100%;
-  }
-
+  .searchWrap,
   .filters {
     width: 100%;
   }
 }
 
+/* Phones and touch screens keep 16px fields (iOS zooms into smaller ones),
+   over the toolbar's 12.5px. */
+@media (width <= 640px), (pointer: coarse) {
+  .search,
+  .select {
+    height: auto;
+    min-height: var(--h-md);
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .issue {
+  .issue,
+  .issueOut,
+  .waitLink,
+  .bannerLink,
+  .issueKeyLink {
     transition: none;
   }
 }

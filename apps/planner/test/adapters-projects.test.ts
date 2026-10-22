@@ -11,6 +11,7 @@ import {
   allocationCell,
   barMark,
   buildProjectsPage,
+  dueTone,
   filterProjectGroups,
   parseProjectFilter,
   parseProjectsSearch,
@@ -129,15 +130,31 @@ describe('barMark and progressTone', () => {
     expect(barMark(bar({ status: 'empty' })).status).toBe('missing');
   });
 
-  test('progress is accent only when overdue or behind pace', () => {
+  test('progress is danger when overdue, warning when behind pace', () => {
     expect(progressTone(bar())).toBe('default');
-    expect(progressTone(bar({ status: 'overdue' }))).toBe('accent');
+    expect(progressTone(bar({ status: 'overdue' }))).toBe('danger');
+    expect(
+      progressTone(
+        bar({ status: 'overdue', reasons: ['behind_pace', 'stalled'] })
+      )
+    ).toBe('danger');
     expect(
       progressTone(bar({ status: 'at_risk', reasons: ['behind_pace'] }))
-    ).toBe('accent');
+    ).toBe('warning');
     expect(progressTone(bar({ status: 'at_risk', reasons: ['stalled'] }))).toBe(
       'default'
     );
+  });
+
+  test('a due date is danger overdue, a warning today, tomorrow or undated', () => {
+    expect(dueTone('overdue', -3, false)).toBe('danger');
+    expect(dueTone('on_track', 0, false)).toBe('warning');
+    expect(dueTone('at_risk', 1, false)).toBe('warning');
+    expect(dueTone('on_track', 2, false)).toBe('default');
+    expect(dueTone('unscheduled', null, true)).toBe('warning');
+    // A complete milestone is never late or due.
+    expect(dueTone('complete', 0, false)).toBe('default');
+    expect(dueTone(null, null, false)).toBe('default');
   });
 });
 
@@ -171,7 +188,7 @@ describe('allocationCell', () => {
           ],
         })
       )
-    ).toEqual({ label: 'Allocating 2', tone: 'default' });
+    ).toEqual({ label: 'Allocating 2', tone: 'info' });
     expect(allocationCell(plan())).toEqual({
       label: 'Nothing to do',
       tone: 'default',
@@ -193,7 +210,7 @@ describe('allocationCell', () => {
     ).toEqual({
       label: 'Blocked',
       detail: 'Project has no lead',
-      tone: 'accent',
+      tone: 'warning',
     });
     expect(
       allocationCell(
@@ -206,12 +223,12 @@ describe('allocationCell', () => {
     ).toEqual({
       label: 'Blocked',
       detail: 'Next milestone is missing: done means…, issues',
-      tone: 'accent',
+      tone: 'warning',
     });
     // Without a recorded reason the chip still says Blocked.
     expect(
       allocationCell(plan({ outcome: 'blocked', blockReason: null }))
-    ).toEqual({ label: 'Blocked', tone: 'accent' });
+    ).toEqual({ label: 'Blocked', tone: 'warning' });
   });
 });
 
@@ -324,7 +341,10 @@ describe('buildProjectsPage', () => {
     expect(row('proj-1').linearStatus).toBe('Building');
     expect(row('proj-2').linearStatus).toBe('In Progress');
     expect(row('proj-4').linearStatus).toBe('Paused');
-    expect(row('proj-4').linearStatusTone).toBe('muted');
+    // The Linear status as a dot pill (architecture §8.2): started info,
+    // paused warning.
+    expect(row('proj-1').linearStatusTone).toBe('info');
+    expect(row('proj-4').linearStatusTone).toBe('warning');
   });
 
   test('describes the next milestone with lib/format wording', () => {
@@ -333,7 +353,7 @@ describe('buildProjectsPage', () => {
       name: 'Dual-write',
       href: '/timeline?milestone=ms-1',
       dueLabel: 'Oct 28 · in 7 days',
-      dueTone: 'muted',
+      dueTone: 'default',
       status: 'on_track',
       statusLabel: 'On track',
       done: 1,
@@ -341,8 +361,11 @@ describe('buildProjectsPage', () => {
       progressTone: 'default',
       muted: false,
     });
-    expect(row('proj-2').next?.progressTone).toBe('accent');
+    // Behind pace: the progress is a warning.
+    expect(row('proj-2').next?.progressTone).toBe('warning');
     expect(row('proj-3').next?.dueLabel).toBe('No target date');
+    // Undated: the missing date is a warning.
+    expect(row('proj-3').next?.dueTone).toBe('warning');
     expect(row('proj-3').next?.status).toBe('missing');
     expect(row('proj-5').next).toBeNull();
   });
@@ -353,14 +376,14 @@ describe('buildProjectsPage', () => {
       dueTone: 'muted',
       status: 'overdue',
       statusLabel: 'Overdue · inactive project',
-      progressTone: 'default',
+      progressTone: 'muted',
       muted: true,
     });
   });
 
   test('marks leads, tones and filter tags', () => {
     expect(row('proj-3').lead).toBeNull();
-    expect(row('proj-3').rowTone).toBe('accent');
+    expect(row('proj-3').rowTone).toBe('warning');
     expect(row('proj-4').rowTone).toBe('muted');
     expect(row('proj-1').rowTone).toBe('default');
     expect(row('proj-2').tags).toEqual(['blocked', 'at_risk']);

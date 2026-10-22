@@ -45,8 +45,12 @@ import { assessmentMark } from './status';
 // (app/(app)/components/issue-task.tsx); the read-only wording, the alerts
 // and the picker options are decided here, once, and unit-tested.
 //
-// Inactive projects (§2.8) are never loud: an issue in one gets no alert
-// strip, a grey milestone mark and no accent anywhere.
+// Tones follow the status colours of architecture §8.2: danger (red) for
+// what is overdue or failed, warning (amber) for blocked, holds up,
+// stalled, unassigned, a missing or deactivated lead and a due date today
+// or tomorrow, muted for the quiet. Inactive projects (§2.8) are never
+// loud: an issue in one gets no alert strip, a grey milestone mark and no
+// tone anywhere.
 
 /** One allocation run entry about the issue (newest first). */
 export type IssueHistoryEntry = IssueDetailResult['allocationHistory'][number];
@@ -58,8 +62,13 @@ export interface IssueFact {
   /** A sentence under the value. */
   note?: string;
   noteTone?: UiTone;
-  /** Mono voice (durations). */
+  /** Tabular figures (dates, durations, estimates). */
   mono?: boolean;
+  /** The labels as chips (name and Linear's colour) instead of `text`. */
+  labels?: { name: string; color: string }[];
+  /** A person's round avatar before the text: their name, or '' for the
+      dashed empty avatar (nobody). */
+  avatar?: string;
   /** A leading glyph: the priority bars or a milestone status mark. */
   glyph?:
     | { kind: 'priority'; priority: TaskPriority }
@@ -136,7 +145,7 @@ export interface IssueTaskModel {
   closed: boolean;
   /** In an inactive project (§2.8): drawn quietly. */
   quiet: boolean;
-  /** PROJECT / MILESTONE / KEY, linking to the timeline. */
+  /** Project / Milestone / KEY, linking to the timeline. */
   crumbs: ShellCrumb[];
   milestone: { id: string; name: string } | null;
   status: { kind: TaskStateKind; label: string };
@@ -420,11 +429,12 @@ function relationModel(row: IssueRelationRow): IssueRelationModel {
 /* ---- alerts ---------------------------------------------------------------- */
 
 /**
- * The alert strips above the properties (accent, so only what needs
- * action): the milestone is overdue, the issue waits on open blockers,
- * it holds up at-risk milestones, it has stalled in its state, and it is
- * unassigned in its project's next milestone (and whether allocation will
- * pick it up). Closed issues and issues of inactive projects get none.
+ * The alert strips above the properties (only what needs action): the
+ * milestone is overdue (danger), the issue waits on open blockers, it
+ * holds up at-risk milestones, it has stalled in its state, and it is
+ * unassigned in its project's next milestone and whether allocation will
+ * pick it up (warning). Closed issues and issues of inactive projects get
+ * none.
  */
 export function issueAlerts(
   detail: IssueDetail,
@@ -451,6 +461,7 @@ export function issueAlerts(
     alerts.push({
       id: 'overdue',
       label: 'Overdue',
+      tone: 'danger',
       message: `${milestone.name} was due ${formatDate(milestone.targetDate, today)}, ${late === 0 ? 'today' : `${plural(late, 'day')} ago`}.`,
     });
   }
@@ -460,6 +471,7 @@ export function issueAlerts(
     alerts.push({
       id: 'blocked',
       label: 'Blocked',
+      tone: 'warning',
       message: `Waiting on ${listPhrase(openBlockers.map(blockerPhrase))}.`,
       action:
         graphHref === undefined
@@ -473,10 +485,11 @@ export function issueAlerts(
     alerts.push({
       id: 'holds-up',
       label: 'Holds up',
+      tone: 'warning',
       message: `${listPhrase(
         holds.map(
           (m) =>
-            `${m.projectName} › ${m.name} (${m.status === 'overdue' ? 'overdue' : 'at risk'})`
+            `${m.projectName} / ${m.name} (${m.status === 'overdue' ? 'overdue' : 'at risk'})`
         )
       )} waits on this.`,
     });
@@ -491,6 +504,7 @@ export function issueAlerts(
     alerts.push({
       id: 'stalled',
       label: 'Stalled',
+      tone: 'warning',
       message: `${stateName} for ${plural(detail.timing.daysInState, 'day')} with no change${due}.`,
     });
   }
@@ -503,6 +517,7 @@ export function issueAlerts(
     alerts.push({
       id: 'unassigned',
       label: 'Unassigned',
+      tone: 'warning',
       message: unassignedMessage(milestone, project.lead, project.name, today),
     });
   }
@@ -542,18 +557,23 @@ function assigneeFact(
 ): IssueFact {
   const { assignee } = detail;
   if (assignee === null) {
-    return { text: 'Unassigned', tone: loud ? 'accent' : 'muted' };
+    return {
+      text: 'Unassigned',
+      tone: loud ? 'warning' : 'muted',
+      avatar: '',
+    };
   }
   const isViewer = assignee.id === input.viewerId;
   const fact: IssueFact = {
     text: isViewer ? `${assignee.name} (you)` : assignee.name,
     tone: 'default',
+    avatar: assignee.name,
   };
   if (!assignee.active) {
     return {
       ...fact,
       note: 'Deactivated in Linear',
-      noteTone: loud ? 'accent' : 'muted',
+      noteTone: loud ? 'warning' : 'muted',
     };
   }
   const given = history.find(
@@ -639,7 +659,7 @@ function projectFact(detail: IssueDetail, quiet: boolean): IssueFact {
       text: project.name,
       tone: 'default',
       note: 'No lead',
-      noteTone: 'accent',
+      noteTone: 'warning',
     };
   }
   return {
@@ -648,7 +668,7 @@ function projectFact(detail: IssueDetail, quiet: boolean): IssueFact {
     note: project.lead.active
       ? `Lead ${project.lead.name}`
       : `Lead ${project.lead.name} (deactivated in Linear)`,
-    noteTone: project.lead.active ? 'default' : 'accent',
+    noteTone: project.lead.active ? 'default' : 'warning',
   };
 }
 
@@ -669,12 +689,12 @@ function inStateFact(
     sinceDate === input.today ? 'Since today' : 'Since yesterday';
   return {
     text: days === 0 ? underADay : plural(days, 'day'),
-    tone: stalled ? 'accent' : 'default',
+    tone: stalled ? 'warning' : 'default',
     mono: true,
     note: stalled
       ? `Stalled: ${stateName} with no change since ${since}`
       : `${stateName} since ${since}`,
-    noteTone: stalled ? 'accent' : 'default',
+    noteTone: stalled ? 'warning' : 'default',
   };
 }
 
@@ -686,10 +706,17 @@ const UNAVAILABLE: IssueFact = {
 
 function labelsFact(result: IssueDetailResult): IssueFact {
   if (result.extra === null) return UNAVAILABLE;
-  const names = result.extra.labels.map((label) => label.name);
-  return names.length === 0
+  const { labels } = result.extra;
+  return labels.length === 0
     ? { text: 'No labels', tone: 'muted' }
-    : { text: names.join(', '), tone: 'default' };
+    : {
+        text: labels.map((label) => label.name).join(', '),
+        tone: 'default',
+        labels: labels.map((label) => ({
+          name: label.name,
+          color: label.color,
+        })),
+      };
 }
 
 /** "3 points", "1 point", "L" (T-shirt sizes read as themselves). */
@@ -725,10 +752,18 @@ function dueDateFact(
   const due = result.extra.dueDate;
   if (due === null) return { text: 'No due date', tone: 'muted' };
   const left = diffDays(due, today);
-  const overdue = left < 0;
+  // §8.2: overdue is danger, due today or tomorrow warning; later dates
+  // and quiet issues stay neutral.
+  const tone: UiTone = !loud
+    ? 'default'
+    : left < 0
+      ? 'danger'
+      : left <= 1
+        ? 'warning'
+        : 'default';
   return {
     text: formatDate(due, today),
-    tone: overdue && loud ? 'accent' : 'default',
+    tone,
     mono: true,
     note:
       left === 0
@@ -738,7 +773,7 @@ function dueDateFact(
           : left > 1
             ? `In ${left} days`
             : `${plural(-left, 'day')} overdue`,
-    noteTone: overdue && loud ? 'accent' : 'muted',
+    noteTone: tone === 'default' ? 'muted' : tone,
   };
 }
 
@@ -830,14 +865,16 @@ function historyLine(
           entry.error === null
             ? `${run}${move} · a comment in Linear says why.`
             : `${run}${move} · the comment failed: ${entry.error}`,
-        tone: entry.error === null ? 'default' : 'accent',
+        // Assigned (success); the comment saying why failed: partly
+        // failed (warning).
+        tone: entry.error === null ? 'success' : 'warning',
         href,
       };
     case 'failed':
       return {
         label: `Assigning ${name} failed`,
         detail: `${run}: ${entry.error ?? 'the Linear write failed.'}`,
-        tone: 'accent',
+        tone: 'danger',
         href,
       };
     case 'stale':

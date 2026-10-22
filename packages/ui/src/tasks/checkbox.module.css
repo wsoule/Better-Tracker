@@ -1,5 +1,5 @@
-/* The Matrix switch's 13px square, as a checkbox: hollow 1px box when
-   off, accent fill with an on-accent check when on. The native input sits
+/* Gr8r's checkbox: a 15px, 4px-radius box with a 1.5px strong border;
+   checked fills the accent with an on-accent tick. The native input sits
    on top of the glyph, transparent, so it keeps focus and clicks. */
 
 .checkbox {
@@ -7,9 +7,9 @@
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 10px;
+  gap: 4px 8px;
   min-height: 28px;
-  color: var(--foreground);
+  color: var(--text);
   cursor: pointer;
 }
 
@@ -17,8 +17,8 @@
   position: absolute;
   top: 50%;
   left: 0;
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
   margin: 0;
   opacity: 0;
   transform: translateY(-50%);
@@ -32,13 +32,14 @@
   display: inline-flex;
   flex: none;
   pointer-events: none;
-  width: 13px;
-  height: 13px;
-  border: 1px solid var(--border);
-  background: transparent;
+  width: 15px;
+  height: 15px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background: var(--surface);
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+    background-color var(--dur) ease,
+    border-color var(--dur) ease;
 }
 
 .check {
@@ -47,6 +48,8 @@
   fill: none;
   stroke: var(--on-accent);
   stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
   opacity: 0;
 }
 
@@ -61,55 +64,43 @@
 
 .input:focus-visible + .glyph {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 1px;
 }
 
 .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  transition: color 0.15s ease;
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
 }
 
 .note {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.3;
-  color: var(--muted);
-}
-
-.input:focus-visible ~ .label {
-  color: var(--accent-ink);
+  color: var(--text-3);
 }
 
 @media (hover: hover) and (width >= 901px) {
-  .checkbox:not([data-disabled='true']):hover .label {
-    color: var(--accent-ink);
-  }
-
-  .checkbox:not([data-disabled='true']):hover .glyph {
-    border-color: var(--accent);
+  .checkbox:not([data-disabled='true']):hover .input:not(:checked) + .glyph {
+    border-color: color-mix(in srgb, var(--border-strong) 60%, var(--text-3));
   }
 }
 
 .checkbox[data-disabled='true'] {
   cursor: not-allowed;
-  color: var(--grey-2);
+  color: var(--text-3);
 }
 
 .checkbox[data-disabled='true'] .glyph {
-  border-color: var(--grey-3);
+  border-color: var(--border);
+  background: var(--surface-2);
 }
 
 .checkbox[data-disabled='true'] .input:checked + .glyph {
-  border-color: var(--grey-3);
-  background: var(--grey-3);
+  border-color: var(--border-strong);
+  background: var(--border-strong);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .glyph,
-  .label {
+  .glyph {
     transition: none;
   }
 }

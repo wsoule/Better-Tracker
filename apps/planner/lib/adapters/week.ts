@@ -19,6 +19,7 @@ import type {
   TaskRowData,
   TaskSectionData,
   UiStatus,
+  UiTone,
 } from '@better-tracker/ui';
 
 import {
@@ -30,7 +31,7 @@ import {
   plural,
 } from '../format';
 import { issuePagePath } from './issue';
-import { barMark, progressTone } from './projects';
+import { barMark, dueTone, progressTone } from './projects';
 import { blockedReasonLine, uiStatus, statusLabel } from './status';
 
 // My week (architecture §8.4): turns the engine's WeekView (the person's
@@ -38,6 +39,10 @@ import { blockedReasonLine, uiStatus, statusLabel } from './status';
 // allocation outcome) into the props of the shell's StatsStrip,
 // TaskGroupTable, DeadlineList and the "Needs attention" register. Pure
 // functions over plain data so every line of copy is unit-tested.
+//
+// Tones follow architecture §8.2's status table: overdue danger, at risk,
+// blocked, unassigned and due today or tomorrow warning, new to you the
+// accent; the accent never means a status.
 //
 // Inactive projects (§2.8; the lane's `active` flag from the engine) are
 // never loud here: the person's issues in them stay listed, in greys, but
@@ -59,10 +64,12 @@ export const WEEK_TASK_COLUMNS: TaskColumnId[] = ['state', 'priority', 'due'];
 export interface WeekAttentionItem {
   id: string;
   projectName: string;
-  /** Mono line under the name: why it needs attention. */
+  /** Line under the name: why it needs attention. */
   detail: string;
-  /** Right-aligned accent flag: "Blocked", "2 unassigned". */
+  /** Right-aligned chip: "Blocked", "2 unassigned". */
   flag: string;
+  /** The chip's tone: warning (blocked, unassigned issues). */
+  tone: UiTone;
   href: string;
   /** Accessible name of the whole-row link. */
   rowLabel: string;
@@ -346,7 +353,11 @@ function toTaskRow(
   copy: WeekCopy,
   active = true
 ): TaskRowData {
-  const overdue = active && section.status === 'overdue';
+  // A row's due date is its milestone's, coloured like it (§8.2).
+  const tone =
+    !active || section.targetDate === null
+      ? 'default'
+      : dueTone(section.status, section.daysLeft, false);
   return {
     id: row.issueId,
     key: row.identifier,
@@ -363,7 +374,7 @@ function toTaskRow(
       section.targetDate === null
         ? undefined
         : formatDate(section.targetDate, today),
-    dueTone: overdue ? 'accent' : undefined,
+    dueTone: tone === 'default' ? undefined : tone,
     chips:
       row.newBecauseLeadOf === null
         ? undefined
@@ -379,8 +390,8 @@ function toTaskRow(
 /**
  * One milestone group of the person's issues. A milestone in an inactive
  * project (§2.8) is drawn quietly: a grey mark still named with its
- * status, "Inactive project" where the days left would be, and no accent
- * on its date or progress.
+ * status, "Inactive project" where the days left would be, and no status
+ * colour on its date or progress (a grey fill).
  */
 function toTaskGroup(
   section: WeekSection,
@@ -396,7 +407,8 @@ function toTaskGroup(
   // The bar knows the risk reasons (behind pace); without one, only an
   // overdue milestone's progress is called out.
   const tone =
-    bar !== undefined ? progressTone(bar) : overdue ? 'accent' : 'default';
+    bar !== undefined ? progressTone(bar) : overdue ? 'danger' : 'default';
+  const due = dueTone(section.status, section.daysLeft, undated);
   const quiet = {
     statusLabel: mark === null ? undefined : `${mark.label} · inactive project`,
     daysLeftLabel: 'Inactive project',
@@ -415,7 +427,7 @@ function toTaskGroup(
         : formatDate(section.targetDate, today),
     daysLeftLabel:
       section.daysLeft === null ? undefined : daysLeftPhrase(section.daysLeft),
-    dueTone: overdue || undated ? 'accent' : undefined,
+    dueTone: due === 'default' ? undefined : due,
     ...(active ? {} : { ...quiet, dueTone: undefined }),
     progress:
       section.progress === null
@@ -423,7 +435,7 @@ function toTaskGroup(
         : {
             done: section.progress.completed,
             total: section.progress.scope,
-            tone: active ? tone : 'default',
+            tone: active ? tone : 'muted',
           },
     rows: section.rows.map((row) =>
       toTaskRow(
@@ -439,7 +451,7 @@ function toTaskGroup(
 }
 
 /**
- * The "No milestone" section's groups: one per project (PROJECT › Issues
+ * The "No milestone" section's groups: one per project (Project / Issues
  * without a milestone, linking to that project's lane, where anyone can
  * attach them to a milestone or cancel them; a completed or canceled
  * project has no lane, so its group has no link), in the order the rows
@@ -489,7 +501,7 @@ function noMilestoneGroups(
 }
 
 /**
- * THIS WEEK / LATER / NO MILESTONE in the engine's display order (overdue
+ * This week / Later / No milestone in the engine's display order (overdue
  * first, then weight, then date). "This week" is always present once there
  * is anything at all, so "nothing due this week" is said rather than
  * implied; the other two appear only when they hold something.
@@ -667,7 +679,7 @@ function buildStats(
       label: 'Overdue milestones',
       value: late.active.length,
       note: overdueNote,
-      tone: late.active.length > 0 ? 'accent' : 'default',
+      tone: late.active.length > 0 ? 'danger' : 'default',
       href:
         onlyOverdueId === null || onlyOverdueId === undefined
           ? undefined
@@ -678,6 +690,7 @@ function buildStats(
       label: copy.isSelf ? 'New to you' : `New to ${copy.name}`,
       value: week.totals.new,
       note: newNote,
+      tone: week.totals.new > 0 ? 'accent' : 'default',
     },
     {
       id: 'risk',
@@ -686,6 +699,7 @@ function buildStats(
         : `At risk in ${copy.name}'s projects`,
       value: risky.length,
       note: riskNote,
+      tone: risky.length > 0 ? 'warning' : 'default',
       href:
         onlyRisky === undefined
           ? undefined
@@ -763,12 +777,23 @@ function buildDeadlines(
     {
       id: 'overdue',
       label: 'Overdue',
-      // The accent says "needs action" (§8.2): an empty group stays ink.
-      tone: overdue.length > 0 ? 'accent' : 'default',
+      // Overdue is danger and due today or tomorrow a warning (§8.2); an
+      // empty group stays neutral.
+      tone: overdue.length > 0 ? 'danger' : 'default',
       items: sorted(overdue),
     },
-    { id: 'today', label: 'Today', items: sorted(today) },
-    { id: 'tomorrow', label: 'Tomorrow', items: sorted(tomorrow) },
+    {
+      id: 'today',
+      label: 'Today',
+      tone: today.length > 0 ? 'warning' : 'default',
+      items: sorted(today),
+    },
+    {
+      id: 'tomorrow',
+      label: 'Tomorrow',
+      tone: tomorrow.length > 0 ? 'warning' : 'default',
+      items: sorted(tomorrow),
+    },
     { id: 'this-week', label: 'This week', items: sorted(soon) },
   ];
 }
@@ -799,6 +824,7 @@ export function buildAttention(
           projectName: lane.name,
           detail,
           flag: 'Blocked',
+          tone: 'warning',
           href:
             plan.nextMilestoneId === null
               ? timelineProjectHref(lane.projectId)
@@ -814,6 +840,7 @@ export function buildAttention(
           projectName: lane.name,
           detail: `Next: ${next.name}`,
           flag: `${count} unassigned`,
+          tone: 'warning',
           href: timelineMilestoneHref(next.milestoneId),
           rowLabel: `${lane.name}: ${plural(count, 'open issue')} unassigned in ${next.name}`,
         });

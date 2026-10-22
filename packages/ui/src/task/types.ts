@@ -28,8 +28,12 @@ export interface TaskDetailStatus {
 /** One row of the alert stack above the properties. */
 export interface TaskDetailAlert {
   id?: string;
-  /** Mono key in the accent ("BLOCKED", "STALLED", "UNASSIGNED"). */
+  /** Lead-in word, sentence case ("Blocked", "Stalled", "Unassigned"). */
   label: string;
+  /** The alert's colour (docs/architecture.md §8.2): danger for an overdue
+      milestone, warning for blocked, holds up, stalled and unassigned.
+      Default warning (AlertStrip's). */
+  tone?: UiTone;
   /** One sentence ("Waiting on ENG-12 (in progress)."). */
   message: ReactNode;
   /** Follow-up: a link when it has an href, a button when it acts in place. */
@@ -87,7 +91,9 @@ export interface TaskActivityItem {
   label: ReactNode;
   /** A sentence of context under the label. */
   detail?: ReactNode;
-  /** accent = needs action; muted = background noise. */
+  /** The mark's colour: a semantic tone for what went wrong (danger a
+      failed write, warning a partial one), accent for something new, muted
+      for background noise, default otherwise. */
   tone?: UiTone;
   /** Makes the label a link (a run, a comment in the tracker). */
   href?: string;
@@ -105,7 +111,7 @@ export interface TaskDescriptionData {
   loading?: boolean;
   /** Shows an error line instead of the text. */
   error?: string | null;
-  /** Mono note under the text, right-aligned ("From Linear · edited
+  /** Quiet note under the text, right-aligned ("From Linear · edited
       Oct 18"). */
   sourceLabel?: string;
   /** Adds a retry button to the error line. */
@@ -119,7 +125,7 @@ export interface TaskDescriptionProps extends TaskDescriptionData {
   defaultExpanded?: boolean;
   emptyLabel?: string;
   loadingLabel?: string;
-  /** Mono key of the error line. Default "Error". */
+  /** Lead-in of the error line. Default "Error". */
   errorLabel?: string;
   retryLabel?: string;
   showMoreLabel?: string;
@@ -204,7 +210,7 @@ export interface TaskRelationListProps {
   /** Name of a row's remove button; the task key is appended ("Remove
       ENG-23"). Default "Remove". */
   removeLabel?: string;
-  /** Mono key of a failed removal's error line. Default "Not saved". */
+  /** Lead-in of a failed removal's error line. Default "Not saved". */
   notSavedLabel?: string;
 }
 
@@ -226,9 +232,9 @@ export interface TaskDetailSectionProps {
   title: ReactNode;
   /** Level of the section's heading. Default 3. */
   headingLevel?: 2 | 3 | 4 | 5 | 6;
-  /** Mono count after the title. */
+  /** Count after the title, in the quiet text step. */
   count?: number;
-  /** Right-aligned mono note or control ("From Linear"). */
+  /** Right-aligned note or control ("From Linear", "+ Add"). */
   meta?: ReactNode;
   /** Keep the heading for assistive tech only. */
   hideTitle?: boolean;
@@ -284,8 +290,8 @@ export interface TaskDetailProps {
   titleControl?: ReactNode;
   /** The task in its tracker (Linear); the key links there, new tab. */
   href?: string;
-  /** Mono trail in the header bar ("BEACON SEARCH / ENG-24"): crumbs like
-      the shell's, or a ready node. Defaults to the key. */
+  /** Trail in the header bar ("Beacon search / ENG-24", the key in mono):
+      crumbs like the shell's, or a ready node. Defaults to the key. */
   breadcrumb?: ReactNode | readonly ShellCrumb[];
   /** Header bar controls, e.g. Open in Linear and Copy link. */
   headerActions?: ReactNode;
@@ -361,9 +367,12 @@ export interface TaskPropertyValueProps {
   children: ReactNode;
   /** A sentence under the value ("Given by the planner: …"). */
   note?: ReactNode;
-  /** accent = needs action ("Unassigned"); muted = quiet. */
+  /** The value's colour (docs/architecture.md §8.2): a semantic tone for a
+      value that needs attention (warning "Unassigned", danger an overdue
+      date), muted = quiet. */
   tone?: UiTone;
   noteTone?: UiTone;
-  /** Print the value in the mono voice (dates, durations). */
+  /** Tabular figures for dates, durations and counts (Geist with
+      tabular-nums: the name is older than the look). */
   mono?: boolean;
 }

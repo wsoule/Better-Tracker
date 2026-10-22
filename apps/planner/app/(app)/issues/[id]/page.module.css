@@ -1,11 +1,18 @@
 /* /issues/[id]: the page frame around TaskDetail's page layout (its own
-   header, rail and sections draw everything else), and the loading
-   skeleton in the same shape. */
+   rounded panel, header, rail and sections draw everything else), and the
+   loading skeleton in the same shape. */
 
 .page {
   max-width: 1280px;
   margin: 28px auto 0;
   padding: 0 48px 72px;
+}
+
+.skeletonPanel {
+  padding: 28px 32px 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 .skeleton {
@@ -31,5 +38,24 @@
   .page {
     margin-top: 16px;
     padding: 0 16px 48px;
+  }
+
+  .skeletonPanel {
+    padding: 20px 16px 28px;
+  }
+}
+
+/* A phone: the panel goes edge to edge, so the view has the whole width
+   (the topbar and the page above already frame it). */
+@media (width <= 640px) {
+  .page {
+    margin-top: 12px;
+    padding: 0 0 48px;
+  }
+
+  .page > * {
+    border-right: 0;
+    border-left: 0;
+    border-radius: 0;
   }
 }

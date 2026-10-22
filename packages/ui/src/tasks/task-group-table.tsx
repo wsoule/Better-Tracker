@@ -70,6 +70,20 @@ function isPlainClick(event: MouseEvent): boolean {
   );
 }
 
+// Decorative hues for project dots (tokens.css keeps --violet, --teal,
+// --rose and --orange for dots and swatches only), so a project's colour
+// never reads as a status. The same name always gets the same hue.
+const PROJECT_HUES = ['--violet', '--teal', '--rose', '--orange'] as const;
+
+function projectHue(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i += 1) {
+    hash = (hash * 31 + name.charCodeAt(i)) | 0;
+  }
+  const hue = PROJECT_HUES[Math.abs(hash) % PROJECT_HUES.length];
+  return `var(${hue ?? '--gray'})`;
+}
+
 // The element a nav item hands focus to: a group's toggle button, or the
 // row's primary link/button (rendered by the host <Link>, so it is found
 // in the DOM rather than through a ref).
@@ -79,10 +93,11 @@ function focusTargetOf(item: Element): HTMLElement | null {
   );
 }
 
-/* Gr8r's My Tasks grouped table in the Analytics skin. Structure: a column
-   header, then sections (THIS WEEK / LATER / NO MILESTONE) as hatched
-   dividers, each holding collapsible groups (PROJECT › MILESTONE with due,
-   days left, completed/scope and the status mark) of register rows.
+/* Gr8r's My Tasks grouped list, as one rounded panel. Structure: a column
+   header, then sections (This week / Later / No milestone) as recessed
+   bands, each holding collapsible groups (Gr8r's group header: chevron,
+   status mark, Project / Milestone, count, then due, days left and
+   completed/scope) of flat rows split by soft dividers.
 
    Semantics are plain on purpose: section and group titles are headings,
    each group's toggle is a disclosure button (aria-expanded/controls) and
@@ -391,9 +406,9 @@ function Group({
       ? `${group.eyebrow}, ${group.title}`
       : group.title;
   const countId = `${listId}-count`;
-  // A muted group is never loud: no accent on its date or progress.
+  // A muted group is never loud: its date and progress are drawn in
+  // greys, whatever dueTone and progress.tone say.
   const muted = group.muted === true;
-  const dueAccent = !muted && group.dueTone === 'accent';
 
   function onTitleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (onOpenGroup === undefined || !isPlainClick(event)) return;
@@ -446,7 +461,7 @@ function Group({
           <ChevronRight
             className={styles.chevron}
             size={14}
-            strokeWidth={1.5}
+            strokeWidth={1.8}
             aria-hidden="true"
           />
         </button>
@@ -462,7 +477,7 @@ function Group({
             <>
               <span className={styles.eyebrow}>{group.eyebrow}</span>
               <span className={styles.crumb} aria-hidden="true">
-                ›
+                /
               </span>
             </>
           ) : null}
@@ -474,23 +489,13 @@ function Group({
         <div className={styles.groupMeta}>
           {group.dueLabel !== undefined ? (
             <span
-              className={cx(
-                styles.groupDue,
-                dueAccent ? styles.accentText : undefined
-              )}
-              data-tone={muted ? 'default' : (group.dueTone ?? 'default')}
+              className={styles.groupDue}
+              data-tone={muted ? 'muted' : (group.dueTone ?? 'default')}
             >
               <span className="srOnly">Due </span>
               {group.dueLabel}
               {group.daysLeftLabel !== undefined ? (
-                <span
-                  className={cx(
-                    styles.daysLeft,
-                    dueAccent ? styles.accentText : undefined
-                  )}
-                >
-                  {group.daysLeftLabel}
-                </span>
+                <span className={styles.daysLeft}>{group.daysLeftLabel}</span>
               ) : null}
             </span>
           ) : null}
@@ -499,7 +504,7 @@ function Group({
               <ProgressRule
                 done={group.progress.done}
                 total={group.progress.total}
-                tone={muted ? 'default' : group.progress.tone}
+                tone={muted ? 'muted' : group.progress.tone}
                 aria-label={`${group.title} progress`}
               />
             </span>
@@ -570,7 +575,7 @@ function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
             <ArrowUpRight
               className={styles.externalGlyph}
               size={12}
-              strokeWidth={1.5}
+              strokeWidth={1.8}
               aria-hidden="true"
             />
             <span className="srOnly"> (opens in a new tab)</span>
@@ -615,7 +620,7 @@ function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
               aria-label={row.externalLabel ?? `Open ${row.key} in a new tab`}
               title={row.externalLabel ?? `Open ${row.key} in a new tab`}
             >
-              <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
+              <ArrowUpRight size={13} strokeWidth={1.8} aria-hidden="true" />
             </Link>
           ) : null}
           {row.chips !== undefined && row.chips.length > 0 ? (
@@ -655,7 +660,20 @@ function CellValue({
 }) {
   switch (column) {
     case 'project':
-      return <span className={styles.project}>{row.project ?? '—'}</span>;
+      return row.project === undefined || row.project === '' ? (
+        <span className={styles.project}>—</span>
+      ) : (
+        <span className={styles.project}>
+          <span
+            className={styles.projectDot}
+            style={
+              { '--project-hue': projectHue(row.project) } as CSSProperties
+            }
+            aria-hidden="true"
+          />
+          <span className={styles.projectName}>{row.project}</span>
+        </span>
+      );
     case 'state':
       return (
         <span className={styles.glyphValue} data-state={row.stateKind}>
@@ -665,13 +683,7 @@ function CellValue({
       );
     case 'priority':
       return (
-        <span
-          className={cx(
-            styles.glyphValue,
-            row.priority === 1 ? styles.accentText : undefined
-          )}
-          data-priority={row.priority}
-        >
+        <span className={styles.glyphValue} data-priority={row.priority}>
           <PriorityGlyph priority={row.priority} />
           <span className={styles.metaText}>{row.priorityLabel}</span>
         </span>
@@ -679,12 +691,10 @@ function CellValue({
     case 'due':
       return (
         <span
-          className={cx(
-            styles.metaText,
-            row.dueTone === 'accent' ? styles.accentText : undefined,
-            row.dueTone === 'muted' ? styles.mutedText : undefined
-          )}
-          data-tone={row.dueTone ?? 'default'}
+          className={styles.due}
+          data-tone={
+            row.due === undefined ? 'muted' : (row.dueTone ?? 'default')
+          }
         >
           {row.due ?? '—'}
         </span>

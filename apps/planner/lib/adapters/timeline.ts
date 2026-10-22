@@ -205,12 +205,12 @@ export function weightTag(weight: number | null): string | null {
   return weight > 0 ? `↑${weight}` : `↓${-weight}`;
 }
 
-/** "Missing: done means…, project lead" (the bar's hatched-input line). */
+/** "Missing: done means…, project lead" (the bar's missing-input line). */
 export function missingLabel(gaps: readonly RubricGap[]): string {
   return `Missing: ${gaps.map((gap) => RUBRIC_GAP_SHORT_LABEL[gap]).join(', ')}`;
 }
 
-/** NEXT for the lane's next milestone, then the weight override. */
+/** "Next" for the lane's next milestone, then the weight override. */
 export function barTags(bar: CoreBar): string[] {
   const tags: string[] = [];
   if (bar.isNext) tags.push('Next');
@@ -245,7 +245,7 @@ export function toChartBar(bar: CoreBar, editable: boolean): TimelineBar {
   return out;
 }
 
-/** An undated milestone as a hatched chip at the lane's end. */
+/** An undated milestone as a dashed chip at the lane's end. */
 export function toUndatedChip(bar: CoreBar): TimelineUndated {
   const mark = assessmentMark(bar);
   return {
@@ -257,13 +257,14 @@ export function toUndatedChip(bar: CoreBar): TimelineUndated {
 }
 
 /**
- * The mono line under a project name: the lead, "No lead" in the accent,
- * a deactivated lead in the accent, and "Inactive · <lead>" for projects
- * outside the active statuses (drawn muted, never loud).
+ * The quiet line under a project name: the lead; "No lead" and a
+ * deactivated lead in the warning tone (allocation is blocked, §8.2); and
+ * "Inactive · <lead>" for projects outside the active statuses (drawn
+ * muted, never loud).
  */
 export function laneSublabel(lane: CoreLane): {
   sublabel: string;
-  tone: 'default' | 'accent';
+  tone: UiTone;
 } {
   const lead = lane.leadName ?? (lane.leadId === null ? null : 'Unknown lead');
   if (!lane.active) {
@@ -272,9 +273,9 @@ export function laneSublabel(lane: CoreLane): {
       tone: 'default',
     };
   }
-  if (lead === null) return { sublabel: 'No lead', tone: 'accent' };
+  if (lead === null) return { sublabel: 'No lead', tone: 'warning' };
   if (lane.allocation?.blockReason === 'lead_inactive') {
-    return { sublabel: `${lead} · deactivated`, tone: 'accent' };
+    return { sublabel: `${lead} · deactivated`, tone: 'warning' };
   }
   return { sublabel: lead, tone: 'default' };
 }
@@ -475,8 +476,11 @@ export interface TimelineBannerItem {
 
 export interface TimelineBanner {
   id: TimelineBannerId;
-  /** Mono key: NO LEAD, NO DATE, UNPLANNED, BLOCKED. */
+  /** Lead-in word: "No lead", "No date", "Unplanned", "Blocked". */
   label: string;
+  /** The callout's tint (§8.2): warning for a missing input or a blocked
+      project, info for unplanned issues. */
+  tone: UiTone;
   count: number;
   /** One sentence with the count. */
   text: string;
@@ -507,6 +511,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'no_lead',
       label: 'No lead',
+      tone: 'warning',
       count: noLead.length,
       text:
         noLead.length === 1
@@ -525,6 +530,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'no_date',
       label: 'No date',
+      tone: 'warning',
       count: noDate.length,
       text:
         noDate.length === 1
@@ -532,7 +538,7 @@ export function buildTimelineBanners(
           : `${noDate.length} milestones have no target date, so they fail the rubric and get no warnings.`,
       items: noDate.map((milestone) => ({
         id: milestone.milestoneId,
-        label: `${milestone.projectName} › ${milestone.name}`,
+        label: `${milestone.projectName} / ${milestone.name}`,
         target: {
           milestoneId: milestone.milestoneId,
           projectId: milestone.projectId,
@@ -546,6 +552,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'unplanned',
       label: 'Unplanned',
+      tone: 'info',
       count: unplanned.count,
       text:
         unplanned.count === 1
@@ -581,6 +588,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'blocked',
       label: 'Blocked',
+      tone: 'warning',
       count: blocked.length,
       text: `Allocation is stopped in ${plural(blocked.length, 'project')} until the missing input is fixed.`,
       items: blocked.map((project) => {
@@ -686,7 +694,7 @@ export interface DrawerIssue {
   state: string;
   stateKind: WorkflowStateType;
   open: boolean;
-  /** null renders "Unassigned" (accent while the issue is open). */
+  /** null renders "Unassigned" (warning while the issue is open). */
   assignee: string | null;
   /** Identifiers of the open issues blocking this one. */
   blockedBy: string[];
@@ -705,7 +713,8 @@ export interface DrawerNext {
   /** "Allocation stopped · Project has no lead", "Read path switch is
       next", or null when there is nothing to add. */
   note: string | null;
-  tone: 'default' | 'accent';
+  /** warning when allocation is stopped, else default. */
+  tone: UiTone;
 }
 
 export interface DrawerLimits {
@@ -720,7 +729,7 @@ export interface MilestoneDrawerModel {
   today: string;
   projectId: string;
   title: string;
-  /** "ATLAS BILLING MIGRATION / DUAL-WRITE" (uppercased by the drawer). */
+  /** "Atlas billing migration / Dual-write". */
   breadcrumb: string;
   projectName: string;
   /** Open in Linear: the project (Linear has no milestone page URL). */
@@ -733,7 +742,7 @@ export interface MilestoneDrawerModel {
   /**
    * The milestone of an inactive project (§2.8): never loud. No overdue
    * strip, a grey status mark (its label still names the status), and no
-   * accent on the risk lines, due date, progress or issue rows.
+   * status tone on the risk lines, due date, progress or issue rows.
    */
   muted: boolean;
   status: {
@@ -747,20 +756,24 @@ export interface MilestoneDrawerModel {
     value: string | null;
     /** "Oct 18 · 3 days overdue", "No target date". */
     label: string;
+    /** danger overdue, warning no target date or due within a day. */
     tone: UiTone;
   };
   lead: {
     id: string | null;
-    /** null renders "No lead" in the accent. */
+    /** null renders "No lead" in the warning tone. */
     name: string | null;
-    /** DEACTIVATED_LEAD_NOTE for a lead Linear deactivated (accent). */
+    /** DEACTIVATED_LEAD_NOTE for a lead Linear deactivated (warning). */
     note: string | null;
   };
   progress: {
     done: number;
     total: number;
     canceled: number;
-    tone: 'default' | 'accent';
+    /** ProgressRule's tone (§8.2): danger overdue, warning behind pace,
+        success complete, muted inactive, default (the accent fill)
+        otherwise. */
+    tone: UiTone;
   };
   weight: { value: number | null; label: string };
   isNext: boolean;
@@ -810,6 +823,40 @@ const RUBRIC_ORDER: readonly RubricGap[] = [
   'no_issues',
 ];
 
+/**
+ * The drawer's due-date tone (§8.2): danger when overdue, warning when the
+ * date is missing (a rubric gap) or due today or tomorrow, else default.
+ * A complete milestone and an inactive project's are never loud.
+ */
+export function dueTone(
+  targetDate: string | null,
+  status: MilestoneDetail['assessment']['status'],
+  daysLeft: number | null,
+  muted: boolean
+): UiTone {
+  if (muted || status === 'complete') return 'default';
+  if (status === 'overdue') return 'danger';
+  if (targetDate === null) return 'warning';
+  if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 1) return 'warning';
+  return 'default';
+}
+
+/**
+ * The drawer's progress tone (§8.2, ProgressRule): danger when overdue,
+ * warning when behind pace, success once complete, muted for an inactive
+ * project, and default (the accent fill) otherwise.
+ */
+export function progressTone(
+  assessment: Pick<MilestoneDetail['assessment'], 'status' | 'reasons'>,
+  muted: boolean
+): UiTone {
+  if (muted) return 'muted';
+  if (assessment.status === 'complete') return 'success';
+  if (assessment.status === 'overdue') return 'danger';
+  if (assessment.reasons.includes('behind_pace')) return 'warning';
+  return 'default';
+}
+
 /** "Overdue by 1 day." / "Overdue by 3 days." */
 export function overdueText(daysLate: number): string {
   return `Overdue by ${plural(daysLate, 'day')}.`;
@@ -829,7 +876,8 @@ export const DEACTIVATED_LEAD_NOTE =
 /**
  * The "Next milestone" cell (§2.6, §2.8). For the project's next
  * milestone it says when allocation will not hand its issues out (an
- * inactive project, or a blocked one with the reason, in the accent), so
+ * inactive project, or a blocked one with the reason, in the warning
+ * tone), so
  * a stopped project is visible from the milestone itself. For any other
  * milestone it names the one that is next.
  */
@@ -850,7 +898,7 @@ export function nextMilestoneCell(
       return {
         value: 'Yes',
         note: `Allocation stopped · ${BLOCK_REASON_LABEL[allocation.blockReason]}`,
-        tone: 'accent',
+        tone: 'warning',
       };
     }
     return { value: 'Yes', note: null, tone: 'default' };
@@ -1041,11 +1089,12 @@ export function buildMilestoneDrawer(input: {
         today,
         assessment.status
       ),
-      tone:
-        !muted &&
-        (milestone.targetDate === null || assessment.status === 'overdue')
-          ? 'accent'
-          : 'default',
+      tone: dueTone(
+        milestone.targetDate,
+        assessment.status,
+        assessment.daysLeft,
+        muted
+      ),
     },
     lead: {
       id: project.leadId,
@@ -1056,12 +1105,7 @@ export function buildMilestoneDrawer(input: {
       done: progress.completed,
       total: progress.scope,
       canceled: progress.canceled,
-      tone:
-        !muted &&
-        (assessment.status === 'overdue' ||
-          assessment.reasons.includes('behind_pace'))
-          ? 'accent'
-          : 'default',
+      tone: progressTone(assessment, muted),
     },
     weight: {
       value: detail.meta?.weight ?? null,
@@ -1090,7 +1134,7 @@ export function buildMilestoneDrawer(input: {
     openIssues: progress.open,
     waitsOn: detail.waitsOn.map((other) => ({
       id: other.milestoneId,
-      label: `${other.projectName} › ${other.name}`,
+      label: `${other.projectName} / ${other.name}`,
     })),
     graphHref: `/graph?milestone=${encodeURIComponent(milestone.id)}`,
     permissions: {

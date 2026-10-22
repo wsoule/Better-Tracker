@@ -1,77 +1,84 @@
-/* Projects page furniture around the package components: the header, the
-   search/filter toolbar, one block per initiative, and the cell contents
-   (milestone name with its mark, end-cell links). Built only from the
-   shared tokens. */
+/* Projects page furniture around the package components, in Gr8r's
+   Projects layout: the page header, a flat toolbar (search with its icon,
+   the status filter, the count), then one panel per initiative under its
+   section title, and the cell contents (milestone name with its mark, the
+   toned due line, end-cell buttons). Built only from the shared tokens. */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
 }
 
 .receipts {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .toolbarWrap,
 .blocks {
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 20px auto 0;
   padding: 0 48px;
 }
 
 .blocks + .blocks {
-  margin-top: 32px;
-}
-
-.collapse > * + * {
-  margin-top: -1px;
+  margin-top: 28px;
 }
 
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
-  padding: 10px 18px;
-  border: 1px solid var(--border);
+  gap: 8px 12px;
+}
+
+/* Gr8r's search field: a 13px icon inside the input's left padding. */
+.searchWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 240px;
+  max-width: 100%;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-4);
+  pointer-events: none;
 }
 
 .search {
-  width: 260px;
-  max-width: 100%;
+  width: 100%;
+  padding-left: 30px;
 }
 
 .count {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .milestone {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  font-weight: 400;
 }
 
 .milestoneName {
@@ -79,22 +86,33 @@
   overflow-wrap: anywhere;
 }
 
-.accentText {
-  color: var(--accent-ink);
+/* The next milestone's due line, coloured by its tone (overdue danger,
+   due soon or undated warning, inactive muted). */
+.due:where(
+  [data-tone='danger'],
+  [data-tone='warning'],
+  [data-tone='info'],
+  [data-tone='success']
+) {
+  color: var(--tone-ink);
+}
+
+.due[data-tone='muted'] {
+  color: var(--text-3);
 }
 
 .dash {
-  font-family: var(--font-mono);
-  color: var(--muted);
+  color: var(--text-4);
 }
 
-/* End-cell links sit above the row's stretched link (the register lifts
+/* End-cell buttons sit above the row's stretched link (the register lifts
    links inside cells). */
 .links {
   display: inline-flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 8px 14px;
+  gap: 2px;
+  margin-right: -6px;
 }
 
 /* Loading skeleton: header lines and the toolbar's height. */
@@ -111,13 +129,9 @@
     padding: 0 16px;
   }
 
-  .title {
-    font-size: 22px;
-  }
-
   .toolbarWrap,
   .blocks {
-    margin-top: 20px;
+    margin-top: 16px;
     padding: 0 16px;
   }
 
@@ -125,19 +139,27 @@
     margin-top: 24px;
   }
 
-  .toolbar {
-    padding: 10px 14px;
-  }
-
-  .search {
+  .searchWrap {
     width: 100%;
   }
 
   .count {
     margin-left: 0;
   }
+}
 
+/* Once the register stacks (stackWithin 1000), the end cell starts at the
+   left: the quiet buttons' text lines up with the other cells' text. */
+@container register (width < 1000px) {
   .links {
     justify-content: flex-start;
+    margin: 0 0 0 -8px;
+  }
+}
+
+@media (width <= 640px) {
+  .title {
+    font-size: var(--fs-xl);
+    letter-spacing: var(--ls-heading);
   }
 }

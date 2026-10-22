@@ -239,7 +239,10 @@ describe('runs register', () => {
   test('a dry run row: hollow chip, counts, workspace-time stamps', () => {
     const row = runRow(run(), snapshot, TZ);
     expect(row.modeLabel).toBe('Dry run');
-    expect(row.modeTone).toBe('default');
+    // Architecture §8.2: a dry run is a grey dot pill, a succeeded run a
+    // green chip.
+    expect(row.modeTone).toBe('muted');
+    expect(row.statusTone).toBe('success');
     expect(row.href).toBe('/runs/run-1');
     expect(row.title).toBe('Oct 21, 3:04 PM UTC');
     expect(row.startedBy).toBe('Ana Moreno');
@@ -255,15 +258,23 @@ describe('runs register', () => {
     expect(row.rowTone).toBe('default');
   });
 
-  test('a live run with failures is the accent; a running one has no counts', () => {
+  test('a partly failed live run is amber, a failed one red; a running one has no counts', () => {
     const live = runRow(
       run({ mode: 'live', status: 'partial', trigger: 'schedule' }),
       snapshot,
       TZ
     );
-    expect(live.modeTone).toBe('accent');
+    // Live is a blue dot pill; partly failed an amber chip and row.
+    expect(live.modeTone).toBe('info');
     expect(live.statusLabel).toBe('Partly failed');
-    expect(live.rowTone).toBe('accent');
+    expect(live.statusTone).toBe('warning');
+    expect(live.rowTone).toBe('warning');
+    const failed = runRow(
+      run({ mode: 'live', status: 'failed' }),
+      snapshot,
+      TZ
+    );
+    expect([failed.statusTone, failed.rowTone]).toEqual(['danger', 'danger']);
     expect(live.trigger).toBe('Scheduled');
     // The trigger is not repeated in front of "Daily schedule".
     expect(live.byline).toBe('Daily schedule');
@@ -273,6 +284,7 @@ describe('runs register', () => {
       TZ
     );
     expect(running.counts).toBeNull();
+    expect(running.statusTone).toBe('info');
     expect(running.finished).toBe('Still running');
     expect(running.took).toBeNull();
   });
@@ -358,7 +370,8 @@ describe('run detail', () => {
       gapLines: ['Missing a target date', 'Project has no lead'],
       milestone: 'Search beta',
     });
-    expect(beacon?.tone).toBe('accent');
+    // A blocked project is a warning (amber), not a failure.
+    expect(beacon?.tone).toBe('warning');
     expect(beacon?.href).toBe('/timeline?project=p-beacon');
   });
 
@@ -405,8 +418,16 @@ describe('run detail', () => {
       ['applied', 'Assigned, but the comment failed: boom'],
       ['stale', 'Someone was assigned in Linear since the plan was made'],
     ]);
-    expect(group?.tone).toBe('accent');
+    expect(group?.tone).toBe('danger');
     expect(group?.meta).toBe('2 assigned · 1 failed · 1 not written');
+    // Outcome chips and notes: assigned green, failed red, not written
+    // grey; a Linear error reads red.
+    expect(group?.rows.map((r) => [r.outcomeTone, r.reasonTone])).toEqual([
+      ['danger', 'danger'],
+      ['success', 'muted'],
+      ['success', 'danger'],
+      ['muted', 'muted'],
+    ]);
   });
 
   test('the header and stats differ between dry and live runs', () => {
@@ -420,6 +441,8 @@ describe('run detail', () => {
       ['Skipped', 2],
       ['Blocked projects', 1],
     ]);
+    // A blocked project is amber in the strip.
+    expect(dry.stats.at(-1)?.tone).toBe('warning');
     expect(dry.note.label).toBe('Dry run');
     expect(dry.properties.find((p) => p.label === 'Duration')?.value).toBe(
       '1.3 s'
@@ -431,7 +454,13 @@ describe('run detail', () => {
       snapshot,
       timeZone: TZ,
     });
-    expect(live.modeTone).toBe('accent');
+    expect(live.modeTone).toBe('info');
+    expect(live.stats.map((s) => [s.label, s.tone])).toEqual([
+      ['Assigned', 'success'],
+      ['Failed', 'danger'],
+      ['Not written', 'muted'],
+      ['Blocked projects', 'muted'],
+    ]);
     expect(live.stats.map((s) => [s.label, s.value])).toEqual([
       ['Assigned', 1],
       ['Failed', 1],

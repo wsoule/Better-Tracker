@@ -4,9 +4,8 @@ import styles from './property-list.module.css';
 import { renderIcon } from './render';
 import type { PropertyListProps } from './types';
 
-/* Gr8r's drawer property sheet (label column + value column) in the
-   Analytics register: mono micro-labels on the left, values in the reading
-   voice on the right, rows ruled with faint hairlines like a spec sheet. */
+/* Gr8r's drawer property sheet (.kv): sentence-case labels with their
+   icons in a 112px column, values beside them, 30px rows and no rules. */
 export default function PropertyList({
   items,
   label,

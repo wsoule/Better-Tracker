@@ -6,6 +6,7 @@ import {
   demoUserRows,
   firstParam,
   LANDING_FEATURES,
+  personInitials,
 } from '../lib/adapters/landing';
 
 function user(id: string, name: string): User {
@@ -53,7 +54,7 @@ describe('landing', () => {
 
   // Owner decision 2026-10-22: no PM role, so the demo picker lists
   // people plainly, by name, with no badge or role column.
-  test('demo people: by name, with a first-name action and no role', () => {
+  test('demo people: by name, with initials and no role', () => {
     const rows = demoUserRows([
       user('u-cy', 'Cy Diaz'),
       user('u-ben', 'Ben Carter'),
@@ -64,7 +65,7 @@ describe('landing', () => {
       id: 'u-ben',
       name: 'Ben Carter',
       email: 'u-ben@example.com',
-      action: 'Sign in as Ben',
+      initials: 'BC',
       label: null,
     });
   });
@@ -103,14 +104,26 @@ describe('landing', () => {
     expect(firstParam(undefined)).toBeUndefined();
   });
 
-  test('lists the design goals in order, each with a key', () => {
+  // The sign-in list draws each person as a round initials avatar
+  // (Gr8r's account rows), from the full name.
+  test('initials: first and last word, one letter for one word', () => {
+    expect(personInitials('Ana Moreno')).toBe('AM');
+    expect(personInitials('  Mary Ann  de la Cruz ')).toBe('MC');
+    expect(personInitials('Cher')).toBe('C');
+    expect(personInitials('élodie roux')).toBe('ÉR');
+    expect(personInitials('   ')).toBe('?');
+  });
+
+  // The Gr8r restyle (2026-10-22) shows no section or row numbers: the
+  // features are cards keyed by a stable id that picks each card's icon.
+  test('lists the design goals in order, each with a stable id', () => {
     expect(LANDING_FEATURES.map((f) => f.key)).toEqual([
-      '01',
-      '02',
-      '03',
-      '04',
-      '05',
-      '06',
+      'my-week',
+      'timeline',
+      'dependencies',
+      'allocation',
+      'warnings',
+      'rubric',
     ]);
   });
 });

@@ -6,9 +6,8 @@ import { cx } from './class-names';
 import styles from './segmented-control.module.css';
 import type { SegmentedControlProps } from './types';
 
-/* Gr8r's segmented toggle (List / Calendar, Weeks / Months) drawn as an
-   Analytics tab strip: bordered cells collapsed on one hairline, selected =
-   ink fill, hover = accent flood. Semantics are a radio group with a
+/* Gr8r's segmented toggle (List / Calendar, Weeks / Months): a recessed
+   track whose selected option is a raised white thumb. Semantics are a radio group with a
    roving tabindex: Tab enters on the selected option, arrows move AND
    select (radio behaviour), Home/End jump, disabled options are skipped. */
 export function SegmentedControl({

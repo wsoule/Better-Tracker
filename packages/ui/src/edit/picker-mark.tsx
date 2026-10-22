@@ -1,17 +1,56 @@
+import { User } from 'lucide-react';
 import type { CSSProperties, ReactNode } from 'react';
 
 import StatusMark from '../components/status-mark';
 import { PriorityGlyph, StateGlyph } from '../tasks/task-glyphs';
 import styles from './picker-mark.module.css';
-import { initials, isHexColor } from './shared';
+import { avatarHue, initials, isHexColor } from './shared';
 import type { PickerMark } from './types';
 
+/**
+ * A person as Gr8r draws them: a round avatar with their initials on a
+ * pastel tint of a hue picked from the name (decoration: the name is always
+ * printed beside it). A blank name is nobody: a dashed empty circle, the
+ * way an unassigned slot looks. `size` is 20px (sm) in a picker row or
+ * trigger, 26px (md) beside a comment. Shared by the pickers and the
+ * comment list.
+ */
+export function InitialsAvatar({
+  name,
+  size = 'sm',
+}: {
+  name: string;
+  size?: 'sm' | 'md';
+}): ReactNode {
+  const empty = name.trim() === '';
+  return (
+    <span
+      className={styles.avatar}
+      aria-hidden="true"
+      data-mark="avatar"
+      data-size={size}
+      data-hue={empty ? undefined : avatarHue(name)}
+      data-empty={empty ? 'true' : undefined}
+    >
+      {empty ? (
+        <User
+          size={size === 'md' ? 14 : 11}
+          strokeWidth={1.8}
+          aria-hidden="true"
+        />
+      ) : (
+        initials(name)
+      )}
+    </span>
+  );
+}
+
 /* The leading mark of a picker option or trigger, drawn from the system's
-   own glyphs: the state circle, the priority bars, square initials, the
-   milestone status square, a label's colour square or a host's node. Not
-   a client module, so a read-only face renders on the server too. The
-   marks are decorative (the label is always printed beside them) except
-   the status square, which names its status. */
+   own glyphs: the state circle, the priority bars, a round avatar, the
+   milestone status mark, a label's colour square or a host's node. Not a
+   client module, so a read-only face renders on the server too. The marks
+   are decorative (the label is always printed beside them) except the
+   status mark, which names its status. */
 export interface PickerMarkViewProps {
   mark: PickerMark;
 }
@@ -19,15 +58,11 @@ export interface PickerMarkViewProps {
 export function PickerMarkView({ mark }: PickerMarkViewProps): ReactNode {
   switch (mark.kind) {
     case 'state':
-      return <StateGlyph kind={mark.state} size={13} />;
+      return <StateGlyph kind={mark.state} size={14} />;
     case 'priority':
-      return <PriorityGlyph priority={mark.priority} size={13} />;
+      return <PriorityGlyph priority={mark.priority} size={14} />;
     case 'avatar':
-      return (
-        <span className={styles.avatar} aria-hidden="true" data-mark="avatar">
-          {initials(mark.name)}
-        </span>
-      );
+      return <InitialsAvatar name={mark.name} />;
     case 'status':
       return (
         <StatusMark

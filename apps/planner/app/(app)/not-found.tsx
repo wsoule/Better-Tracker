@@ -1,4 +1,5 @@
 import { Button } from '@better-tracker/ui';
+import { FileQuestionMark } from 'lucide-react';
 
 import MessageBlock from './components/message-block';
 import { PageCrumb } from './components/page-crumb';
@@ -8,15 +9,15 @@ import { PageCrumb } from './components/page-crumb';
 export default function NotFound() {
   return (
     <MessageBlock
-      index="404"
-      title="Not found"
+      label="Not found"
       headline="Nothing lives at this address."
+      icon={<FileQuestionMark strokeWidth={1.8} />}
       actions={
         <>
+          <Button href="/timeline">Open the timeline</Button>
           <Button href="/week" variant="primary">
             Go to My week
           </Button>
-          <Button href="/timeline">Open the timeline</Button>
         </>
       }
     >

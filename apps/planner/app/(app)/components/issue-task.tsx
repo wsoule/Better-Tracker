@@ -7,9 +7,11 @@ import {
   DateField,
   EstimatePicker,
   InlineTextField,
+  isHexColor,
   LabelPicker,
   MilestonePicker,
   Notice,
+  PickerMarkView,
   PriorityGlyph,
   PriorityPicker,
   ProjectPicker,
@@ -26,9 +28,26 @@ import {
   TextAreaEditor,
   useToast,
 } from '@better-tracker/ui';
-import { ArrowUpRight, Link2, Maximize2 } from 'lucide-react';
+import {
+  ArrowUpRight,
+  Calendar,
+  Folder,
+  Hourglass,
+  Link2,
+  Maximize2,
+  Milestone,
+  SignalHigh,
+  Tag,
+  Timer,
+  User,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { type ReactNode, useCallback, useMemo } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useCallback,
+  useMemo,
+} from 'react';
 
 import type {
   IssueFact,
@@ -175,8 +194,57 @@ function searchResults(body: unknown): TaskSearchResult[] {
   }));
 }
 
+/* The property sheet's label icons (Gr8r's .kv: 14px, drawn in the icon
+   text step by the property list), one per property id. */
+const ICON = { size: 14, strokeWidth: 1.8, 'aria-hidden': true } as const;
+const PROPERTY_ICONS: Record<string, ReactNode> = {
+  assignee: <User {...ICON} />,
+  priority: <SignalHigh {...ICON} />,
+  labels: <Tag {...ICON} />,
+  estimate: <Timer {...ICON} />,
+  due: <Calendar {...ICON} />,
+  project: <Folder {...ICON} />,
+  milestone: <Milestone {...ICON} />,
+  'in-state': <Hourglass {...ICON} />,
+};
+
+/** Read-only labels as Gr8r's label chips: a small square in Linear's
+    colour (PickerMarkView paints hex values only) and the name, the chip
+    washed with a faint tint of the same colour. */
+function LabelChips({
+  labels,
+}: {
+  labels: NonNullable<IssueFact['labels']>;
+}): ReactNode {
+  return (
+    <span className={css.labels}>
+      {labels.map((label) => (
+        <span
+          key={label.name}
+          className={css.label}
+          style={
+            isHexColor(label.color)
+              ? ({ '--label-color': label.color } as CSSProperties)
+              : undefined
+          }
+        >
+          <PickerMarkView mark={{ kind: 'swatch', color: label.color }} />
+          <span dir="auto">{label.name}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 /** A read-only property value, as the adapter worded it. */
 function FactValue({ fact }: { fact: IssueFact }): ReactNode {
+  if (fact.labels !== undefined && fact.labels.length > 0) {
+    return (
+      <TaskPropertyValue note={fact.note} noteTone={fact.noteTone}>
+        <LabelChips labels={fact.labels} />
+      </TaskPropertyValue>
+    );
+  }
   return (
     <TaskPropertyValue
       tone={fact.tone}
@@ -184,8 +252,11 @@ function FactValue({ fact }: { fact: IssueFact }): ReactNode {
       noteTone={fact.noteTone}
       mono={fact.mono}
     >
+      {fact.avatar !== undefined ? (
+        <PickerMarkView mark={{ kind: 'avatar', name: fact.avatar }} />
+      ) : null}
       {fact.glyph?.kind === 'priority' ? (
-        <PriorityGlyph priority={fact.glyph.priority} size={13} />
+        <PriorityGlyph priority={fact.glyph.priority} size={14} />
       ) : null}
       {fact.glyph?.kind === 'status' ? (
         <StatusMark
@@ -253,14 +324,14 @@ export function IssueHeaderActions({
         href={model.linearUrl}
         external
         title={`Open ${model.key} in Linear`}
-        iconAfter={<ArrowUpRight size={14} strokeWidth={1.5} />}
+        iconAfter={<ArrowUpRight size={14} strokeWidth={1.8} />}
       >
         Linear
       </Button>
       <Button
         size="sm"
         variant="quiet"
-        icon={<Link2 size={14} strokeWidth={1.5} />}
+        icon={<Link2 size={14} strokeWidth={1.8} />}
         title={`Copy a link to ${model.key}`}
         aria-label={compact ? `Copy a link to ${model.key}` : undefined}
         onClick={() => void copy()}
@@ -274,7 +345,7 @@ export function IssueHeaderActions({
           href={model.pagePath}
           title={`Open ${model.key} as a page`}
           aria-label={`Open ${model.key} as a page`}
-          icon={<Maximize2 size={14} strokeWidth={1.5} />}
+          icon={<Maximize2 size={14} strokeWidth={1.8} />}
         />
       ) : null}
     </>
@@ -349,7 +420,7 @@ export function useIssueTaskProps(
                 meId={model.viewerId}
                 value={values.assigneeId}
                 valueLabel={edit.assigneeLabel}
-                placeholderTone={loud ? 'accent' : 'muted'}
+                placeholderTone={loud ? 'warning' : 'muted'}
                 onChange={(assigneeId) => writes.patch({ assigneeId })}
                 formatError={formatError}
               />
@@ -522,7 +593,10 @@ export function useIssueTaskProps(
         ) : undefined,
     },
     alerts: model.alerts,
-    properties,
+    properties: properties.map((item) => ({
+      ...item,
+      icon: item.id === undefined ? undefined : PROPERTY_ICONS[item.id],
+    })),
     rail,
     description:
       canEdit && live !== null

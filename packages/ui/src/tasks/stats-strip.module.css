@@ -1,80 +1,87 @@
+/* Gr8r's stat strip: one rounded panel split into cells by soft rules (a
+   1px gap over the border colour, so a rule is drawn once at any column
+   count), not four cards. Key in secondary text, a 22px semibold tabular
+   value, a quiet note; a toned cell (data-tone) prints its value and note
+   in the tone's text colour. A linked cell answers hover with the hover
+   fill. */
+
 .strip {
   display: grid;
   grid-template-columns: repeat(var(--stat-cols, 4), minmax(0, 1fr));
-  border-top: 1px solid var(--border);
-  border-left: 1px solid var(--border);
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--border);
 }
 
 .cell {
   grid-column: span var(--stat-span, 1);
-  border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
+  min-width: 0;
+  background: var(--surface);
+  transition: background-color var(--dur) ease;
 }
 
 .inner {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   height: 100%;
-  padding: 16px 18px 18px;
+  padding: 14px 16px;
+  color: var(--text);
 }
 
 a.inner:focus-visible {
-  outline-offset: -4px;
+  outline-offset: -3px;
 }
 
 .label {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  line-height: 1.3;
+  color: var(--text-2);
 }
 
 .value {
-  font-family: var(--font-mono);
-  font-size: 30px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: -0.03em;
+  font-size: 22px;
+  font-weight: var(--fw-semibold);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
 
 .note {
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text-3);
 }
 
-.accent .value,
-.accent .note {
-  color: var(--accent-ink);
+.cell:where(
+    [data-tone='accent'],
+    [data-tone='info'],
+    [data-tone='success'],
+    [data-tone='warning'],
+    [data-tone='danger']
+  )
+  :where(.value, .note) {
+  color: var(--tone-ink);
 }
 
-.muted .value {
-  color: var(--muted);
+.cell[data-tone='muted'] .value {
+  color: var(--text-3);
 }
 
-/* Linked cells flood to ink by swapping paper and ink locally (the Roster
-   move), so every inner colour follows from the token block. */
+.cell:has(a.inner:focus-visible) {
+  background: var(--surface-2);
+}
+
 @media (hover: hover) and (width >= 901px) {
-  .cell:has(a:hover),
-  .cell:has(a:focus-visible) {
-    --background: var(--ink);
-    --foreground: var(--paper);
-    --accent-ink: var(--accent-ink-inverse);
-    --accent-ink-hover: var(--accent-ink-inverse);
-    --grey-2-ink: var(--muted-inverse);
-    --muted: var(--muted-inverse);
+  .cell:has(a.inner:hover) {
+    background: var(--surface-2);
   }
 }
 
+/* Two across on tablets and phones (Gr8r's phone home); an odd last cell
+   takes the whole row so the panel closes. */
 @media (width <= 900px) {
   .strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -89,12 +96,7 @@ a.inner:focus-visible {
   }
 
   .inner {
-    padding: 14px;
-    gap: 6px;
-  }
-
-  .value {
-    font-size: 26px;
+    padding: 12px 14px;
   }
 }
 

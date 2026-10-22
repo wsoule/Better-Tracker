@@ -10,7 +10,7 @@ import styles from './task-detail.module.css';
 import type { TaskSlideOverProps } from './types';
 
 /**
- * A task in the shell's slide-over: the drawer's hatched bar carries the
+ * A task in the shell's slide-over: the drawer's header bar carries the
  * breadcrumb and header actions, its h2 the title (or `titleControl`), and
  * TaskDetail (drawer layout, no header of its own) fills the body with
  * sections at h3. Focus, Esc and the phone scrim stay the SlideOver's.

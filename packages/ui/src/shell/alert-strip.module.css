@@ -1,58 +1,62 @@
-/* 2px is emphasis: the strip spends it because it asks for action. */
+/* Gr8r's alert, tinted by data-tone (the --tone-* variables come from
+   primitives.css): a status tone fills an 8px box with its soft tint, no
+   border, and prints the lead-in word and the follow-up in the tone's
+   text colour; the sentence stays --text. default and muted are a
+   bordered neutral box, like the Notice's quiet tone. */
 .strip {
   display: flex;
   align-items: baseline;
-  gap: 14px;
-  border: 2px solid var(--accent);
-  padding: 10px 14px;
-  background: var(--background);
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r);
+  background: var(--tone-soft, var(--amber-soft));
+  color: var(--text);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.strip:where([data-tone='default'], [data-tone='muted']) {
+  border-color: var(--border);
+  background: var(--surface);
 }
 
 .key {
   flex: 0 0 auto;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
+  font-weight: var(--fw-semibold);
+  color: var(--tone-ink, var(--text));
   white-space: nowrap;
 }
 
 /* overflow-wrap: a message quoting a long identifier wraps inside the
-   frame instead of running out of it. */
+   box instead of running out of it. */
 .text {
   min-width: 0;
-  font-size: 13.5px;
-  line-height: 1.5;
-  font-weight: 400;
-  color: var(--ink-soft);
+  font-weight: var(--fw-regular);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .action {
   display: inline;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-  border-bottom: 1px solid currentColor;
+  font-weight: var(--fw-semibold);
+  color: var(--tone-ink, var(--text));
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 40%, transparent);
+  text-underline-offset: 3px;
   white-space: nowrap;
-  transition: color 0.15s ease;
+  transition: text-decoration-color var(--dur) ease;
 }
 
 .action:hover,
 .action:focus-visible {
-  color: var(--accent-ink-hover);
+  text-decoration-color: currentColor;
 }
 
 @media (width <= 640px) {
   .strip {
     flex-direction: column;
-    gap: 4px;
-    padding: 10px 12px;
+    gap: 2px;
   }
 }
 

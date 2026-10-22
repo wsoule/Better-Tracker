@@ -125,6 +125,27 @@ export function initials(name: string): string {
   return `${first}${last}`.toLocaleUpperCase();
 }
 
+/** The hues an avatar may be tinted with: tokens.css's decorative hues
+    only (never a status hue: red, amber, green and blue mean something),
+    in a fixed order so a name always gets the same one. */
+export const AVATAR_HUES = ['violet', 'teal', 'rose', 'orange'] as const;
+
+export type AvatarHue = (typeof AVATAR_HUES)[number];
+
+/**
+ * The pastel hue of a person's round avatar, picked from their name (a
+ * small string hash over code points), so the same person reads the same
+ * colour in every list. Decoration only: the name is always printed beside
+ * the initials, so the hue never carries meaning on its own.
+ */
+export function avatarHue(name: string): AvatarHue {
+  let hash = 0;
+  for (const char of name.trim().toLocaleLowerCase()) {
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 2_147_483_647;
+  }
+  return AVATAR_HUES[hash % AVATAR_HUES.length];
+}
+
 /** True for `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`: the only colours
     from data the package will paint (a label's swatch). Anything else is
     refused, so a value can never smuggle other CSS into a style

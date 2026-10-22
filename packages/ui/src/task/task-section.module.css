@@ -1,5 +1,6 @@
-/* A section of the task view: the drawer's mono subhead register (10px,
-   700, +0.14em) with the count and note in the quieter mono voice. */
+/* A section of the task view, Gr8r's drawer section head: the title at
+   13.5px semibold in sentence case, the count after it in the quiet text
+   step, and a right-aligned note or control (a ghost "+ Add"). */
 
 .section {
   min-width: 0;
@@ -7,10 +8,10 @@
 
 .head {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  min-height: 20px;
-  margin-bottom: 10px;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--h-sm);
+  margin-bottom: 8px;
 }
 
 /* Inline text: the count follows the title like a word, and a long host
@@ -21,31 +22,30 @@
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-family: var(--font-sans);
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
   line-height: 1.4;
-  text-transform: uppercase;
-  color: var(--foreground);
+  color: var(--text);
 }
 
 .count {
-  margin-left: 8px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  margin-left: 7px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 
 .meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   margin-left: auto;
   min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
   line-height: 1.4;
   text-align: right;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }

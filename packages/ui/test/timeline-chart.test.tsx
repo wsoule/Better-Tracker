@@ -36,7 +36,7 @@ const GROUPS: TimelineGroup[] = [
             status: 'overdue',
             statusLabel: 'Overdue',
             progressLabel: '4/7',
-            tags: ['NEXT'],
+            tags: ['Next'],
             editable: true,
           },
           {
@@ -61,7 +61,7 @@ const GROUPS: TimelineGroup[] = [
         id: 'p-ledger',
         label: 'Ledger API',
         sublabel: 'No lead',
-        sublabelTone: 'accent',
+        sublabelTone: 'warning',
         bars: [
           {
             id: 'm-v2',
@@ -70,7 +70,7 @@ const GROUPS: TimelineGroup[] = [
             end: '2026-11-02',
             status: 'missing',
             statusLabel: 'Missing input',
-            missing: 'MISSING: DONE MEANS',
+            missing: 'Missing: done means',
             editable: true,
           },
         ],
@@ -120,7 +120,7 @@ describe('bars', () => {
     const onOpenBar = mock((_id: string) => {});
     const { chart } = renderChart({ onOpenBar });
     const rehearsal = chart.getByRole('button', {
-      name: 'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, NEXT',
+      name: 'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, Next',
     });
     expect(rehearsal.tagName).toBe('BUTTON');
     expect(rehearsal.getAttribute('type')).toBe('button');
@@ -129,7 +129,7 @@ describe('bars', () => {
 
     expect(
       chart.getByRole('button', {
-        name: 'v2 endpoints, Missing input, due Mon, Nov 2, MISSING: DONE MEANS',
+        name: 'v2 endpoints, Missing input, due Mon, Nov 2, Missing: done means',
       })
     ).toBeTruthy();
   });
@@ -469,6 +469,65 @@ describe('announcements and spoken text', () => {
     }
   });
 
+  test('a sublabel that asks for action carries its tone; a quiet one has none', () => {
+    const { chart } = renderChart();
+    const ledger = chart.getByRole('group', { name: 'Ledger API, No lead' });
+    expect(within(ledger).getByText('No lead').getAttribute('data-tone')).toBe(
+      'warning'
+    );
+    const atlas = chart.getByRole('group', {
+      name: 'Atlas migration, Pat Lee',
+    });
+    expect(within(atlas).getByText('Pat Lee').hasAttribute('data-tone')).toBe(
+      false
+    );
+    cleanup();
+    // An inactive lane is never loud, whatever tone it is given.
+    const quiet = renderChart({
+      groups: [
+        {
+          id: 'g',
+          label: 'Paused',
+          lanes: [
+            {
+              id: 'p-fjord',
+              label: 'Fjord analytics',
+              sublabel: 'No lead',
+              sublabelTone: 'warning',
+              muted: true,
+              bars: [],
+              undated: [],
+            },
+          ],
+        },
+      ],
+    });
+    const fjord = quiet.chart.getByRole('group', {
+      name: 'Fjord analytics, No lead',
+    });
+    expect(within(fjord).getByText('No lead').hasAttribute('data-tone')).toBe(
+      false
+    );
+  });
+
+  test('the legend says each status in words; its marks are drawing only', () => {
+    const { getByRole } = renderChart();
+    const legend = getByRole('list', { name: 'Legend' });
+    expect(within(legend).queryAllByRole('img')).toHaveLength(0);
+    expect(
+      within(legend)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent)
+    ).toEqual([
+      'Overdue',
+      'At risk',
+      'On track',
+      'Complete',
+      'Missing input',
+      'Due date',
+    ]);
+  });
+
   test('edge cues are drawn, not read: the arrows are aria-hidden', () => {
     const { chart } = renderChart({ windowStart: '2026-10-25' });
     const atlas = chart.getByRole('group', {
@@ -604,10 +663,10 @@ describe('phone cards and empty state', () => {
     const { container } = renderChart();
     const buttons = [...container.querySelectorAll('article button')];
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, NEXT',
+      'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, Next',
       'Cutover, On track, due Fri, Nov 6',
       'Pricing page, No target date, no due date',
-      'v2 endpoints, Missing input, due Mon, Nov 2, MISSING: DONE MEANS',
+      'v2 endpoints, Missing input, due Mon, Nov 2, Missing: done means',
     ]);
     expect(container.querySelectorAll('article [role="slider"]')).toHaveLength(
       0
@@ -632,7 +691,7 @@ describe('phone cards and empty state', () => {
                 end: '2026-10-16',
                 status: 'overdue',
                 statusLabel: 'Overdue',
-                missing: 'MISSING: ISSUES',
+                missing: 'Missing: issues',
               },
             ],
             undated: [],
@@ -663,11 +722,13 @@ describe('phone cards and empty state', () => {
       [...card.querySelectorAll('button [data-tone]')].map((el) =>
         el.getAttribute('data-tone')
       );
-    // Receipts line, then the due date.
-    expect(tones(muted)).toEqual(['default', 'default']);
-    expect(tones(live)).toEqual(['accent', 'accent']);
-    // The inactive lane's mark is the grey hollow square, still named with
-    // its status; the live lane keeps the accent mark.
+    // Receipts line, its missing input, then the due date: no tone at all
+    // in the inactive lane; the live lane's overdue receipts and date in
+    // the danger tone (docs/architecture.md §8.2).
+    expect(tones(muted)).toEqual(['default', 'default', 'default']);
+    expect(tones(live)).toEqual(['danger', 'danger']);
+    // The inactive lane's mark is the grey hollow ring, still named with
+    // its status; the live lane keeps its status mark.
     const markOf = (card: Element) => card.querySelector('[role="img"]');
     expect(markOf(muted)?.hasAttribute('data-muted')).toBe(true);
     expect(markOf(muted)?.getAttribute('aria-label')).toBe('Overdue');
@@ -714,7 +775,7 @@ describe('phone cards and empty state', () => {
     const lines = [...container.querySelectorAll('article button')].map(
       (button) => button.querySelector('[data-tone]')?.textContent
     );
-    // The hatched mark plus the missing line say it; the status label would
+    // The dashed mark plus the missing line say it; the status label would
     // repeat it. A milestone with its own status keeps the label.
     expect(lines).toEqual([
       'At risk · 0/3 · Missing: done means…',

@@ -110,7 +110,7 @@ describe('global stylesheets are scopable', () => {
     // var() with no fallback on an undefined property invalidates the
     // whole declaration: the browser default serif would be used.
     expect(tokens).toContain('var(--font-geist, Geist)');
-    expect(tokens).toContain("var(--font-jetbrains, 'JetBrains Mono')");
-    expect(tokens).not.toMatch(/var\(--font-(geist|jetbrains)\)/);
+    expect(tokens).toContain("var(--font-geist-mono, 'Geist Mono')");
+    expect(tokens).not.toMatch(/var\(--font-(geist|geist-mono)\)/);
   });
 });

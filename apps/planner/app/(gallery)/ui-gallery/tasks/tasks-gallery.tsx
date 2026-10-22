@@ -7,7 +7,6 @@ import {
   Chip,
   DeadlineList,
   EmptyState,
-  Link,
   Notice,
   PriorityGlyph,
   ProgressRule,
@@ -160,7 +159,6 @@ export default function TasksGallery({
         <main className="page">
           <div className="block">
             <BlockBar
-              index="00"
               title="UI gallery · tasks"
               meta={
                 <span className={css.barMeta}>
@@ -171,7 +169,7 @@ export default function TasksGallery({
                 </span>
               }
             />
-            <div className={css.collapse}>
+            <div>
               <Notice
                 tone="default"
                 label="Router"
@@ -204,12 +202,8 @@ export default function TasksGallery({
 
           {/* ---- My week ------------------------------------------------ */}
           <section className="block" aria-labelledby="week-title">
-            <BlockBar
-              index="01"
-              title="My week"
-              meta="Wed 21 Oct 2026 · synced 08:02"
-            />
-            <div className={css.collapse}>
+            <BlockBar title="My week" meta="Wed 21 Oct 2026 · synced 08:02" />
+            <div className={css.stack}>
               <header className={css.hero}>
                 <h1 id="week-title" className={css.greeting}>
                   Good morning, Pat
@@ -237,20 +231,12 @@ export default function TasksGallery({
                 />
               </div>
               <aside className={css.side} aria-label="Deadlines and attention">
-                <div className={css.collapse}>
-                  <BlockBar
-                    index="02"
-                    title="Upcoming deadlines"
-                    meta="7 days"
-                  />
+                <div>
+                  <BlockBar title="Upcoming deadlines" meta="7 days" />
                   <DeadlineList groups={DEADLINES} />
                 </div>
-                <div className={css.collapse}>
-                  <BlockBar
-                    index="03"
-                    title="Needs attention"
-                    meta="Projects you lead"
-                  />
+                <div>
+                  <BlockBar title="Needs attention" meta="Projects you lead" />
                   <Register
                     columns="minmax(0, 1fr) auto"
                     label="Projects that need attention"
@@ -259,19 +245,19 @@ export default function TasksGallery({
                     <RegisterRow
                       href="/timeline?project=p-delta"
                       rowLabel="Delta: blocked, no lead"
-                      tone="accent"
+                      tone="warning"
                     >
-                      <RegisterCell variant="name" sub="Next: Search relevance">
+                      <RegisterCell variant="name" sub="Project has no lead">
                         Delta
                       </RegisterCell>
-                      <RegisterCell variant="mono" tone="accent" align="end">
-                        Blocked: no lead
+                      <RegisterCell align="end">
+                        <Chip tone="warning">Blocked</Chip>
                       </RegisterCell>
                     </RegisterRow>
                     <RegisterRow
                       href="/timeline?project=p-atlas"
                       rowLabel="Atlas migration: 2 unassigned"
-                      tone="accent"
+                      tone="warning"
                     >
                       <RegisterCell
                         variant="name"
@@ -279,8 +265,8 @@ export default function TasksGallery({
                       >
                         Atlas migration
                       </RegisterCell>
-                      <RegisterCell variant="mono" tone="accent" align="end">
-                        2 unassigned
+                      <RegisterCell align="end">
+                        <Chip tone="warning">2 unassigned</Chip>
                       </RegisterCell>
                     </RegisterRow>
                   </Register>
@@ -291,12 +277,8 @@ export default function TasksGallery({
 
           {/* ---- Projects ----------------------------------------------- */}
           <section className="block" aria-label="Projects">
-            <BlockBar
-              index="04"
-              title="Projects"
-              meta="5 active · 1 inactive"
-            />
-            <div className={css.collapse}>
+            <BlockBar title="Projects" meta="5 active · 1 inactive" />
+            <div className={css.stack}>
               <div className={css.toolbar}>
                 <input
                   className={`input ${css.search}`}
@@ -324,7 +306,7 @@ export default function TasksGallery({
               </div>
               <Register
                 label="Projects"
-                columns="minmax(0, 1.1fr) 116px minmax(0, 1.5fr) 150px 120px minmax(0, 1fr) 64px"
+                columns="minmax(0, 1.1fr) 124px minmax(0, 1.5fr) 150px 120px minmax(0, 1fr) 72px"
                 header={[
                   { id: 'name', label: 'Project' },
                   { id: 'status', label: 'Linear' },
@@ -341,8 +323,8 @@ export default function TasksGallery({
                     href={`/timeline?project=${p.id}`}
                     rowLabel={`${p.name} on the timeline`}
                     tone={
-                      p.allocationTone === 'accent'
-                        ? 'accent'
+                      p.allocationTone === 'warning'
+                        ? 'warning'
                         : p.active
                           ? 'default'
                           : 'muted'
@@ -356,13 +338,27 @@ export default function TasksGallery({
                       {p.name}
                     </RegisterCell>
                     <RegisterCell label="Linear">
-                      <Chip tone={p.active ? 'default' : 'muted'}>
+                      <Chip tone={p.linearTone} dot>
                         {p.linearStatus}
                       </Chip>
                     </RegisterCell>
-                    <RegisterCell label="Next milestone" sub={p.milestoneDue}>
+                    <RegisterCell
+                      label="Next milestone"
+                      sub={
+                        <span
+                          className={css.due}
+                          data-tone={p.milestoneDueTone}
+                        >
+                          {p.milestoneDue}
+                        </span>
+                      }
+                    >
                       <span className={css.milestone}>
-                        <StatusMark status={p.status} label={p.statusLabel} />
+                        <StatusMark
+                          status={p.status}
+                          label={p.statusLabel}
+                          muted={!p.active}
+                        />
                         {p.milestone}
                       </span>
                     </RegisterCell>
@@ -370,28 +366,27 @@ export default function TasksGallery({
                       <ProgressRule
                         done={p.done}
                         total={p.total}
-                        tone={p.status === 'overdue' ? 'accent' : 'default'}
+                        tone={p.progressTone}
                         aria-label={`${p.milestone} progress`}
                       />
                     </RegisterCell>
                     <RegisterCell
                       label="Lead"
-                      variant={p.lead === null ? 'mono' : 'value'}
-                      tone={p.lead === null ? 'accent' : 'default'}
+                      tone={p.lead === null ? 'warning' : 'default'}
                     >
                       {p.lead ?? 'No lead'}
                     </RegisterCell>
-                    <RegisterCell
-                      label="Allocation"
-                      variant="mono"
-                      tone={p.allocationTone}
-                    >
-                      {p.allocation}
+                    <RegisterCell label="Allocation" sub={p.allocationDetail}>
+                      <Chip tone={p.allocationTone}>{p.allocation}</Chip>
                     </RegisterCell>
                     <RegisterCell align="end">
-                      <GalleryAccentLink href={`/graph?project=${p.id}`}>
+                      <Button
+                        variant="quiet"
+                        size="sm"
+                        href={`/graph?project=${p.id}`}
+                      >
                         Graph
-                      </GalleryAccentLink>
+                      </Button>
                     </RegisterCell>
                   </RegisterRow>
                 ))}
@@ -401,8 +396,8 @@ export default function TasksGallery({
 
           {/* ---- Runs + Settings ----------------------------------------- */}
           <div className={`block ${css.pair}`}>
-            <section aria-label="Runs" className={css.collapse}>
-              <BlockBar index="05" title="Runs" meta="Allocation log" />
+            <section aria-label="Runs">
+              <BlockBar title="Runs" meta="Allocation log" />
               <Register
                 label="Allocation runs"
                 stackedColumns="repeat(3, minmax(0, 1fr))"
@@ -430,7 +425,7 @@ export default function TasksGallery({
                       {run.id.replace('run-', 'Run ')}
                     </RegisterCell>
                     <RegisterCell label="Mode">
-                      <Chip tone={run.mode === 'Live' ? 'inverse' : 'default'}>
+                      <Chip tone={run.mode === 'Live' ? 'info' : 'muted'} dot>
                         {run.mode}
                       </Chip>
                     </RegisterCell>
@@ -449,7 +444,7 @@ export default function TasksGallery({
                       label="Blocked"
                       variant="mono"
                       align="end"
-                      tone={run.blocked > 0 ? 'accent' : 'default'}
+                      tone={run.blocked > 0 ? 'warning' : 'default'}
                     >
                       {run.blocked}
                     </RegisterCell>
@@ -457,7 +452,7 @@ export default function TasksGallery({
                       label="Failed"
                       variant="mono"
                       align="end"
-                      tone={run.failed > 0 ? 'accent' : 'default'}
+                      tone={run.failed > 0 ? 'danger' : 'default'}
                     >
                       {run.failed}
                     </RegisterCell>
@@ -465,8 +460,8 @@ export default function TasksGallery({
                 ))}
               </Register>
             </section>
-            <section aria-label="Settings" className={css.collapse}>
-              <BlockBar index="06" title="Settings · modes" meta="Audited" />
+            <section aria-label="Settings">
+              <BlockBar title="Settings · modes" meta="Audited" />
               <Register
                 label="Modes"
                 columns="minmax(0, 1fr) auto"
@@ -537,11 +532,7 @@ export default function TasksGallery({
 
           {/* ---- Primitives --------------------------------------------- */}
           <section className="block" aria-label="Primitives">
-            <BlockBar
-              index="07"
-              title="Primitives"
-              meta="Tasks family sampler"
-            />
+            <BlockBar title="Primitives" meta="Tasks family sampler" />
             <div className={css.specimens}>
               <Specimen title="Button">
                 <div className={css.line}>
@@ -584,10 +575,26 @@ export default function TasksGallery({
               </Specimen>
               <Specimen title="Chip">
                 <div className={css.line}>
-                  <Chip>In Progress</Chip>
-                  <Chip tone="muted">Backlog</Chip>
-                  <Chip tone="inverse">Live</Chip>
-                  <Chip tone="accent">Blocked: no lead</Chip>
+                  <Chip>Nothing to do</Chip>
+                  <Chip tone="muted">Inactive</Chip>
+                  <Chip tone="info">Allocating 2</Chip>
+                  <Chip tone="warning">Blocked</Chip>
+                  <Chip tone="danger">Failed</Chip>
+                  <Chip tone="success">Succeeded</Chip>
+                </div>
+                <div className={css.line}>
+                  <Chip tone="info" dot>
+                    In Progress
+                  </Chip>
+                  <Chip tone="warning" dot>
+                    Paused
+                  </Chip>
+                  <Chip tone="muted" dot>
+                    Planned
+                  </Chip>
+                  <Chip tone="success" dot>
+                    Completed
+                  </Chip>
                 </div>
                 <div className={css.line}>
                   <Chip status="overdue" statusLabel="Overdue">
@@ -596,10 +603,10 @@ export default function TasksGallery({
                   <Chip status="at_risk" statusLabel="At risk">
                     At risk
                   </Chip>
-                  <Chip tone="accent" status="overdue" statusLabel="Overdue">
+                  <Chip tone="danger" status="overdue" statusLabel="Overdue">
                     Overdue · 2 days
                   </Chip>
-                  <Chip tone="inverse" status="done" statusLabel="Complete">
+                  <Chip tone="success" status="done" statusLabel="Complete">
                     Complete
                   </Chip>
                 </div>
@@ -661,17 +668,25 @@ export default function TasksGallery({
                   <ProgressRule
                     done={4}
                     total={7}
-                    tone="accent"
+                    tone="danger"
                     aria-label="Cutover rehearsal progress"
+                  />
+                  <ProgressRule
+                    done={2}
+                    total={7}
+                    tone="warning"
+                    aria-label="Search relevance progress"
                   />
                   <ProgressRule
                     done={0}
                     total={5}
+                    tone="muted"
                     aria-label="Decommission progress"
                   />
                   <ProgressRule
                     done={9}
                     total={9}
+                    tone="success"
                     label="Complete"
                     aria-label="Docs progress"
                   />
@@ -698,6 +713,7 @@ export default function TasksGallery({
               <Specimen title="Notice">
                 <div className={css.stack}>
                   <Notice
+                    tone="warning"
                     label="Blocked"
                     action={
                       <Button size="sm" variant="secondary" href="/projects">
@@ -748,20 +764,5 @@ function Specimen({ title, children }: { title: string; children: ReactNode }) {
       <h3 className={css.caption}>{title}</h3>
       {children}
     </div>
-  );
-}
-
-/* An accent text link inside a register cell, through the host link. */
-function GalleryAccentLink({
-  href,
-  children,
-}: {
-  href: string;
-  children: ReactNode;
-}) {
-  return (
-    <Link href={href} className="accentLink">
-      {children}
-    </Link>
   );
 }

@@ -2,9 +2,12 @@ import { cx } from './class-names';
 import styles from './notice.module.css';
 import type { EmptyStateProps, NoticeProps } from './types';
 
-/* The 2px-accent notice strip (.notice) with its mono key: blocked states,
-   errors, the demo-mode banner. role is opt-in: "status" for something that
-   just changed, "alert" for an error; static copy needs neither. */
+/* Gr8r's alert (.notice) with a semibold lead-in: blocked states, errors,
+   the demo-mode banner. default / muted is a bordered neutral box; every
+   other tone fills it with its soft tint (accent = Gr8r's info alert, the
+   default; danger, warning, success, info for status). role is opt-in:
+   "status" for something that just changed, "alert" for an error; static
+   copy needs neither. */
 export function Notice({
   label,
   children,
@@ -14,7 +17,10 @@ export function Notice({
 }: NoticeProps) {
   return (
     <div
-      className={cx('notice', tone === 'default' ? styles.quiet : undefined)}
+      className={cx(
+        'notice',
+        tone === 'default' || tone === 'muted' ? styles.quiet : undefined
+      )}
       role={role}
       data-tone={tone}
     >
@@ -30,8 +36,10 @@ export function Notice({
 }
 
 /* Empty states are honest copy (.empty), never an illustration: an
-   optional mono key, then the sentence in the body face; hatched when the
-   emptiness is a missing input. */
+   optional title, then the sentence; a dashed edge (.hatched) when the
+   emptiness is a missing input. The title is styled by the module alone:
+   the global .label has the same specificity and would make it 12px
+   grey wherever primitives.css loads after this module. */
 export function EmptyState({
   children,
   label,
@@ -42,7 +50,7 @@ export function EmptyState({
     <div className={cx('empty', hatched ? 'hatched' : undefined, styles.empty)}>
       <p className={styles.emptyText}>
         {label !== undefined && label !== '' ? (
-          <span className={cx('label', styles.emptyKey)}>{label}</span>
+          <span className={styles.emptyKey}>{label}</span>
         ) : null}
         {children}
       </p>

@@ -20,13 +20,16 @@ export const DAY_WIDTH: Readonly<Record<TimelineZoom, number>> = {
 };
 /** The sticky lane column. Mirrored in timeline-chart.module.css. */
 export const LANE_WIDTH = 264;
-/** Two header rows (months 28 + ticks 24). Mirrored in the CSS. */
+/** Two header rows (months 26 + days 26, Gr8r's). Mirrored in the CSS. */
 export const HEADER_HEIGHT = 52;
-export const SUMMARY_HEIGHT = 44;
+/** The "Milestones" row and the initiative rows: Gr8r's 36px bands. */
+export const SUMMARY_HEIGHT = 36;
 export const GROUP_HEIGHT = 36;
-/** One line of bars in a lane; a lane grows by a line per overlap. */
-export const ROW_HEIGHT = 52;
-export const BAR_HEIGHT = 28;
+/** One line of bars in a lane (room for the name and the lead under it);
+ * a lane grows by a line per overlap. */
+export const ROW_HEIGHT = 48;
+/** Gr8r's 24px bar. Mirrored in timeline-bar.module.css (.item). */
+export const BAR_HEIGHT = 24;
 export const MIN_BAR_WIDTH = 12;
 /** Narrower bars carry their label outside, when there is room after. */
 const LABEL_INSIDE_MIN = 56;
@@ -34,7 +37,7 @@ const LABEL_OUTSIDE_MIN_ROOM = 72;
 /** Text room (bar width less its 21px padding and the ◂ cue) below which
  * an inside label would be an ellipsis alone. */
 const LABEL_TEXT_MIN = 28;
-/** Half the diagonal of the 10px end diamond, plus a hair. */
+/** Half the diagonal of the 10px end diamond plus its 1.5px surface ring. */
 const DIAMOND_REACH = 8;
 
 /** Most urgent first: decides a merged summary diamond's mark. */
@@ -228,12 +231,13 @@ function packLane(bars: { left: number; right: number }[]): {
   return { lines: Math.max(1, lineEnds.length), lineOf };
 }
 
-/* Rough rendered width of the undated chips (mono 9.5px caps ≈ 6.6px a
-   character plus mark and padding), so a lane whose bars run to the end of
-   the window can anchor its chips to the right instead of overflowing. */
+/* Rough rendered width of the undated chips (Geist 12px ≈ 6.4px a
+   character, plus the "No date" note, padding and the gap), so a lane
+   whose bars run to the end of the window can anchor its chips to the
+   right instead of overflowing. */
 function estimateUndatedWidth(lane: TimelineLane): number {
   let width = 0;
-  for (const chip of lane.undated) width += chip.label.length * 6.6 + 92;
+  for (const chip of lane.undated) width += chip.label.length * 6.4 + 84;
   return width;
 }
 
@@ -266,9 +270,6 @@ export function computeLayout(input: LayoutInput): TimelineLayout {
   let y = SUMMARY_HEIGHT;
 
   for (const group of input.groups) {
-    // Initiative rows overlap the line above by 1px (CSS margin-top: -1px)
-    // so their top ink rule replaces it instead of doubling it.
-    y -= 1;
     rows.push({
       kind: 'group',
       key: `g:${group.id}`,
@@ -398,7 +399,7 @@ export function computeLayout(input: LayoutInput): TimelineLayout {
   return { scale, rows, height: y, bars, lanes, todayX };
 }
 
-/* The MILESTONES row (Gr8r's milestone lane): one diamond per due date,
+/* The "Milestones" row (Gr8r's milestone lane): one diamond per due date,
    same-day milestones merged, each label allowed only the room up to the
    next diamond so labels never overlap; cramped ones show the diamond
    alone (the full list is in its tooltip). A muted (inactive) lane's

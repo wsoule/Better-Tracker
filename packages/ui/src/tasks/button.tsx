@@ -12,15 +12,17 @@ function isLink(props: ButtonProps): props is ButtonAsLinkProps {
   return typeof props.href === 'string';
 }
 
-/* The system's button: a mono uppercase label in a square box that floods
-   the accent on hover (gated off touch). 2px is emphasis, so primary and
-   secondary carry a 2px rule; quiet is the bare label for toolbars; danger
-   has no red to reach for, so it is the accent as an outline. With href it
+/* Gr8r's button: a sentence-case label in a 6px-radius box. primary is
+   the purple fill (one per view), secondary the white bordered default,
+   quiet the ghost for toolbars, danger a red fill for a destructive or
+   irreversible write. sm / md / lg are 26 / 30 / 36px; block stretches it
+   across its container. Hover fills are gated off touch. With href it
    renders through the host's <Link>, so it can sit in any router. */
 export function Button(props: ButtonProps) {
   const {
     variant = 'secondary',
     size = 'md',
+    block = false,
     icon,
     iconAfter,
     children,
@@ -30,6 +32,7 @@ export function Button(props: ButtonProps) {
     styles.button,
     styles[variant],
     styles[size],
+    block ? styles.block : undefined,
     children === undefined || children === null ? styles.iconOnly : undefined,
     className
   );

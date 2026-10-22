@@ -5,12 +5,11 @@ import { useState } from 'react';
 import styles from './checkbox.module.css';
 import type { CheckboxProps } from './types';
 
-/* A checkbox in the Mark idiom: the native input (kept for forms, focus
-   and assistive tech, visually hidden) drives a 13px square glyph that
-   fills accent with a drawn check when on, beside a mono label. The whole
-   line is the <label>, so clicking the text toggles it. Use it for set
-   membership ("who are the watchers"); Switch is for a mode that is on or
-   off. */
+/* Gr8r's checkbox: the native input (kept for forms, focus and assistive
+   tech, visually hidden) drives a 15px rounded box that fills the accent
+   with a drawn tick when on, beside its label. The whole line is the
+   <label>, so clicking the text toggles it. Use it for set membership
+   ("who are the watchers"); Switch is for a mode that is on or off. */
 export function Checkbox({
   checked,
   defaultChecked = false,

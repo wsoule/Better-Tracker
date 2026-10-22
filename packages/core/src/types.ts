@@ -749,8 +749,9 @@ export interface IssueLabel {
   name: string;
   /**
    * Linear's HEX colour. Linear labels are colour-coded, so the planner
-   * draws it as the small swatch beside the label's name in the label
-   * picker (hex values only), the one place a colour from data appears;
+   * draws it as the small swatch beside the label's name and as a faint
+   * tint of the label's chip, in the label picker and in the read-only
+   * value (hex values only), the one place a colour from data appears;
    * everything else stays in the planner's own marks (architecture §8.2,
    * §8.5).
    */

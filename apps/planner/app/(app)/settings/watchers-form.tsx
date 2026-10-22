@@ -1,11 +1,6 @@
 'use client';
 
-import {
-  Checkbox,
-  Register,
-  RegisterCell,
-  RegisterRow,
-} from '@better-tracker/ui';
+import { Checkbox } from '@better-tracker/ui';
 import { type FormEvent, useState } from 'react';
 
 import {
@@ -17,21 +12,15 @@ import {
 } from '../../../lib/adapters/settings';
 import FormBar from './form-bar';
 import css from './page.module.css';
+import { PersonCell } from './read-only-sections';
 import { useSaveSettings } from './use-save-settings';
 
-const COLUMNS = 'minmax(0, 1.2fr) minmax(0, 1fr) 104px';
-
-const HEADER = [
-  { id: 'person', label: 'Person' },
-  { id: 'email', label: 'Email' },
-  { id: 'watcher', label: 'Watcher' },
-];
-
-/* Settings → Watchers: one register row per active person (and anyone
-   deactivated who is still a watcher), with a Watcher box each. Watchers
-   hear about every at-risk milestone besides its lead; they are not a
-   role (owner decision 2026-10-22: everyone signed in edits everything).
-   Anyone may change the list, and it may be emptied. */
+/* Settings → Watchers, as Gr8r's member list: one row per active person
+   (and anyone deactivated who is still a watcher) with round initials,
+   name and email, and a Watcher box on the right. Watchers hear about
+   every at-risk milestone besides its lead; they are not a role (owner
+   decision 2026-10-22: everyone signed in edits everything). Anyone may
+   change the list, and it may be emptied. */
 export default function WatchersForm({
   rows,
   watcherUserIds,
@@ -61,42 +50,28 @@ export default function WatchersForm({
 
   return (
     <form onSubmit={submit} className={css.form} aria-label="Watchers">
-      <Register
-        label="Watchers"
-        columns={COLUMNS}
-        header={HEADER}
-        stackWithin={700}
-        stackedColumns="minmax(0, 1fr) auto auto"
-      >
-        {rows.map((row) => {
-          return (
-            <RegisterRow key={row.id} tone={row.active ? 'default' : 'muted'}>
-              <RegisterCell
-                label="Person"
-                variant="name"
-                sub={row.note ?? undefined}
-              >
-                {row.name}
-              </RegisterCell>
-              <RegisterCell label="Email" tone="muted">
-                {row.email ?? '—'}
-              </RegisterCell>
-              <RegisterCell label="Watcher">
-                <Checkbox
-                  label="Watcher"
-                  hideLabel
-                  aria-label={`${row.name}: watcher`}
-                  checked={watchers.includes(row.id)}
-                  disabled={saving}
-                  onChange={(on) =>
-                    setWatchers((ids) => toggleId(ids, row.id, on))
-                  }
-                />
-              </RegisterCell>
-            </RegisterRow>
-          );
-        })}
-      </Register>
+      <ul className={css.people} aria-label="People">
+        {rows.map((row) => (
+          <li
+            key={row.id}
+            className={css.person}
+            data-inactive={row.active ? undefined : 'true'}
+          >
+            <PersonCell row={row} />
+            <span className={css.personControl}>
+              <Checkbox
+                label="Watcher"
+                aria-label={`${row.name}: watcher`}
+                checked={watchers.includes(row.id)}
+                disabled={saving}
+                onChange={(on) =>
+                  setWatchers((ids) => toggleId(ids, row.id, on))
+                }
+              />
+            </span>
+          </li>
+        ))}
+      </ul>
       <p className={css.formHint}>{watchersHint(watchers.length)}</p>
       <FormBar
         dirty={dirty}

@@ -2,6 +2,7 @@
 
 import { Check, Search } from 'lucide-react';
 import {
+  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -24,6 +25,7 @@ import {
   editLabels,
   filterOptions,
   groupOptions,
+  isHexColor,
   optionMatches,
   queryWords,
   toggleValue,
@@ -50,26 +52,21 @@ type Row =
 
 type CloseReason = 'escape' | 'select' | 'tab' | 'outside' | 'button';
 
-/** How far the trigger's drawn frame reaches outside the button (see the
-    ::before rules in the stylesheet): the popover lines up with the frame,
-    not the text. */
-interface Outset {
-  x: number;
-  y: number;
-}
-
-const OUTSETS: Record<'value' | 'mono' | 'quiet', Outset> = {
-  value: { x: 7, y: 4 },
-  mono: { x: 6, y: 4 },
-  quiet: { x: 0, y: 0 },
-};
-
 function isList(value: PickerValue): value is readonly string[] {
   return Array.isArray(value);
 }
 
 function optionKey(option: PickerOption): string {
   return `o:${option.value}`;
+}
+
+/** A label chip's tint: the label's own colour as --label-color, only when
+    the option's mark is a valid hex swatch (the stylesheet washes the chip
+    with a faint mix of it); anything else draws the neutral chip. */
+function tokenStyle(option: PickerOption): CSSProperties | undefined {
+  const mark = option.mark;
+  if (mark?.kind !== 'swatch' || !isHexColor(mark.color)) return undefined;
+  return { '--label-color': mark.color } as CSSProperties;
 }
 
 /** Puts the popover in the browser's top layer when the Popover API is
@@ -99,7 +96,6 @@ function positionLayer(
   anchor: HTMLElement | null,
   panel: HTMLElement | null,
   sheet: boolean,
-  outset: Outset,
   align: 'start' | 'end'
 ): void {
   const style = layer.style;
@@ -108,12 +104,15 @@ function positionLayer(
     layer.dataset.placed = 'true';
     return;
   }
+  // The trigger's own box is its drawn pill (the value face pads itself
+  // and takes the padding back with a negative margin), so the popover
+  // lines up with the pill's edge.
   const box = anchor.getBoundingClientRect();
   const rect = {
-    top: box.top - outset.y,
-    bottom: box.bottom + outset.y,
-    left: box.left - outset.x,
-    right: box.right + outset.x,
+    top: box.top,
+    bottom: box.bottom,
+    left: box.left,
+    right: box.right,
   };
   style.setProperty(
     '--picker-anchor-width',
@@ -380,14 +379,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
     let frame = 0;
     const place = (): void => {
       frame = 0;
-      positionLayer(
-        layer,
-        triggerRef.current,
-        panelRef.current,
-        sheet,
-        OUTSETS[appearance],
-        align
-      );
+      positionLayer(layer, triggerRef.current, panelRef.current, sheet, align);
     };
     place();
     inputRef.current?.focus({ preventScroll: true });
@@ -410,7 +402,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
       document.removeEventListener('scroll', schedule, true);
       observer?.disconnect();
     };
-  }, [isOpen, sheet, appearance, align]);
+  }, [isOpen, sheet, align]);
 
   useEffect(() => {
     if (!isOpen || activeId === undefined) return;
@@ -512,14 +504,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
   }
 
   const placeholderFace = (
-    <span
-      className={cx(
-        styles.placeholder,
-        placeholderTone === 'accent' ? styles.accent : undefined,
-        placeholderTone === 'default' ? styles.plain : undefined
-      )}
-      data-tone={placeholderTone}
-    >
+    <span className={styles.placeholder} data-tone={placeholderTone}>
       {valueText}
     </span>
   );
@@ -532,7 +517,11 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
       chosenOptions.length > 0 ? (
         <span className={styles.tokens}>
           {chosenOptions.map((option) => (
-            <span key={option.value} className={styles.token}>
+            <span
+              key={option.value}
+              className={styles.token}
+              style={tokenStyle(option)}
+            >
               {option.mark !== undefined ? (
                 <PickerMarkView mark={option.mark} />
               ) : null}

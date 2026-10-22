@@ -38,7 +38,8 @@ function Dot(): ReactNode {
 }
 
 /* What a row prints: glyph, key and title on the first line; state,
-   assignee, context and tags in the mono voice under the title. */
+   assignee, context and tags in the meta voice under the title (an open
+   task with nobody on it says "Unassigned" in the warning tone). */
 function RowBody({
   relation,
   externalLabel,
@@ -57,7 +58,7 @@ function RowBody({
   return (
     <>
       <span className={styles.glyph}>
-        <StateGlyph kind={state.kind} size={13} />
+        <StateGlyph kind={state.kind} size={14} />
       </span>
       <span className={styles.key}>{taskKey}</span>
       <span className={styles.title} dir="auto">
@@ -75,7 +76,7 @@ function RowBody({
               <span
                 className={
                   assignee === null && resolved !== true
-                    ? styles.accent
+                    ? styles.warn
                     : undefined
                 }
               >

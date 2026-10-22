@@ -3,34 +3,57 @@
   overflow: visible;
 }
 
-/* The completed check is knocked out of the disc in the paper colour, so it
-   follows the row's local token swap on hover. */
-.check {
-  stroke: var(--background);
-}
-
-/* Backlog is the same hollow circle as Todo, one step dimmer: not yet
-   planned, so it recedes. */
-.backlog {
-  color: var(--muted);
-}
-
+/* Workflow colours (tokens.css --st-*), Gr8r's status hues. */
 .triage {
-  color: var(--muted);
+  color: var(--st-triage);
+}
+
+.backlog {
+  color: var(--st-backlog);
+}
+
+.unstarted {
+  color: var(--st-todo);
+}
+
+.started {
+  color: var(--st-progress);
+}
+
+.completed {
+  color: var(--st-done);
 }
 
 .canceled {
-  color: var(--muted);
+  color: var(--st-canceled);
 }
 
+/* The completed tick is knocked out of the disc in the surface colour. */
+.check {
+  stroke: var(--surface);
+}
+
+/* Priority: lit bars in the secondary ink, the rest as ghosts. */
 .lit {
-  fill: currentColor;
+  fill: var(--text-2);
 }
 
 .ghost {
-  fill: var(--grey-3);
+  fill: var(--border-strong);
+}
+
+.none {
+  fill: var(--text-3);
 }
 
 .urgent {
-  color: var(--accent);
+  color: var(--red);
+}
+
+.bang {
+  stroke: var(--on-danger);
+}
+
+.bangDot {
+  fill: var(--on-danger);
 }

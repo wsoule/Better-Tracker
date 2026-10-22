@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import { foldText, toggleValue, withCount } from '../src/edit/shared';
+import {
+  AVATAR_HUES,
+  avatarHue,
+  foldText,
+  toggleValue,
+  withCount,
+} from '../src/edit/shared';
 import {
   filterOptions,
   groupOptions,
@@ -68,6 +74,18 @@ describe('small helpers', () => {
     ['🙂 Smile', '🙂S'],
   ])('initials(%p) is %p', (name, expected) => {
     expect(initials(name)).toBe(expected);
+  });
+
+  test('avatarHue is one of the decorative hues, the same for the same name', () => {
+    const names = ['Ana Moreno', 'Ben Carter', 'Chloe Diaz', 'Dev Patel'];
+    for (const name of names) {
+      expect(AVATAR_HUES).toContain(avatarHue(name));
+      expect(avatarHue(name)).toBe(avatarHue(name));
+      // Case and surrounding space do not move a person to another hue.
+      expect(avatarHue(` ${name.toUpperCase()} `)).toBe(avatarHue(name));
+    }
+    // Different people spread over more than one hue.
+    expect(new Set(names.map(avatarHue)).size).toBeGreaterThan(1);
   });
 
   test.each([

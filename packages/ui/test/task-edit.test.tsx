@@ -134,7 +134,12 @@ describe('TaskCommentList', () => {
     expect(first.querySelector('time')?.getAttribute('dateTime')).toBe(
       '2026-10-19T10:00:00Z'
     );
-    expect(first.textContent).toContain('AM');
+    // A round avatar with the author's initials, hidden from assistive tech
+    // (the author's name is printed beside it).
+    const avatar = first.querySelector('[data-mark="avatar"]');
+    expect(avatar?.textContent).toBe('AM');
+    expect(avatar?.getAttribute('aria-hidden')).toBe('true');
+    expect(avatar?.getAttribute('data-size')).toBe('md');
     expect(second.getAttribute('data-tone')).toBe('muted');
   });
 

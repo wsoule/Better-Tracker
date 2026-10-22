@@ -1,6 +1,6 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { CircleAlert, Info, X } from 'lucide-react';
 import {
   createContext,
   type CSSProperties,
@@ -22,8 +22,9 @@ import type {
   ToastProviderProps,
 } from './types';
 
-// Toasts: a bottom-right stack (bottom-centre above the tab bar on phones)
-// of hairline boxes, each a mono key and one sentence. Auto-dismiss after
+// Toasts: a bottom-right stack (full width above the tab bar on phones) of
+// Gr8r's inverted cards, each an icon, a lead-in word and one sentence
+// (an error's icon is red). Auto-dismiss after
 // 4s, paused while hovered or focused; at most three on screen. Screen
 // readers hear infos politely and errors assertively through two live
 // regions that mirror the stack.
@@ -97,8 +98,16 @@ function ToastItem({
         }
       }}
     >
-      <span className={styles.label}>{record.label}</span>
-      <p className={styles.message}>{record.message}</p>
+      <span className={styles.icon} aria-hidden="true">
+        {record.kind === 'error' ? (
+          <CircleAlert size={15} strokeWidth={1.8} />
+        ) : (
+          <Info size={15} strokeWidth={1.8} />
+        )}
+      </span>
+      <p className={styles.message}>
+        <span className={styles.label}>{record.label}</span> {record.message}
+      </p>
       {record.action !== undefined ? (
         <button
           type="button"
@@ -117,7 +126,7 @@ function ToastItem({
         aria-label="Dismiss notification"
         onClick={() => onDismiss(record.id)}
       >
-        <X size={14} strokeWidth={1.5} aria-hidden="true" />
+        <X size={14} strokeWidth={1.8} aria-hidden="true" />
       </button>
       {timed ? <span className={styles.timer} aria-hidden="true" /> : null}
     </li>

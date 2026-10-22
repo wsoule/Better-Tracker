@@ -22,15 +22,15 @@ import type { TimelineZoom } from './types';
 // The chart's time furniture, both memoised on primitives so a re-date or
 // a selection change never re-renders a hundred tick cells: the two-row
 // sticky header (months; day or week ticks) and the grid layer behind the
-// rows (weekend shading, week and month rules, the TODAY rule).
+// rows (sunken weekends, week and month rules, the today line).
 
-/* The longest month name that fits its span (mono 10px caps at 0.14em
-   tracking ≈ 7.4px a character, plus the 20px of padding): a month only
+/* The longest month name that fits its span (Geist 12px semibold ≈ 7px a
+   character, plus the 16px of padding and a little air): a month only
    partly inside the window says "Sep 2026" or "Sep" instead of running
    into the next month's name. */
 function fitMonthLabel(span: MonthSpan): string {
   for (const label of [span.label, span.shortLabel, span.tinyLabel]) {
-    if (label.length * 7.4 + 22 <= span.width) return label;
+    if (label.length * 7 + 20 <= span.width) return label;
   }
   return '';
 }
@@ -87,7 +87,13 @@ function TimelineScaleHeaderImpl({
             )}
             style={{ left: d.x, width: dayWidth }}
           >
-            {d.day}
+            {d.iso === today ? (
+              <span className={styles.todayNum} title="Today">
+                {d.day}
+              </span>
+            ) : (
+              d.day
+            )}
           </div>
         ))}
         {ticks.weeks.map((w) => (
@@ -100,13 +106,14 @@ function TimelineScaleHeaderImpl({
           </div>
         ))}
       </div>
-      {todayX === null ? null : (
-        <>
-          <span className={styles.todayFlag} style={{ left: todayX }}>
-            Today
-          </span>
-          <span className={styles.todayRule} style={{ left: todayX }} />
-        </>
+      {/* Day columns show today as its number in an accent chip; week
+          columns have no day number, so a "Today" chip sits in the month
+          row above the line instead. The line itself starts under the
+          header (the grid layer), as Gr8r's does. */}
+      {todayX === null || zoom === 'weeks' ? null : (
+        <span className={styles.todayFlag} style={{ left: todayX }}>
+          Today
+        </span>
       )}
     </div>
   );

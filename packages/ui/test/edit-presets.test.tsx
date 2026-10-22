@@ -59,11 +59,11 @@ describe('StatePicker', () => {
     { id: 's-done', name: 'Done', kind: 'completed' as const },
   ];
 
-  test('state glyphs, no none option, mono by default, ids out', async () => {
+  test('state glyphs, no none option, a pill by default, ids out', async () => {
     const onChange = mock((_id: string) => undefined);
     render(<StatePicker states={STATES} value="s-todo" onChange={onChange} />);
     const button = screen.getByRole('button', { name: 'Status: Todo' });
-    expect(button.getAttribute('data-appearance')).toBe('mono');
+    expect(button.getAttribute('data-appearance')).toBe('pill');
     expect(button.querySelector('[data-kind="unstarted"]')).not.toBeNull();
     fireEvent.click(button);
     expect(combobox().placeholder).toBe('Change status…');
@@ -79,7 +79,7 @@ describe('AssigneePicker', () => {
     { id: 'u-ben', name: 'Ben Okafor', keywords: ['ben@northwind.test'] },
   ];
 
-  test('square initials, "You", Unassigned in the accent', async () => {
+  test('round avatars, "You", Unassigned in the warning tone', async () => {
     const onChange = mock((_id: string | null) => undefined);
     render(
       <AssigneePicker
@@ -92,20 +92,27 @@ describe('AssigneePicker', () => {
     const button = screen.getByRole('button', {
       name: 'Assignee: Unassigned',
     });
-    expect(button.querySelector('[data-tone="accent"]')?.textContent).toBe(
+    expect(button.querySelector('[data-tone="warning"]')?.textContent).toBe(
       'Unassigned'
     );
+    // Nobody is the dashed empty avatar, on the face and the none option.
+    expect(
+      button.querySelector('[data-mark="avatar"]')?.getAttribute('data-empty')
+    ).toBe('true');
     fireEvent.click(button);
     expect(optionNames()).toEqual([
       'Unassigned',
       'Ana Moreno',
       'Ben OkaforYou',
     ]);
-    expect(
-      screen
-        .getByRole('option', { name: /Ana Moreno/ })
-        .querySelector('[data-mark="avatar"]')?.textContent
-    ).toBe('AM');
+    const anaAvatar = screen
+      .getByRole('option', { name: /Ana Moreno/ })
+      .querySelector('[data-mark="avatar"]');
+    expect(anaAvatar?.textContent).toBe('AM');
+    // A pastel hue picked from the name (decoration; the name is printed).
+    expect(anaAvatar?.getAttribute('data-hue')).toMatch(
+      /^(violet|teal|rose|orange)$/
+    );
     fireEvent.change(combobox(), { target: { value: 'you' } });
     expect(optionNames()).toEqual(['Ben OkaforYou']);
     fireEvent.change(combobox(), { target: { value: 'northwind' } });

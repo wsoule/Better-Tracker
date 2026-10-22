@@ -4,9 +4,8 @@ import styles from './kbd.module.css';
 import { cx } from './render';
 import type { KbdKeysProps, KbdProps } from './types';
 
-/* A key cap in the machine voice: mono, square, a 1px border drawn in
-   currentColor so it rides every surface (muted on paper, white on the
-   accent flood, paper on an ink-filled row). */
+/* A key cap (Gr8r's kbd): Geist Mono in a small white cap with a soft
+   border, the same on every surface it sits on. */
 export function Kbd({ children, className }: KbdProps): ReactNode {
   return <kbd className={cx(styles.kbd, className)}>{children}</kbd>;
 }

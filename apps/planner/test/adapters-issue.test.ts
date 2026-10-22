@@ -104,8 +104,15 @@ describe('alerts', () => {
       'Stalled',
       'Unassigned',
     ]);
+    // Status colours (architecture §8.2): overdue is danger, the rest warn.
+    expect(alerts.map((a) => a.tone)).toEqual([
+      'danger',
+      'warning',
+      'warning',
+      'warning',
+    ]);
     expect(alerts[0]?.message).toBe('Dual-write was due Oct 18, 3 days ago.');
-    expect(alerts[1]?.message).toContain('Beacon search › Search v2 beta');
+    expect(alerts[1]?.message).toContain('Beacon search / Search v2 beta');
     expect(alerts[2]?.message).toMatch(
       /^Backlog for \d+ days with no change; Dual-write is due Oct 18, 3 days overdue\.$/
     );
@@ -120,6 +127,7 @@ describe('alerts', () => {
       quiet: false,
     });
     const blocked = alerts.find((a) => a.id === 'blocked');
+    expect(blocked?.tone).toBe('warning');
     expect(blocked?.message).toBe('Waiting on ENG-12 (Backlog, unassigned).');
     expect(blocked?.action).toEqual({
       label: 'Graph',
@@ -182,14 +190,19 @@ describe('buildIssueTaskModel', () => {
       glyph: { kind: 'priority', priority: 3 },
     });
     expect(model.facts.labels.text).toBe('Bug');
+    // Read-only labels draw as chips in Linear's colour.
+    expect(model.facts.labels.labels).toEqual([
+      { name: 'Bug', color: expect.stringMatching(/^#[0-9a-f]{6}$/i) },
+    ]);
     expect(model.facts.estimate).toMatchObject({
       text: '3 points',
       mono: true,
     });
     expect(model.facts.dueDate).toMatchObject({
       text: 'Oct 19',
-      tone: 'accent',
+      tone: 'danger',
       note: '2 days overdue',
+      noteTone: 'danger',
     });
     expect(model.facts.project.note).toBe('Lead Dev Patel');
     expect(model.facts.inState).toMatchObject({
@@ -198,13 +211,35 @@ describe('buildIssueTaskModel', () => {
       note: 'Todo since Oct 19',
     });
     expect(modelFor('ENG-12').facts.inState).toMatchObject({
-      tone: 'accent',
+      tone: 'warning',
       note: 'Stalled: Backlog with no change since Oct 1',
+      noteTone: 'warning',
     });
     expect(model.viewerId).toBe('user-chloe');
     expect(model.facts.milestone.note).toBe(
       'At risk · due Oct 23, in 2 days · 3 of 7 done · next milestone'
     );
+  });
+
+  test('due dates: overdue is danger, today or tomorrow warning, later neutral', () => {
+    const due = (dueDate: string) =>
+      modelFor('ENG-24', {
+        extra: extrasFor(detailOf('ENG-24'), { dueDate }),
+      }).facts.dueDate;
+    expect(due('2026-10-21')).toMatchObject({
+      tone: 'warning',
+      note: 'Due today',
+      noteTone: 'warning',
+    });
+    expect(due('2026-10-22')).toMatchObject({
+      tone: 'warning',
+      note: 'Due tomorrow',
+    });
+    expect(due('2026-10-30')).toMatchObject({
+      tone: 'default',
+      note: 'In 9 days',
+      noteTone: 'muted',
+    });
   });
 
   test('under a day in its state reads "today" or "yesterday" by the calendar', () => {
@@ -243,10 +278,12 @@ describe('buildIssueTaskModel', () => {
   test('an unassigned open issue is loud; the viewer reads as "you"', () => {
     expect(modelFor('ENG-13').facts.assignee).toMatchObject({
       text: 'Unassigned',
-      tone: 'accent',
+      tone: 'warning',
+      avatar: '',
     });
     const mine = modelFor('ENG-24', {}, 'user-ana');
     expect(mine.facts.assignee.text).toBe('Ana Moreno (you)');
+    expect(mine.facts.assignee.avatar).toBe('Ana Moreno');
   });
 
   test('the planner’s live assignment is named under the assignee', () => {
@@ -464,8 +501,38 @@ describe('activity', () => {
       items.find((item) => item.label === 'Skipped by the planner')?.detail
     ).toBe('Daily run: it was still in Triage.');
     expect(items.at(-1)?.label).toBe('Created in Linear');
+    expect(items.at(-1)?.tone).toBe('muted');
     const instants = items.map((item) => item.dateTime ?? '');
     expect([...instants].sort().reverse()).toEqual(instants);
+  });
+});
+
+describe('activity tones', () => {
+  test('assigned is success, a failed comment warning, a failed write danger', () => {
+    const items = issueActivity(
+      detailOf('ENG-13'),
+      [
+        history({ seq: 3, createdAt: '2026-10-21T06:00:00.000Z' }),
+        history({
+          seq: 2,
+          error: 'comment rejected',
+          assigneeId: 'user-dev',
+          createdAt: '2026-10-20T06:00:00.000Z',
+        }),
+        history({
+          seq: 1,
+          outcome: 'failed',
+          error: 'Linear said no.',
+          assigneeId: 'user-ana',
+          createdAt: '2026-10-19T06:00:00.000Z',
+        }),
+      ],
+      { today: TODAY, timeZone: 'UTC', names }
+    );
+    const tones = new Map(items.map((item) => [item.label, item.tone]));
+    expect(tones.get('Assigned to Chloe Diaz by the planner')).toBe('success');
+    expect(tones.get('Assigned to Dev Patel by the planner')).toBe('warning');
+    expect(tones.get('Assigning Ana Moreno failed')).toBe('danger');
   });
 });
 

@@ -72,16 +72,15 @@ export default async function RunsPage() {
         ) : (
           <RunActions liveRunsOn={page.liveRunsOn} />
         )}
-        <section className={css.collapse} aria-label="Allocation runs">
+        <section className={css.section} aria-label="Allocation runs">
           <BlockBar
-            index="01"
             title="Allocation runs"
             meta={`Times in ${loaded.settings.timezone}`}
           />
           {page.rows.length === 0 ? (
-            <EmptyState label="No runs">
-              No allocation runs yet. Runs appear here after the scheduled daily
-              run, or when someone starts one with Preview (dry run).
+            <EmptyState label="No runs yet">
+              Runs appear here after the scheduled daily run, or when someone
+              starts one with Preview (dry run).
             </EmptyState>
           ) : (
             <Register
@@ -102,25 +101,30 @@ export default async function RunsPage() {
   );
 }
 
+/* A count cell: tabular, grey while unknown (running) and, for failed
+   writes or blocked projects, red or amber once above zero. */
 function Count({
   label,
   value,
-  accent = false,
+  alert,
 }: {
   label: string;
   value: number | null;
-  accent?: boolean;
+  alert?: 'danger' | 'warning';
 }) {
   return (
     <RegisterCell
       label={label}
-      variant="mono"
       align="end"
       tone={
-        value === null ? 'muted' : accent && value > 0 ? 'accent' : 'default'
+        value === null
+          ? 'muted'
+          : alert !== undefined && value > 0
+            ? alert
+            : 'default'
       }
     >
-      {value ?? '—'}
+      <span className={css.count}>{value ?? '—'}</span>
     </RegisterCell>
   );
 }
@@ -133,17 +137,19 @@ function RunRow({ row }: { row: RunRowModel }) {
         {row.title}
       </RegisterCell>
       <RegisterCell label="Mode">
-        <Chip tone={row.modeTone}>{row.modeLabel}</Chip>
+        <Chip tone={row.modeTone} dot>
+          {row.modeLabel}
+        </Chip>
       </RegisterCell>
       <RegisterCell label="Status">
         <Chip tone={row.statusTone}>{row.statusLabel}</Chip>
       </RegisterCell>
       <Count label="Assigned" value={counts?.assigned ?? null} />
       <Count label="Would assign" value={counts?.wouldAssign ?? null} />
-      <Count label="Failed" value={counts?.failed ?? null} accent />
-      <Count label="Blocked" value={counts?.blocked ?? null} accent />
+      <Count label="Failed" value={counts?.failed ?? null} alert="danger" />
+      <Count label="Blocked" value={counts?.blocked ?? null} alert="warning" />
       <Count label="Skipped" value={counts?.skipped ?? null} />
-      <RegisterCell label="Finished" variant="mono" sub={row.took ?? undefined}>
+      <RegisterCell label="Finished" sub={row.took ?? undefined}>
         {row.finished}
       </RegisterCell>
     </RegisterRow>

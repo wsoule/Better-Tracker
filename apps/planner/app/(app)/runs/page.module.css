@@ -1,11 +1,12 @@
 /* /runs and /runs/[id] page furniture around the package components: the
-   header, the run controls, one block per project, and the cell contents.
-   Built only from the shared tokens. */
+   page head (title, chips, subtitle), the run controls, a section per
+   part (a heading row over its panel or notice), and the cell contents.
+   Built only from the shared tokens, in Gr8r's moves. */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
@@ -15,15 +16,15 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
+  gap: 8px 12px;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
+  color: var(--text);
 }
 
 .chips {
@@ -34,25 +35,40 @@
 
 .receipts {
   max-width: 96ch;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
 }
 
 .body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
   max-width: 1440px;
   margin: 24px auto 0;
   padding: 0 48px 72px;
 }
 
-.body > * + * {
-  margin-top: 24px;
+/* A heading row over its notice, panel and notes. */
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.collapse > * + * {
-  margin-top: -1px;
+.section > :global(.blockBar) {
+  padding-bottom: 0;
 }
 
+/* A plain panel (loading skeletons). */
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+/* The run controls: buttons and one line on what they do, no box. */
 .actions {
   display: flex;
   flex-direction: column;
@@ -64,21 +80,23 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 10px 12px;
-  padding: 12px 18px;
-  border: 1px solid var(--border);
 }
 
 .actionNote {
   flex: 1 1 280px;
   max-width: 80ch;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--text-2);
 }
 
+/* The run's properties in a panel as wide as a settings column. */
 .facts {
-  padding: 6px 18px 10px;
+  max-width: 760px;
+  padding: 4px 16px;
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 .issue {
@@ -88,25 +106,37 @@
   min-width: 0;
 }
 
+/* The issue key is an id: Geist Mono, small and quiet. */
 .issueKey {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
 }
 
 .issueTitle {
   overflow-wrap: anywhere;
 }
 
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
 .blockGaps {
   margin-top: 6px;
   padding-left: 18px;
-  list-style: square;
+  list-style: disc;
 }
 
-/* Loading skeleton: header lines and the controls' height. */
+/* The already-assigned skips: one quiet sentence under the panel. */
+.skipLine {
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* Loading skeleton: header lines. */
 .skeletonHead {
   display: flex;
   flex-direction: column;
@@ -120,16 +150,8 @@
     padding: 0 16px;
   }
 
-  .title {
-    font-size: 22px;
-  }
-
   .body {
     margin-top: 20px;
     padding: 0 16px 48px;
-  }
-
-  .actionBar {
-    padding: 12px 14px;
   }
 }

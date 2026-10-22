@@ -1,165 +1,146 @@
-/* A hairline ledger: a mono date column, then a 1px rail threaded through
-   square marks (the Mark idiom: filled ink, filled accent, hollow grey). */
+/* The history as Gr8r's activity lines: a 22px mark cell (a small round
+   dot, coloured by the line's tone: red a failed write, amber a partial
+   one, the accent something new, a hollow ring for background noise), what
+   happened in the secondary voice with its context under it, and the date
+   right-aligned in the meta voice. */
 
 .list {
   display: flex;
   flex-direction: column;
 }
 
+/* The DOM keeps the date first (it is read first); the grid draws it on
+   the right, like Gr8r's. */
 .item {
-  position: relative;
   display: grid;
-  grid-template-columns: 64px 9px minmax(0, 1fr);
-  column-gap: 14px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-areas: 'mark main at';
+  column-gap: 9px;
   align-items: start;
-  padding-bottom: 14px;
-}
-
-.item:last-child {
-  padding-bottom: 0;
-}
-
-/* The rail: from this mark down to the next one. */
-.item:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  top: 12px;
-  bottom: -5px;
-  left: calc(64px + 14px + 4px);
-  width: 1px;
-  background: var(--grey-3);
+  padding: 5px 0;
 }
 
 .at {
-  padding-top: 3px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  line-height: 1.4;
-  text-transform: uppercase;
-  color: var(--muted);
-  overflow-wrap: anywhere;
+  grid-area: at;
+  padding-top: 1px;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  color: var(--text-3);
+  white-space: nowrap;
 }
 
-/* Sits on the label's first line (13.5px x 1.45). */
+/* Sits on the label's first line (12.5px x 1.5). */
 .mark {
-  position: relative;
-  z-index: 1;
-  width: 9px;
-  height: 9px;
-  margin-top: 5px;
-  border: 1px solid var(--foreground);
-  background: var(--foreground);
+  grid-area: mark;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 19px;
 }
 
-.accent .mark {
-  border-color: var(--accent);
-  background: var(--accent);
+.mark::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--tone, var(--text-4));
 }
 
-.muted .mark {
-  border-color: var(--grey-3);
-  background: var(--background);
+.item[data-tone='default'] .mark::before {
+  background: var(--text-4);
+}
+
+.item[data-tone='muted'] .mark::before {
+  border: 1.5px solid var(--border-strong);
+  background: transparent;
 }
 
 .main {
+  grid-area: main;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-width: 0;
 }
 
 .label {
-  font-size: 13.5px;
-  font-weight: 400;
-  line-height: 1.45;
-  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: 1.5;
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
-.accent .label {
-  color: var(--accent-ink);
-}
-
-.muted .label {
-  color: var(--muted);
+.item[data-tone='muted'] .label {
+  color: var(--text-2);
 }
 
 .detail {
-  font-size: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.45;
-  color: var(--muted);
+  color: var(--text-3);
   overflow-wrap: anywhere;
 }
 
 .link {
-  border-bottom: 1px solid currentcolor;
-  transition: color 0.15s ease;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  transition:
+    color var(--dur) ease,
+    text-decoration-color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .link:hover {
-    color: var(--accent-ink);
+    color: var(--text);
+    text-decoration-color: currentcolor;
   }
 }
 
 .more {
-  margin-top: 12px;
-  margin-left: calc(64px + 14px + 9px + 14px);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--foreground);
-  border-bottom: 1px solid currentcolor;
-  transition: color 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--h-sm);
+  margin-top: 4px;
+  margin-left: 23px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .more:hover {
-    color: var(--accent-ink);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
 .empty {
-  font-size: 13.5px;
+  font-size: var(--fs);
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
+/* A phone: the date drops under the label, so the sentence keeps the
+   width. */
 @media (width <= 640px) {
   .item {
-    grid-template-columns: 9px minmax(0, 1fr);
+    grid-template-columns: 22px minmax(0, 1fr);
     grid-template-areas:
-      'mark at'
-      'mark main';
-    gap: 2px 12px;
+      'mark main'
+      '. at';
+    row-gap: 1px;
   }
 
   .at {
-    grid-area: at;
     padding-top: 0;
-  }
-
-  .mark {
-    grid-area: mark;
-    margin-top: 2px;
-  }
-
-  .main {
-    grid-area: main;
-  }
-
-  .item:not(:last-child)::after {
-    top: 9px;
-    bottom: -2px;
-    left: 4px;
-  }
-
-  .more {
-    margin-left: 21px;
   }
 }
 

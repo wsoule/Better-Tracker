@@ -1,13 +1,15 @@
-/* My week page furniture around the package components: the greeting
-   header, the two-column grid (task table + deadlines/attention), and the
-   "Showing" person picker. Built only from the shared tokens. */
+/* My week page furniture around the package components, in Gr8r's Home
+   layout: the greeting header (page title, a quiet receipts line) with the
+   "Showing" person picker, the stats strip, then two columns (the issue
+   panel; deadlines and attention panels under their section titles).
+   Built only from the shared tokens. */
 
 .head {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px 24px;
+  gap: 12px 24px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
@@ -16,27 +18,27 @@
 .headText {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
 }
 
 .receipts {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
 
 .body {
   max-width: 1440px;
-  margin: 28px auto 0;
+  margin: 20px auto 0;
   padding: 0 48px;
 }
 
@@ -44,14 +46,14 @@
    to the rail, or gone on phones), not the viewport. */
 .columns {
   container-type: inline-size;
-  margin-top: 24px;
+  margin-top: 16px;
 }
 
 .grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 24px;
+  gap: 16px;
 }
 
 /* The table's column header sticks under the shell's topbar. */
@@ -65,7 +67,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 24px;
+  gap: 16px;
   min-width: 0;
 }
 
@@ -83,14 +85,15 @@
   }
 }
 
-.collapse > * + * {
-  margin-top: -1px;
+/* A section title over its panel. */
+.sideSection {
+  min-width: 0;
 }
 
 .picker {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .picker[data-pending] {
@@ -98,12 +101,8 @@
 }
 
 .pickerLabel {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--grey-2-ink);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
 }
 
 .pickerSelect {
@@ -121,16 +120,12 @@
 
 @media (width <= 768px) {
   .head {
-    padding: 0 16px;
     margin-top: 20px;
-  }
-
-  .title {
-    font-size: 22px;
+    padding: 0 16px;
   }
 
   .body {
-    margin-top: 20px;
+    margin-top: 16px;
     padding: 0 16px;
   }
 
@@ -141,5 +136,12 @@
   .pickerSelect {
     flex: 1 1 auto;
     min-width: 0;
+  }
+}
+
+@media (width <= 640px) {
+  .title {
+    font-size: var(--fs-xl);
+    letter-spacing: var(--ls-heading);
   }
 }

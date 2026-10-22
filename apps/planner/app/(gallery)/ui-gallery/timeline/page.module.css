@@ -1,7 +1,8 @@
-/* Gallery-only furniture for /ui-gallery/timeline, from the same tokens. */
+/* Gallery-only furniture for /ui-gallery/timeline, from the same tokens,
+   in the planner's Gr8r look. */
 
 .collapse > * + * {
-  margin-top: -1px;
+  margin-top: 8px;
 }
 
 .barMeta {
@@ -12,69 +13,85 @@
 
 .mono {
   font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--foreground);
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
   overflow-wrap: anywhere;
 }
 
-.search {
+/* The timeline page's small search: a magnifier inside a 26px field. */
+.searchWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   width: 220px;
   max-width: 100%;
-  min-height: 28px;
-  padding: 4px 10px;
 }
 
-/* The Matrix explain-panel idiom at one line: 2px accent rule, mono key. */
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-4);
+  pointer-events: none;
+}
+
+.search {
+  width: 100%;
+  min-height: var(--h-sm);
+  height: var(--h-sm);
+  padding: 0 10px 0 29px;
+  font-size: var(--fs-sm);
+}
+
+/* What the app's drawer would open: a neutral bordered notice line. */
 .opened {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 16px;
-  min-height: 50px;
+  gap: 6px 12px;
+  min-height: 48px;
   margin-top: 16px;
-  padding: 10px 18px;
-  border: 2px solid var(--accent);
+  padding: 8px 8px 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
 }
 
 .openedKey {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .openedName {
-  font-family: var(--font-sans);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
 }
 
 .openedDetail {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .openedIdle {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--grey-2-ink);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
 }
 
 @media (width <= 768px) {
   .opened {
-    padding: 10px 14px;
+    padding: 8px 8px 8px 12px;
   }
 
-  .search {
+  .searchWrap {
     width: 100%;
+  }
+}
+
+/* Phones and touch screens keep 16px fields (iOS zooms into smaller ones). */
+@media (width <= 640px), (pointer: coarse) {
+  .search {
+    height: auto;
+    min-height: var(--h-md);
+    font-size: 16px;
   }
 }

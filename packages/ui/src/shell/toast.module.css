@@ -1,6 +1,8 @@
-/* The toast stack. Boxes are paper with a 1px ink border; an error spends
-   the 2px accent (emphasis is reserved for what needs action). No shadow:
-   the border separates the toast from the page, as on every overlay. */
+/* Gr8r's toasts: an inverted card (--text fill, --text-inv ink) in both
+   themes, 8px radius, the pop shadow, a leading 15px icon (red for an
+   error), the lead-in word in semibold, a soft-wash action and dismiss.
+   A thin line along the bottom counts the auto-dismiss down; it stops
+   while the toast is hovered or focused. */
 
 .viewport {
   position: fixed;
@@ -18,30 +20,34 @@
 }
 
 .toast {
+  /* The icon hue for an inverted surface: the tone pulled toward the
+     toast's own ink, so it reads on a dark toast (light theme) and on a
+     light one (dark theme). */
+  --toast-red: color-mix(in srgb, var(--red) 62%, var(--text-inv));
+
   position: relative;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: baseline;
-  column-gap: 12px;
-  width: min(400px, calc(100vw - 32px));
-  padding: 11px 8px 14px 14px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  width: max-content;
+  max-width: min(400px, calc(100vw - 32px));
+  padding: 8px 8px 8px 12px;
+  overflow: hidden;
+  border-radius: var(--r);
+  background: var(--text);
+  color: var(--text-inv);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  box-shadow: var(--shadow-pop);
   pointer-events: auto;
-  animation: enter 0.32s var(--ease-out-quint) both;
+  animation: toast-in 0.2s var(--spring) both;
 }
 
-/* 2px eats into the padding so an error is the same size as an info. */
-.error {
-  border: 2px solid var(--accent);
-  padding: 10px 7px 13px 13px;
-}
-
-@keyframes enter {
+@keyframes toast-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(14px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -49,80 +55,83 @@
   }
 }
 
-.label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  white-space: nowrap;
+.icon {
+  flex: 0 0 15px;
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  height: 18px;
+  color: color-mix(in srgb, var(--text-inv) 72%, transparent);
 }
 
-.error .label {
-  color: var(--accent-ink);
+.error .icon {
+  color: var(--toast-red);
 }
 
 .message {
-  font-size: 13.5px;
-  line-height: 1.45;
-  font-weight: 400;
-  color: var(--ink-soft);
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-weight: var(--fw-regular);
+  overflow-wrap: anywhere;
+}
+
+.label {
+  margin-right: 2px;
+  font-weight: var(--fw-semibold);
+}
+
+.action,
+.dismiss {
+  flex: 0 0 auto;
+  border-radius: var(--r-chip);
+  color: var(--text-inv);
+  transition: background-color var(--dur) ease;
 }
 
 .action {
-  align-self: center;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-  border-bottom: 1px solid currentColor;
+  padding: 3px 8px;
+  font-weight: var(--fw-semibold);
   white-space: nowrap;
-}
-
-.action:hover,
-.action:focus-visible {
-  color: var(--accent-ink-hover);
+  opacity: 0.92;
 }
 
 .dismiss {
-  align-self: center;
   display: grid;
   place-items: center;
   width: 24px;
   height: 24px;
-  color: var(--muted);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  opacity: 0.6;
+}
+
+.action:focus-visible,
+.dismiss:focus-visible {
+  opacity: 1;
 }
 
 @media (hover: hover) and (width >= 901px) {
+  .action:hover,
   .dismiss:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: color-mix(in srgb, var(--text-inv) 14%, transparent);
+    opacity: 1;
   }
 }
 
-/* The countdown as a drawn rule along the bottom edge; it stops with the
-   timer while the toast is hovered or focused. */
+/* The countdown along the bottom edge. */
 .timer {
   position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 5px;
-  height: 1px;
-  background: var(--grey-3);
+  left: 12px;
+  right: 12px;
+  bottom: 3px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--text-inv) 24%, transparent);
   transform-origin: left center;
   animation: countdown var(--toast-duration, 4000ms) linear both;
 }
 
 .error .timer {
-  left: 13px;
-  right: 13px;
-  bottom: 4px;
-  background: var(--accent);
+  background: color-mix(in srgb, var(--toast-red) 70%, transparent);
 }
 
 .toast[data-paused='true'] .timer {
@@ -138,8 +147,8 @@
   }
 }
 
-/* Phones: bottom-centre, full gutter width, lifted above the shell's tab
-   bar when one is on the page. */
+/* Phones: full gutter width, lifted above the shell's tab bar when one is
+   on the page. */
 @media (width <= 900px) {
   .viewport {
     left: 16px;
@@ -154,6 +163,7 @@
   }
   .toast {
     width: auto;
+    max-width: none;
   }
 }
 
@@ -164,6 +174,7 @@
   .timer {
     display: none;
   }
+  .action,
   .dismiss {
     transition: none;
   }

@@ -1,7 +1,62 @@
-/* The family links are long sentences: let them wrap on a phone instead
-   of running past the frame (.accentLink is nowrap for short links). Two
-   classes so this wins over the global primitive in any sheet order. */
-:global(.accentLink).link {
-  white-space: normal;
+/* The gallery index: the status marks in a soft box, then the families as
+   one Gr8r panel of link rows (title over a quiet line, --divider rules,
+   hover --surface-2). */
+
+.marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.families {
+  margin-top: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.families li + li {
+  border-top: 1px solid var(--divider);
+}
+
+.family {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 16px;
+  transition: background-color var(--dur) ease;
+}
+
+.family:focus-visible {
+  outline-offset: -2px;
+}
+
+.familyTitle {
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  color: var(--accent-ink);
+}
+
+/* Long sentences wrap on a phone instead of running past the frame. */
+.familyBody {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
   overflow-wrap: anywhere;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .family:hover {
+    background: var(--surface-2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .family {
+    transition: none;
+  }
 }

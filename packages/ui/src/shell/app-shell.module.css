@@ -1,13 +1,15 @@
-/* The app frame. Gr8r decides where things go (252px sidebar, 46px topbar,
-   30px nav rhythm, phone drawer + tab bar); Analytics decides how they look
-   (hatched chrome, hairlines, mono labels, ink fill for current, accent
-   flood on hover, registration marks). The page scrolls the document, so
+/* The app frame in Gr8r's two-tone shell: a warm grey 252px sidebar
+   (--bg-side, a --border right edge) beside the white main column, a 46px
+   white topbar with sentence-case crumbs and a recessed search trigger,
+   30px nav rows whose current item is a raised white pill (dark: a
+   --surface-3 fill), and on phones an off-canvas drawer over the --overlay
+   scrim plus a white bottom tab bar. The page scrolls the document, so
    position: sticky keeps working for every page under the topbar. */
 
 .shell {
-  --shell-sidebar-w: 252px;
+  --shell-sidebar-w: var(--side-w);
   --shell-rail-w: 52px;
-  --shell-topbar-h: 46px;
+  --shell-topbar-h: var(--topbar-h);
   --shell-tabbar-h: 56px;
   /* One left edge for crumbs, banner and page blocks: the .block gutter
      (48px, 16px on phones), as Gr8r starts the first crumb on the
@@ -15,15 +17,12 @@
   --shell-gutter: 48px;
   /* .block's scroll-margin clears the topbar instead of the site nav. */
   --nav-h: var(--shell-topbar-h);
-  /* The accent resolved here, so a hover flood can still paint the accent
-     after it locally retints --accent to white for the marks inside. */
-  --shell-flood: var(--accent);
 
   min-height: 100dvh;
 }
 
 /* ============================================================================
-   SIDEBAR: the chrome zone
+   SIDEBAR
    ========================================================================== */
 
 .sidebar {
@@ -36,124 +35,96 @@
   flex-direction: column;
   width: var(--shell-sidebar-w);
   border-right: 1px solid var(--border);
-  background-color: var(--background);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
-  color: var(--foreground);
+  background: var(--bg-side);
+  color: var(--text);
+  user-select: none;
 }
 
 .sidebar:focus {
   outline: none;
 }
 
-/* Registration marks: the vertical arm sits exactly on the 1px right
-   border (right: -6px from the padding box), the horizontal arm on the
-   brand row's bottom line (46px) or the footer's top line. */
-.mark {
-  position: absolute;
-  z-index: 1;
-  width: 11px;
-  height: 11px;
-  pointer-events: none;
-}
-
-.mark::before,
-.mark::after {
-  content: '';
-  position: absolute;
-  background: var(--accent);
-}
-
-.mark::before {
-  left: 0;
-  top: 5px;
-  width: 11px;
-  height: 1px;
-}
-
-.mark::after {
-  top: 0;
-  left: 5px;
-  width: 1px;
-  height: 11px;
-}
-
-.markTop {
-  top: calc(var(--shell-topbar-h) - 6px);
-  right: -6px;
-}
-
-.markBottom {
-  top: -6px;
-  right: -6px;
-}
-
-/* ---- brand row ---------------------------------------------------- */
+/* ---- brand row: Gr8r's workspace switcher ---------------------------- */
 
 .brand {
-  flex: 0 0 var(--shell-topbar-h);
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 10px 0 16px;
-  border-bottom: 1px solid var(--border);
+  gap: 4px;
+  min-height: var(--shell-topbar-h);
+  padding: 8px 8px 4px;
 }
 
 .brandLink {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 6px;
+  border-radius: var(--r-sm);
+  transition: background-color var(--dur) ease;
+}
+
+/* The 22px tile: Gr8r's dark brand square with the product's initials. */
+.logo {
+  flex: 0 0 22px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--text-inv);
+  font-size: 10px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.01em;
+  line-height: 1;
+}
+
+.brandText {
   display: flex;
   flex-direction: column;
-  gap: 4px;
   min-width: 0;
-  font-family: var(--font-mono);
 }
 
-.appName {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
+.appName,
 .workspace {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.14em;
-  line-height: 1;
-  text-transform: uppercase;
-  color: var(--muted);
+}
+
+.appName {
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
+  line-height: 1.25;
+  color: var(--text);
+}
+
+.workspace {
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  color: var(--text-3);
 }
 
 .collapseWrap {
-  margin-left: auto;
+  flex: 0 0 auto;
   display: flex;
 }
 
-/* The 26px square control shared by the brand row and the footer, the
-   same footprint as the theme toggle. */
-.squareButton {
-  flex: 0 0 26px;
+/* Gr8r's small icon button: no box until hover, 6px radius. */
+.iconButton {
+  flex: 0 0 var(--h-sm);
   display: grid;
   place-items: center;
-  width: 26px;
-  height: 26px;
-  border: 1px solid currentColor;
-  color: inherit;
+  width: var(--h-sm);
+  height: var(--h-sm);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .closeButton,
@@ -168,7 +139,7 @@
   min-height: 0;
   overflow: hidden auto;
   overscroll-behavior: contain;
-  padding: 10px 8px 14px;
+  padding: 4px 8px 12px;
   scrollbar-width: none;
 }
 
@@ -185,34 +156,38 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 30px;
+  gap: 9px;
+  height: var(--side-row);
   padding: 0 8px;
-  background: transparent;
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs);
+  font-weight: var(--fw-soft);
   white-space: nowrap;
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
-/* Current = ink fill. Paper and ink swap locally so the icon, count and
-   status mark invert from the same tokens. */
+/* Current: the raised white pill on the grey sidebar (Gr8r). */
 .item[aria-current='page'] {
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --accent-ink: var(--accent-ink-inverse);
-  --accent-ink-hover: var(--accent-ink-inverse);
-  --grey-2-ink: var(--muted-inverse);
-  --border: var(--paper);
-  --muted: var(--muted-inverse);
+  background: var(--surface);
+  color: var(--text);
+  font-weight: var(--fw-medium);
+  box-shadow: var(--shadow-raised);
+}
 
-  background: var(--background);
+/* Dark: a --surface-3 fill, no shadow (Gr8r's dark sidebar). */
+:global([data-theme='dark']) .item[aria-current='page'] {
+  background: var(--surface-3);
+  box-shadow: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :global([data-theme='system']) .item[aria-current='page'] {
+    background: var(--surface-3);
+    box-shadow: none;
+  }
 }
 
 .icon {
@@ -221,17 +196,17 @@
   place-items: center;
   width: 16px;
   height: 16px;
-  color: var(--muted);
+  color: var(--text-4);
+  transition: color var(--dur) ease;
 }
 
 .item[aria-current='page'] .icon {
-  color: inherit;
+  color: var(--text-2);
 }
 
 .icon svg {
   width: 16px;
   height: 16px;
-  stroke-width: 1.5;
 }
 
 .label {
@@ -241,22 +216,32 @@
   text-overflow: ellipsis;
 }
 
+/* Gr8r's .ct: a quiet tabular number on the right. */
 .count {
   flex: 0 0 auto;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
-/* An accent count needs action: an accent chip, square like a Mark. */
-.countAccent {
+/* A toned count is a badge: accent (new, unread) is Gr8r's solid 16px
+   pill; a status tone is its tinted pill. */
+.countBadge {
   display: grid;
   place-items: center;
-  min-width: 18px;
+  min-width: 16px;
   height: 16px;
   padding: 0 4px;
+  border-radius: 8px;
+  background: var(--tone-soft);
+  /* Pulled a step toward --text: the tint sits on the grey sidebar (and
+     its hover fill), not on a white surface, so this keeps 4.5:1. */
+  color: color-mix(in srgb, var(--tone-ink) 80%, var(--text));
+  font-weight: var(--fw-semibold);
+}
+
+.countBadge[data-tone='accent'] {
   background: var(--accent);
   color: var(--on-accent);
 }
@@ -266,10 +251,10 @@
   flex: 0 0 auto;
 }
 
-/* ---- sections (PROJECTS) -------------------------------------------- */
+/* ---- sections (Projects) -------------------------------------------- */
 
 .section {
-  margin-top: 18px;
+  margin-top: 14px;
 }
 
 .sectionHead {
@@ -280,48 +265,34 @@
   padding: 0 8px;
 }
 
+/* Gr8r's sidebar section header: the eyebrow voice. */
 .sectionTitle {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-caps);
+  line-height: 1;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 .sectionAction {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-  border-bottom: 1px solid transparent;
-}
-
-.sectionAction:hover,
-.sectionAction:focus-visible {
-  border-bottom-color: currentColor;
+  padding: 2px 4px;
+  margin-right: -4px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .sectionEmpty {
-  padding: 6px 8px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* Project names are titles: the sans voice, not the machine voice. */
-.sectionItem {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: -0.005em;
-  text-transform: none;
+  padding: 4px 8px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text-3);
 }
 
 /* ---- footer ----------------------------------------------------------- */
@@ -332,16 +303,16 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px;
+  padding: 6px 8px 8px;
   border-top: 1px solid var(--border);
 }
 
 .userRow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 2px 0 0 8px;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 0 0 6px;
 }
 
 .userWrap {
@@ -355,19 +326,24 @@
   align-items: center;
   gap: 9px;
   min-width: 0;
+  border-radius: var(--r-sm);
 }
 
+/* Gr8r's avatar: a 22px circle, pastel neutral fill, a surface ring. */
 .avatar {
   flex: 0 0 22px;
   display: grid;
   place-items: center;
   width: 22px;
   height: 22px;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
+  border-radius: 50%;
+  background: var(--surface-3);
+  box-shadow: 0 0 0 1.5px var(--surface);
+  color: var(--text-2);
+  font-size: 9px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.01em;
+  line-height: 1;
 }
 
 .userName {
@@ -375,26 +351,32 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  color: var(--text);
 }
 
+/* Gr8r's neutral badge ("Guest", "Read only"). */
 .badge {
   flex: 0 0 auto;
-  padding: 3px 5px;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
   border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  line-height: 1.1;
-  text-transform: uppercase;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   margin-left: auto;
 }
 
@@ -413,6 +395,7 @@
   min-width: 0;
   min-height: 100dvh;
   margin-left: var(--shell-sidebar-w);
+  background: var(--surface);
 }
 
 .topbar {
@@ -422,11 +405,11 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   height: var(--shell-topbar-h);
-  padding: 0 14px 0 var(--shell-gutter);
+  padding: 0 12px 0 var(--shell-gutter);
   border-bottom: 1px solid var(--border);
-  background: var(--background);
+  background: var(--surface);
 }
 
 .crumbs {
@@ -436,69 +419,68 @@
 .crumbList {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
   white-space: nowrap;
 }
 
 .crumb {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
+/* No padding or fill: the first crumb starts on the gutter, hover is
+   colour only (Gr8r). */
 .crumbLink {
-  color: var(--muted);
-  border-bottom: 1px solid transparent;
-  transition: color 0.15s ease;
-}
-
-.crumbLink:hover,
-.crumbLink:focus-visible {
-  color: var(--foreground);
-  border-bottom-color: currentColor;
+  padding: 3px 0;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  transition: color var(--dur) ease;
 }
 
 .crumbCurrent {
   overflow: hidden;
   text-overflow: ellipsis;
+  color: var(--text);
+  font-weight: var(--fw-medium);
 }
 
 .sep {
-  color: var(--grey-2);
+  font-size: 12px;
+  color: var(--text-4);
 }
 
 .spacer {
   flex: 1 1 auto;
 }
 
+/* Gr8r's .topsearch: a recessed 26px field with the shortcut on the
+   right. */
 .search {
-  flex: 0 1 300px;
+  flex: 0 1 220px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  height: 30px;
-  padding: 0 6px 0 10px;
+  height: var(--h-sm);
+  padding: 0 4px 0 9px;
   border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease,
-    color 0.15s ease;
+    border-color var(--dur) ease,
+    color var(--dur) ease;
+}
+
+.search svg {
+  flex: 0 0 auto;
 }
 
 .searchLabel {
@@ -509,13 +491,14 @@
 }
 
 .searchKeys {
+  flex: 0 0 auto;
   margin-left: auto;
 }
 
 .topbarActions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .main {
@@ -538,42 +521,39 @@
   display: none;
 }
 
-/* The rail tooltip: an ink slab with a mono label, fixed beside the rail
-   so the sidebar's scroll clipping cannot cut it off. */
+/* The rail tooltip: Gr8r's inverted tip, fixed beside the rail so the
+   sidebar's scroll clipping cannot cut it off. */
 .tip {
   position: fixed;
   left: calc(var(--shell-rail-w) + 8px);
   z-index: 95;
-  padding: 6px 8px;
-  background: var(--foreground);
-  color: var(--background);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  padding: 5px 7px;
+  border-radius: var(--r-chip);
+  background: var(--text);
+  color: var(--text-inv);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
   white-space: nowrap;
   pointer-events: none;
   transform: translateY(-50%);
 }
 
 /* ============================================================================
-   HOVER: full-surface floods, only where hover is real and wide
+   HOVER: soft fills, only where hover is real and wide
    ========================================================================== */
 
 @media (hover: hover) and (width >= 901px) {
-  .item:not([aria-current='page']):hover {
-    --foreground: var(--on-accent);
-    --border: var(--on-accent);
-    --muted: var(--on-accent);
-    --accent: var(--on-accent);
-
-    background: var(--shell-flood);
+  .brandLink:hover,
+  .item:not([aria-current='page']):hover,
+  .iconButton:hover,
+  .tools button:hover {
+    background: var(--surface-3);
+    color: var(--text);
   }
 
-  .item:not([aria-current='page']):hover .countAccent {
-    background: var(--on-accent);
-    color: var(--shell-flood);
+  .item:hover .icon {
+    color: var(--text-2);
   }
 
   .item:hover .hint,
@@ -586,19 +566,29 @@
     display: none;
   }
 
-  .squareButton:hover,
+  .sectionAction:hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
+
+  .crumbLink:hover {
+    color: var(--text);
+  }
+
   .search:hover {
-    border-color: var(--shell-flood);
-    background: var(--shell-flood);
-    color: var(--on-accent);
+    border-color: var(--border-strong);
+    color: var(--text-2);
   }
 }
 
+/* Gr8r drops the label and the shortcut first when the topbar narrows. */
 @media (width <= 1100px) and (width >= 901px) {
   .search {
     flex: 0 0 auto;
+    padding-right: 9px;
   }
-  .searchLabel {
+  .search .searchLabel,
+  .search .searchKeys {
     display: none;
   }
 }
@@ -618,20 +608,22 @@
   }
 
   :global(html[data-shell-collapsed='true']) .brand {
-    justify-content: center;
-    padding: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 6px 4px;
   }
 
   :global(html[data-shell-collapsed='true']) .brandLink {
+    justify-content: center;
+    padding: 5px 0;
+  }
+
+  :global(html[data-shell-collapsed='true']) .brandText {
     display: none;
   }
 
-  :global(html[data-shell-collapsed='true']) .collapseWrap {
-    margin-left: 0;
-  }
-
   :global(html[data-shell-collapsed='true']) .scroll {
-    padding: 10px 6px 14px;
+    padding: 4px 6px 12px;
   }
 
   :global(html[data-shell-collapsed='true']) .item {
@@ -651,21 +643,26 @@
     white-space: nowrap;
   }
 
-  /* A count shrinks to a 5px square beside the icon. */
+  /* A count shrinks to a 6px dot beside the icon (accent for a badge). */
   :global(html[data-shell-collapsed='true']) .count {
     position: absolute;
     top: 6px;
     right: 9px;
-    width: 5px;
+    width: 6px;
     min-width: 0;
-    height: 5px;
+    height: 6px;
     padding: 0;
     overflow: hidden;
-    background: var(--foreground);
+    border-radius: 50%;
+    background: var(--text-4);
     font-size: 0;
   }
 
-  :global(html[data-shell-collapsed='true']) .countAccent {
+  :global(html[data-shell-collapsed='true']) .countBadge {
+    background: var(--tone, var(--text-4));
+  }
+
+  :global(html[data-shell-collapsed='true']) .countBadge[data-tone='accent'] {
     background: var(--accent);
   }
 
@@ -679,17 +676,17 @@
   :global(html[data-shell-collapsed='true']) .section {
     margin-top: 10px;
     padding-top: 10px;
-    border-top: 1px solid var(--hairline-faint);
+    border-top: 1px solid var(--border);
   }
 
   :global(html[data-shell-collapsed='true']) .footer {
     align-items: stretch;
-    padding: 8px 6px;
+    padding: 6px 6px 8px;
   }
 
   :global(html[data-shell-collapsed='true']) .userRow {
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
     padding: 4px 0 2px;
   }
 
@@ -699,7 +696,7 @@
 
   :global(html[data-shell-collapsed='true']) .tools {
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
     margin-left: 0;
   }
 }
@@ -710,20 +707,21 @@
 
 @media (width <= 900px) {
   .sidebar {
-    z-index: 60;
-    width: min(300px, 86vw);
+    z-index: 70;
+    width: min(280px, 86vw);
     visibility: hidden;
     transform: translateX(-100%);
     transition:
-      transform 0.42s var(--ease-out-quint),
-      visibility 0s linear 0.42s;
+      transform 0.22s var(--ease),
+      visibility 0s linear 0.22s;
   }
 
   .shell[data-drawer='open'] .sidebar {
     visibility: visible;
     transform: none;
+    box-shadow: var(--shadow-pop);
     transition:
-      transform 0.42s var(--ease-out-quint),
+      transform 0.22s var(--ease),
       visibility 0s;
   }
 
@@ -736,23 +734,21 @@
     flex-basis: 40px;
     width: 40px;
     height: 40px;
-    margin-left: auto;
-    border-color: transparent;
   }
 
   .item {
-    height: 40px;
+    height: var(--h-lg);
   }
 
   .scrim {
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 55;
-    background: color-mix(in srgb, var(--ink) 35%, transparent);
+    z-index: 69;
+    background: var(--overlay);
     opacity: 0;
     pointer-events: none;
-    transition: opacity 0.3s ease;
+    transition: opacity 0.14s ease;
   }
 
   .shell[data-drawer='open'] .scrim {
@@ -766,7 +762,7 @@
 
   .topbar {
     gap: 4px;
-    padding: 0 4px;
+    padding: 0 6px 0 4px;
   }
 
   .menuButton {
@@ -774,9 +770,9 @@
     flex-basis: 40px;
     width: 40px;
     height: 40px;
-    border-color: transparent;
   }
 
+  /* An icon button at 40px (Gr8r's minimum topbar tap target). */
   .search {
     flex: 0 0 40px;
     justify-content: center;
@@ -784,7 +780,13 @@
     height: 40px;
     padding: 0;
     border-color: transparent;
-    color: var(--foreground);
+    background: transparent;
+    color: var(--text-2);
+  }
+
+  .search svg {
+    width: 19px;
+    height: 19px;
   }
 
   /* Doubled class: beats the Kbd module's own display rule. */
@@ -797,8 +799,8 @@
     padding-top: 12px;
   }
 
-  /* The tab bar is chrome too: hatched, hairline-ruled cells, current =
-     ink fill (the competitors-site tab strip turned into a dock). */
+  /* Gr8r's bottom nav: a white bar on a --border rule; idle cells
+     --text-3, the current one --text. */
   .tabbar {
     display: block;
     position: fixed;
@@ -806,17 +808,9 @@
     bottom: 0;
     left: 0;
     z-index: 45;
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding: 4px 6px env(safe-area-inset-bottom, 0);
     border-top: 1px solid var(--border);
-    background-color: var(--background);
-    background-image: repeating-linear-gradient(
-      45deg,
-      var(--hatch) 0,
-      var(--hatch) 1px,
-      transparent 1px,
-      transparent 9px
-    );
-    color: var(--foreground);
+    background: var(--surface);
   }
 
   .tabList {
@@ -824,49 +818,37 @@
     grid-template-columns: repeat(var(--tab-count, 5), minmax(0, 1fr));
   }
 
-  .tabList > li + li {
-    border-left: 1px solid var(--border);
-  }
-
   .tab {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 2px;
     width: 100%;
-    height: var(--shell-tabbar-h);
-    background: transparent;
-    color: var(--foreground);
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
+    height: calc(var(--shell-tabbar-h) - 8px);
+    border-radius: var(--r-sm);
+    color: var(--text-3);
+    font-size: var(--fs-2xs);
+    font-weight: var(--fw-medium);
+    line-height: 1.2;
+    transition: color var(--dur) ease;
   }
 
   .tab[aria-current='page'],
   .tab[aria-expanded='true'] {
-    --background: var(--ink);
-    --foreground: var(--paper);
-    --accent-ink: var(--accent-ink-inverse);
-    --accent-ink-hover: var(--accent-ink-inverse);
-    --grey-2-ink: var(--muted-inverse);
-
-    background: var(--background);
+    color: var(--text);
   }
 
   .tabIcon {
     display: grid;
     place-items: center;
-    width: 16px;
-    height: 16px;
+    width: 19px;
+    height: 19px;
   }
 
   .tabIcon svg {
-    width: 16px;
-    height: 16px;
-    stroke-width: 1.5;
+    width: 19px;
+    height: 19px;
   }
 
   .tabLabel {
@@ -890,13 +872,18 @@
   }
 }
 
+/* Gr8r's phone topbar is 50px and shows only the current crumb. */
 @media (width <= 640px) {
+  .shell {
+    --shell-topbar-h: 50px;
+  }
   .crumb:not(:last-child),
   .crumb:last-child .sep {
     display: none;
   }
   .crumbList {
     padding-left: 4px;
+    font-size: var(--fs);
   }
 }
 
@@ -904,10 +891,14 @@
   .sidebar,
   .shell[data-drawer='open'] .sidebar,
   .scrim,
+  .brandLink,
   .item,
-  .squareButton,
+  .icon,
+  .iconButton,
+  .sectionAction,
   .search,
-  .crumbLink {
+  .crumbLink,
+  .tab {
     transition: none;
   }
 }

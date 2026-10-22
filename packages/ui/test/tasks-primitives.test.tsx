@@ -1,5 +1,7 @@
 import { cleanup, fireEvent, render } from '@testing-library/react';
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   Button,
@@ -38,6 +40,23 @@ describe('Button', () => {
     expect(button.getAttribute('type')).toBe('button');
     fireEvent.click(button);
     expect(onClick).not.toHaveBeenCalled();
+  });
+
+  // CSS modules are empty objects under Bun, so the size is pinned in the
+  // sheet: lg is Gr8r's 36px button, block stretches it across a card.
+  test('comes in a large, full-width size', () => {
+    const { getByRole } = render(
+      <Button variant="primary" size="lg" block>
+        Sign in with Linear
+      </Button>
+    );
+    expect(getByRole('button', { name: 'Sign in with Linear' })).toBeTruthy();
+    const css = readFileSync(
+      path.join(import.meta.dir, '..', 'src', 'tasks', 'button.module.css'),
+      'utf8'
+    );
+    expect(css).toMatch(/\.lg \{[^}]*min-height: var\(--h-lg\);/);
+    expect(css).toMatch(/\.block \{[^}]*width: 100%;/);
   });
 
   test('with href renders through the host link', () => {
@@ -169,6 +188,20 @@ describe('Switch', () => {
     expect((locked as HTMLButtonElement).disabled).toBe(true);
     expect(locked.getAttribute('aria-checked')).toBe('true');
   });
+
+  // Two "Live" switches in one settings list must not share a name: the
+  // host names each by its row, keeping the visible word inside.
+  test('takes an accessible name from aria-label or aria-labelledby', () => {
+    const { getByRole } = render(
+      <>
+        <Switch label="Live" aria-label="Allocation live" />
+        <p id="warnings-title">Warnings</p>
+        <Switch label="Live" aria-labelledby="warnings-title" />
+      </>
+    );
+    expect(getByRole('switch', { name: 'Allocation live' })).toBeTruthy();
+    expect(getByRole('switch', { name: 'Warnings' })).toBeTruthy();
+  });
 });
 
 describe('ProgressRule', () => {
@@ -236,15 +269,17 @@ describe('Notice and EmptyState', () => {
     expect(box?.classList.contains('hatched')).toBe(true);
   });
 
-  test('EmptyState puts an optional mono key above the sentence', () => {
+  test('EmptyState puts an optional title above the sentence', () => {
     const { getByText } = render(
       <EmptyState label="No runs">
         No allocation runs yet. Runs appear here after the daily run.
       </EmptyState>
     );
     const key = getByText('No runs');
-    expect(key.classList.contains('label')).toBe(true);
-    // One paragraph: the key, then the sentence (not in the mono label).
+    // Not the global .label (12px grey): it has the module's specificity
+    // and, loaded later, beat the title's own 14.5px semibold.
+    expect(key.classList.contains('label')).toBe(false);
+    // One paragraph: the title, then the sentence.
     expect(key.parentElement?.textContent).toBe(
       'No runsNo allocation runs yet. Runs appear here after the daily run.'
     );

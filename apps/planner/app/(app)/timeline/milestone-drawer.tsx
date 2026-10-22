@@ -12,9 +12,10 @@ import {
   SlideOver,
   StateGlyph,
   StatusMark,
+  type UiTone,
   useToast,
 } from '@better-tracker/ui';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, Link2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
   type FormEvent,
@@ -108,8 +109,8 @@ function useSave(): {
   return { busy, save };
 }
 
-/* The milestone slide-over (architecture §8.3): PROJECT / MILESTONE crumb
-   with Open in Linear and Copy link, the overdue strip, the property list
+/* The milestone slide-over (architecture §8.3): Project / Milestone crumb
+   with Open in Linear and Copy link, the overdue alert, the property list
    (weight and "done means…" editable by everyone, date and lead with
    Linear write access), the rubric checklist, the issues with
    their blockers, and what the milestone waits on. While the server loads
@@ -192,7 +193,12 @@ export default function MilestoneDrawer({
             >
               Open in Linear
             </Button>
-            <Button size="sm" variant="quiet" onClick={() => void copyLink()}>
+            <Button
+              size="sm"
+              variant="quiet"
+              icon={<Link2 size={14} strokeWidth={1.8} />}
+              onClick={() => void copyLink()}
+            >
               Copy link
             </Button>
           </>
@@ -248,7 +254,12 @@ function DrawerBody({
             muted={model.muted}
           />
           {model.status.lines.length > 0 ? (
-            <span className={model.muted ? css.note : css.reasons}>
+            // Risk reasons and the missing input: the warning tone, except
+            // in an inactive project (never loud).
+            <span
+              className={css.note}
+              data-tone={model.muted ? 'default' : 'warning'}
+            >
               {model.status.lines.join(' · ')}
             </span>
           ) : null}
@@ -278,7 +289,7 @@ function DrawerBody({
           }
         />
       ) : (
-        <span className={model.due.tone === 'accent' ? css.accent : undefined}>
+        <span className={css.toned} data-tone={model.due.tone}>
           {model.due.label}
         </span>
       ),
@@ -358,11 +369,7 @@ function DrawerBody({
         ) : (
           <span className={css.stack}>
             <span>{model.next.value}</span>
-            <span
-              className={
-                model.next.tone === 'accent' ? css.accentNote : css.note
-              }
-            >
+            <span className={css.note} data-tone={model.next.tone}>
               {model.next.note}
             </span>
           </span>
@@ -399,6 +406,7 @@ function DrawerBody({
         <div className={css.alert}>
           <AlertStrip
             label="Overdue"
+            tone="danger"
             action={
               permissions.canEditLinear
                 ? {
@@ -438,7 +446,13 @@ function DrawerBody({
         </p>
       )}
 
-      <h3 className={css.subhead}>Checklist</h3>
+      <h3 className={css.subhead}>
+        Checklist
+        <span className={css.subheadMeta}>
+          {model.rubric.filter((item) => item.met).length}/{model.rubric.length}{' '}
+          met
+        </span>
+      </h3>
       <Checklist label="Milestone rubric" items={model.rubric} />
 
       <h3 className={css.subhead}>
@@ -504,9 +518,10 @@ function isPlainClick(event: MouseEvent): boolean {
 }
 
 /** One issue of the milestone: the row opens the issue in this panel
-    (§8.5), its ↗ the issue in Linear. `quiet` (an inactive project, §2.8)
-    keeps "Unassigned" and "Blocked by" out of the accent: nothing there is
-    allocated or warned about while the project is paused. */
+    (§8.5), its ↗ the issue in Linear. "Unassigned" (open) and "Blocked by"
+    are in the warning tone; `quiet` (an inactive project, §2.8) keeps them
+    neutral: nothing there is allocated or warned about while the project
+    is paused. */
 function IssueRow({
   issue,
   quiet,
@@ -545,16 +560,20 @@ function IssueRow({
             {issue.state}
           </span>
           <span
-            className={
+            className={css.toned}
+            data-tone={
               issue.assignee === null && issue.open && !quiet
-                ? css.accent
-                : undefined
+                ? 'warning'
+                : 'default'
             }
           >
             {issue.assignee ?? 'Unassigned'}
           </span>
           {issue.blockedBy.length > 0 ? (
-            <span className={quiet ? undefined : css.accent}>
+            <span
+              className={css.toned}
+              data-tone={quiet ? 'default' : 'warning'}
+            >
               Blocked by {issue.blockedBy.join(', ')}
             </span>
           ) : null}
@@ -569,22 +588,31 @@ function IssueRow({
           aria-label={`Open ${issue.key} in Linear`}
           title={`Open ${issue.key} in Linear`}
         >
-          <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
+          <ArrowUpRight size={14} strokeWidth={1.8} aria-hidden="true" />
         </a>
       ) : null}
     </li>
   );
 }
 
+// The lead as plain text: "No lead" and a deactivated lead's note in the
+// warning tone (allocation is blocked, §8.2); quiet in an inactive project.
 function LeadText({ model }: { model: MilestoneDrawerModel }) {
+  const tone = model.muted ? 'default' : 'warning';
   if (model.lead.name === null) {
-    return <span className={css.accentMono}>No lead</span>;
+    return (
+      <span className={css.toned} data-tone={tone}>
+        No lead
+      </span>
+    );
   }
   return (
     <span className={css.stack}>
       <span>{model.lead.name}</span>
       {model.lead.note === null ? null : (
-        <span className={css.accentNote}>{model.lead.note}</span>
+        <span className={css.note} data-tone={tone}>
+          {model.lead.note}
+        </span>
       )}
     </span>
   );
@@ -600,7 +628,7 @@ function DueDateField({
 }: {
   value: string | null;
   label: string;
-  tone: 'default' | 'muted' | 'accent';
+  tone: UiTone;
   inputRef: RefObject<HTMLInputElement | null>;
   busy: boolean;
   onSave: (next: string | null) => Promise<boolean>;
@@ -631,7 +659,7 @@ function DueDateField({
               : 'Save'}
         </Button>
       </span>
-      <span className={tone === 'accent' ? css.accentNote : css.note}>
+      <span className={css.note} data-tone={tone}>
         {label}
       </span>
     </form>
@@ -651,6 +679,11 @@ function LeadField({
   const [draft, setDraft] = useState(current);
   const selectId = useId();
   const unchanged = draft === current;
+  // No lead, or a lead Linear deactivated, blocks allocation (§8.2).
+  const tone =
+    model.muted || (current !== '' && model.lead.note === null)
+      ? 'default'
+      : 'warning';
   const name =
     model.leadOptions.find((option) => option.id === draft)?.label ?? '';
   function submit(event: FormEvent) {
@@ -665,7 +698,8 @@ function LeadField({
         </label>
         <select
           id={selectId}
-          className={`select ${css.leadSelect} ${current === '' ? css.selectAccent : ''}`}
+          className={`select ${css.leadSelect}`}
+          data-tone={current === '' && !model.muted ? 'warning' : undefined}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         >
@@ -684,11 +718,7 @@ function LeadField({
           {busy ? 'Saving' : 'Save'}
         </Button>
       </span>
-      <span
-        className={
-          current === '' || model.lead.note !== null ? css.accentNote : css.note
-        }
-      >
+      <span className={css.note} data-tone={tone}>
         {current === ''
           ? 'No lead: nothing in this project is allocated.'
           : (model.lead.note ?? `Project lead of ${model.projectName}`)}
@@ -701,7 +731,14 @@ function LeadField({
 // and where it comes from, or that it is missing.
 function DoneMeansText({ model }: { model: MilestoneDrawerModel }) {
   if (model.doneMeans.text === null) {
-    return <span className={css.accentMono}>Not set</span>;
+    return (
+      <span
+        className={css.toned}
+        data-tone={model.muted ? 'default' : 'warning'}
+      >
+        Not set
+      </span>
+    );
   }
   return (
     <span className={css.stack}>
@@ -857,7 +894,11 @@ function DoneMeansField({
               ? 'Clear'
               : 'Save'}
         </Button>
-        <span className={over ? css.accentNote : css.note} aria-live="polite">
+        <span
+          className={css.note}
+          data-tone={over ? 'danger' : 'default'}
+          aria-live="polite"
+        >
           {count}/{max}
           {model.doneMeans.sourceLabel === 'Written in the planner'
             ? ' · written in the planner'

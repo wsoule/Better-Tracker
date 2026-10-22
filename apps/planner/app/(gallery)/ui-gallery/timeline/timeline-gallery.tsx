@@ -11,6 +11,7 @@ import {
   UiLinkProvider,
   type UiLinkProps,
 } from '@better-tracker/ui';
+import { Search } from 'lucide-react';
 import {
   createContext,
   type ReactNode,
@@ -115,7 +116,6 @@ export default function TimelineGallery({
         <main className="page">
           <div className="block">
             <BlockBar
-              index="00"
               title="UI gallery · timeline"
               meta={
                 <span className={css.barMeta}>
@@ -142,7 +142,6 @@ export default function TimelineGallery({
 
           <div className="block">
             <BlockBar
-              index="01"
               title="Timeline"
               meta="Wed 21 Oct 2026 · 8 projects · 3 initiatives"
             />
@@ -161,14 +160,22 @@ export default function TimelineGallery({
               onRedate={onRedate}
               maxHeight="calc(100vh - 120px)"
               toolbarStart={
-                <input
-                  className={`input ${css.search}`}
-                  type="search"
-                  placeholder="Search projects"
-                  aria-label="Search projects"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
+                <span className={css.searchWrap}>
+                  <Search
+                    className={css.searchIcon}
+                    size={13}
+                    strokeWidth={1.8}
+                    aria-hidden="true"
+                  />
+                  <input
+                    className={`input ${css.search}`}
+                    type="search"
+                    placeholder="Search projects"
+                    aria-label="Search projects"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                </span>
               }
               toolbarEnd={
                 <Switch
@@ -209,7 +216,6 @@ export default function TimelineGallery({
 
           <div className="block">
             <BlockBar
-              index="02"
               title="Read-only · focused lane"
               meta="no onRedate · months · ?project=p-cobalt"
             />
@@ -230,7 +236,7 @@ export default function TimelineGallery({
           </div>
 
           <div className="block">
-            <BlockBar index="03" title="Empty" meta="groups: []" />
+            <BlockBar title="Empty" meta="groups: []" />
             <TimelineChart
               today={TODAY}
               windowStart={WINDOW_START}

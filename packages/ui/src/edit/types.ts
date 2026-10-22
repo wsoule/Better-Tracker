@@ -29,13 +29,16 @@ export type ErrorFormatter = (error: unknown) => string;
 /**
  * The leading mark of a picker option (and of the trigger showing it). The
  * marks are the system's own glyphs; `swatch` is the one place a colour
- * from data is drawn (a label's colour, as a small square), and only a hex
- * colour is accepted — anything else draws a hollow square.
+ * from data is drawn (a label's colour, as a small rounded square, which
+ * also tints the label's chip on the trigger), and only a hex colour is
+ * accepted — anything else draws a hollow square.
  */
 export type PickerMark =
   | { kind: 'state'; state: TaskStateKind }
   | { kind: 'priority'; priority: TaskPriority }
-  /** Square initials ("Ana Moreno" → AM), in ink, never a hashed hue. */
+  /** A round avatar with initials ("Ana Moreno" → AM) on a pastel tint of
+      a hue picked from the name; a blank name draws the dashed empty
+      avatar (nobody). */
   | { kind: 'avatar'; name: string }
   | { kind: 'status'; status: UiStatus; label: string; muted?: boolean }
   /** `#rgb`, `#rrggbb` or `#rrggbbaa`. */
@@ -48,7 +51,7 @@ export interface PickerOption {
   value: string;
   /** Printed, and matched by the search box. */
   label: string;
-  /** Muted mono text after the label (a key, a date); matched too. */
+  /** Quiet text after the label (a handle, a date, a key); matched too. */
   hint?: string;
   /** Extra words the search matches but never prints (an email, an alias). */
   keywords?: readonly string[];
@@ -61,17 +64,18 @@ export interface PickerOption {
 }
 
 /**
- * How the trigger is drawn. value = the property sheet's reading voice
- * (a value that frames itself on hover); mono = the status line's mono
- * uppercase voice; quiet = a bare mono action ("+ Add").
+ * How the trigger is drawn. value = the property sheet's voice (the value
+ * as text, a --surface-2 pill on hover, Gr8r's .pillbtn); pill = a
+ * bordered pill (the status line's state); quiet = a small ghost button
+ * ("+ Add"). `mono` is the old name of `pill` and draws the same.
  */
-export type PickerAppearance = 'value' | 'mono' | 'quiet';
+export type PickerAppearance = 'value' | 'pill' | 'mono' | 'quiet';
 
 /** Wording of every built-in label in the edit family. */
 export interface EditLabels {
   /** Pending note ("Saving"). */
   saving: string;
-  /** Mono key of the inline save error ("Not saved"). */
+  /** Lead-in of the inline save error ("Not saved"). */
   notSaved: string;
   /** Message when a rejection carries none. */
   saveFailed: string;
@@ -80,7 +84,7 @@ export interface EditLabels {
   noMatch: string;
   /** Picker row while options load. */
   loading: string;
-  /** Mono key of a picker's options error. */
+  /** Lead-in of a picker's options error. */
   error: string;
   retry: string;
   /** Accessible name of the popover's close button. */
@@ -113,7 +117,9 @@ interface PickerBaseProps {
   options: readonly PickerOption[];
   /** Trigger face when nothing is chosen ("Unassigned"). */
   placeholder?: string;
-  /** accent = needs action ("Unassigned"); muted (default) = quiet. */
+  /** The empty face's tone: warning when the empty value needs action
+      ("Unassigned" on an open issue), muted (default) = quiet, default =
+      plain text (docs/architecture.md §8.2). */
   placeholderTone?: UiTone;
   /** The search box's placeholder ("Assign to…"). */
   searchPlaceholder?: string;
@@ -238,7 +244,8 @@ export interface PriorityPickerProps extends PickerPresetBaseProps {
 export interface LabelChoice {
   id: string;
   name: string;
-  /** The tracker's colour, drawn only as the option's small square. */
+  /** The tracker's colour (hex): the option's small square and a faint
+      tint of the label's chip. */
   color?: string;
   /** The label's group: its heading, and singleSelect groups allow one
       label at a time (picking another replaces it). */

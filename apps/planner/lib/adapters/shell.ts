@@ -17,7 +17,7 @@ import type { ReadOnlyReasonCopy } from '../read-only';
 import { assessmentMark, statusLabel, uiStatus } from './status';
 
 // The app frame's core → ui mapping (architecture §8.3): the sidebar's
-// PROJECTS section and My week count, the topbar breadcrumb, and the
+// Projects section and My week count, the topbar breadcrumb, and the
 // command palette's "Jump to" index. Pure functions over engine view
 // models; the layout (server) and PlannerShell (client) stay thin.
 
@@ -211,7 +211,8 @@ export function laneNextMilestone(lane: TimelineLane): TimelineBar | null {
 
 /**
  * The sidebar mark for a project: its next milestone's mark (rubric gaps
- * hatch an on-track one, via the status adapter). Without a next
+ * turn an on-track one into "missing input", via the status adapter).
+ * Without a next
  * milestone every milestone is complete, or there are none, which is a
  * missing input.
  */
@@ -237,7 +238,7 @@ function milestoneHref(milestoneId: string): string {
 }
 
 /**
- * The sidebar PROJECTS list: active projects (the ones allocation and
+ * The sidebar Projects list: active projects (the ones allocation and
  * warnings apply to) in timeline order, each marked with its next
  * milestone's status. `current` is left to the client, which knows the URL.
  */

@@ -23,7 +23,7 @@ export function SavingAnnouncement({
   );
 }
 
-/** The mono "Saving" note shown beside a value while its save runs. The
+/** The quiet "Saving" note shown beside a value while its save runs. The
     live region above speaks it, so this one is hidden from assistive
     tech. */
 export function PendingNote({ text }: { text: string }): ReactNode {
@@ -34,7 +34,7 @@ export function PendingNote({ text }: { text: string }): ReactNode {
   );
 }
 
-/** The inline error of a rejected save: an accent mono key ("Not saved")
+/** The inline error of a rejected save: a red lead-in ("Not saved")
     and the message, announced as an alert when it appears. */
 export function SaveErrorLine({
   label,

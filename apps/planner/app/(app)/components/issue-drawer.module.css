@@ -1,45 +1,41 @@
 /* The issue slide-over's own pieces: the "Back to <milestone>" crumb in
-   the drawer bar (the mono trail of TaskCrumbs, with a button first) and
-   the padding of its loading and not-found states. */
+   the drawer bar (TaskCrumbs' trail, with a back button first) and the
+   padding of its loading and not-found states. */
 
 .crumb {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
 }
 
+/* Gr8r's crumb pill: the text with a --surface-2 fill on hover. */
 .back {
   display: inline-flex;
   flex: 0 1 auto;
-  gap: 4px;
+  gap: 3px;
   align-items: center;
   min-width: 0;
-  padding: 0;
+  min-height: var(--h-sm);
+  margin-left: -6px;
+  padding: 0 6px 0 3px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: none;
   font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
   color: inherit;
   cursor: pointer;
-  background: none;
-  border: 0;
-  transition: color 0.15s ease;
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .back svg {
   flex: none;
-  align-self: center;
-}
-
-.back:focus-visible {
-  color: var(--accent-ink);
+  color: var(--text-3);
 }
 
 .backLabel {
@@ -50,13 +46,16 @@
 
 .sep {
   flex: none;
-  margin: 0 8px;
-  color: var(--grey-2);
+  margin: 0 7px 0 4px;
+  color: var(--text-4);
 }
 
+/* The issue key: the mono id voice. */
 .key {
   flex: none;
-  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
 }
 
 .state {
@@ -65,7 +64,8 @@
 
 @media (hover: hover) and (width >= 901px) {
   .back:hover {
-    color: var(--accent-ink);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 

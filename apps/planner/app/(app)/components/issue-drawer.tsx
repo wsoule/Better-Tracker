@@ -133,7 +133,7 @@ export interface IssueDrawerBack {
   onBack: () => void;
 }
 
-// The breadcrumb with a Back button first: "‹ DUAL-WRITE / ENG-24".
+// The breadcrumb with a Back button first: "‹ Dual-write / ENG-24".
 function BackCrumb({
   back,
   taskKey,
@@ -149,7 +149,7 @@ function BackCrumb({
         onClick={back.onBack}
         title={`Back to ${back.label}`}
       >
-        <ChevronLeft size={12} strokeWidth={1.5} aria-hidden="true" />
+        <ChevronLeft size={14} strokeWidth={1.8} aria-hidden="true" />
         <span className="srOnly">Back to </span>
         <span className={css.backLabel}>{back.label}</span>
       </button>

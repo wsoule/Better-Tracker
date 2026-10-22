@@ -1,11 +1,13 @@
 # @better-tracker/ui
 
-React components for the Milestone Planner's task UI: Gr8r Studio layout
-(sidebar shell, command palette, grouped task lists, Gantt timeline, slide-over
-drawer) in the Analytics `competitors-site` visual language (paper and ink, one
-purple accent `#9747ff`, 1px hairlines, mono labels, no radius, no shadows). The
-planner (Next.js) uses it today; it is written to be adopted by the Dispatch
-desktop app (Vite + Tauri) as well.
+React components for the Milestone Planner's task UI in Gr8r Studio's layout and
+look (sidebar shell, command palette, grouped task lists, Gantt timeline,
+slide-over drawer; warm neutral surfaces, soft borders, radius, soft shadows on
+floating things, tinted semantic status colours, sentence-case Geist), with one
+purple accent `#9747ff` for primary actions, focus, selection and progress
+(`docs/architecture.md` §8.2 has the rules). The planner (Next.js) uses it
+today; it is written to be adopted by the Dispatch desktop app (Vite + Tauri) as
+well.
 
 The package has no framework or domain coupling: no `next/*`, no
 `@better-tracker/*` imports, no `process.env`, and no `window`/`document` read
@@ -97,14 +99,23 @@ import './styles/global.css'; // the host's
 import '@better-tracker/ui/styles.css';
 ```
 
-`styles.css` holds the design tokens (`--paper`, `--ink`, `--background`,
-`--foreground`, `--border`, `--muted`, `--accent`, `--accent-hover`,
-`--on-accent`, `--accent-ink`, `--accent-ink-hover`, `--accent-ink-inverse`,
-`--ink-soft`, `--grey-2..4`, `--grey-2-ink`, `--hairline-faint`, `--hatch`,
-`--tint`, the `*-inverse` set, `--font-sans`, `--font-mono`, the easing curves),
-a small reset, and the shared classes the components use by name (`.block`,
-`.blockBar`, `.blockKey`, `.blockTitle`, `.blockMeta`, `.srOnly`, `.skipLink`,
-`.page`, `.key`, `.label`, `.muted`, `.mono`, `.accentLink`, `.button`,
+`styles.css` holds the design tokens (surfaces `--bg`, `--bg-side`, `--surface`,
+`--surface-2`, `--surface-3`, `--sunken`, `--overlay`; lines `--divider`,
+`--border`, `--border-strong`; text `--text` … `--text-4`, `--text-inv`; the
+accent `--accent`, `--on-accent`, `--accent-ink`, `--accent-ink-hover`,
+`--accent-soft`, `--accent-line`, `--accent-hover`, `--accent-active`; semantic
+`--red`, `--amber`, `--green`, `--blue` with their `-soft` and `-line` tints,
+`--on-danger`; categorical hues; workflow `--st-*`; `--shadow-*`; `--r-*`;
+`--s-*`, `--gutter`; `--font-sans`, `--font-mono`, `--fs-*`, `--fw-*`, `--lh*`,
+`--ls-*`; `--h-*` and other sizes; `--ease`, `--spring`, `--ease-drawer`,
+`--dur`; plus the pre-Gr8r names `--paper`, `--ink`, `--background`,
+`--foreground`, `--muted`, `--grey-*`, `--tint`, `--hairline-faint` … kept as
+aliases only for the graph's older drawing, which has not been restyled yet), a
+small reset (body, focus ring, selection, scrollbars), the `[data-tone]`
+variables (`--tone`, `--tone-ink`, `--tone-soft`, `--tone-line`) and the shared
+classes the components use by name (`.block`, `.blockBar`, `.blockKey`,
+`.blockTitle`, `.blockMeta`, `.srOnly`, `.skipLink`, `.page`, `.key`, `.label`,
+`.eyebrow`, `.muted`, `.faint`, `.mono`, `.num`, `.accentLink`, `.button`,
 `.buttonPrimary`, `.input`, `.select`, `.textarea`, `.notice`, `.hatched`,
 `.empty`). Everything else is in CSS modules.
 
@@ -121,7 +132,7 @@ Page mode would take over a host such as Dispatch: both define `--accent`,
 `--font-sans`, `--font-mono` and `--ease-out-expo` on `:root`; Dispatch's
 Tailwind `block` utility class would get `.block`'s 1440px max-width, 40px
 margin and 48px padding; and the unlayered reset
-(`button { padding: 0; background: none; border-radius: 0 }`,
+(`button { padding: 0; background: none; border: 0 }`,
 `ul { list-style: none }`, `svg { display: block }`) beats Tailwind's layered
 utilities on every host element.
 
@@ -139,8 +150,8 @@ Opt out of page mode with two attributes:
 
 With `data-bt-ui-scoped` on `<html>`, the tokens are declared on each
 `[data-bt-ui]` element only, and the reset and shared classes apply only inside
-it. The wrapper also takes the paper colour, ink and body font. The host's
-`:root` tokens, `<body>` and its own elements are untouched. Caveats:
+it. The wrapper also takes the surface colour, text colour and body font. The
+host's `:root` tokens, `<body>` and its own elements are untouched. Caveats:
 
 - Host content passed into a component (a `ReactNode` prop such as
   `titleControl`, `sectionMeta`, `toolbarEnd`) renders inside the wrapper, so it
@@ -150,13 +161,16 @@ it. The wrapper also takes the paper colour, ink and body font. The host's
   stay DOM children of the wrapper, so they keep its tokens. Nothing is
   portalled to `<body>`.
 
-Colour jobs: `--accent` is the purple for fills, marks, rules and outlines (one
-value in both themes). Purple **text** uses `--accent-ink` (a lighter purple in
-dark, where `#9747ff` is only 4.25:1 on the paper), `--accent-ink-hover` when
-hovered or focused, and `--accent-ink-inverse` on a `--foreground` hover flood;
-dim grey text uses `--grey-2-ink` (`--grey-2` is 3.2:1 on white, so it stays for
-separators, furniture and disabled controls). A component that floods a row with
-ink swaps these along with `--background` and `--foreground`:
+Colour jobs: `--accent` is the purple for fills, focus rings and selection (one
+value in both themes); it never means a status. Purple **text** uses
+`--accent-ink` (darker in light, lighter in dark, so it reads 4.5:1 on every
+surface and on `--accent-soft`) and `--accent-ink-hover`. Status and risk use
+the semantic hues (`--red`, `--amber`, `--green`, `--blue`), which are text-safe
+on every surface and on their own `-soft` tint. Grey text is `--text-2` or
+`--text-3`; `--text-4` is for icons and glyphs only. Hover fills are
+`--surface-2`, not ink floods. A component that still floods a row with ink (the
+old idiom; only the graph's nodes still do, until its restyle) must swap the
+text tokens along with `--background` and `--foreground`:
 
 ```css
 .row:hover {
@@ -225,11 +239,12 @@ the UI is light, whatever the OS says.
 ## Fonts
 
 `--font-sans` is `var(--font-geist, Geist)` then system UI fonts, and
-`--font-mono` is `var(--font-jetbrains, 'JetBrains Mono')` then Fira Code, Menlo
-and other monospace fonts. The planner sets `--font-geist` and
-`--font-jetbrains` with `next/font`; another host either sets those two
+`--font-mono` is `var(--font-geist-mono, 'Geist Mono')` then `ui-monospace`,
+Menlo and other monospace fonts. The planner sets `--font-geist` and
+`--font-geist-mono` with `next/font`; another host either sets those two
 variables or loads the families under those names (for example with
-`@fontsource`). The components use sans at weights 300–600 and mono at 400–700.
+`@fontsource`). The components use Geist at weights 400, 450, 500 and 600 (body
+13.5px), and Geist Mono at 400 for issue keys, `kbd` and code only.
 
 ## Links
 
@@ -267,28 +282,35 @@ anchors for `/api/*`).
 
 ## Status vocabulary
 
-Status uses only the system's own marks, never new hues:
+Status uses Gr8r's shapes in the semantic hues (`docs/architecture.md` §8.2 maps
+every planner status):
 
-| `UiStatus` | mark                                          |
-| ---------- | --------------------------------------------- |
-| `done`     | filled ink square                             |
-| `on_track` | hollow ink square                             |
-| `at_risk`  | hollow accent square (2px)                    |
-| `overdue`  | filled accent square                          |
-| `missing`  | hatched square (an input is missing)          |
-| `muted`    | prop on `StatusMark`: hollow grey, any status |
+| `UiStatus` | mark                                           |
+| ---------- | ---------------------------------------------- |
+| `done`     | green disc with a tick                         |
+| `on_track` | green ring                                     |
+| `at_risk`  | amber ring, right half filled                  |
+| `overdue`  | red disc                                       |
+| `missing`  | dashed grey ring (an input is missing)         |
+| `muted`    | prop on `StatusMark`: faint grey ring, any one |
 
 The other shared vocabularies:
 
-- `UiTone`: `default` (ink), `muted` (grey), `accent` ("needs action").
+- `UiTone`: `default` (neutral), `muted` (grey), `accent` (brand: new, unread,
+  selected; never a status), or a `SemanticTone`: `danger` (red), `warning`
+  (amber), `success` (green), `info` (blue). Components render it as
+  `data-tone`, and `[data-tone]` defines `--tone`, `--tone-ink`, `--tone-soft`
+  and `--tone-line` for their CSS.
 - `TaskStateKind` (Linear's state types): `triage`, `backlog`, `unstarted`,
   `started`, `completed`, `canceled`, drawn by `StateGlyph`.
 - `TaskPriority`: `0` none, `1` urgent, `2` high, `3` medium, `4` low, drawn by
   `PriorityGlyph`.
-- `ChipTone`: `default`, `muted`, `accent`, `inverse`.
-- Graph: `GraphNodeTone` (`default`, `accent`, `muted`), `GraphNodeTag`
-  (`UNASSIGNED`, `OVERDUE`, `CYCLE` or any string), `GraphEdgeKind` (`default`,
-  `risk`, `cycle`, `cross`, `resolved`).
+- `ChipTone`: any `UiTone`, or `inverse` (old callers). `Chip` takes `dot` for
+  Gr8r's status pill (neutral, a 6px dot in the tone's hue).
+- Graph (older drawing, not restyled yet: its `accent` still marks risk):
+  `GraphNodeTone` (`default`, `accent`, `muted`), `GraphNodeTag` (`UNASSIGNED`,
+  `OVERDUE`, `CYCLE` or any string), `GraphEdgeKind` (`default`, `risk`,
+  `cycle`, `cross`, `resolved`).
 - `ToastKind`: `info`, `error`.
 
 Every status mark carries a text label for assistive tech (`label` /
@@ -306,20 +328,20 @@ the types for the rest.
 | family   | component                                                                                                              | required props                                                     |
 | -------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
 | basics   | `StatusMark`                                                                                                           | `status`, `label`                                                  |
-|          | `BlockBar` (hatched block titlebar)                                                                                    | `index`, `title`                                                   |
+|          | `BlockBar` (a section's heading row; `index` is ignored)                                                               | `title`                                                            |
 |          | `Tabs` (ids are prefixed per instance; `label` names the tablist; empty renders nothing)                               | `items: TabItem[]` (`id`, `label`, `content`)                      |
 |          | `ThemeToggle`                                                                                                          | `storageKey`                                                       |
-| tasks    | `Button`                                                                                                               | none (`href` renders a link)                                       |
-|          | `Checkbox`, `Switch`, `SegmentedControl`, `Chip`                                                                       | see `tasks/types.ts`                                               |
+| tasks    | `Button` (`variant`; `size` `sm` 26px / `md` 30px / `lg` 36px; `block` for full width)                                 | none (`href` renders a link)                                       |
+|          | `Checkbox`, `Switch` (`aria-label` / `aria-labelledby` when its visible label is shared), `SegmentedControl`, `Chip`   | see `tasks/types.ts`                                               |
 |          | `TaskGroupTable` (grouped issue list)                                                                                  | `sections`                                                         |
 |          | `DeadlineList`, `StatsStrip`, `ProgressRule`                                                                           | `groups`; `cells`; `done`/`total`                                  |
 |          | `Register`, `RegisterRow`, `RegisterCell`                                                                              | `columns`, `label`, `children`                                     |
-|          | `Notice`, `EmptyState` (optional mono `label` above the sentence), `NavTabs`, `Checklist`                              | see `tasks/types.ts`                                               |
+|          | `Notice` (`tone`), `EmptyState` (optional `label` title above the sentence), `NavTabs`, `Checklist`                    | see `tasks/types.ts`                                               |
 | shell    | `AppShell` (sidebar, topbar, phone tab bar)                                                                            | `appName`, `brandHref`, `nav`                                      |
 |          | `CommandPaletteProvider` + `CommandPalette`                                                                            | none; pass `navigate` (the default is `window.location.assign`)    |
 |          | `ToastProvider` + `useToast()`                                                                                         | none                                                               |
 |          | `SlideOver` (`contentKey` names what it shows: a new key while open moves focus to the panel)                          | `open`, `onClose`, `title`                                         |
-|          | `SignedOutFrame`, `PropertyList`, `AlertStrip`                                                                         | see `shell/types.ts`                                               |
+|          | `SignedOutFrame`, `PropertyList`, `AlertStrip` (`tone`, default `warning`)                                             | see `shell/types.ts`                                               |
 |          | `Skeleton*`, `Kbd`, `KbdKeys`                                                                                          | see `shell/types.ts`                                               |
 | timeline | `TimelineChart` (Gantt)                                                                                                | `today`, `windowStart`, `windowEnd`, `zoom`, `groups`, `onOpenBar` |
 | graph    | `DependencyGraph`                                                                                                      | `nodes`, `edges`, `ariaSummary`, `emptyMessage`                    |

@@ -1,10 +1,10 @@
-import { cx } from './class-names';
 import styles from './progress-rule.module.css';
 import type { ProgressRuleProps } from './types';
 
-/* completed/scope as a drawn rule: a 1px ghost track (--grey-4) with an ink
-   fill sitting on it, accent when the progress itself needs action, and a
-   mono "3/7" receipt. Exposed as a progressbar with a sentence value. */
+/* completed/scope as Gr8r's progress bar: a 4px rounded track with an
+   accent fill (or the tone's hue when the progress is itself a status:
+   danger, warning, success, muted) and a "3/7" receipt in tabular figures.
+   Exposed as a progressbar with a sentence value. */
 export function ProgressRule({
   done,
   total,
@@ -18,10 +18,7 @@ export function ProgressRule({
   const visible = label === undefined ? `${safeDone}/${safeTotal}` : label;
 
   return (
-    <span
-      className={cx(styles.wrap, tone === 'accent' ? styles.accent : undefined)}
-      data-tone={tone}
-    >
+    <span className={styles.wrap} data-tone={tone}>
       <span
         className={styles.track}
         role="progressbar"

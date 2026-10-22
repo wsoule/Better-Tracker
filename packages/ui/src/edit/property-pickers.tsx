@@ -43,13 +43,13 @@ function isPriority(value: string | null): value is `${TaskPriority}` {
 }
 
 /** The workflow state, drawn with the state glyph. Required: no none
-    option. Mono by default, for the task view's status line. */
+    option. A bordered pill by default, for the task view's status line. */
 export function StatePicker({
   states,
   value,
   onChange,
   label = 'Status',
-  appearance = 'mono',
+  appearance = 'pill',
   searchPlaceholder = 'Change status…',
   ...rest
 }: StatePickerProps): ReactNode {
@@ -71,9 +71,9 @@ export function StatePicker({
   );
 }
 
-/** Who the task is assigned to: square initials, a "You" note on the
-    signed-in person, and "Unassigned" (in the accent: needs action) as the
-    none option and the empty face. */
+/** Who the task is assigned to: round avatars, a "You" note on the
+    signed-in person, and "Unassigned" (a dashed empty avatar, amber: an
+    open task needs a person) as the none option and the empty face. */
 export function AssigneePicker({
   people,
   value,
@@ -83,8 +83,9 @@ export function AssigneePicker({
   onChange,
   label = 'Assignee',
   noneLabel = 'Unassigned',
+  noneMark = { kind: 'avatar', name: '' },
   placeholder = 'Unassigned',
-  placeholderTone = 'accent',
+  placeholderTone = 'warning',
   searchPlaceholder = 'Assign to…',
   ...rest
 }: AssigneePickerProps): ReactNode {
@@ -114,6 +115,7 @@ export function AssigneePicker({
       {...rest}
       label={label}
       noneLabel={noneLabel}
+      noneMark={noneMark}
       placeholder={placeholder}
       placeholderTone={placeholderTone}
       searchPlaceholder={searchPlaceholder}
@@ -157,7 +159,8 @@ export function PriorityPicker({
 
 /**
  * The task's labels, several at a time: grouped under their label group,
- * each with its colour as a small square, and a group marked singleSelect
+ * each with its colour as a small square (and the chosen ones as label
+ * chips tinted with it), and a group marked singleSelect
  * keeps one label (picking another replaces it, as in Linear).
  */
 export function LabelPicker({
@@ -210,7 +213,7 @@ export function LabelPicker({
   );
 }
 
-/** Maps projects and milestones onto options (status square, note). */
+/** Maps projects and milestones onto options (status mark, note). */
 function planOptions(choices: readonly PlanChoice[]): PickerOption[] {
   return choices.map((choice) => ({
     value: choice.id,

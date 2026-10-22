@@ -1,8 +1,12 @@
+/* A property value with a quiet sentence under it. The value colours
+   itself from its data-tone (warning "Unassigned", danger an overdue date)
+   in the tone's text step; default and muted are the text steps. */
+
 .stack {
   display: flex;
   flex: 1 1 100%;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
 }
 
@@ -10,33 +14,37 @@
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 8px;
+  gap: 6px 7px;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
+.value:not([data-tone='default']) {
+  color: var(--tone-ink);
+}
+
+.value:where(
+  [data-tone='info'],
+  [data-tone='success'],
+  [data-tone='warning'],
+  [data-tone='danger'],
+  [data-tone='accent']
+) {
+  font-weight: var(--fw-medium);
+}
+
+/* Dates, durations and counts: tabular figures. */
 .mono {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-}
-
-.accent {
-  color: var(--accent-ink);
-}
-
-.muted {
-  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .note {
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
   overflow-wrap: anywhere;
+  color: var(--tone-ink, var(--text-3));
 }
 
 .noteDefault {
-  color: var(--ink-soft);
+  color: var(--text-2);
 }

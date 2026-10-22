@@ -1,5 +1,4 @@
 import {
-  BlockBar,
   Chip,
   EmptyState,
   NavTabs,
@@ -35,6 +34,7 @@ import ModesForm from './modes-form';
 import css from './page.module.css';
 import { ReadOnlySettings, ReadOnlyWatchers } from './read-only-sections';
 import ScheduleForm from './schedule-form';
+import { SettingBlock, SettingRow, SettingValue } from './setting-rows';
 import StatusActions from './status-actions';
 import WatchersForm from './watchers-form';
 
@@ -46,15 +46,18 @@ const LIST_LIMIT = 50;
 type Loaded = Awaited<ReturnType<InstalledContext['engine']['load']>>;
 
 /* /settings (architecture §8.4 "Settings", Gr8r's settings layout): a
-   section sub-nav beside the section's registers, ?section= choosing
-   Modes (default), Watchers (the old ?section=people still opens it),
-   Schedule, Status, Notifications or Audit. Every section is editable by
-   everyone signed in (owner decision 2026-10-22: no roles), each form
-   saving only its own fields through PATCH /api/settings, which (with the
-   engine) validates them again and writes an audit entry. A Linear guest
-   reads every section but changes none (owner decision 2026-10-22,
-   "Guests limited to read only"): plain values, no Save, no Resync or
-   Preview, and one read-only notice above the section. */
+   section sub-nav column (a raised pill marks the current one) beside the
+   section, ?section= choosing Modes (default), Watchers (the old
+   ?section=people still opens it), Schedule, Status, Notifications or
+   Audit. The section's name is the page's h1, with its one-line lead
+   under it, then Gr8r setting rows (or, for the logs, a register).
+   Every section is editable by everyone signed in (owner decision
+   2026-10-22: no roles), each form saving only its own fields through
+   PATCH /api/settings, which (with the engine) validates them again and
+   writes an audit entry. A Linear guest reads every section but changes
+   none (owner decision 2026-10-22, "Guests limited to read only"): plain
+   values, no Save, no Resync or Preview, and one read-only notice above
+   the section. */
 export default async function SettingsPage({
   searchParams,
 }: {
@@ -67,43 +70,40 @@ export default async function SettingsPage({
   const section = parseSettingsSection(params);
   const loaded = await orSetup(engine.load(workspaceId, actor));
   const readOnly = actor.readOnly;
+  const meta = readOnly
+    ? READ_ONLY_SECTION_META[section.id]
+    : SECTION_META[section.id];
 
   return (
     <>
-      <header className={css.head}>
-        <h1 className={css.title}>Settings</h1>
-        <p className={css.receipts}>
-          {readOnly
-            ? 'How this workspace allocates and warns, and who changed what.'
-            : 'How this workspace allocates and warns. Each section saves on its own, and every change is in the audit log.'}
-        </p>
-      </header>
-      <div className={css.layout}>
-        <NavTabs
-          label="Settings sections"
-          orientation="vertical"
-          items={sectionTabs(section.id)}
-          className={css.subnav}
-        />
-        <div className={css.content}>
-          <section className={css.collapse} aria-label={section.label}>
-            <BlockBar
-              index={sectionIndex(section.id)}
-              title={section.label}
-              meta={
-                readOnly
-                  ? READ_ONLY_SECTION_META[section.id]
-                  : SECTION_META[section.id]
-              }
-            />
-            <p className={css.sectionText}>{section.description}</p>
-            {readOnly && EDITABLE_SECTIONS.has(section.id) ? (
-              <div className={css.readOnlyNotice}>
-                <ReadOnlyNotice />
-              </div>
-            ) : null}
-            {await renderSection(section.id, context, loaded)}
-          </section>
+      <div className={css.set}>
+        <div className={css.setNav}>
+          <p className={`eyebrow ${css.navHead}`} aria-hidden="true">
+            Settings
+          </p>
+          <NavTabs
+            label="Settings sections"
+            orientation="vertical"
+            items={sectionTabs(section.id)}
+          />
+        </div>
+        <div
+          className={css.setIn}
+          data-wide={WIDE_SECTIONS.has(section.id) ? 'true' : undefined}
+        >
+          <header className={css.head}>
+            <div className={css.titleRow}>
+              <h1 className={css.title}>{section.label}</h1>
+              {meta !== undefined ? <Chip tone="muted">{meta}</Chip> : null}
+            </div>
+            <p className={css.lead}>{section.description}</p>
+          </header>
+          {readOnly && EDITABLE_SECTIONS.has(section.id) ? (
+            <div className={css.readOnlyNotice}>
+              <ReadOnlyNotice />
+            </div>
+          ) : null}
+          {await renderSection(section.id, context, loaded)}
         </div>
       </div>
       <PageCrumb label={section.label} />
@@ -111,19 +111,18 @@ export default async function SettingsPage({
   );
 }
 
-/* The block bar's meta: what a section's saves do, or what it lists.
+/* The chip beside a section's title: what its saves do, or what it lists.
    Every section is editable by everyone signed in; none names a role. */
-const SECTION_META: Record<SettingsSectionId, string> = {
+const SECTION_META: Partial<Record<SettingsSectionId, string>> = {
   modes: 'Audited',
   watchers: 'Audited',
   schedule: 'Audited',
-  status: 'Sync · preview',
   notifications: `Newest ${LIST_LIMIT}`,
   audit: `Newest ${LIST_LIMIT}`,
 };
 
-/* The meta for a Linear guest: nothing here saves for them. */
-const READ_ONLY_SECTION_META: Record<SettingsSectionId, string> = {
+/* The chip for a Linear guest: nothing here saves for them. */
+const READ_ONLY_SECTION_META: Partial<Record<SettingsSectionId, string>> = {
   ...SECTION_META,
   modes: 'Read only',
   watchers: 'Read only',
@@ -140,17 +139,12 @@ const EDITABLE_SECTIONS: ReadonlySet<SettingsSectionId> = new Set([
   'status',
 ]);
 
-function sectionIndex(id: SettingsSectionId): string {
-  const order: SettingsSectionId[] = [
-    'modes',
-    'watchers',
-    'schedule',
-    'status',
-    'notifications',
-    'audit',
-  ];
-  return String(order.indexOf(id) + 1).padStart(2, '0');
-}
+/* Sections whose registers need more than Gr8r's 720px settings column
+   (four or five columns). */
+const WIDE_SECTIONS: ReadonlySet<SettingsSectionId> = new Set([
+  'notifications',
+  'audit',
+]);
 
 async function renderSection(
   id: SettingsSectionId,
@@ -212,23 +206,18 @@ async function renderSection(
       });
       return (
         <>
-          <Register
-            label="Status"
-            columns="200px minmax(0, 1fr)"
-            stackWithin={700}
-            stackedColumns="minmax(0, 1fr)"
-          >
+          <SettingBlock title="Linear and sync">
             {rows.map((row) => (
-              <RegisterRow key={row.id}>
-                <RegisterCell variant="mono" tone="muted">
-                  {row.label}
-                </RegisterCell>
-                <RegisterCell tone={row.tone} sub={row.sub}>
-                  {row.value}
-                </RegisterCell>
-              </RegisterRow>
+              <SettingRow
+                key={row.id}
+                title={row.label}
+                help={row.sub}
+                control={
+                  <SettingValue tone={row.tone}>{row.value}</SettingValue>
+                }
+              />
             ))}
-          </Register>
+          </SettingBlock>
           {/* Resync and the digest preview are for members only. */}
           {readOnly ? null : <StatusActions />}
         </>
@@ -241,10 +230,9 @@ async function renderSection(
       const rows = notificationRows(records, snapshot.users);
       if (rows.length === 0) {
         return (
-          <EmptyState label="No digests">
-            No digests recorded yet. The daily run records at most one per
-            person per day; Status → Preview today’s digests shows what it would
-            send now.
+          <EmptyState label="No digests yet">
+            The daily run records at most one per person per day; Status →
+            Preview today’s digests shows what it would send now.
           </EmptyState>
         );
       }
@@ -270,18 +258,16 @@ async function renderSection(
               <RegisterCell label="Recipient" variant="name" sub={row.channel}>
                 {row.recipient}
               </RegisterCell>
-              <RegisterCell label="Day" variant="mono">
-                {row.day}
-              </RegisterCell>
+              <RegisterCell label="Day">{row.day}</RegisterCell>
               <RegisterCell label="Status">
                 <Chip tone={row.statusTone}>{row.statusLabel}</Chip>
               </RegisterCell>
-              <RegisterCell label="Items" variant="mono" align="end">
+              <RegisterCell label="Items" align="end">
                 {row.items}
               </RegisterCell>
               <RegisterCell
                 label="Error"
-                tone={row.error === null ? 'muted' : 'accent'}
+                tone={row.error === null ? 'muted' : 'danger'}
               >
                 <span className={css.breakAnywhere}>{row.error ?? '—'}</span>
               </RegisterCell>
@@ -297,9 +283,9 @@ async function renderSection(
       const rows = auditRows(entries, snapshot, timeZone);
       if (rows.length === 0) {
         return (
-          <EmptyState label="No edits">
-            No edits yet. Re-dated milestones, leads, weights, “done means…”,
-            issue edits and settings changes appear here, with who made them.
+          <EmptyState label="No edits yet">
+            Re-dated milestones, leads, weights, “done means…”, issue edits and
+            settings changes appear here, with who made them.
           </EmptyState>
         );
       }
@@ -318,9 +304,7 @@ async function renderSection(
         >
           {rows.map((row) => (
             <RegisterRow key={row.id}>
-              <RegisterCell label="When" variant="mono">
-                {row.when}
-              </RegisterCell>
+              <RegisterCell label="When">{row.when}</RegisterCell>
               <RegisterCell label="Who" variant="name">
                 {row.who}
               </RegisterCell>

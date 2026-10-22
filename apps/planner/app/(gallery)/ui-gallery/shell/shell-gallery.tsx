@@ -4,11 +4,14 @@ import {
   AlertStrip,
   AppShell,
   BlockBar,
+  Button,
   CommandPaletteProvider,
   Kbd,
   KbdKeys,
   Link,
+  Notice,
   type PaletteItem,
+  ProgressRule,
   PropertyList,
   SkeletonBlock,
   SkeletonRows,
@@ -81,31 +84,26 @@ function MilestoneRow({
   milestone: FixtureMilestone;
   onOpen: () => void;
 }) {
-  const pct =
-    milestone.scope === 0 ? 0 : (milestone.completed / milestone.scope) * 100;
   return (
     <li className={styles.row}>
       <StatusMark status={milestone.status} label={milestone.statusLabel} />
       <span className={styles.name}>{milestone.name}</span>
-      <span className={styles.mono}>{milestone.due}</span>
+      <span className={styles.meta}>{milestone.due}</span>
       <span
-        className={
-          milestone.status === 'overdue' ? styles.monoAccent : styles.mono
-        }
+        className={styles.meta}
+        data-tone={milestone.status === 'overdue' ? 'danger' : undefined}
       >
         {milestone.daysLabel}
       </span>
-      <span className={styles.progress}>
-        <span className={styles.bar} aria-hidden="true">
-          <span className={styles.fill} style={{ width: `${pct}%` }} />
-        </span>
-        <span className={styles.mono}>
-          {milestone.completed}/{milestone.scope}
-        </span>
-      </span>
-      <button type="button" className={styles.open} onClick={onOpen}>
+      <ProgressRule
+        done={milestone.completed}
+        total={milestone.scope}
+        tone={milestone.status === 'overdue' ? 'danger' : undefined}
+        aria-label={`${milestone.name} progress`}
+      />
+      <Button variant="quiet" size="sm" onClick={onOpen}>
         Details
-      </button>
+      </Button>
     </li>
   );
 }
@@ -144,19 +142,14 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
       ),
       lead: 'Pat Lee',
       progress: (
-        <span className={styles.progress}>
-          <span className={styles.bar} aria-hidden="true">
-            <span
-              className={styles.fill}
-              style={{ width: `${(detail.completed / detail.scope) * 100}%` }}
-            />
-          </span>
-          <span className={styles.mono}>
-            {detail.completed}/{detail.scope}
-          </span>
-        </span>
+        <ProgressRule
+          done={detail.completed}
+          total={detail.scope}
+          tone={detail.status === 'overdue' ? 'danger' : undefined}
+          aria-label={`${detail.name} progress`}
+        />
       ),
-      weight: <span className={styles.mono}>↑2 · override</span>,
+      weight: <span className="num">↑2 · override</span>,
       next: 'M4 Backfill · Nov 08',
       done: 'Every write path reads from the new ledger and the old tables are read-only.',
     };
@@ -174,20 +167,17 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
       nav={nav}
       sections={sections}
       settings={{ href: '/settings' }}
-      user={{ name: 'Pat Lee', badge: 'DEMO', href: '/week?user=pat' }}
+      user={{ name: 'Pat Lee', badge: 'Demo', href: '/week?user=pat' }}
       signOut={{ action: '/api/auth/logout', method: 'post' }}
       themeStorageKey={themeStorageKey}
       crumbs={crumbs}
       tabs={tabs}
       storageKey={SIDEBAR_STORAGE_KEY}
       banner={
-        <p className="notice">
-          <span className="key">DEMO</span>
-          <span>
-            Demo data, not connected to Linear. Every name, date and issue on
-            this screen is fictional.
-          </span>
-        </p>
+        <Notice label="Demo data" tone="default">
+          Not connected to Linear. Every name, date and issue on this screen is
+          fictional.
+        </Notice>
       }
     >
       <div className="page">
@@ -200,7 +190,7 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
         </header>
 
         <section className="block" aria-label="Milestones">
-          <BlockBar index="01" title="Milestones" meta="13/26 issues done" />
+          <BlockBar title="Milestones" meta="13/26 issues done" />
           <ul className={styles.rows}>
             {milestones.map((m) => (
               <MilestoneRow
@@ -213,25 +203,19 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
         </section>
 
         <section className="block" aria-label="Shell controls">
-          <BlockBar index="02" title="Shell controls" meta="overlays" />
+          <BlockBar title="Shell controls" meta="Overlays" />
           <div className={styles.controls}>
-            <button
-              type="button"
-              className="buttonPrimary"
+            <Button
+              variant="primary"
               onClick={palette.open}
+              iconAfter={<KbdKeys keys={['Ctrl', 'K']} />}
             >
-              Open palette <KbdKeys keys={['Ctrl', 'K']} />
-            </button>
-            <button
-              type="button"
-              className="button"
-              onClick={palette.openShortcuts}
-            >
-              Shortcuts <Kbd>?</Kbd>
-            </button>
-            <button
-              type="button"
-              className="button"
+              Open palette
+            </Button>
+            <Button onClick={palette.openShortcuts} iconAfter={<Kbd>?</Kbd>}>
+              Shortcuts
+            </Button>
+            <Button
               onClick={() =>
                 toast({
                   kind: 'info',
@@ -250,10 +234,8 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
               }
             >
               Info toast
-            </button>
-            <button
-              type="button"
-              className="button"
+            </Button>
+            <Button
               onClick={() =>
                 toast({
                   kind: 'error',
@@ -272,14 +254,10 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
               }
             >
               Error toast
-            </button>
-            <button
-              type="button"
-              className="button"
-              onClick={() => openDetail('atlas-3')}
-            >
+            </Button>
+            <Button onClick={() => openDetail('atlas-3')}>
               Open slide-over
-            </button>
+            </Button>
             <Link href="/ui-gallery/shell/signed-out" className="accentLink">
               Signed-out frame
             </Link>
@@ -291,11 +269,7 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
         </section>
 
         <section className="block" aria-label="Loading states">
-          <BlockBar
-            index="03"
-            title="Loading states"
-            meta="hatched skeletons"
-          />
+          <BlockBar title="Loading states" meta="Shimmer skeletons" />
           <div className={styles.split}>
             <div className={styles.cell}>
               <SkeletonRows rows={4} label="Loading milestones" />
@@ -307,18 +281,32 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
           </div>
         </section>
 
-        <section className="block" aria-label="Alert strip and key caps">
-          <BlockBar index="04" title="Alert strip · key caps" />
+        <section className="block" aria-label="Alert strips and key caps">
+          <BlockBar title="Alert strips and key caps" meta="By tone" />
           <div className={styles.split}>
             <div className={`${styles.cell} ${styles.cellPad}`}>
               <AlertStrip
                 label="Overdue"
+                tone="danger"
                 action={{
                   label: 'Reschedule',
                   onClick: () => openDetail('atlas-3'),
                 }}
               >
                 Overdue by 3 days.
+              </AlertStrip>
+              <AlertStrip label="Unassigned" tone="warning">
+                2 open issues have no assignee; the next live run gives them
+                out.
+              </AlertStrip>
+              <AlertStrip label="Running" tone="info">
+                Allocation is running for Atlas migration.
+              </AlertStrip>
+              <AlertStrip label="Met" tone="success">
+                Every rubric item is in place.
+              </AlertStrip>
+              <AlertStrip label="Note" tone="default">
+                The milestone is in a paused project, so nothing is assigned.
               </AlertStrip>
             </div>
             <div className={`${styles.cell} ${styles.cellPad} ${styles.caps}`}>
@@ -347,7 +335,7 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
               target="_blank"
               rel="noreferrer"
             >
-              Linear ↗
+              Open in Linear
             </Link>
             <button
               type="button"
@@ -369,6 +357,7 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
           <div className={styles.alert}>
             <AlertStrip
               label="Overdue"
+              tone="danger"
               action={{
                 label: 'Reschedule',
                 onClick: () => dueRef.current?.focus(),

@@ -1,15 +1,16 @@
-import { Geist, JetBrains_Mono } from 'next/font/google';
+import { Geist, Geist_Mono } from 'next/font/google';
 
-// The Analytics type system: Geist for the sans/body voices, JetBrains Mono
-// for the machine voice. Shared by both root layouts.
+// Gr8r Studio's type system: Geist for every word, Geist Mono for ids,
+// keys and numbers only. The CSS variables are read by the font stacks in
+// @better-tracker/ui's tokens.css. Shared by both root layouts.
 export const geist = Geist({
   variable: '--font-geist',
   subsets: ['latin'],
   display: 'swap',
 });
 
-export const jetbrainsMono = JetBrains_Mono({
-  variable: '--font-jetbrains',
+export const geistMono = Geist_Mono({
+  variable: '--font-geist-mono',
   subsets: ['latin'],
   display: 'swap',
 });

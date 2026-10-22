@@ -40,7 +40,7 @@ import {
   writeStorage,
 } from './dom';
 import { KbdKeys } from './kbd';
-import { cx, renderIcon } from './render';
+import { cx, initials, renderIcon } from './render';
 import type {
   AppShellProps,
   ShellNavItem,
@@ -48,10 +48,17 @@ import type {
   ShellUser,
 } from './types';
 
-/* One primary-nav row: icon, mono label, count; the shortcut shows on
-   hover. `data-tip` feeds the rail tooltip when the sidebar is collapsed. */
+/* One primary-nav row: icon, label, count; the shortcut shows on hover.
+   `data-tip` feeds the rail tooltip when the sidebar is collapsed. A count
+   with a tone (accent = new / unread, or a status tone) is a badge. */
 function NavRow({ item }: { item: ShellNavItem }): ReactNode {
   const showCount = item.count !== undefined && item.count > 0;
+  const badgeTone =
+    item.countTone !== undefined &&
+    item.countTone !== 'default' &&
+    item.countTone !== 'muted'
+      ? item.countTone
+      : undefined;
   return (
     <li data-tip={item.label}>
       <Link
@@ -63,10 +70,8 @@ function NavRow({ item }: { item: ShellNavItem }): ReactNode {
         <span className={styles.label}>{item.label}</span>
         {showCount ? (
           <span
-            className={cx(
-              styles.count,
-              item.countTone === 'accent' && styles.countAccent
-            )}
+            className={cx(styles.count, badgeTone && styles.countBadge)}
+            data-tone={badgeTone}
           >
             <span aria-hidden="true">{item.count}</span>
             <span className="srOnly">{`, ${item.countLabel ?? String(item.count)}`}</span>
@@ -82,7 +87,7 @@ function NavRow({ item }: { item: ShellNavItem }): ReactNode {
   );
 }
 
-/* A titled sidebar list (PROJECTS): status mark + name per row. */
+/* A titled sidebar list (Projects): status mark + name per row. */
 function SectionList({
   section,
   headingId,
@@ -129,17 +134,6 @@ function SectionList({
       )}
     </section>
   );
-}
-
-/** Up to two initials for the square avatar. */
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter((part) => part !== '')
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
 }
 
 function UserBlock({ user }: { user: ShellUser }): ReactNode {
@@ -199,9 +193,11 @@ interface RailTip {
 }
 
 /**
- * The app frame (architecture §8.3): a fixed 252px hatched sidebar — brand
- * row, primary nav, titled sections, footer (settings, user, theme, sign
- * out) — beside a 46px topbar (breadcrumb, search trigger) and the content.
+ * The app frame (architecture §8.3), Gr8r's two-tone shell: a fixed 252px
+ * warm grey sidebar — brand row (a 22px tile, the product and workspace
+ * names), primary nav, titled sections, footer (settings, user, theme,
+ * sign out) — beside a 46px white topbar (breadcrumb, search trigger) and
+ * the content.
  *
  * Desktop: "[" (or the brand-row button) collapses the sidebar to a 52px
  * icon rail, remembered under `storageKey`. Phone (≤ 900px): the sidebar is
@@ -382,33 +378,41 @@ export default function AppShell({
         onFocus={(event) => showTip(event.target)}
         onBlur={() => setTip(null)}
       >
-        {/* Registration marks where the sidebar's right hairline crosses
-            the topbar line and the footer line: 11px crossed 1px arms
-            centred on the border, as on the Analytics nav. */}
-        <span className={cx(styles.mark, styles.markTop)} aria-hidden="true" />
-
-        <div className={styles.brand}>
-          <Link href={brandHref} className={styles.brandLink}>
-            <span className={styles.appName}>{appName}</span>
-            {workspaceName !== undefined && workspaceName !== '' ? (
-              <span className={styles.workspace}>{workspaceName}</span>
-            ) : null}
+        <div className={styles.brand} data-tip={appName}>
+          <Link
+            href={brandHref}
+            className={styles.brandLink}
+            aria-label={
+              workspaceName !== undefined && workspaceName !== ''
+                ? `${appName}, ${workspaceName}`
+                : appName
+            }
+          >
+            <span className={styles.logo} aria-hidden="true">
+              {initials(appName)}
+            </span>
+            <span className={styles.brandText} aria-hidden="true">
+              <span className={styles.appName}>{appName}</span>
+              {workspaceName !== undefined && workspaceName !== '' ? (
+                <span className={styles.workspace}>{workspaceName}</span>
+              ) : null}
+            </span>
           </Link>
           <span className={styles.collapseWrap} data-tip={collapseLabel}>
             <button
               type="button"
-              className={cx(styles.squareButton, styles.collapseButton)}
+              className={styles.iconButton}
               aria-label={collapseLabel}
               aria-keyshortcuts="["
               title={railActive ? undefined : `${collapseLabel} ( [ )`}
               onClick={toggleCollapsed}
             >
               {collapsed ? (
-                <PanelLeftOpen size={15} strokeWidth={1.5} aria-hidden="true" />
+                <PanelLeftOpen size={16} strokeWidth={1.8} aria-hidden="true" />
               ) : (
                 <PanelLeftClose
-                  size={15}
-                  strokeWidth={1.5}
+                  size={16}
+                  strokeWidth={1.8}
                   aria-hidden="true"
                 />
               )}
@@ -416,11 +420,11 @@ export default function AppShell({
           </span>
           <button
             type="button"
-            className={cx(styles.squareButton, styles.closeButton)}
+            className={cx(styles.iconButton, styles.closeButton)}
             aria-label="Close navigation"
             onClick={() => setDrawerOpen(false)}
           >
-            <X size={16} strokeWidth={1.5} aria-hidden="true" />
+            <X size={18} strokeWidth={1.8} aria-hidden="true" />
           </button>
         </div>
 
@@ -442,10 +446,6 @@ export default function AppShell({
         </div>
 
         <div className={styles.footer}>
-          <span
-            className={cx(styles.mark, styles.markBottom)}
-            aria-hidden="true"
-          />
           {footer}
           {settings !== undefined ? (
             <ul className={styles.list}>
@@ -456,7 +456,7 @@ export default function AppShell({
                   aria-current={settings.current === true ? 'page' : undefined}
                 >
                   <span className={styles.icon}>
-                    <Settings size={16} strokeWidth={1.5} aria-hidden="true" />
+                    <Settings size={16} strokeWidth={1.8} aria-hidden="true" />
                   </span>
                   <span className={styles.label}>{settingsLabel}</span>
                 </Link>
@@ -483,11 +483,11 @@ export default function AppShell({
                   >
                     <button
                       type="submit"
-                      className={styles.squareButton}
+                      className={styles.iconButton}
                       aria-label={signOutLabel}
                       title={railActive ? undefined : signOutLabel}
                     >
-                      <LogOut size={14} strokeWidth={1.5} aria-hidden="true" />
+                      <LogOut size={15} strokeWidth={1.8} aria-hidden="true" />
                     </button>
                   </form>
                 ) : null}
@@ -507,13 +507,13 @@ export default function AppShell({
         <header className={styles.topbar}>
           <button
             type="button"
-            className={cx(styles.squareButton, styles.menuButton)}
+            className={cx(styles.iconButton, styles.menuButton)}
             aria-label="Open navigation"
             aria-expanded={drawerOpen}
             aria-controls={sidebarId}
             onClick={() => setDrawerOpen(true)}
           >
-            <Menu size={16} strokeWidth={1.5} aria-hidden="true" />
+            <Menu size={19} strokeWidth={1.8} aria-hidden="true" />
           </button>
           {crumbs.length > 0 ? (
             <nav aria-label="Breadcrumb" className={styles.crumbs}>
@@ -524,7 +524,7 @@ export default function AppShell({
                     <li key={`${i}-${crumb.label}`} className={styles.crumb}>
                       {i > 0 ? (
                         <span className={styles.sep} aria-hidden="true">
-                          ›
+                          /
                         </span>
                       ) : null}
                       {crumb.href !== undefined && !last ? (
@@ -554,7 +554,7 @@ export default function AppShell({
               aria-keyshortcuts="Control+K Meta+K"
               onClick={openSearch}
             >
-              <Search size={14} strokeWidth={1.5} aria-hidden="true" />
+              <Search size={13} strokeWidth={1.8} aria-hidden="true" />
               <span className={styles.searchLabel}>{searchLabel}</span>
               <KbdKeys keys={[mod, 'K']} className={styles.searchKeys} />
             </button>
@@ -599,7 +599,7 @@ export default function AppShell({
                 onClick={() => setDrawerOpen(true)}
               >
                 <span className={styles.tabIcon}>
-                  <Ellipsis size={16} strokeWidth={1.5} aria-hidden="true" />
+                  <Ellipsis size={19} strokeWidth={1.8} aria-hidden="true" />
                 </span>
                 <span className={styles.tabLabel}>{moreLabel}</span>
               </button>

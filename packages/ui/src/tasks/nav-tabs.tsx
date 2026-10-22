@@ -3,15 +3,15 @@ import { cx } from './class-names';
 import styles from './nav-tabs.module.css';
 import type { NavTabsProps } from './types';
 
-/* The Analytics tab strip as navigation: each cell is a link (through the
-   host's <Link>), the current one is ink-filled and marked
-   aria-current="page", hover floods the accent. Unlike SegmentedControl (a
+/* Gr8r's tabs as navigation: each cell is a link (through the host's
+   <Link>), the current one is underlined in ink (horizontal) or a raised
+   pill (vertical) and marked aria-current="page". Unlike SegmentedControl (a
    radio group that changes state in place) every cell is a destination:
    a level switch whose levels are routes, or a settings sub-nav.
-   Horizontal cells collapse on one hairline and wrap; vertical cells stack
+   Horizontal cells sit on one hairline and wrap; vertical cells stack
    into a column (Gr8r's settings sub-nav) and turn into a wrapping strip
    on narrow screens. A cell without href cannot be followed yet: it is
-   drawn hatched and muted, with its note saying why. */
+   drawn dimmed, with its note saying why. */
 export function NavTabs({
   items,
   label,

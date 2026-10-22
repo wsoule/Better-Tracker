@@ -158,7 +158,7 @@ export const GROUPS: TimelineGroup[] = [
         label: 'Ledger API',
         href: '/timeline?project=p-ledger',
         sublabel: 'No lead',
-        sublabelTone: 'accent',
+        sublabelTone: 'warning',
         bars: [
           bar(
             'm-ledger-v2',

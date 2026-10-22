@@ -3,7 +3,6 @@
 import { type ReactNode, useId, useState } from 'react';
 
 import { Link } from '../lib/link';
-import { cx } from '../tasks/class-names';
 import { DEFAULT_TASK_LABELS, isExternalHref } from './shared';
 import styles from './task-activity-list.module.css';
 import type { TaskActivityItem, TaskActivityListProps } from './types';
@@ -31,9 +30,9 @@ function ActivityLabel({
 }
 
 /**
- * The task's history as a ledger: the date in the mono voice, a square
- * mark on a 1px rail (ink by default, accent for what needs action, hollow
- * grey for noise), then what happened and a sentence of context. Items
+ * The task's history as Gr8r's activity lines: a small round mark coloured
+ * by the item's tone (data-tone: danger, warning, accent; hollow for muted
+ * noise), what happened and a sentence of context, and the date. Items
  * render in the order given (hosts pass newest first). With `limit`, the
  * rest hide behind a "Show all N" button.
  */
@@ -59,11 +58,7 @@ export function TaskActivityList({
         {shown.map((item) => {
           const tone = item.tone ?? 'default';
           return (
-            <li
-              key={item.id}
-              className={cx(styles.item, styles[tone])}
-              data-tone={tone}
-            >
+            <li key={item.id} className={styles.item} data-tone={tone}>
               {item.dateTime !== undefined ? (
                 <time className={styles.at} dateTime={item.dateTime}>
                   {item.at}

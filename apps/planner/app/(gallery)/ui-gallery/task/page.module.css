@@ -1,49 +1,39 @@
 /* Gallery-only composition for /ui-gallery/task: page furniture around the
-   package components, built from the same tokens. */
+   package components, built from the same tokens (Gr8r's panels: soft
+   --border edges, 10px radius, sections 12-24px apart, sentence case). */
 
 .lede {
   max-width: 76ch;
-  margin-top: -1px;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--ink-soft);
+  font-size: var(--fs);
+  line-height: var(--lh-long);
+  color: var(--text-2);
 }
 
 .controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 8px;
-  margin-top: -1px;
-  padding: 14px 18px;
-  border: 1px solid var(--border);
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .note {
-  margin-top: -1px;
-  padding: 12px 18px;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
+  margin-bottom: 12px;
+  font-size: var(--fs-xs);
   line-height: 1.5;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
-/* The page layout draws its own 1px frame; it shares the bar's edge. */
+/* The page layout draws its own rounded panel. */
 .pageSlot {
-  margin-top: -1px;
+  margin-top: 12px;
 }
 
 .states {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 28px 24px;
-  margin-top: 24px;
+  gap: 24px;
+  margin-top: 4px;
 }
 
 .state {
@@ -53,40 +43,33 @@
 }
 
 .stateLabel {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  padding: 0 0 10px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  padding: 0 0 8px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 /* A pane like Dispatch's split view: the view draws its own header. */
 .pane {
   flex: 1 1 auto;
+  overflow: hidden;
   border: 1px solid var(--border);
-  background: var(--background);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
-/* A mono note beside the editable task's drawer button. */
+/* A quiet note beside the editable task's drawer button. */
 .inlineNote {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
+  font-size: var(--fs-xs);
   line-height: 1.5;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
-/* Block 05: one cell per control state, framed like the drawer panes. */
+/* The edit controls on their own: one panel per control state. */
 .cells {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 24px;
+  gap: 16px;
   margin-top: 24px;
 }
 
@@ -103,23 +86,16 @@
   align-items: flex-start;
   gap: 8px;
   min-width: 0;
-  padding: 18px;
+  padding: 16px;
   border: 1px solid var(--border);
-  background: var(--background);
-  font-size: 13.5px;
-  color: var(--ink-soft);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  font-size: var(--fs);
+  color: var(--text);
 }
 
 @media (width <= 1100px) {
   .states {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (width <= 768px) {
-  .lede,
-  .controls,
-  .note {
-    padding: 12px 14px;
   }
 }

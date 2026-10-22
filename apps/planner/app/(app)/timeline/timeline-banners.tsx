@@ -1,24 +1,40 @@
 'use client';
 
 import { Button, Link } from '@better-tracker/ui';
+import {
+  CalendarX,
+  ChevronDown,
+  Inbox,
+  type LucideIcon,
+  OctagonPause,
+  UserRoundX,
+} from 'lucide-react';
 import { useId, useState } from 'react';
 
 import type {
   TimelineBanner,
+  TimelineBannerId,
   TimelineSelection,
 } from '../../../lib/adapters/timeline';
 import css from './page.module.css';
 
+/** The icon each banner leads with (drawing only; the lead-in says it). */
+const BANNER_ICON: Record<TimelineBannerId, LucideIcon> = {
+  no_lead: UserRoundX,
+  no_date: CalendarX,
+  unplanned: Inbox,
+  blocked: OctagonPause,
+};
+
 /* The timeline's missing-input banners (architecture §8.4: no lead, no
-   date, unplanned issues, blocked projects) as one compact block: a
-   hairline frame with one 2px accent rule down its left edge, and a 1px
-   ruled row per banner (mono key with its count, one sentence, a quiet
-   Show / Hide) that expands to the list it counts. One block instead of
-   four 2px boxes keeps the emphasis to a single rule and lets the chart
-   start higher. Rows open the lane or the milestone drawer through
-   `hrefFor`, which keeps the current filters in the URL; issue keys open
-   Linear in a new tab. Banners at zero are not rendered (the adapter
-   leaves them out). */
+   date, unplanned issues, blocked projects) as Gr8r's tinted callouts,
+   one per banner, stacked close: the tone's soft fill (warning for a
+   missing input or a blocked project, info for unplanned issues, from the
+   adapter), an icon in the hue, the lead-in, one sentence with the count,
+   and a quiet Show / Hide that expands the list it counts. Rows open the
+   lane or the milestone drawer through `hrefFor`, which keeps the current
+   filters in the URL; issue keys open Linear in a new tab. Banners at zero
+   are not rendered (the adapter leaves them out). */
 export default function TimelineBanners({
   banners,
   hrefFor,
@@ -48,17 +64,33 @@ function BannerRow({
   const [open, setOpen] = useState(false);
   const listId = useId();
   const noun = banner.items.length === 1 ? 'item' : 'items';
+  const Icon = BANNER_ICON[banner.id];
   return (
-    <li className={css.banner} data-banner-id={banner.id}>
+    <li
+      className={css.banner}
+      data-banner-id={banner.id}
+      data-tone={banner.tone}
+    >
       <div className={css.bannerHead}>
-        <span className={css.bannerKey}>
-          {banner.label} · {banner.count}
-        </span>
+        <Icon
+          className={css.bannerIcon}
+          size={15}
+          strokeWidth={1.8}
+          aria-hidden="true"
+        />
+        <span className={css.bannerKey}>{banner.label}</span>
         <p className={css.bannerText}>{banner.text}</p>
         <span className={css.bannerAction}>
           <Button
             size="sm"
             variant="quiet"
+            iconAfter={
+              <ChevronDown
+                size={14}
+                strokeWidth={1.8}
+                style={open ? { transform: 'rotate(180deg)' } : undefined}
+              />
+            }
             aria-expanded={open}
             aria-controls={listId}
             onClick={() => setOpen((was) => !was)}

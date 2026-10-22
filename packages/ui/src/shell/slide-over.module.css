@@ -1,5 +1,7 @@
-/* The slide-over drawer. Separation from the page is a border, never a
-   shadow: the 2px accent left rule marks it as the thing in focus. */
+/* Gr8r's slide-over drawer: a white right-hand panel lifted off the page
+   by a soft leftward shadow and a 1px --border left edge (no scrim on a
+   desktop), a 46px header bar like the topbar, and a title that scrolls
+   with the body. It eases in from 48px with a fade. */
 
 .panel {
   position: fixed;
@@ -10,10 +12,24 @@
   width: min(560px, 100vw);
   display: flex;
   flex-direction: column;
-  background: var(--background);
-  color: var(--foreground);
-  border-left: 2px solid var(--accent);
-  animation: slide-in 0.42s var(--ease-out-quint) both;
+  background: var(--surface);
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  box-shadow: var(--shadow-drawer);
+  animation: drawer-in 0.34s var(--ease-drawer) both;
+}
+
+/* Dark: the drawer and the page are the same --surface and a black
+   shadow barely shows on it, so the left edge takes --border-strong to
+   stay visible (light keeps the softer --border). */
+:global([data-theme='dark']) .panel {
+  border-left-color: var(--border-strong);
+}
+
+@media (prefers-color-scheme: dark) {
+  :global([data-theme='system']) .panel {
+    border-left-color: var(--border-strong);
+  }
 }
 
 .panel:focus {
@@ -21,50 +37,45 @@
 }
 
 .panel[data-state='closing'] {
-  animation: slide-out 0.32s var(--ease-out-quint) both;
+  animation: drawer-out 0.22s ease both;
   pointer-events: none;
 }
 
-@keyframes slide-in {
+@keyframes drawer-in {
   from {
-    transform: translateX(100%);
+    opacity: 0;
+    transform: translateX(48px);
   }
   to {
+    opacity: 1;
     transform: none;
   }
 }
 
-@keyframes slide-out {
+@keyframes drawer-out {
   from {
+    opacity: 1;
     transform: none;
   }
   to {
-    transform: translateX(100%);
+    opacity: 0;
+    transform: translateX(48px);
   }
 }
 
 .header {
   flex: 0 0 auto;
-  border-bottom: 1px solid var(--border);
 }
 
-/* Chrome bar: the same hatch as every block titlebar, 46px like the
-   topbar so the panel's top edge lines up with the shell. */
+/* The header bar: 46px like the topbar, so the panel lines up with the
+   shell; crumb on the left, icon actions and close on the right. */
 .bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   height: 46px;
-  padding: 0 8px 0 22px;
-  border-bottom: 1px solid var(--hairline-faint);
-  background-color: var(--background);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
+  padding: 0 10px 0 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .crumb {
@@ -73,12 +84,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
 }
 
 .actions {
@@ -87,34 +94,35 @@
   display: flex;
   white-space: nowrap;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
+/* Gr8r's icon button: no box until hover. */
 .close {
   display: grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid transparent;
+  width: var(--h-md);
+  height: var(--h-md);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .close:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
 .title {
-  padding: 18px 22px 16px;
-  font-family: var(--font-sans);
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  line-height: 1.25;
+  letter-spacing: var(--ls-heading);
   overflow-wrap: anywhere;
 }
 
@@ -123,19 +131,19 @@
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 18px 22px 40px;
+  padding: 20px 24px 32px;
 }
 
 .scrim {
   position: fixed;
   inset: 0;
   z-index: 49;
-  background: color-mix(in srgb, var(--ink) 35%, transparent);
-  animation: fade-in 0.2s ease both;
+  background: var(--overlay);
+  animation: fade-in 0.18s ease both;
 }
 
 .scrim[data-state='closing'] {
-  animation: fade-out 0.32s ease both;
+  animation: fade-out 0.22s ease both;
 }
 
 @keyframes fade-in {
@@ -150,6 +158,7 @@
   }
 }
 
+/* Phones: the drawer covers the screen (Gr8r), over the scrim. */
 @media (width <= 900px) {
   .bar {
     padding: 0 4px 0 16px;
@@ -158,12 +167,14 @@
     width: 40px;
     height: 40px;
   }
-  .title {
-    padding: 16px 16px 14px;
-    font-size: 20px;
-  }
   .body {
     padding: 16px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (width <= 640px) {
+  .panel {
+    border-left: 0;
   }
 }
 

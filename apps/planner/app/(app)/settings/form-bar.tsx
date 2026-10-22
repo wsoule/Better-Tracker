@@ -11,10 +11,10 @@ import css from './page.module.css';
 
 /* The foot of a section form: Save and Reset, and a line saying whether
    anything is unsaved, why it cannot be saved yet, or how the last save
-   went. Both buttons disable once nothing is unsaved, so the status line
-   (a live region that takes focus, tabIndex=-1) is where keyboard focus
-   goes on save (useSaveSettings) and on reset, instead of falling to
-   <body>. */
+   went (red when a field or the last save failed). Both buttons disable
+   once nothing is unsaved, so the status line (a live region that takes
+   focus, tabIndex=-1) is where keyboard focus goes on save
+   (useSaveSettings) and on reset, instead of falling to <body>. */
 export default function FormBar({
   dirty,
   saving,
@@ -35,6 +35,10 @@ export default function FormBar({
   /** useSaveSettings' `discarded`: the line then says "Changes discarded". */
   onDiscarded: () => void;
 }) {
+  const failed =
+    !saving &&
+    ((blocked !== null && blocked !== '') ||
+      (dirty && outcome?.kind === 'error'));
   return (
     <div className={css.formBar}>
       <Button
@@ -60,7 +64,8 @@ export default function FormBar({
       <p
         ref={statusRef}
         tabIndex={-1}
-        className={dirty && !saving ? css.formStatusDirty : css.formStatus}
+        className={css.formStatus}
+        data-state={failed ? 'failed' : dirty && !saving ? 'dirty' : 'idle'}
         aria-live="polite"
       >
         {formStatusText({ dirty, saving, blocked, outcome })}

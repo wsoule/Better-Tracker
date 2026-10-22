@@ -323,3 +323,34 @@ person; nothing else in them changes.
   sidebar says "Guest".
 - **Demo mode** has one guest, Gus Hart (a member of Operations only), so the
   read-only planner can be tried; the demo picker labels him Guest.
+
+### 2026-10-22 — the look follows Gr8r too
+
+Decided by the product owner, in their words: "We are going to need to update
+the ui to be like the other reference. The current one is too stark." The
+other reference is Gr8r Studio. Until now the planner took its layout and
+interaction from Gr8r and its look from the Analytics `competitors-site`
+(paper and ink, black hairlines, zero radius, no shadows, mono uppercase
+labels, hatched chrome, numbered blocks, the purple accent as the only status
+colour; the build spec's §8 recorded that rule). This decision supersedes that
+rule; the earlier text is kept in the repository's history.
+
+- **The look follows Gr8r Studio as well**: warm neutral surfaces, soft
+  low-contrast borders, rounded corners, soft shadows on things that float
+  (menus, the palette, the drawer, toasts), tinted status colours, sentence-case
+  labels, Geist at Gr8r's sizes and weights, and Geist Mono only for issue keys
+  and other identifiers.
+- **The purple accent stays** (`#9747ff`, the earlier owner decision), in the
+  role Gr8r gives its own accent: the primary button, focus, selection,
+  progress, the today marker, unread dots. Purple text uses a darker shade (a
+  lighter one in dark mode) so it stays readable on the warm surfaces.
+- **Purple no longer means risk.** Status and risk get their own colours, as
+  in Gr8r: red for overdue, failed and urgent; amber for at risk, blocked and
+  missing details; green for on track, complete and succeeded; blue for in
+  progress and running; grey for inactive work and an undated milestone's
+  mark (the missing date itself is a missing detail, so its words are amber).
+  Each is always paired with its words, never colour alone.
+- **Nothing else changes**: the screens, what they show, how they behave and
+  every rule in the sections above stay as they are; this is a restyle. The
+  build spec (§8.2 of `docs/architecture.md`) carries the exact tokens and the
+  full status-colour table.

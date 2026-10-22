@@ -20,7 +20,7 @@ export interface ShellIconProps {
  * as `CalendarCheck`), or a ready node (`<CalendarCheck />`, an inline SVG).
  * Server-rendered hosts must pass a node: a component is a function and
  * cannot cross the server/client boundary. Either way the shell draws it at
- * 16px with a 1.5 stroke.
+ * 16px (19px in the phone tab bar) with a 1.8 stroke.
  */
 export type ShellIcon = ComponentType<ShellIconProps> | ReactNode;
 
@@ -34,7 +34,9 @@ export interface ShellNavItem {
   count?: number;
   /** Spoken after the label instead of the bare number ("4 issues this week"). */
   countLabel?: string;
-  /** `accent` turns the count into an accent chip: it needs action. */
+  /** A tone turns the count into a Gr8r badge: `accent` (new, unread) a
+   * solid accent pill, a status tone (danger, warning…) its tinted pill.
+   * Unset, `default` or `muted`: a quiet number. */
   countTone?: UiTone;
   current?: boolean;
   /** Display-only key sequence shown on hover, e.g. ['G', 'W']. */
@@ -52,7 +54,8 @@ export interface ShellSectionItem {
   current?: boolean;
 }
 
-/** A titled list under the primary nav, e.g. PROJECTS. */
+/** A titled list under the primary nav, e.g. Projects (its title is
+    drawn as a small uppercase eyebrow). */
 export interface ShellSection {
   id: string;
   title: string;
@@ -80,7 +83,7 @@ export interface ShellTab {
 
 export interface ShellUser {
   name: string;
-  /** Short chip beside the name ("DEMO"). */
+  /** Short badge beside the name ("Guest"). */
   badge?: string;
   href?: string;
 }
@@ -101,7 +104,7 @@ export interface ShellSettingsLink {
 export interface AppShellProps {
   /** Product name in the brand row ("Milestone Planner"). */
   appName: string;
-  /** Workspace micro-label under the product name. */
+  /** Workspace name under the product name in the brand row. */
   workspaceName?: string;
   brandHref: string;
   nav: ShellNavItem[];
@@ -138,7 +141,7 @@ export interface AppShellProps {
 export interface SignedOutFrameProps {
   appName: string;
   brandHref: string;
-  /** Micro-label beside the brand ("Sign in"). */
+  /** Quiet label beside the brand ("Demo"). */
   label?: string;
   themeStorageKey?: string;
   /** Controls left of the theme toggle. */
@@ -219,7 +222,8 @@ export interface ToastInput {
   kind: ToastKind;
   /** One sentence. */
   message: string;
-  /** Mono key before the sentence; defaults to INFO / ERROR. */
+  /** Lead-in word before the sentence ("Synced"); defaults to Info /
+   * Error. */
   label?: string;
   action?: { label: string; onClick: () => void };
   /** Milliseconds before auto-dismiss (default 4000; Infinity keeps it). */
@@ -236,7 +240,7 @@ export interface SlideOverProps {
   open: boolean;
   onClose: () => void;
   title: ReactNode;
-  /** Mono crumb above the title ("ATLAS / M3 CUTOVER"). */
+  /** Crumb in the header bar above the title ("Atlas / M3 cutover"). */
   breadcrumb?: ReactNode;
   /** Header buttons placed before the close button. */
   actions?: ReactNode;
@@ -270,8 +274,13 @@ export interface AlertStripAction {
 }
 
 export interface AlertStripProps {
-  /** Mono key in the accent ("OVERDUE"). */
+  /** Lead-in word before the sentence ("Overdue"). */
   label?: string;
+  /** The alert's colour (docs/architecture.md §8.2): danger for overdue,
+   * warning for blocked / holds up / stalled / unassigned. Rendered as
+   * data-tone, which gives the CSS --tone, --tone-ink, --tone-soft and
+   * --tone-line. Default warning. */
+  tone?: UiTone;
   /** The sentence. */
   children: ReactNode;
   /** Follow-up: a link when it has an href, a button when it acts in place. */

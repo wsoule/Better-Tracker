@@ -11,8 +11,8 @@ import {
 
 import styles from './tabs.module.css';
 
-/* Client-side tab strip from the competitors site: a grid of bordered tabs,
-   selected = ink fill, hover = accent flood, arrow-key roving focus. Element
+/* Client-side tab strip in Gr8r's tab-bar look: tabs on a hairline, the
+   selected one underlined in ink, arrow-key roving focus. Element
    ids are prefixed per instance (useId), so two strips with the same item
    ids on one page keep their tab/panel pairs apart. */
 export type TabItem = { id: string; label: string; content: ReactNode };

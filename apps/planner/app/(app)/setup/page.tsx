@@ -1,9 +1,9 @@
 import {
   BlockBar,
   Button,
+  Chip,
   Notice,
   PropertyList,
-  StatusMark,
 } from '@better-tracker/ui';
 
 import {
@@ -80,30 +80,13 @@ export default async function SetupPage() {
           </p>
         </header>
         <section className="block" aria-label="Linear installation">
-          <BlockBar
-            index="01"
-            title="Linear installation"
-            meta={<StatusMark status="done" label="Installed" showLabel />}
-          />
-          <div className={styles.panel}>
-            <PropertyList
-              label="Installation details"
-              items={facts.map((fact) => ({
-                id: fact.id,
-                label: fact.label,
-                value: fact.value,
-              }))}
+          <div className={styles.column}>
+            <BlockBar
+              title="Linear installation"
+              meta={<Chip tone="success">Installed</Chip>}
             />
-            <div className={styles.actions}>
-              <Button href="/timeline" variant="primary">
-                Open the timeline
-              </Button>
-              {demo || readOnly ? null : (
-                <Button href={INSTALL_HREF}>Reinstall to change teams</Button>
-              )}
-            </div>
             {notSynced ? (
-              <Notice label="FIRST SYNC PENDING" role="status">
+              <Notice label="First sync pending" tone="warning" role="status">
                 The first sync from Linear has not landed, so changes are paused
                 for everyone. It is retried on every page and every worker run.
                 If it keeps failing, the web service&apos;s logs say why; when
@@ -112,17 +95,42 @@ export default async function SetupPage() {
               </Notice>
             ) : readOnly ? (
               <ReadOnlyNotice />
-            ) : demo ? (
-              <p className={styles.note}>
-                Demo mode installs its fictional workspace when the server
-                starts; there is no Linear app to reinstall.
-              </p>
-            ) : (
-              <p className={styles.note}>
-                Reinstalling asks Linear for the app&apos;s grant again, so a
-                workspace admin can change which teams the planner sees.
-              </p>
-            )}
+            ) : null}
+            <div className={styles.panel}>
+              <div className={styles.facts}>
+                <PropertyList
+                  label="Installation details"
+                  items={facts.map((fact) => ({
+                    id: fact.id,
+                    label: fact.label,
+                    value: fact.value,
+                  }))}
+                />
+              </div>
+              <div className={styles.foot}>
+                <div className={styles.actions}>
+                  {demo || readOnly ? null : (
+                    <Button href={INSTALL_HREF}>
+                      Reinstall to change teams
+                    </Button>
+                  )}
+                  <Button href="/timeline" variant="primary">
+                    Open the timeline
+                  </Button>
+                </div>
+                {notSynced || readOnly ? null : demo ? (
+                  <p className={styles.note}>
+                    Demo mode installs its fictional workspace when the server
+                    starts; there is no Linear app to reinstall.
+                  </p>
+                ) : (
+                  <p className={styles.note}>
+                    Reinstalling asks Linear for the app&apos;s grant again, so
+                    a workspace admin can change which teams the planner sees.
+                  </p>
+                )}
+              </div>
+            </div>
           </div>
         </section>
         <PageCrumb label={installation.workspaceName} />
@@ -145,41 +153,44 @@ export default async function SetupPage() {
       </header>
       {revoked && installation.revokedAt !== null ? (
         <div className="block">
-          <Notice label="REINSTALL NEEDED" role="status">
-            Linear rejected the app&apos;s grant for{' '}
-            {installation.workspaceName} on{' '}
-            {formatInstant(
-              installation.revokedAt,
-              engine.config.defaultTimezone
-            )}
-            : the app was uninstalled in Linear, or Linear refused its token
-            when the planner renewed it. Until a workspace admin reinstalls it,
-            nothing syncs, nothing is allocated and no warnings go out.
-          </Notice>
+          <div className={styles.column}>
+            <Notice label="Reinstall needed" tone="danger" role="status">
+              Linear rejected the app&apos;s grant for{' '}
+              {installation.workspaceName} on{' '}
+              {formatInstant(
+                installation.revokedAt,
+                engine.config.defaultTimezone
+              )}
+              : the app was uninstalled in Linear, or Linear refused its token
+              when the planner renewed it. Until a workspace admin reinstalls
+              it, nothing syncs, nothing is allocated and no warnings go out.
+            </Notice>
+          </div>
         </div>
       ) : null}
       <section className="block" aria-label="What installing does">
-        <BlockBar
-          index="01"
-          title={revoked ? 'Reinstall' : 'Install'}
-          meta="Linear admin consent"
-        />
-        <Receipts items={INSTALL_STEPS} label="What installing does" />
-        <div className={styles.panel}>
+        <div className={styles.column}>
+          <BlockBar
+            title={revoked ? 'Reinstall' : 'Install'}
+            meta="Linear admin consent"
+          />
+          <Receipts
+            items={INSTALL_STEPS}
+            label="What installing does"
+            variant="steps"
+          />
           {actor.readOnly ? (
             <ReadOnlyNotice />
           ) : (
-            <>
-              <div className={styles.actions}>
-                <Button href={INSTALL_HREF} variant="primary">
-                  {revoked ? 'Reinstall in Linear' : 'Install in Linear'}
-                </Button>
-              </div>
+            <div className={styles.installRow}>
+              <Button href={INSTALL_HREF} variant="primary">
+                {revoked ? 'Reinstall in Linear' : 'Install in Linear'}
+              </Button>
               <p className={styles.note}>
                 Not a Linear admin? Send this page to one: the button works for
                 them once they sign in.
               </p>
-            </>
+            </div>
           )}
         </div>
       </section>

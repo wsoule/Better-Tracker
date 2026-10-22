@@ -14,7 +14,7 @@ import {
   type WorkspaceSettings,
 } from '@better-tracker/core';
 import type { Engine, WarningRunResult } from '@better-tracker/engine';
-import type { ChipTone, NavTabItem } from '@better-tracker/ui';
+import type { ChipTone, NavTabItem, UiTone } from '@better-tracker/ui';
 
 import {
   dueLabel,
@@ -23,6 +23,7 @@ import {
   formatLongDate,
   plural,
 } from '../format';
+import { personInitials } from './landing';
 
 // /settings (architecture §8.4 "Settings", §7.1 validation): the section
 // sub-nav, each section's rows, and the bodies its form PATCHes. Everyone
@@ -197,6 +198,8 @@ export function modesSavedMessage(state: ModesState): string {
 export interface PersonRow {
   id: string;
   name: string;
+  /** Two letters for the row's round avatar ("AM"). */
+  initials: string;
   email: string | null;
   active: boolean;
   /** Deactivated in Linear but still a watcher. */
@@ -218,6 +221,7 @@ export function watcherRows(
     .map((user) => ({
       id: user.id,
       name: user.name,
+      initials: personInitials(user.name),
       email: user.email,
       active: user.active,
       note: user.active ? null : 'Deactivated in Linear',
@@ -265,8 +269,18 @@ export function watchersHint(watcherCount: number): string {
 
 export type TuningNumberKey = Exclude<keyof Tuning, 'activeProjectStatuses'>;
 
+/** The Schedule section's groups of numbers, each under its own heading. */
+export type TuningGroupId = 'risk' | 'views';
+
+export const TUNING_GROUPS: readonly { id: TuningGroupId; title: string }[] = [
+  { id: 'risk', title: 'Risk and warnings' },
+  { id: 'views', title: 'My week and the timeline' },
+];
+
 export interface TuningField {
   key: TuningNumberKey;
+  /** The heading the row sits under (TUNING_GROUPS). */
+  group: TuningGroupId;
   label: string;
   /** One line: what the number changes. */
   help: string;
@@ -278,6 +292,7 @@ export interface TuningField {
 export const TUNING_FIELDS: readonly TuningField[] = [
   {
     key: 'warnLeadDays',
+    group: 'risk',
     label: 'Warn ahead',
     help: 'Days before a milestone’s due date that it can count as at risk and be warned about.',
     min: 1,
@@ -285,6 +300,7 @@ export const TUNING_FIELDS: readonly TuningField[] = [
   },
   {
     key: 'stallDays',
+    group: 'risk',
     label: 'Stalled after',
     help: 'Days with no state change among a milestone’s issues before it counts as stalled.',
     min: 1,
@@ -292,6 +308,7 @@ export const TUNING_FIELDS: readonly TuningField[] = [
   },
   {
     key: 'paceWindowDays',
+    group: 'risk',
     label: 'Pace window',
     help: 'Days of runway the share of open work is compared with (“more work left than time left”).',
     min: 1,
@@ -299,6 +316,7 @@ export const TUNING_FIELDS: readonly TuningField[] = [
   },
   {
     key: 'overdueRepeatDays',
+    group: 'risk',
     label: 'Repeat overdue every',
     help: 'Days between repeated warnings while a milestone stays overdue.',
     min: 1,
@@ -306,6 +324,7 @@ export const TUNING_FIELDS: readonly TuningField[] = [
   },
   {
     key: 'newBadgeDays',
+    group: 'views',
     label: 'New mark lasts',
     help: 'Days an auto-assigned issue keeps its “new” mark in My week.',
     min: 1,
@@ -313,6 +332,7 @@ export const TUNING_FIELDS: readonly TuningField[] = [
   },
   {
     key: 'timelineDaysBack',
+    group: 'views',
     label: 'Timeline looks back',
     help: 'Days before today the timeline starts.',
     min: 1,
@@ -320,6 +340,7 @@ export const TUNING_FIELDS: readonly TuningField[] = [
   },
   {
     key: 'timelineDaysAhead',
+    group: 'views',
     label: 'Timeline looks ahead',
     help: 'Days after today the timeline ends.',
     min: 1,
@@ -375,7 +396,14 @@ export interface ReadOnlySettingRow {
   value: string;
   /** What the setting does (the editable row's help line). */
   sub: string;
+  /** The heading the row sits under, as in the editable form (Schedule);
+   * rows without one come first, under none. */
+  group?: string;
 }
+
+/** The headings of the Schedule form, shared with its read-only rows. */
+export const SCHEDULE_TIME_GROUP = 'Time';
+export const SCHEDULE_PROJECTS_GROUP = 'Projects';
 
 /** Settings → Modes for a Linear guest: each mode and what it does now. */
 export function modesReadOnlyRows(
@@ -413,18 +441,21 @@ export function scheduleReadOnlyRows(
       label: 'Timezone',
       value: settings.timezone,
       sub: 'Decides what “today” is for due dates, the daily run and digests.',
+      group: SCHEDULE_TIME_GROUP,
     },
     ...TUNING_FIELDS.map((field) => ({
       id: field.key,
       label: field.label,
       value: plural(settings.tuning[field.key], 'day'),
       sub: field.help,
+      group: TUNING_GROUPS.find((group) => group.id === field.group)?.title,
     })),
     {
       id: 'statuses',
       label: 'Active project statuses',
       value: statuses.length === 0 ? 'None' : statuses.join(', '),
       sub: 'Projects in these Linear statuses get allocation and warnings; the rest are shown but left alone.',
+      group: SCHEDULE_PROJECTS_GROUP,
     },
   ];
 }
@@ -566,13 +597,18 @@ export function scheduleSavedMessage(
 // Status
 // ---------------------------------------------------------------------------
 
+/**
+ * One Status row. `tone` colours the value (architecture §8.2 "settings
+ * status"): success = working, warning = not installed or never synced,
+ * danger = revoked or a failed sync, muted = demo data or no webhook yet.
+ */
 export interface StatusRow {
   id: string;
   label: string;
   value: string;
-  /** Mono line under the value. */
+  /** A quieter line under the label (where, when, or why). */
   sub?: string;
-  tone: 'default' | 'muted' | 'accent';
+  tone: UiTone;
 }
 
 export function statusRows(input: {
@@ -599,7 +635,7 @@ export function statusRows(input: {
       label: 'Installation',
       value: 'Not installed',
       sub: 'A Linear admin installs the app from Setup',
-      tone: 'accent',
+      tone: 'warning',
     });
   } else {
     rows.push(
@@ -623,14 +659,14 @@ export function statusRows(input: {
             label: 'Linear access',
             value: 'Working',
             sub: 'The app can read and write as itself',
-            tone: 'default',
+            tone: 'success',
           }
         : {
             id: 'access',
             label: 'Linear access',
             value: 'Revoked: reinstall from Setup',
             sub: `Since ${formatInstant(installation.revokedAt, timeZone)}`,
-            tone: 'accent',
+            tone: 'danger',
           }
     );
   }
@@ -640,7 +676,7 @@ export function statusRows(input: {
       label: 'Last full sync',
       value: 'Never',
       sub: 'Runs every 15 minutes from the worker, or Resync now',
-      tone: 'accent',
+      tone: 'warning',
     });
   } else {
     const failed = syncState.lastFullSyncStatus === 'failed';
@@ -651,7 +687,7 @@ export function statusRows(input: {
       sub: failed
         ? (syncState.lastFullSyncError ?? 'No error was recorded')
         : undefined,
-      tone: failed ? 'accent' : 'default',
+      tone: failed ? 'danger' : 'default',
     });
   }
   rows.push({
@@ -675,7 +711,7 @@ export interface DigestItemPreview {
   id: string;
   kind: NoticeKind;
   kindLabel: string;
-  /** "Atlas billing migration › Dual-write"; just the project for a
+  /** "Atlas billing migration / Dual-write"; just the project for a
    * project notice (allocation stopped), whose milestone is in `due`. */
   title: string;
   /** "Oct 18 · 3 days overdue"; for a project notice its next
@@ -685,8 +721,12 @@ export interface DigestItemPreview {
   dueNote: string | null;
   lines: string[];
   href: string;
-  tone: 'default' | 'accent';
+  tone: DigestTone;
 }
+
+/** A digest item's colour: danger for an overdue milestone, warning for
+ * the rest (architecture §8.2 "warning kind"). */
+export type DigestTone = Extract<UiTone, 'danger' | 'warning'>;
 
 export interface DigestPreview {
   recipientId: string;
@@ -703,13 +743,12 @@ export interface DigestPreviewModel {
 }
 
 /**
- * The accent marks what needs action (§8.2: overdue, blocked, missing
- * input): an overdue milestone, one due soon without what the rubric
- * needs, a project whose allocation stopped. At risk stays ink: it is a
- * warning, not yet a missed date or a missing input.
+ * A digest item's tone (architecture §8.2 "warning kind"): an overdue
+ * milestone is danger (red); at risk, due soon without what the rubric
+ * needs, and a project whose allocation stopped are warnings (amber).
  */
-export function noticeTone(kind: NoticeKind): 'default' | 'accent' {
-  return kind === 'at_risk' ? 'default' : 'accent';
+export function noticeTone(kind: NoticeKind): DigestTone {
+  return kind === 'overdue' ? 'danger' : 'warning';
 }
 
 function previewItem(
@@ -725,7 +764,7 @@ function previewItem(
     const title =
       item.milestoneName === null || project
         ? item.projectName
-        : `${item.projectName} › ${item.milestoneName}`;
+        : `${item.projectName} / ${item.milestoneName}`;
     const href =
       notice.milestoneId !== null
         ? `/timeline?milestone=${encodeURIComponent(notice.milestoneId)}`
@@ -798,11 +837,11 @@ const NOTIFICATION_STATUS: Record<
   NotificationRecord['status'],
   { label: string; tone: ChipTone }
 > = {
-  sent: { label: 'Sent', tone: 'inverse' },
+  sent: { label: 'Sent', tone: 'success' },
   preview: { label: 'Preview', tone: 'muted' },
-  pending: { label: 'Sending', tone: 'muted' },
-  failed: { label: 'Failed', tone: 'accent' },
-  undeliverable: { label: 'Undeliverable', tone: 'accent' },
+  pending: { label: 'Sending', tone: 'info' },
+  failed: { label: 'Failed', tone: 'danger' },
+  undeliverable: { label: 'Undeliverable', tone: 'danger' },
 };
 
 export interface NotificationRow {
@@ -814,7 +853,8 @@ export interface NotificationRow {
   statusTone: ChipTone;
   items: string;
   error: string | null;
-  rowTone: 'default' | 'accent';
+  /** danger when the digest did not reach its recipient. */
+  rowTone: 'default' | 'danger';
 }
 
 export function notificationRows(
@@ -835,7 +875,7 @@ export function notificationRows(
       statusTone: status.tone,
       items: plural(record.digest.items.length, 'item'),
       error: record.error,
-      rowTone: failed ? 'accent' : 'default',
+      rowTone: failed ? 'danger' : 'default',
     };
   });
 }

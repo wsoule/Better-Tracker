@@ -1,6 +1,10 @@
-/* The native date input in the system's input voice (mono, 1px ink box,
-   square) with a mono Clear action beside it. color-scheme comes from the
-   theme, so the browser's calendar follows light and dark. */
+/* The native date input as a quiet Gr8r pill: at rest the date and the
+   browser's calendar icon with no visible box (its text lines up with the
+   other values; touch screens keep a soft edge so it reads as a field),
+   the field's strong border on hover, and on focus the accent border with
+   a 3px --accent-soft halo. A small ghost Clear (X) sits beside it.
+   color-scheme comes from the theme, so the browser's calendar follows
+   light and dark. */
 
 .root {
   display: inline-flex;
@@ -15,67 +19,86 @@
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 12px;
+  gap: 4px;
   min-width: 0;
 }
 
 .input {
-  min-height: 30px;
-  padding: 3px 8px;
-  border: 1px solid var(--grey-3);
-  border-radius: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.02em;
-  transition: border-color 0.15s ease;
+  min-height: 28px;
+  margin-left: -8px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  font-variant-numeric: tabular-nums;
+  transition:
+    border-color var(--dur) ease,
+    box-shadow var(--dur) ease;
 }
 
 .input:focus-visible {
-  border-color: var(--border);
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
+  border-color: var(--accent);
+  border-radius: var(--r-sm);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .input:disabled {
-  color: var(--muted);
+  background: var(--surface-2);
+  color: var(--text-3);
 }
 
 .root[data-pending='true'] .input {
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 .input[aria-invalid='true'] {
-  border-color: var(--accent);
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px var(--red-soft);
 }
 
-@media (hover: hover) and (width >= 901px) {
-  .input:not(:disabled):hover {
-    border-color: var(--border);
-  }
-
-  .clear:not(:disabled):hover {
-    color: var(--accent-ink);
-  }
+.input::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
+  cursor: pointer;
 }
 
+/* Clear: Gr8r's small icon button (an X, named "Clear Due date"). */
 .clear {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--foreground);
-  border-bottom: 1px solid currentcolor;
-  white-space: nowrap;
-  transition: color 0.15s ease;
+  display: inline-grid;
+  place-items: center;
+  width: var(--h-sm);
+  height: var(--h-sm);
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .clear:disabled {
-  color: var(--muted);
+  color: var(--text-3);
   cursor: default;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .input:not(:disabled, :focus-visible, [aria-invalid='true']):hover {
+    border-color: var(--border-strong);
+  }
+
+  .clear:not(:disabled):hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+}
+
+@media (hover: none) {
+  .input:not(:focus-visible, [aria-invalid='true']) {
+    border-color: var(--border);
+  }
 }
 
 /* 16px keeps iOS from zooming into the field (touch screens of any width). */

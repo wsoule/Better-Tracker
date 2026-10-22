@@ -3,12 +3,14 @@ import styles from './chip.module.css';
 import { cx } from './class-names';
 import type { ChipProps } from './types';
 
-/* The Roster category chip: a mono uppercase label in a 1px box. Tone is
-   the only variable: ink outline, grey idle, accent fill for "needs
-   action", ink fill for the stronger claim. A leading status mark rides the
-   chip's local tokens, so it stays legible on the filled tones. */
+/* Gr8r's badge: a short sentence-case label in a 5px-radius chip. Tone is
+   the variable: neutral (default), quieter (muted), or the tone's text on
+   its soft tint (accent, info, success, warning, danger). With `dot` it is
+   Gr8r's status pill instead: neutral and bordered, the tone only in a
+   6px dot. An optional leading status mark names a milestone status. */
 export function Chip({
   tone = 'default',
+  dot = false,
   status,
   statusLabel,
   title,
@@ -16,10 +18,11 @@ export function Chip({
 }: ChipProps) {
   return (
     <span
-      className={cx(styles.chip, styles[tone])}
+      className={cx(styles.chip, dot ? styles.withDot : styles[tone])}
       data-tone={tone}
       title={title}
     >
+      {dot ? <span className={styles.dot} aria-hidden="true" /> : null}
       {status !== undefined ? (
         <span className={styles.mark}>
           <StatusMark status={status} label={statusLabel ?? status} />

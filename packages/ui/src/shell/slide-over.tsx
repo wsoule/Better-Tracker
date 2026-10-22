@@ -14,12 +14,14 @@ import {
 import styles from './slide-over.module.css';
 import type { SlideOverProps } from './types';
 
-const EXIT_MS = 320;
+// The exit animation (drawer-out, 0.22s) plus a margin; onAnimationEnd
+// usually unmounts sooner.
+const EXIT_MS = 260;
 
 /**
- * Gr8r's slide-over drawer in the Analytics skin: a right-hand panel
- * (min(560px, 100vw)) with a 2px accent left rule, a hatched header bar
- * (breadcrumb, actions, close) above the title, and a scrolling body.
+ * Gr8r's slide-over drawer: a right-hand panel (min(560px, 100vw)) lifted
+ * by a soft shadow and a 1px left edge, a 46px header bar (breadcrumb,
+ * actions, close), and a scrolling body that opens with the title.
  *
  * Desktop: no scrim, the page stays usable beside it (clicking another row
  * can swap its content), while Tab cycles inside the panel. Phone: a scrim
@@ -139,15 +141,15 @@ export default function SlideOver({
                 title={`${closeLabel} (Esc)`}
                 onClick={onClose}
               >
-                <X size={16} strokeWidth={1.5} aria-hidden="true" />
+                <X size={16} strokeWidth={1.8} aria-hidden="true" />
               </button>
             </div>
           </div>
+        </header>
+        <div ref={bodyRef} className={styles.body}>
           <h2 id={titleId} className={styles.title}>
             {title}
           </h2>
-        </header>
-        <div ref={bodyRef} className={styles.body}>
           {children}
         </div>
       </div>

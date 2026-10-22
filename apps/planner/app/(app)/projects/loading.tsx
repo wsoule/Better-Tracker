@@ -2,8 +2,8 @@ import { BlockBar, Skeleton, SkeletonRows } from '@better-tracker/ui';
 
 import css from './page.module.css';
 
-/* The projects register while the engine loads: hatched skeletons in the
-   page's real layout (header, toolbar, one initiative block of rows). */
+/* The projects register while the engine loads: shimmer skeletons in the
+   page's real layout (header, toolbar, one initiative panel of rows). */
 export default function ProjectsLoading() {
   return (
     <>
@@ -15,12 +15,12 @@ export default function ProjectsLoading() {
       </header>
       <div className={css.toolbarWrap}>
         <div className={css.toolbar} aria-hidden="true">
-          <Skeleton width={260} height={36} />
-          <Skeleton width={320} height={28} />
+          <Skeleton width={240} height={30} />
+          <Skeleton width={300} height={26} />
         </div>
       </div>
-      <div className={`${css.blocks} ${css.collapse}`}>
-        <BlockBar index="01" title="Projects" />
+      <div className={css.blocks}>
+        <BlockBar title="Projects" />
         <SkeletonRows rows={6} label="Loading projects" />
       </div>
     </>

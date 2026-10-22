@@ -4,18 +4,17 @@ import { useEffect, useId, useRef, useState } from 'react';
 
 import StatusMark from '../components/status-mark';
 import { Link } from '../lib/link';
-import { cx } from './class-names';
 import styles from './deadline-list.module.css';
 import type { DeadlineListProps } from './types';
 
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
-/* Gr8r's "Upcoming deadlines" panel as a register: groups (Overdue / Today /
-   Tomorrow / This week) with a mono label and count, each item a linked
-   row (status mark, milestone, mono sublabel, due) that floods to ink on
-   hover. Long groups show `limit` items and a "+N more" disclosure; opening
-   it moves focus to the first revealed item so keyboard users land on the
-   new content. */
+/* Gr8r's "Upcoming deadlines" panel: groups (Overdue / Today / Tomorrow /
+   This week) with a semibold label and a count, each item a linked row
+   (status mark, milestone, a quiet line under it, due). The group's tone
+   (data-tone on the group) colours its label and dates. Long groups show
+   `limit` items and a "+N more" disclosure; opening it moves focus to the
+   first revealed item so keyboard users land on the new content. */
 export function DeadlineList({
   groups,
   limit = 4,
@@ -66,17 +65,10 @@ export function DeadlineList({
             className={styles.group}
             aria-labelledby={headingId}
             data-deadline-group={group.id}
+            data-tone={group.tone ?? 'default'}
           >
             <Heading id={headingId} className={styles.head}>
-              <span
-                className={cx(
-                  styles.label,
-                  group.tone === 'accent' ? styles.accent : undefined
-                )}
-                data-tone={group.tone ?? 'default'}
-              >
-                {group.label}
-              </span>
+              <span className={styles.label}>{group.label}</span>
               <span className={styles.count}>
                 <span className="srOnly">, </span>
                 {group.items.length}

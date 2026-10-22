@@ -1,10 +1,11 @@
 'use client';
 
 import { Button, SignedOutFrame } from '@better-tracker/ui';
+import { RefreshCw, ServerCrash } from 'lucide-react';
 import { useEffect } from 'react';
 
 import MessageBlock from './(app)/components/message-block';
-import { geist, jetbrainsMono, THEME_STORAGE_KEY } from './fonts';
+import { geist, geistMono, THEME_STORAGE_KEY } from './fonts';
 
 import '@better-tracker/ui/styles.css';
 
@@ -56,7 +57,7 @@ export default function GlobalError({
       lang="en"
       suppressHydrationWarning
       data-scroll-behavior="smooth"
-      className={`${geist.variable} ${jetbrainsMono.variable}`}
+      className={`${geist.variable} ${geistMono.variable}`}
     >
       <body>
         <title>Planner unavailable</title>
@@ -66,11 +67,17 @@ export default function GlobalError({
           themeStorageKey={THEME_STORAGE_KEY}
         >
           <MessageBlock
-            index="500"
-            title="Planner unavailable"
+            label="Planner unavailable"
             headline="The planner could not load."
+            icon={<ServerCrash strokeWidth={1.8} />}
+            tone="danger"
+            reference={error.digest}
             actions={
-              <Button variant="primary" onClick={() => retry()}>
+              <Button
+                variant="primary"
+                icon={<RefreshCw size={14} strokeWidth={1.8} />}
+                onClick={() => retry()}
+              >
                 Try again
               </Button>
             }
@@ -79,9 +86,6 @@ export default function GlobalError({
               It failed before it could read anything, so nothing changed. This
               usually means its database is unreachable or its configuration is
               incomplete; the server log says which.
-              {error.digest !== undefined
-                ? ` Error reference: ${error.digest}.`
-                : ''}
             </p>
           </MessageBlock>
         </SignedOutFrame>

@@ -1,5 +1,6 @@
 import {
   BlockBar,
+  Chip,
   DeadlineList,
   EmptyState,
   Register,
@@ -119,17 +120,15 @@ export default async function WeekPage({
               />
             </div>
             <aside className={css.side} aria-label="Deadlines and attention">
-              <section className={css.collapse} aria-label="Upcoming deadlines">
-                <BlockBar
-                  index="01"
-                  title="Upcoming deadlines"
-                  meta="Next 7 days"
-                />
+              <section
+                className={css.sideSection}
+                aria-label="Upcoming deadlines"
+              >
+                <BlockBar title="Upcoming deadlines" meta="Next 7 days" />
                 <DeadlineList groups={page.deadlines} />
               </section>
-              <section className={css.collapse} aria-label="Needs attention">
+              <section className={css.sideSection} aria-label="Needs attention">
                 <BlockBar
-                  index="02"
                   title="Needs attention"
                   meta={
                     page.isSelf ? 'Projects you lead' : 'Projects they lead'
@@ -149,13 +148,13 @@ export default async function WeekPage({
                         key={item.id}
                         href={item.href}
                         rowLabel={item.rowLabel}
-                        tone="accent"
+                        tone={item.tone}
                       >
                         <RegisterCell variant="name" sub={item.detail}>
                           {item.projectName}
                         </RegisterCell>
-                        <RegisterCell variant="mono" tone="accent" align="end">
-                          {item.flag}
+                        <RegisterCell align="end">
+                          <Chip tone={item.tone}>{item.flag}</Chip>
                         </RegisterCell>
                       </RegisterRow>
                     ))}

@@ -1,5 +1,6 @@
 'use client';
 
+import { X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { cx } from '../tasks/class-names';
@@ -20,7 +21,7 @@ export function isCompleteDate(text: string): boolean {
 
 /**
  * A due date: the browser's own date input (its calendar, its keyboard
- * handling and its locale's format) plus Clear. A complete date saves after
+ * handling and its locale's format) plus a Clear icon button. A complete date saves after
  * a short pause, at once on Enter or when the field is left; an
  * incomplete or out-of-range date is never saved and is put back when the
  * field is left. Saving follows the family's contract: pending, then the
@@ -127,10 +128,11 @@ export function DateField({
             type="button"
             className={styles.clear}
             aria-label={`${labels.clear} ${label}`}
+            title={labels.clear}
             disabled={disabled}
             onClick={() => commit('')}
           >
-            {labels.clear}
+            <X size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
         ) : null}
         {control.pending ? <PendingNote text={labels.saving} /> : null}

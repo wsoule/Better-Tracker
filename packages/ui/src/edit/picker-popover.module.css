@@ -1,9 +1,10 @@
-/* The property picker. The trigger reads as the value it holds (a hairline
-   frame appears on hover, the accent ring on focus); the popover is a
-   square panel with a 1px ink frame and the overlays' 2px accent rule on
-   top, a mono search row, and a listbox whose active row is an ink fill
-   (the selected-tab idiom, as in the command palette). No radius, no
-   shadow. On phones it is a full-width bottom sheet over an ink scrim. */
+/* The property picker in Gr8r's idiom. The trigger reads as the value it
+   holds and is a pill on hover (Gr8r's .pillbtn: a --surface-2 fill, 6px
+   radius); the status line's trigger is a bordered pill, an "+ Add" a
+   ghost button. The popover is Gr8r's .pop: a white 10px-radius card on
+   --shadow-pop with 4px of padding, a search row on top, 30px rows that
+   fill --surface-2 when active, eyebrow group titles and an accent check.
+   On phones it is a bottom sheet over the --overlay scrim. */
 
 .root {
   display: inline-flex;
@@ -29,42 +30,15 @@
   min-width: 0;
   max-width: 100%;
   border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: inherit;
   text-align: start;
   cursor: pointer;
-}
-
-/* The frame (hover, open, focus) is drawn around the value by a
-   pseudo-element a few pixels outside the button, so the value's text sits
-   exactly where a plain value's would and the row keeps its height. The
-   pseudo-element is part of the button, so the frame is clickable too. */
-.value::before,
-.mono::before {
-  content: '';
-  position: absolute;
-  inset: -4px -7px;
-  border: 1px solid transparent;
-  transition: border-color 0.15s ease;
-}
-
-.mono::before {
-  inset: -4px -6px;
-}
-
-.value:focus-visible,
-.mono:focus-visible {
-  outline: 0;
-}
-
-.value:focus-visible::before,
-.mono:focus-visible::before {
-  border: 2px solid var(--accent);
-}
-
-.value[aria-expanded='true']::before,
-.mono[aria-expanded='true']::before {
-  border-color: var(--border);
+  transition:
+    background-color var(--dur) ease,
+    border-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .trigger:disabled {
@@ -74,8 +48,9 @@
 .face {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
+  max-width: 100%;
 }
 
 .trigger[data-pending='true'] .face {
@@ -87,111 +62,130 @@
   flex: none;
 }
 
+/* One value is one line, cut with an ellipsis when the cell runs out
+   (Gr8r's pill); the trigger's accessible name always holds all of it. */
 .faceText {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* value: the property sheet's reading voice. */
+/* value: the property sheet's voice (inherited from the row), with the
+   pill's padding taken back by a negative margin so the text sits exactly
+   where a read-only value's would and only the fill reaches outside it. */
 .value {
-  min-height: 20px;
-  font-size: 13.5px;
-  font-weight: 400;
-  line-height: 1.45;
-  color: var(--ink-soft);
+  /* The negative margin shrinks the row this sits in by 14px, so the cap
+     gives the 14px back; a bare 100% would wrap the value early. */
+  max-width: calc(100% + 14px);
+  min-height: var(--h-sm);
+  margin: -3px -7px;
+  padding: 3px 7px;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: var(--lh);
+  color: var(--text);
 }
 
-/* mono: the status line's voice; a state name never wraps. */
+.value[aria-expanded='true'] {
+  background: var(--surface-2);
+}
+
+/* pill (and its old name, mono): the status line's bordered pill, like
+   Gr8r's project status pill. A state name never wraps. */
+.pill,
 .mono {
-  min-height: 16px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-/* quiet: a bare mono action, like the quiet button. */
-.quiet {
-  min-height: 24px;
-  padding: 2px 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  min-height: var(--h-sm);
+  padding: 0 9px 0 7px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
   line-height: 1;
-  text-transform: uppercase;
+  color: var(--text);
   white-space: nowrap;
-  color: var(--foreground);
-  transition: color 0.15s ease;
 }
 
-.quiet:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
+.pill[aria-expanded='true'],
+.mono[aria-expanded='true'] {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
+}
+
+/* quiet: a small ghost button ("+ Add"). */
+.quiet {
+  min-height: var(--h-sm);
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.quiet .face {
+  gap: 5px;
+}
+
+.quiet[aria-expanded='true'] {
+  background: var(--surface-3);
+  color: var(--text);
 }
 
 @media (hover: hover) and (width >= 901px) {
-  .value:not(:disabled, :focus-visible):hover::before,
-  .mono:not(:disabled, :focus-visible):hover::before {
-    border-color: var(--border);
+  .value:not(:disabled):hover,
+  .pill:not(:disabled):hover,
+  .mono:not(:disabled):hover {
+    background: var(--surface-2);
   }
 
   .quiet:not(:disabled):hover {
-    color: var(--accent-ink);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
-/* Touch has no hover to reveal the frame: a faint rule under the value
-   says "tap me". It stays inside the value's column (a wrapped list of
-   labels is as wide as the column). */
-@media (hover: none) {
-  .value::before,
-  .mono::before {
-    inset-inline: 0;
-  }
-
-  .value:not(:disabled)::before,
-  .mono:not(:disabled)::before {
-    border-bottom-color: var(--grey-3);
-  }
-}
-
+/* An empty value, in the tone the host gave it: muted is the quiet text
+   step, warning amber for "Unassigned" on an issue that needs a person. */
 .placeholder {
-  color: var(--muted);
+  color: var(--tone-ink, var(--text-3));
 }
 
-.placeholder.accent {
-  color: var(--accent-ink);
-}
-
-.placeholder.plain {
-  color: inherit;
-}
-
-/* Multiple values as small square tokens in the chip voice. */
+/* Several values (labels) as Gr8r's label chips: a 20px bordered chip
+   with the label's colour as a small square, the chip itself washed with
+   a faint tint of that colour when it is a valid hex (--label-color). */
 .tokens {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
   min-width: 0;
+  padding: 1px 0;
 }
 
 .token {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   max-width: 100%;
-  padding: 2px 6px;
-  border: 1px solid var(--grey-3);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  min-height: 20px;
+  padding: 0 7px 0 6px;
+  border: 1px solid
+    color-mix(in srgb, var(--label-color, var(--border)) 24%, var(--border));
+  border-radius: var(--r-chip);
+  background: color-mix(
+    in srgb,
+    var(--label-color, var(--surface)) 8%,
+    var(--surface)
+  );
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
   line-height: 1.3;
-  text-transform: uppercase;
-  color: var(--foreground);
+  color: var(--text-2);
+}
+
+.token [data-mark='swatch'] {
+  width: 6px;
+  height: 6px;
 }
 
 .tokenText {
@@ -221,7 +215,7 @@
   border: 0;
   overflow: visible;
   background: transparent;
-  color: var(--foreground);
+  color: var(--text);
   visibility: hidden;
 }
 
@@ -234,38 +228,45 @@
   bottom: var(--picker-bottom, 0);
 }
 
-/* Inherits nothing from where the trigger sits (a right-aligned mono
-   section note, an uppercase status line): the panel sets its own voice. */
+/* Inherits nothing from where the trigger sits (a right-aligned section
+   note, the status pill): the panel sets its own voice. */
 .panel {
-  --picker-cap: 360px;
+  --picker-cap: 380px;
 
   display: flex;
   flex-direction: column;
-  width: clamp(264px, var(--picker-anchor-width, 264px), 400px);
+  width: clamp(240px, var(--picker-anchor-width, 240px), 340px);
   max-width: calc(100vw - 16px);
   max-height: min(
     var(--picker-cap),
     var(--picker-max-height, var(--picker-cap))
   );
-  border: 1px solid var(--border);
-  border-top: 2px solid var(--accent);
-  background: var(--background);
-  color: var(--foreground);
+  padding: 4px;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
   font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 400;
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
   letter-spacing: normal;
-  line-height: 1.4;
+  line-height: var(--lh);
   text-align: start;
   text-transform: none;
   white-space: normal;
-  animation: rise 0.18s var(--ease-out-quint) both;
+  transform-origin: top left;
+  animation: pop-in 0.16s var(--ease) both;
 }
 
-@keyframes rise {
+.layer[data-side='above'] .panel {
+  transform-origin: bottom left;
+}
+
+@keyframes pop-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.97);
   }
 
   to {
@@ -274,19 +275,21 @@
   }
 }
 
+/* Gr8r's search row: bleeds to the card's edges, a divider under it. */
 .searchRow {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 40px;
+  gap: 8px;
+  height: 38px;
+  margin: -4px -4px 4px;
   padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
 }
 
 .searchIcon {
   flex: none;
-  color: var(--muted);
+  color: var(--text-4);
 }
 
 .input {
@@ -297,11 +300,10 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
   /* A placeholder longer than the field ends in "…", not mid-word. */
   text-overflow: ellipsis;
 }
@@ -311,23 +313,20 @@
 }
 
 .input::placeholder {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: var(--text-3);
 }
 
 .close {
   flex: none;
   display: grid;
   place-items: center;
-  height: 28px;
-  padding: 0 6px;
-  color: var(--muted);
+  height: var(--h-xs);
+  padding: 0 3px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .closeWord {
@@ -336,8 +335,8 @@
 
 @media (hover: hover) and (width >= 901px) {
   .close:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
@@ -349,63 +348,51 @@
   overscroll-behavior: contain;
 }
 
-.list {
-  padding: 4px 0;
-}
-
 .list:empty {
   display: none;
 }
 
+/* Groups part with Gr8r's menu separator: a divider to the card's edges. */
 .option + .group,
 .group + .group {
-  margin-top: 4px;
-  border-top: 1px solid var(--hairline-faint);
+  margin: 4px -4px 0;
+  padding: 4px 4px 0;
+  border-top: 1px solid var(--divider);
 }
 
 .groupTitle {
-  padding: 10px 12px 4px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  padding: 8px 8px 4px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-caps);
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 .option {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 32px;
-  padding: 6px 12px;
-  background: var(--background);
-  color: var(--foreground);
+  gap: 9px;
+  min-height: var(--h-md);
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  color: var(--text);
   cursor: pointer;
   user-select: none;
 }
 
-/* The active row: paper and ink swap locally, so marks, hints and the
-   check all invert from the same tokens. */
+/* The active row (the arrow keys, or the pointer on a hover screen). */
 .option[data-active='true'] {
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --accent-ink: var(--accent-ink-inverse);
-  --accent-ink-hover: var(--accent-ink-inverse);
-  --grey-2-ink: var(--muted-inverse);
-  --border: var(--paper);
-  --muted: var(--muted-inverse);
-  --ink-soft: var(--ink-soft-inverse);
-  --hairline-faint: var(--hairline-inverse);
-  --grey-3: var(--hairline-inverse);
+  background: var(--surface-2);
 }
 
 .optionMark {
   display: inline-grid;
   place-items: center;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  color: var(--text-2);
 }
 
 .optionLabel {
@@ -416,8 +403,9 @@
   white-space: nowrap;
 }
 
-/* The hint (an issue key, a date) keeps its full width up to 45% of the
-   row; the label gives way first, so "ENG-124" never reads "ENG-…". */
+/* The hint (a handle, a date, an issue key) keeps its full width up to
+   45% of the row; the label gives way first, so "ENG-124" never reads
+   "ENG-…". */
 .hint {
   flex: 0 0 auto;
   min-width: 0;
@@ -425,26 +413,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* TaskRelationPicker's hints are issue keys: the mono id voice. */
+.keyHints .hint {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
 }
 
 .tick {
   flex: none;
+  color: var(--accent);
 }
 
-/* The multiple picker's box: the Checkbox primitive's 13px square,
-   hollow when off, the accent with an on-accent check when on. */
+/* The multiple picker's box: the Checkbox primitive, 14px with a 4px
+   radius, hollow when off, the accent with an on-accent tick when on. */
 .check {
   display: inline-grid;
   place-items: center;
   flex: none;
-  width: 13px;
-  height: 13px;
-  border: 1px solid var(--border);
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--r-xs);
+  background: var(--surface);
 }
 
 .check svg {
@@ -452,7 +447,7 @@
   height: 11px;
   fill: none;
   stroke: var(--on-accent);
-  stroke-width: 1.6;
+  stroke-width: 1.8;
   opacity: 0;
 }
 
@@ -466,71 +461,70 @@
 }
 
 .disabled {
-  color: var(--muted);
+  color: var(--text-3);
   cursor: not-allowed;
 }
 
-.retryRow .optionLabel {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
+.disabled .optionMark {
+  opacity: 0.6;
 }
 
-/* On the active fill the accent would be too faint: the row's own ink. */
-.retryRow[data-active='true'] .optionLabel {
-  color: inherit;
+.retryRow .optionLabel {
+  font-weight: var(--fw-medium);
+  color: var(--accent-ink);
 }
 
 .statusRow {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
+  padding: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
 }
 
-/* Loading is the blueprint hatch, never a spinner. */
+/* Loading is a shimmering bar (the Skeleton's), never a spinner. */
 .loadingBar {
   flex: none;
   width: 40px;
   height: 8px;
-  border: 1px solid var(--grey-3);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 5px
+  border-radius: var(--r-xs);
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 0%,
+    var(--surface-2) 45%,
+    var(--surface-3) 90%
   );
+  background-size: 220% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
 }
 
 .errorRow {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--hairline-faint);
-  font-size: 12.5px;
+  gap: 8px;
+  margin: 4px -4px 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--divider);
+  font-size: var(--fs-sm);
   line-height: 1.45;
-  color: var(--ink-soft);
+  color: var(--text);
 }
 
 .errorKey {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
+  font-weight: var(--fw-semibold);
+  color: var(--red);
 }
 
 .errorText {
@@ -538,26 +532,26 @@
   overflow-wrap: anywhere;
 }
 
+/* A quiet recessed foot (like the palette's): key hints, or the save
+   state while a pick is saving or after it failed. */
 .foot {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
-  padding: 6px 12px;
-  border-top: 1px solid var(--hairline-faint);
+  min-height: 32px;
+  margin: 4px -4px -4px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--divider);
+  background: var(--sunken);
 }
 
 .hints {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .hints > span {
@@ -575,24 +569,26 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    background: color-mix(in srgb, var(--ink) 35%, transparent);
+    background: var(--overlay);
   }
 
-  .panel {
+  .panel,
+  .layer[data-side='above'] .panel {
     width: 100%;
     max-width: none;
     max-height: min(78vh, 560px);
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
+    border-radius: 14px 14px 0 0;
+    transform-origin: bottom center;
     animation-name: sheet-in;
     animation-duration: 0.28s;
+    animation-timing-function: var(--ease-drawer);
   }
 
   .searchRow {
-    height: 48px;
-    padding-left: 16px;
+    height: 50px;
+    margin: -4px -8px 4px;
+    padding: 0 8px 0 18px;
   }
 
   /* 16px keeps iOS from zooming into the field. */
@@ -602,21 +598,36 @@
 
   .option {
     min-height: 44px;
-    padding: 8px 16px;
-    font-size: 14px;
+    padding: 6px 10px;
+    font-size: 15px;
+  }
+
+  .option + .group,
+  .group + .group,
+  .errorRow {
+    margin-inline: -8px;
+    padding-inline: 8px;
   }
 
   .groupTitle,
-  .statusRow,
-  .errorRow,
+  .statusRow {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .errorRow {
+    padding-inline: 18px;
+  }
+
   .foot {
-    padding-right: 16px;
-    padding-left: 16px;
+    margin: 4px -8px calc(-4px - env(safe-area-inset-bottom, 0px));
+    padding: 6px 18px calc(6px + env(safe-area-inset-bottom, 0px));
   }
 
   .close {
     height: 36px;
     padding: 0 10px;
+    border-radius: var(--r-sm);
   }
 
   .closeKey {
@@ -625,12 +636,9 @@
 
   .closeWord {
     display: inline;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--foreground);
+    font-size: var(--fs);
+    font-weight: var(--fw-semibold);
+    color: var(--accent-ink);
   }
 
   .hints {
@@ -644,13 +652,7 @@
   /* A tap needs no active row: it is drawn once the arrow keys are used
      (a phone with a keyboard). The tick still marks the current value. */
   .list:not([data-keyboard='true']) .option[data-active='true'] {
-    --background: inherit;
-    --foreground: inherit;
-    --border: inherit;
-    --muted: inherit;
-    --ink-soft: inherit;
-    --hairline-faint: inherit;
-    --grey-3: inherit;
+    background: transparent;
   }
 }
 
@@ -667,14 +669,18 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .quiet,
-  .value::before,
-  .mono::before,
+  .trigger,
   .close {
     transition: none;
   }
 
-  .panel {
+  .panel,
+  .layer[data-side='above'] .panel {
     animation: none;
+  }
+
+  .loadingBar {
+    animation: none;
+    opacity: 0.85;
   }
 }

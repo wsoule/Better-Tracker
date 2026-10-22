@@ -1,63 +1,80 @@
 .wrap {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   vertical-align: middle;
 }
 
+/* A 12px round mark in the status hue, Gr8r's status-icon shapes: a ring
+   for open states, a filled disc for closed ones, half filled for "watch
+   it", dashed for "not planned yet". Shape and hue both carry the status,
+   so it survives colour blindness and greyscale. */
 .mark {
+  position: relative;
   display: block;
-  flex: 0 0 13px;
-  width: 13px;
-  height: 13px;
-  border: 1px solid var(--border);
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+  color: var(--gray);
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+    color var(--dur) ease,
+    background-color var(--dur) ease;
 }
 
+/* Complete: a green disc with a tick knocked out in the surface colour. */
 .done {
-  background: var(--foreground);
+  color: var(--green);
+  background: currentColor;
 }
 
+.done::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 3px;
+  height: 5.5px;
+  border: solid var(--surface);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+/* On track: an open green ring. */
 .on_track {
-  background: transparent;
+  color: var(--green);
 }
 
-/* 2px is emphasis: spent here because at-risk is the state that asks for
-   action before the date. */
+/* At risk: amber, right half filled (Gr8r's "in progress" shape). */
 .at_risk {
-  border: 2px solid var(--accent);
+  color: var(--amber);
+  background: linear-gradient(90deg, transparent 50%, currentColor 50%);
 }
 
+/* Overdue: a solid red disc. */
 .overdue {
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--red);
+  background: currentColor;
 }
 
+/* An input is missing (no date, no issues, a rubric gap): a dashed grey
+   ring, like Gr8r's backlog. Not loud by itself; the copy says what is
+   missing (in the warning tone where it blocks something). */
 .missing {
-  border-color: var(--muted);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--muted) 0,
-    var(--muted) 1px,
-    transparent 1px,
-    transparent 4px
-  );
+  color: var(--text-3);
+  border-style: dashed;
 }
 
-/* An inactive project: hollow, in the faint grey (never loud). */
+/* An inactive project: an open ring in the faint grey (never loud). */
 .muted {
-  border-color: var(--grey-3);
-  background: transparent;
+  color: var(--text-4);
 }
 
 .text {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text);
   white-space: nowrap;
 }
 

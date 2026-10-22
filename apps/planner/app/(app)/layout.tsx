@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 
 import { SIDEBAR_STORAGE_KEY } from '../../lib/adapters/shell';
 import { getPageContext, loadShellFrame } from '../../lib/load';
-import { geist, jetbrainsMono, THEME_STORAGE_KEY } from '../fonts';
+import { geist, geistMono, THEME_STORAGE_KEY } from '../fonts';
 import AppProviders from './components/app-providers';
 import DemoNotice from './components/demo-notice';
 import PlannerShell from './components/planner-shell';
@@ -29,9 +29,10 @@ export const metadata: Metadata = {
 };
 
 /* The root layout of every app route (architecture §8.3). Signed in: the
-   sidebar shell (nav with this week's count, the PROJECTS list, breadcrumb,
-   palette, phone tabs). Signed out: the Analytics bar alone, around the
-   landing page or an error. The two inline scripts apply the saved theme
+   sidebar shell (nav with this week's count, the Projects list, breadcrumb,
+   palette, phone tabs). Signed out: the plain auth frame (brand row and
+   theme toggle on the warm page), around the landing page or an error.
+   The two inline scripts apply the saved theme
    and the collapsed rail before first paint. Pages decide on /setup
    redirects themselves (lib/load.ts); the frame only renders. */
 export default async function AppLayout({
@@ -73,7 +74,7 @@ export default async function AppLayout({
       // Next to switch it off during route changes, so a new page starts
       // at the top instead of animating there.
       data-scroll-behavior="smooth"
-      className={`${geist.variable} ${jetbrainsMono.variable}`}
+      className={`${geist.variable} ${geistMono.variable}`}
     >
       <body>
         <script

@@ -52,7 +52,7 @@ const PROPS: AppShellProps = {
     },
   ],
   settings: { href: '/settings' },
-  user: { name: 'Pat Lee', badge: 'DEMO' },
+  user: { name: 'Pat Lee', badge: 'Guest' },
   signOut: { action: '/api/auth/logout', method: 'post' },
   crumbs: [
     { label: 'Timeline', href: '/timeline' },
@@ -80,6 +80,51 @@ describe('AppShell', () => {
       'Atlas migration'
     );
     expect(screen.getByRole('main').textContent).toBe('Body');
+  });
+
+  test('Gr8r chrome: brand row, toned count badges, "/" crumbs, no marks', () => {
+    const { container } = render(
+      <AppShell
+        {...PROPS}
+        nav={[
+          ...PROPS.nav,
+          {
+            id: 'projects',
+            label: 'Projects',
+            href: '/projects',
+            icon: CalendarCheck,
+            count: 2,
+            countLabel: '2 projects blocked',
+            countTone: 'warning',
+          },
+        ]}
+      />
+    );
+    // The brand link keeps its name when the rail hides the words.
+    expect(
+      screen.getByRole('link', { name: 'Milestone Planner, Acme' })
+    ).toBeTruthy();
+    // A plain count is a quiet number; a toned one is a badge in its tone.
+    const nav = screen.getByRole('navigation', { name: 'Primary' });
+    const week = screen.getByRole('link', { name: /My week/ });
+    expect(week.querySelector('[data-tone]')).toBeNull();
+    const projects = screen.getByRole('link', { name: /2 projects blocked/ });
+    expect(
+      projects.querySelector('[data-tone]')?.getAttribute('data-tone')
+    ).toBe('warning');
+    expect(nav.textContent).not.toMatch(/[A-Z]{4,}/);
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(crumbs.textContent).toBe('Timeline/Atlas migration');
+    // The badge is sentence case, as given.
+    expect(screen.getByText('Guest')).toBeTruthy();
+    // No decorative registration marks (childless hidden spans) are left
+    // in the sidebar.
+    const sidebar = screen.getByRole('complementary', { name: 'Sidebar' });
+    const marks = [
+      ...sidebar.querySelectorAll('span[aria-hidden="true"]'),
+    ].filter((span) => span.childNodes.length === 0);
+    expect(marks).toHaveLength(0);
+    expect(container.querySelector('main')).toBeTruthy();
   });
 
   test('sign out is a real form post', () => {

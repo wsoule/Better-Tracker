@@ -1,11 +1,16 @@
-/* The two-row time header (Gr8r's months + day/week ticks) in the Matrix
-   register: mono labels, 1px ink month boundaries, faint tick rules, and
-   the TODAY rule in the one accent. */
+/* Gr8r's two-row time header: month names (12px semibold, a --border rule
+   at each month start) over day numbers (11px, tabular, --divider rules,
+   weekends sunken), today's number in an accent chip (or, with week
+   columns, a "Today" chip in the month row). The grid layer behind the
+   rows repeats the furniture quietly: sunken weekends, --divider week
+   rules, --border month rules and the 2px today line at 0.7. */
 
+/* Fills the header's content box (52px less its 1px bottom border), so
+   the tick row never paints over that border under the lane column. */
 .scale {
   position: relative;
   flex: none;
-  height: 52px;
+  align-self: stretch;
 }
 
 .months,
@@ -17,13 +22,13 @@
 
 .months {
   top: 0;
-  height: 28px;
+  height: 26px;
 }
 
 .ticks {
-  top: 28px;
-  height: 24px;
-  border-top: 1px solid var(--hairline-faint);
+  top: 26px;
+  bottom: 0;
+  border-top: 1px solid var(--divider);
 }
 
 /* clip, not hidden, so the sticky name inside still sticks to the chart. */
@@ -45,12 +50,11 @@
   position: sticky;
   left: calc(var(--timeline-lane-width, 264px) + 8px);
   display: inline-block;
-  padding: 9px 10px 0;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  line-height: 26px;
+  color: var(--text);
   white-space: nowrap;
 }
 
@@ -60,13 +64,10 @@
   bottom: 0;
   display: grid;
   place-items: center;
-  border-left: 1px solid var(--hairline-faint);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
+  border-left: 1px solid var(--divider);
+  font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 .tick:first-child {
@@ -76,47 +77,52 @@
 .weekTick {
   justify-items: start;
   padding-left: 8px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .weekend {
-  background: var(--tint);
+  background: var(--sunken);
 }
 
 .todayTick {
   color: var(--accent-ink);
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
 }
 
-/* A flag hung on the rule: accent fill, on-accent mono caps. */
+/* Today's number as a small accent chip (Gr8r's calendar marks today
+   with an accent disc), right above where the today line starts. */
+.todayNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: var(--r-chip);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The "Today" chip in the month row: the accent fill with its own text
+   colour, sentence case, centred over the today line. */
 .todayFlag {
   position: absolute;
   z-index: 1;
-  bottom: 25px;
-  padding: 2px 5px 1px;
+  top: 5px;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 5px;
+  transform: translateX(-50%);
+  border-radius: var(--r-chip);
   background: var(--accent);
   color: var(--on-accent);
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  line-height: 1.2;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
   white-space: nowrap;
 }
 
-.todayRule {
-  position: absolute;
-  z-index: 1;
-  top: 28px;
-  bottom: 0;
-  width: 1px;
-  margin-left: -0.5px;
-  background: var(--accent);
-}
-
-/* ---- grid layer behind the rows ------------------------------------- */
+/* ---- grid layer behind the rows --------------------------------------- */
 
 .grid {
   position: absolute;
@@ -130,7 +136,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  background: var(--tint);
+  background: var(--sunken);
 }
 
 .weekRule,
@@ -139,19 +145,22 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--hairline-faint);
+  background: var(--divider);
 }
 
 .monthRule {
-  background: var(--grey-3);
+  background: var(--border);
 }
 
+/* Gr8r's today line. It lives in the grid layer under the rows; the
+   initiative rows' band is translucent, so it runs through them too. */
 .todayLine {
   position: absolute;
   z-index: 1;
   top: 0;
   bottom: 0;
-  width: 1px;
-  margin-left: -0.5px;
+  width: 2px;
+  margin-left: -1px;
   background: var(--accent);
+  opacity: 0.7;
 }

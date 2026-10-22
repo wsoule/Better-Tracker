@@ -10,14 +10,19 @@ import type { UiStatus, UiTone } from '../types';
 /* ---- primitives -------------------------------------------------------- */
 
 export type ButtonVariant = 'primary' | 'secondary' | 'quiet' | 'danger';
-export type ButtonSize = 'sm' | 'md';
+export type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonCommonProps {
-  /** primary = ink slab, secondary = 2px outline, quiet = bare mono label,
-   * danger = accent outline (the system has no red: danger is the accent). */
+  /** primary = purple fill (one per view), secondary = white with a strong
+   * border, quiet = Gr8r's ghost (no box until hover), danger = red fill
+   * (a destructive or irreversible write, e.g. "Assign in Linear now"). */
   variant?: ButtonVariant;
+  /** sm 26px (toolbars), md 30px (the default), lg 36px (the one call to
+   * action of a card, e.g. "Sign in with Linear"). */
   size?: ButtonSize;
-  /** Leading icon, e.g. a 14px lucide icon (strokeWidth 1.5). */
+  /** Stretch across the container (a sign-in card's button). */
+  block?: boolean;
+  /** Leading icon, e.g. a 14px lucide icon (strokeWidth 1.8). */
   icon?: ReactNode;
   /** Trailing icon. */
   iconAfter?: ReactNode;
@@ -47,12 +52,18 @@ export interface ButtonAsLinkProps extends ButtonCommonProps {
 
 export type ButtonProps = ButtonAsButtonProps | ButtonAsLinkProps;
 
-/** default = ink outline, muted = grey idle chip, accent = filled with the accent
- * ("needs action"), inverse = ink fill (the stronger claim). */
-export type ChipTone = 'default' | 'muted' | 'accent' | 'inverse';
+/** Gr8r's badge: default = neutral (grey fill, soft border), muted = quieter
+ * neutral, accent / info / success / warning / danger = the tone's text on
+ * its soft tint (no border), inverse = dark fill (kept for old callers;
+ * prefer a semantic tone). */
+export type ChipTone = UiTone | 'inverse';
 
 export interface ChipProps {
   tone?: ChipTone;
+  /** Gr8r's status pill: a neutral bordered chip with a 6px dot in the
+   * tone's hue, for a lifecycle status (a Linear project status, a run's
+   * mode) rather than a call to action. */
+  dot?: boolean;
   /** Optional leading status mark; needs statusLabel for assistive tech. */
   status?: UiStatus;
   statusLabel?: string;
@@ -63,7 +74,7 @@ export interface ChipProps {
 export interface SegmentedOption {
   id: string;
   label: string;
-  /** Mono count after the label, e.g. "UPCOMING 6". */
+  /** Count after the label, e.g. "Upcoming 6". */
   count?: number;
   disabled?: boolean;
 }
@@ -87,10 +98,16 @@ export interface SwitchProps {
   defaultChecked?: boolean;
   onChange?: (checked: boolean) => void;
   label: string;
-  /** Sans note after the label (muted). */
+  /** Quiet note after the label. */
   note?: string;
   disabled?: boolean;
   id?: string;
+  /** Overrides the accessible name when the visible label alone is not
+      enough (two "Live" switches in a settings list); keep the visible
+      label inside it ("Allocation live"). */
+  'aria-label'?: string;
+  /** Names the switch by other elements' text (a setting row's title). */
+  'aria-labelledby'?: string;
 }
 
 export interface CheckboxProps {
@@ -98,9 +115,9 @@ export interface CheckboxProps {
   checked?: boolean;
   defaultChecked?: boolean;
   onChange?: (checked: boolean) => void;
-  /** Mono label beside the glyph (and the accessible name). */
+  /** Label beside the box (and the accessible name). */
   label: string;
-  /** Sans note after the label (muted). */
+  /** Quiet note after the label. */
   note?: string;
   disabled?: boolean;
   id?: string;
@@ -119,11 +136,11 @@ export interface NavTabItem {
   id: string;
   label: string;
   /** Where the cell goes. Omit for a cell that cannot be followed yet
-      (drawn hatched; say why in `note`). */
+      (drawn dimmed; say why in `note`). */
   href?: string;
-  /** The page being shown: ink fill and aria-current="page". */
+  /** The page being shown: raised / underlined, aria-current="page". */
   current?: boolean;
-  /** Mono count after the label. */
+  /** Count after the label. */
   count?: number;
   /** Short muted note after the label ("select a milestone"). */
   note?: string;
@@ -145,8 +162,10 @@ export interface NavTabsProps {
 export interface ProgressRuleProps {
   done: number;
   total: number;
-  /** accent when the progress itself needs action (behind pace, overdue). */
-  tone?: 'default' | 'accent';
+  /** The fill: default = the accent (Gr8r's progress), danger when the
+   * milestone is overdue, warning when it is behind pace, success when
+   * done, muted when inactive. */
+  tone?: UiTone;
   /** Visible label; defaults to "done/total". Pass null to hide it. */
   label?: string | null;
   /** Accessible name, e.g. "Cutover rehearsal progress". */
@@ -154,11 +173,13 @@ export interface ProgressRuleProps {
 }
 
 export interface NoticeProps {
-  /** Mono key before the copy, e.g. "BLOCKED", "DEMO DATA". */
+  /** Semibold lead-in before the copy, e.g. "Blocked", "Demo data". */
   label?: string;
   children: ReactNode;
-  /** accent = 2px accent rule (default); default = 1px ink hairline. */
-  tone?: 'accent' | 'default';
+  /** default / muted = a bordered neutral box; any other tone fills the
+   * box with its soft tint and prints the label in the tone's ink. Defaults
+   * to accent (Gr8r's info alert); pass a semantic tone for status. */
+  tone?: UiTone;
   /** status (polite) for updates, alert for errors. Omit for static copy. */
   role?: 'status' | 'alert';
   /** Trailing control, e.g. a quiet Button. */
@@ -168,10 +189,11 @@ export interface NoticeProps {
 export interface EmptyStateProps {
   /** The explanation, in the body face: "Nothing due this week." */
   children: ReactNode;
-  /** A short mono key above it ("No runs"), when the sentence is long. */
+  /** A short title above it ("No runs"), when the sentence is long. */
   label?: string;
   action?: ReactNode;
-  /** Hatch the box (an input is missing rather than nothing to show). */
+  /** Dash the box's edge (an input is missing rather than nothing to
+   * show). */
   hatched?: boolean;
 }
 
@@ -179,7 +201,7 @@ export interface ChecklistItem {
   id?: string;
   label: string;
   met: boolean;
-  /** Sans note under the label, e.g. "Add a target date in Linear". */
+  /** Quiet note under the label, e.g. "Add a target date in Linear". */
   note?: string;
 }
 
@@ -187,7 +209,7 @@ export interface ChecklistProps {
   items: ChecklistItem[];
   /** Accessible name of the list, e.g. "Rubric". */
   label?: string;
-  /** Right-aligned state words; defaults to MET / MISSING. */
+  /** Right-aligned state words; defaults to Met / Missing. */
   metLabel?: string;
   missingLabel?: string;
 }
@@ -197,10 +219,11 @@ export interface ChecklistProps {
 export interface StatCell {
   id: string;
   label: string;
-  /** Rendered in mono numerals. */
+  /** 22px semibold, tabular figures. */
   value: ReactNode;
   note?: string;
-  /** accent = needs action (value + note in the accent); muted = quiet. */
+  /** The value's colour: a semantic tone for a status count (overdue =
+   * danger), accent for new / unread, muted = quiet. */
   tone?: UiTone;
   /** Makes the cell a link (Gr8r stat cards navigate to the filtered list). */
   href?: string;
@@ -266,14 +289,15 @@ export interface TaskRowData {
 export interface TaskGroupProgress {
   done: number;
   total: number;
-  tone?: 'default' | 'accent';
+  tone?: UiTone;
 }
 
 export interface TaskGroupData {
   id: string;
-  /** Mono eyebrow, typically the PROJECT. */
+  /** The project before the title (Project / Milestone), in secondary
+   * text. */
   eyebrow?: string;
-  /** The group's name, typically the MILESTONE. */
+  /** The group's name, typically the milestone. */
   title: string;
   /** Opens the milestone (drawer, timeline). */
   href?: string;
@@ -286,8 +310,8 @@ export interface TaskGroupData {
   dueTone?: UiTone;
   progress?: TaskGroupProgress;
   /** Drawn quietly (e.g. a paused project's milestone): the status mark in
-   * greys, and the due date and progress never in the accent, whatever
-   * dueTone and progress.tone say. */
+   * greys, and the due date and progress grey, whatever dueTone and
+   * progress.tone say. */
   muted?: boolean;
   rows: TaskRowData[];
 }
@@ -296,7 +320,7 @@ export interface TaskSectionData {
   id: string;
   /** Divider label, e.g. "This week", "Later", "No milestone". */
   label: string;
-  /** Mono note after the label; defaults to the issue count. */
+  /** Quiet note after the label; defaults to the issue count. */
   note?: string;
   /** Said when the section has no groups; defaults to "Nothing in this
    * section". */
@@ -328,8 +352,8 @@ export interface TaskGroupTableProps {
   /** ↵ / click on a group title. Without it the group's link navigates. */
   onOpenGroup?: (group: TaskGroupData) => void;
   onToggleGroup?: (groupId: string, collapsed: boolean) => void;
-  /** The row the host has open (in a drawer, a detail pane): it keeps the
-   * ink fill and is marked aria-current. */
+  /** The row the host has open (in a drawer, a detail pane): it takes the
+   * accent tint (Gr8r's selected row) and is marked aria-current. */
   activeRowId?: string;
   /** Keys on a focused row that the table's own model (arrows, j/k,
    * Home/End) leaves alone, modified keys included: lets a host layer
@@ -347,7 +371,7 @@ export interface TaskGroupTableProps {
 export interface DeadlineItem {
   id: string;
   label: string;
-  /** Mono line under the label, e.g. "ATLAS · 3 OPEN". */
+  /** Quiet line under the label, e.g. "3 open · Atlas". */
   sublabel?: string;
   href: string;
   status: UiStatus;
@@ -359,7 +383,8 @@ export interface DeadlineGroup {
   id: string;
   /** Today / Tomorrow / This week / Overdue. */
   label: string;
-  /** accent for the group that needs action (Overdue). */
+  /** danger for Overdue, warning for Today or Tomorrow when they hold
+   * something; colours the label and the dates. */
   tone?: UiTone;
   items: DeadlineItem[];
 }
@@ -406,9 +431,10 @@ export interface RegisterProps {
 }
 
 interface RegisterRowCommonProps {
-  /** accent = 2px accent left rule (the row needs action). */
-  tone?: 'default' | 'accent' | 'muted';
-  /** Ink fill, like a selected tab. */
+  /** A row that needs action (a semantic tone) or is quiet (muted): data
+   * only; muted steps the subject back. */
+  tone?: UiTone;
+  /** The accent tint (Gr8r's selected row). */
   selected?: boolean;
   children: ReactNode;
 }
@@ -446,12 +472,12 @@ export type RegisterRowProps =
   | RegisterPlainRowProps;
 
 export interface RegisterCellProps {
-  /** Mono micro-label above the value (hidden on desktop under a header). */
+  /** Label above the value (hidden on desktop under a header). */
   label?: string;
-  /** name = sans 15/600 (row subject), value = body copy, mono = machine
-   * furniture (states, counts, dates). */
+  /** name = the row's subject (medium), value = body copy, mono = short
+   * facts in tabular figures (Geist; the name is historical). */
   variant?: 'name' | 'value' | 'mono';
-  /** Mono line under the value. */
+  /** Secondary line under the value. */
   sub?: ReactNode;
   tone?: UiTone;
   align?: 'start' | 'end';

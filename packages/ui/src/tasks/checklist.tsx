@@ -1,11 +1,13 @@
 import styles from './checklist.module.css';
+import { Chip } from './chip';
 import { cx } from './class-names';
 import type { ChecklistProps } from './types';
 
-/* The rubric as a register of marks: filled ink square = met, hollow accent
-   square = missing (the accent is spent only on what needs action). Each
-   item also states its result in words, right-aligned in the mono voice,
-   so the mark is never the only carrier of meaning. */
+/* The rubric as a short checklist panel, Gr8r's: a met item has a green
+   disc with a tick and a quiet "Met", a missing one a dashed amber ring
+   and an amber "Missing" chip (docs/architecture.md §8.2: met = success,
+   missing = warning). The result is always said in words too, so the mark
+   is never the only carrier of meaning. */
 export function Checklist({
   items,
   label,
@@ -28,7 +30,7 @@ export function Checklist({
             ) : null}
           </span>
           <span className={styles.state}>
-            {item.met ? metLabel : missingLabel}
+            {item.met ? metLabel : <Chip tone="warning">{missingLabel}</Chip>}
           </span>
         </li>
       ))}

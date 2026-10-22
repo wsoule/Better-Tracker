@@ -26,6 +26,7 @@ import {
   sameIds,
   scheduleFieldError,
   scheduleForm,
+  scheduleReadOnlyRows,
   scheduleSavedMessage,
   sectionTabs,
   sentenceCase,
@@ -33,6 +34,8 @@ import {
   settingsHref,
   statusRows,
   toggleId,
+  TUNING_FIELDS,
+  TUNING_GROUPS,
   watcherRows,
   watchersHint,
   watchersSavedMessage,
@@ -127,6 +130,8 @@ describe('watchers', () => {
     expect(rows.find((r) => r.id === 'u-hugo')?.note).toBe(
       'Deactivated in Linear'
     );
+    // Each row carries its round avatar's initials.
+    expect(rows.map((r) => r.initials)).toEqual(['AM', 'BC', 'HL']);
   });
 
   test('the list may be empty: then only leads are warned', () => {
@@ -158,6 +163,21 @@ describe('watchers', () => {
 });
 
 describe('schedule', () => {
+  // The form and a guest's read-only rows share Gr8r's headings: Time,
+  // the two groups of numbers, then Projects; every number has a group.
+  test('rows sit under the same headings in the form and read-only', () => {
+    const groups = new Set(TUNING_GROUPS.map((group) => group.id));
+    for (const field of TUNING_FIELDS)
+      expect(groups.has(field.group)).toBe(true);
+    const headings = scheduleReadOnlyRows(settings()).map((row) => row.group);
+    expect([...new Set(headings)]).toEqual([
+      'Time',
+      'Risk and warnings',
+      'My week and the timeline',
+      'Projects',
+    ]);
+  });
+
   test('round trip: the saved settings parse back to the same tuning', () => {
     const form = scheduleForm(settings());
     const parsed = parseScheduleForm(form);
@@ -335,12 +355,18 @@ describe('status', () => {
     expect(byId.get('sync')).toMatchObject({
       value: 'Oct 21, 2:00 PM UTC · failed',
       sub: 'Linear answered 503',
-      tone: 'accent',
+      tone: 'danger',
     });
-    expect(byId.get('webhook')?.value).toBe('None received yet');
+    // Architecture §8.2 "settings status": working is green, no webhook
+    // yet is grey.
+    expect(byId.get('access')?.tone).toBe('success');
+    expect(byId.get('webhook')).toMatchObject({
+      value: 'None received yet',
+      tone: 'muted',
+    });
   });
 
-  test('a revoked installation and no sync are loud; demo says so', () => {
+  test('a revoked installation is red, no sync amber; demo says so', () => {
     const rows = statusRows({
       installation: { ...installation, revokedAt: '2026-10-20T08:00:00.000Z' },
       syncState: null,
@@ -349,12 +375,15 @@ describe('status', () => {
       demo: true,
     });
     const byId = new Map(rows.map((r) => [r.id, r]));
-    expect(byId.get('source')?.value).toBe('Demo workspace');
+    expect(byId.get('source')).toMatchObject({
+      value: 'Demo workspace',
+      tone: 'muted',
+    });
     expect(byId.get('access')).toMatchObject({
       value: 'Revoked: reinstall from Setup',
-      tone: 'accent',
+      tone: 'danger',
     });
-    expect(byId.get('sync')).toMatchObject({ value: 'Never', tone: 'accent' });
+    expect(byId.get('sync')).toMatchObject({ value: 'Never', tone: 'warning' });
   });
 });
 
@@ -409,7 +438,7 @@ describe('digest preview', () => {
       due: null,
       dueNote: null,
       href: '/timeline?project=p1',
-      tone: 'accent',
+      tone: 'warning',
     });
     expect(isDigestPreviewModel(model)).toBe(true);
     expect(isDigestPreviewModel({ day: 1 })).toBe(false);
@@ -481,11 +510,14 @@ describe('digest preview', () => {
     });
   });
 
-  test('the accent marks what needs action; at risk stays ink', () => {
-    expect(noticeTone('overdue')).toBe('accent');
-    expect(noticeTone('invalid_due_soon')).toBe('accent');
-    expect(noticeTone('allocation_blocked')).toBe('accent');
-    expect(noticeTone('at_risk')).toBe('default');
+  // Architecture §8.2 "warning kind": overdue is danger (red); at risk,
+  // due soon with a rubric gap and allocation stopped are warnings
+  // (amber). The accent never marks a status.
+  test('overdue is red, every other kind amber', () => {
+    expect(noticeTone('overdue')).toBe('danger');
+    expect(noticeTone('invalid_due_soon')).toBe('warning');
+    expect(noticeTone('allocation_blocked')).toBe('warning');
+    expect(noticeTone('at_risk')).toBe('warning');
   });
 
   test('nobody to tell is said plainly', () => {
@@ -530,16 +562,16 @@ describe('notifications', () => {
       USER_MAP
     );
     expect(rows.map((r) => [r.statusLabel, r.statusTone, r.channel])).toEqual([
-      ['Sent', 'inverse', 'Slack DM'],
+      ['Sent', 'success', 'Slack DM'],
       ['Preview', 'muted', 'Outbox'],
-      ['Undeliverable', 'accent', 'Slack DM'],
+      ['Undeliverable', 'danger', 'Slack DM'],
     ]);
     expect(rows[0]).toMatchObject({
       recipient: 'Ben Carter',
       day: 'Oct 21, 2026',
       items: '0 items',
     });
-    expect(rows[2]?.rowTone).toBe('accent');
+    expect(rows[2]?.rowTone).toBe('danger');
   });
 });
 

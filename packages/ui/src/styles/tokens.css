@@ -1,7 +1,11 @@
-/* Analytics competitors-site token block, reset and block chrome, verbatim
-   (wsoule/Analytics), except the accent: purple instead of Analytics'
-   orange. The host app must also set html[data-theme] before first paint
-   (see themeScript in src/lib/theme.ts).
+/* Milestone Planner tokens, reset and block chrome, in the Gr8r Studio
+   visual language (owner decision 2026-10-22, design doc §12): warm neutral
+   surfaces, soft low-contrast lines, radius, soft shadows on floating
+   things, semantic status hues with -soft tints, Geist / Geist Mono at
+   Gr8r's scale. The one brand colour is our purple (#9747ff) in Gr8r's
+   accent role; it never means a status. The host app must also set
+   html[data-theme] before first paint (see themeScript in src/lib/theme.ts).
+   The rules for using these tokens: docs/architecture.md §8.
 
    SCOPE. By default this sheet styles the whole document (the planner owns
    its page). A host that embeds the components in an app with its own
@@ -16,104 +20,239 @@
 
 /* ============================================================================
    TOKENS: the source of truth.
-   Every ink in every module maps onto one of these, so the whole page flips to
-   dark by swapping this block. New colours are DERIVED, never invented.
+   Light is this block; dark redefines the colours (not an inversion) in the
+   two blocks below, which must stay identical. Colours that text sits on or
+   that are text are literal hex, so test/styles-contrast.test.ts can check
+   every text token at 4.5:1 on every surface. The second half of the block
+   keeps the pre-Gr8r names as aliases onto the new values; new code uses
+   the new names (docs/architecture.md §8.2).
    ========================================================================== */
 
 :root:where(:not([data-bt-ui-scoped])),
 [data-bt-ui] {
-  /* constants: the two papers and inks, so a tile can swap them locally for a
-     hover flood without a cyclic variable reference */
-  --paper: #ffffff;
-  --ink: #000000;
+  /* surfaces, back to front */
+  --bg: #fbfaf8; /* page behind everything; signed-out pages */
+  --bg-side: #f4f3f0; /* the sidebar */
+  --surface: #ffffff; /* main column, panels, cards, drawer, menus */
+  --surface-2: #f6f5f2; /* hover fill of rows, ghost buttons, menu items */
+  --surface-3: #eeede9; /* pressed / on fill, segmented track, bar track */
+  --sunken: #f7f6f3; /* recessed wells: group rows, weekends, footers */
+  --overlay: rgba(24, 22, 19, 0.28); /* modal / palette / drawer scrim */
 
-  /* core */
-  --background: var(--paper); /* paper */
-  --foreground: var(--ink); /* ink */
-  --border: #000000; /* every hairline */
-  --muted: #595959; /* secondary text */
-  --accent: #9747ff; /* the one purple */
-  --accent-hover: #7f36f0; /* pressed / darker purple */
-  --on-accent: #ffffff; /* text sitting on a purple fill, both themes */
-  /* The purple as TEXT (keys, links, "needs action" words): the accent
-     itself on white (4.51:1), a lighter step in dark, where #9747ff reads
-     4.25:1. Fills, marks, rules and outlines keep --accent. */
-  --accent-ink: #9747ff;
-  --accent-ink-hover: #7f36f0; /* hovered / focused accent text, 5.69:1 */
-  --accent-ink-inverse: #9747ff; /* accent text ON a --foreground flood */
+  /* lines, by weight */
+  --border: #e9e7e2; /* container edges and section rules */
+  --border-strong: #dad7d0; /* inputs, secondary buttons, hover outlines */
+  --divider: #f0eeea; /* row separators inside a container */
 
-  /* derived, named by job, not by lightness */
-  --ink-soft: #1a1a1a; /* strong body copy, one step off full ink */
-  --grey-2: #8f8f8f; /* dim furniture (no dark override: sits mid in both) */
-  --grey-2-ink: #6e6e6e; /* dim TEXT: #8f8f8f is 3.2:1 on white, this 5.1:1 */
-  --grey-3: #b3b3b3; /* faint furniture: idle chips, rules */
-  --grey-4: #d4d4d4; /* ghost */
-  --hairline-faint: rgba(0, 0, 0, 0.15); /* sub-weight rules */
-  --hatch: rgba(0, 0, 0, 0.06); /* the blueprint diagonal-hatch texture */
-  --tint: rgba(0, 0, 0, 0.05); /* hover wash on flat surfaces */
-  --hairline-inverse: rgba(
-    255,
-    255,
-    255,
-    0.22
-  ); /* sub-weight rules ON a --foreground flood */
-  --muted-inverse: #a3a3a3; /* secondary text ON a --foreground flood */
-  --ink-soft-inverse: #d2d2d2; /* body copy ON a --foreground flood */
-  --hairline-on-accent: rgba(
-    255,
-    255,
-    255,
-    0.28
-  ); /* sub-weight rules ON an --accent flood (both themes) */
+  /* text, four steps (text-4 is for icons and glyphs, never words) */
+  --text: #1d1c1a;
+  --text-2: #57544e;
+  --text-3: #6b6760;
+  --text-4: #8c8880;
+  --text-inv: #ffffff; /* text on an inverted (--text) fill: toast, tip */
 
-  /* three voices */
-  /* The next/font variables, else the family by name: a host without
+  /* the accent: primary buttons, focus, selection, progress, today, unread.
+     Never a status. Its text step is darker (light) / lighter (dark) so it
+     reads 4.5:1 on every surface and on its own soft tint. */
+  --accent: #9747ff;
+  --on-accent: #ffffff; /* 4.51:1 on #9747ff */
+  --accent-ink: #7c33ea;
+  --accent-ink-hover: #6b28d0;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 38%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, #1d1c1a);
+  --accent-active: color-mix(in srgb, var(--accent) 78%, #1d1c1a);
+
+  /* semantic hues: status and risk. Each is text-safe (4.5:1) on every
+     surface and on its own -soft tint; -line is a tinted border. */
+  --red: #b03b2f; /* danger: overdue, failed, urgent, errors */
+  --amber: #88590d; /* warning: at risk, blocked, missing input */
+  --green: #247149; /* success: on track, complete, met, succeeded */
+  --blue: #2f63ae; /* info: in progress, running, live */
+  --on-danger: #ffffff; /* text on a --red fill (danger button) */
+  --red-soft: color-mix(in srgb, var(--red) 10%, transparent);
+  --amber-soft: color-mix(in srgb, var(--amber) 12%, transparent);
+  --green-soft: color-mix(in srgb, var(--green) 11%, transparent);
+  --blue-soft: color-mix(in srgb, var(--blue) 10%, transparent);
+  --red-line: color-mix(in srgb, var(--red) 38%, transparent);
+  --amber-line: color-mix(in srgb, var(--amber) 38%, transparent);
+  --green-line: color-mix(in srgb, var(--green) 38%, transparent);
+  --blue-line: color-mix(in srgb, var(--blue) 38%, transparent);
+  /* categorical hues for dots, swatches and glyphs only (not text) */
+  --violet: #7652c2;
+  --teal: #1e8580;
+  --rose: #bc4270;
+  --orange: #c0612b;
+  --gray: #8a867e;
+
+  /* Linear workflow-state glyph colours (StateGlyph); glyphs only */
+  --st-triage: #c0612b;
+  --st-backlog: #a29e96;
+  --st-todo: #7c7870;
+  --st-progress: #c88a14;
+  --st-review: #7652c2;
+  --st-done: #2e8456;
+  --st-canceled: #8c8880;
+
+  /* elevation: only things that float or can be picked up */
+  --shadow-sm: 0 1px 2px rgba(28, 25, 20, 0.05);
+  --shadow-raised: 0 1px 2px rgba(28, 25, 20, 0.06), 0 0 0 1px var(--border);
+  --shadow-card: 0 1px 2px rgba(28, 25, 20, 0.04), 0 0 0 1px var(--border);
+  --shadow-pop:
+    0 12px 32px -8px rgba(28, 25, 20, 0.16),
+    0 2px 6px -2px rgba(28, 25, 20, 0.06), 0 0 0 1px var(--border);
+  --shadow-drag:
+    0 16px 36px -10px rgba(28, 25, 20, 0.28), 0 0 0 1px var(--border-strong);
+  --shadow-drawer: -18px 0 40px -24px rgba(0, 0, 0, 0.25);
+
+  /* radius */
+  --r-xs: 4px; /* kbd, checkbox, focus ring, tiny icon buttons */
+  --r-chip: 5px; /* chips, badges, segmented buttons, tooltips */
+  --r-sm: 6px; /* buttons, inputs, nav items, menu items, bars */
+  --r: 8px; /* cards, notices, toasts */
+  --r-lg: 10px; /* panels, popovers, boxed lists, empty states */
+  --r-xl: 12px; /* modals, command palette, full drawer */
+  --r-full: 999px;
+
+  /* spacing (4pt) and the one content edge */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-10: 40px;
+  --s-12: 48px;
+  --gutter: 24px;
+
+  /* type. The next/font variables, else the family by name: a host without
      next/font (Vite) must still get a font stack, and an undefined var()
      with no fallback would invalidate the whole stack (browser serif). */
   --font-sans:
-    var(--font-geist, Geist), -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    Helvetica, Arial, sans-serif;
+    var(--font-geist, Geist), ui-sans-serif, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   --font-body: var(--font-sans);
   --font-mono:
-    var(--font-jetbrains, 'JetBrains Mono'), 'Fira Code', Menlo, Monaco,
-    Consolas, 'Liberation Mono', monospace;
+    var(--font-geist-mono, 'Geist Mono'), ui-monospace, SFMono-Regular, Menlo,
+    Consolas, monospace;
+  --fs-2xs: 11px; /* counts, eyebrows, kbd */
+  --fs-xs: 12px; /* meta, chips, column headers, small buttons */
+  --fs-sm: 12.5px; /* buttons, crumbs, group headers, secondary text */
+  --fs: 13.5px; /* body, list titles, nav items, inputs */
+  --fs-md: 14.5px; /* section titles, modal title, empty-state title */
+  --fs-lg: 16px;
+  --fs-xl: 19px; /* drawer / project / settings title */
+  --fs-2xl: 23px; /* page title */
+  --fw-regular: 400;
+  --fw-soft: 450; /* nav items, card titles: dense text that reads soft */
+  --fw-medium: 500; /* buttons, labels, meta, active nav */
+  --fw-semibold: 600; /* headings, group headers, stat values */
+  --lh: 1.45;
+  --lh-long: 1.55; /* comments, descriptions */
+  --ls-title: -0.022em; /* --fs-2xl */
+  --ls-heading: -0.018em; /* --fs-xl */
+  --ls-section: -0.01em; /* --fs-md */
+  --ls-caps: 0.06em; /* the rare uppercase eyebrow */
 
-  /* furniture */
-  --nav-h: 80px;
+  /* component sizes */
+  --h-xs: 22px;
+  --h-sm: 26px;
+  --h-md: 30px;
+  --h-lg: 36px;
+  --side-w: 252px;
+  --side-row: 30px;
+  --row-h: 40px;
+  --card-pad: 10px;
+  --topbar-h: 46px;
+
+  /* motion */
+  --ease: cubic-bezier(0.23, 1, 0.32, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur: 140ms;
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --nav-h: 80px;
+
+  /* ---- pre-Gr8r names, kept as aliases until every lane has migrated ----
+     (docs/architecture.md §8.2 maps each one; do not use them in new code) */
+  --paper: var(--surface);
+  --ink: var(--text);
+  --background: var(--surface);
+  --foreground: var(--text);
+  --muted: var(--text-2);
+  --ink-soft: var(--text);
+  --grey-2: var(--text-4);
+  --grey-2-ink: var(--text-3);
+  --grey-3: var(--border-strong);
+  --grey-4: var(--surface-3);
+  --hairline-faint: var(--divider);
+  --tint: var(--surface-2);
+  /* the blueprint hatch is retired: every hatch drawn with it is invisible */
+  --hatch: transparent;
+  /* text and rules ON an ink (--foreground) flood, for the floods that
+     have not migrated yet */
+  --accent-ink-inverse: #b385ff;
+  --muted-inverse: #b5b2ab;
+  --ink-soft-inverse: #d6d3cd;
+  --hairline-inverse: rgba(255, 255, 255, 0.22);
+
+  color-scheme: light;
 }
 
-/* The same brutalist system printed in negative: near-black paper, off-white
-   ink, identical purple. Full-contrast inversions glare, so ink is #ededed and
-   paper is #0f0f0f. The faint values are stepped UP: light lines on dark ground
-   read weaker than the reverse. */
+/* Gr8r's dark palette (warm charcoal, pastel hues), redefined rather than
+   inverted. The accent fill stays #9747ff; its text step goes lighter. */
 html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
 [data-bt-ui][data-theme='dark'],
 [data-theme='dark']
   [data-bt-ui]:not([data-theme='light'], [data-theme='system']) {
-  --paper: #0f0f0f;
-  --ink: #ededed;
-  --border: #ededed;
-  --muted: #a3a3a3;
-  /* --accent, --accent-hover, --on-accent deliberately unchanged */
-  /* accent TEXT steps lighter instead (contrast on #0f0f0f, and on the
-     --tint wash): 5.63:1 (4.84:1), hovered 6.54:1; on the #ededed ink flood
-     the darker purple, 4.86:1 */
-  --accent-ink: #a66bff;
-  --accent-ink-hover: #b47aff;
-  --accent-ink-inverse: #7f36f0;
-  --grey-2-ink: #8f8f8f; /* 5.93:1 on #0f0f0f */
-
-  --ink-soft: #d2d2d2;
-  --grey-3: #565656;
-  --grey-4: #333333;
-  --hairline-faint: rgba(255, 255, 255, 0.22);
-  --hatch: rgba(255, 255, 255, 0.08);
-  --tint: rgba(255, 255, 255, 0.08);
+  --bg: #1a1a19;
+  --bg-side: #151514;
+  --surface: #1d1d1c;
+  --surface-2: #252524;
+  --surface-3: #2d2d2b;
+  --sunken: #181817;
+  --overlay: rgba(0, 0, 0, 0.55);
+  --border: #2c2b29;
+  --border-strong: #3a3936;
+  --divider: #252523;
+  --text: #eceae5;
+  --text-2: #b5b2ab;
+  --text-3: #9a968f;
+  --text-4: #6f6c66;
+  --text-inv: #151514;
+  --accent-ink: #b385ff;
+  --accent-ink-hover: #c4a0ff;
+  --red: #e57d70;
+  --amber: #d8a443;
+  --green: #5cba86;
+  --blue: #72a5ea;
+  --on-danger: #151514;
+  --violet: #a98deb;
+  --teal: #58c0b6;
+  --rose: #e68aab;
+  --orange: #e3925f;
+  --gray: #8f8b84;
+  --st-triage: #e3925f;
+  --st-backlog: #6f6c66;
+  --st-todo: #a6a39c;
+  --st-progress: #d8a443;
+  --st-review: #a98deb;
+  --st-done: #5cba86;
+  --st-canceled: #6f6c66;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-strong);
+  --shadow-card: 0 0 0 1px var(--border);
+  --shadow-pop:
+    0 16px 40px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-strong);
+  --shadow-drag:
+    0 18px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-strong);
+  --shadow-drawer: -18px 0 40px -24px rgba(0, 0, 0, 0.6);
+  --accent-ink-inverse: #6f2bd6;
+  --muted-inverse: #57544e;
+  --ink-soft-inverse: #33312d;
   --hairline-inverse: rgba(0, 0, 0, 0.18);
-  --muted-inverse: #595959;
-  --ink-soft-inverse: #1a1a1a;
 
   color-scheme: dark;
 }
@@ -127,24 +266,53 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
   html[data-theme='system']:where(:not([data-bt-ui-scoped])),
   [data-bt-ui][data-theme='system'],
   [data-theme='system'] [data-bt-ui]:not([data-theme='light']) {
-    --paper: #0f0f0f;
-    --ink: #ededed;
-    --border: #ededed;
-    --muted: #a3a3a3;
-    --accent-ink: #a66bff;
-    --accent-ink-hover: #b47aff;
-    --accent-ink-inverse: #7f36f0;
-    --grey-2-ink: #8f8f8f;
-
-    --ink-soft: #d2d2d2;
-    --grey-3: #565656;
-    --grey-4: #333333;
-    --hairline-faint: rgba(255, 255, 255, 0.22);
-    --hatch: rgba(255, 255, 255, 0.08);
-    --tint: rgba(255, 255, 255, 0.08);
+    --bg: #1a1a19;
+    --bg-side: #151514;
+    --surface: #1d1d1c;
+    --surface-2: #252524;
+    --surface-3: #2d2d2b;
+    --sunken: #181817;
+    --overlay: rgba(0, 0, 0, 0.55);
+    --border: #2c2b29;
+    --border-strong: #3a3936;
+    --divider: #252523;
+    --text: #eceae5;
+    --text-2: #b5b2ab;
+    --text-3: #9a968f;
+    --text-4: #6f6c66;
+    --text-inv: #151514;
+    --accent-ink: #b385ff;
+    --accent-ink-hover: #c4a0ff;
+    --red: #e57d70;
+    --amber: #d8a443;
+    --green: #5cba86;
+    --blue: #72a5ea;
+    --on-danger: #151514;
+    --violet: #a98deb;
+    --teal: #58c0b6;
+    --rose: #e68aab;
+    --orange: #e3925f;
+    --gray: #8f8b84;
+    --st-triage: #e3925f;
+    --st-backlog: #6f6c66;
+    --st-todo: #a6a39c;
+    --st-progress: #d8a443;
+    --st-review: #a98deb;
+    --st-done: #5cba86;
+    --st-canceled: #6f6c66;
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-raised:
+      0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-strong);
+    --shadow-card: 0 0 0 1px var(--border);
+    --shadow-pop:
+      0 16px 40px -10px rgba(0, 0, 0, 0.6), 0 0 0 1px var(--border-strong);
+    --shadow-drag:
+      0 18px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-strong);
+    --shadow-drawer: -18px 0 40px -24px rgba(0, 0, 0, 0.6);
+    --accent-ink-inverse: #6f2bd6;
+    --muted-inverse: #57544e;
+    --ink-soft-inverse: #33312d;
     --hairline-inverse: rgba(0, 0, 0, 0.18);
-    --muted-inverse: #595959;
-    --ink-soft-inverse: #1a1a1a;
 
     color-scheme: dark;
   }
@@ -177,13 +345,19 @@ html:where(:not([data-bt-ui-scoped])) {
   margin: 0;
 }
 
-/* The page's paper and voice; a scoped wrapper carries them itself. */
+/* The page's surface and voice (Gr8r's body: 13.5px Geist at 1.45, weight
+   400, ss01 + cv11); a scoped wrapper carries them itself. */
 :where(html:not([data-bt-ui-scoped])) body,
 :where([data-bt-ui]) {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--surface);
+  color: var(--text);
   font-family: var(--font-body);
-  font-weight: 300;
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh);
+  font-feature-settings:
+    'ss01' 1,
+    'cv11' 1;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -206,7 +380,7 @@ html:where(:not([data-bt-ui-scoped])) {
   list-style: none;
 }
 
-/* Links are undecorated by doctrine; affordance is supplied per component. */
+/* Links are undecorated; affordance is supplied per component. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) a {
   color: inherit;
   text-decoration: none;
@@ -220,7 +394,12 @@ html:where(:not([data-bt-ui-scoped])) {
   padding: 0;
   margin: 0;
   cursor: pointer;
-  border-radius: 0;
+}
+
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) input,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) textarea,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) [contenteditable] {
+  caret-color: var(--accent);
 }
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) img,
@@ -233,14 +412,49 @@ html:where(:not([data-bt-ui-scoped])) {
   border-spacing: 0;
 }
 
+/* A tint of the accent under the text; the text keeps its own colour. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ::selection {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
+/* Gr8r's ring: 2px accent hugging the control. The 4px radius only shows on
+   square elements; anything rounded keeps its own (this has no
+   specificity). Inputs replace it with a 3px --accent-soft halo. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 1px;
+  border-radius: var(--r-xs);
+}
+
+/* Thin rounded scrollbars on a clear track (Gr8r): a ~4px thumb in the
+   strong border colour, darker on hover. Firefox gets the thin standard. */
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  border-radius: 10px;
+  background-clip: padding-box;
+}
+
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui])
+  ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-4);
+}
+
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ::-webkit-scrollbar-track,
+:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -261,20 +475,19 @@ html:where(:not([data-bt-ui-scoped])) {
   border: 0;
 }
 
+/* Gr8r's skip link: an inverted pill that drops in on focus. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .skipLink {
   position: absolute;
   left: 12px;
   top: -200px;
   z-index: 200;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 1px solid var(--border);
-  padding: 10px 16px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--text-inv);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  box-shadow: var(--shadow-pop);
 }
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .skipLink:focus {
@@ -282,10 +495,11 @@ html:where(:not([data-bt-ui-scoped])) {
 }
 
 /* ============================================================================
-   DASHBOARD BLOCK CHROME
-   Every block on the page opens with the same hatched titlebar: the chrome
-   zone of a technical drawing, shared across modules so the page reads as
-   one register rather than six sections.
+   BLOCK CHROME
+   A page section: .block sets the column, .blockBar is its heading row
+   (Gr8r's section title: 14.5px semibold, a quiet meta on the right). No
+   box, no texture and no section numbers: .blockKey stays hidden for any
+   markup that still renders one.
    ========================================================================== */
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .block {
@@ -298,43 +512,28 @@ html:where(:not([data-bt-ui-scoped])) {
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockBar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  height: 42px;
-  padding: 0 18px;
-  border: 1px solid var(--border);
-  background-color: var(--background);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
+  gap: 8px 12px;
+  min-height: 32px;
+  padding: 0 0 8px;
 }
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockKey {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--accent-ink);
-  white-space: nowrap;
+  display: none;
 }
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockTitle {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-section);
+  line-height: 1.3;
+  color: var(--text);
 }
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockMeta {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -344,10 +543,8 @@ html:where(:not([data-bt-ui-scoped])) {
     margin-top: 32px;
   }
   :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockBar {
-    height: auto;
     flex-wrap: wrap;
-    gap: 4px 12px;
-    padding: 10px 14px;
+    gap: 2px 12px;
   }
   :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockMeta {
     margin-left: 0;

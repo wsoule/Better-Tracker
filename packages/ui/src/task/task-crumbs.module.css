@@ -1,8 +1,9 @@
-/* One mono line, cut with an ellipsis. A crumb list is a flex row in
-   which only the earlier crumbs shrink: the last one (usually the key)
-   keeps its full width, so a phone reads "BEACON… / SEARCH… / ENG-24"
-   rather than losing the key. Under 260px of trail the earlier crumbs
-   step aside entirely, like Dispatch's pane chrome. */
+/* The header's trail, like Gr8r's drawer crumb: 12.5px in the secondary
+   text step, "/" separators in the icon step, the current crumb in --text
+   and the issue key in the mono id voice. One line, cut with an ellipsis:
+   a crumb list is a flex row in which only the earlier crumbs shrink, so a
+   phone reads "Beacon… / Search… / ENG-24" rather than losing the key.
+   Under 260px of trail the earlier crumbs step aside entirely. */
 
 .trail {
   display: block;
@@ -10,12 +11,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--text-2);
 }
 
 .crumbs {
@@ -65,27 +63,32 @@
 
 .sep {
   flex: none;
-  margin: 0 8px;
-  color: var(--grey-2);
+  margin: 0 7px;
+  color: var(--text-4);
 }
 
 .link {
-  color: var(--muted);
-  transition: color 0.15s ease;
-}
-
-.link:focus-visible {
-  color: var(--accent-ink);
+  color: var(--text-2);
+  transition: color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .link:hover {
-    color: var(--accent-ink);
+    color: var(--text);
   }
 }
 
 .current {
-  color: var(--foreground);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+
+/* The task's own key (the last crumb, or the trail on its own). */
+.key {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
 }
 
 @media (prefers-reduced-motion: reduce) {

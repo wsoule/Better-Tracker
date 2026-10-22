@@ -6,6 +6,8 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, describe, expect, jest, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { useState } from 'react';
 
 import AlertStrip from '../src/shell/alert-strip';
@@ -177,5 +179,33 @@ describe('SlideOver', () => {
     });
     expect(screen.getByRole('dialog', { name: 'Schema cutover' })).toBeTruthy();
     expect(document.activeElement).toBe(pageRow);
+  });
+});
+
+// Layout rules a DOM without CSS cannot show, pinned in the sheets.
+function shellSheet(name: string): string {
+  return readFileSync(
+    path.join(import.meta.dir, '..', 'src', 'shell', name),
+    'utf8'
+  );
+}
+
+describe('drawer sheets', () => {
+  test('the drawer edge takes --border-strong in dark, where the shadow fades', () => {
+    const css = shellSheet('slide-over.module.css');
+    expect(css).toMatch(
+      /:global\(\[data-theme='dark'\]\) \.panel \{\s*border-left-color: var\(--border-strong\);/
+    );
+    expect(css).toMatch(
+      /prefers-color-scheme: dark\) \{\s*:global\(\[data-theme='system'\]\) \.panel \{\s*border-left-color: var\(--border-strong\);/
+    );
+  });
+
+  test('a property label stays level with the first line of a tall value', () => {
+    // Centred, a label floated beside the middle of a field with a note
+    // under it; on the value's first baseline it reads with that line.
+    const css = shellSheet('property-list.module.css');
+    expect(css).toContain('align-items: var(--property-align, baseline);');
+    expect(css).toMatch(/\.term \{[^}]*min-height: var\(--h-md\);/);
   });
 });

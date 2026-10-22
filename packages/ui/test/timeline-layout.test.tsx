@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   applyOverrides,
+  BAR_HEIGHT,
   computeConnectors,
   computeLayout,
   GROUP_HEIGHT,
@@ -19,6 +20,8 @@ import type { UiStatus } from '../src/types';
 // Weeks zoom (32px a day) over Mon Oct 19 – Sun Nov 15 2026.
 const WINDOW = { windowStart: '2026-10-19', windowEnd: '2026-11-15' };
 const TODAY = '2026-10-21';
+// A dropped connector ends a pixel above the waiting bar's top edge.
+const TOP_EDGE = BAR_HEIGHT / 2 + 1;
 
 function bar(
   id: string,
@@ -63,14 +66,15 @@ describe('computeLayout rows', () => {
       'g:g2',
       'l:c',
     ]);
-    // Initiative rows overlap the line above by 1px.
-    expect(layout.rows[1]?.top).toBe(SUMMARY_HEIGHT - 1);
-    expect(laneRow(layout, 'a').top).toBe(SUMMARY_HEIGHT - 1 + GROUP_HEIGHT);
+    // Rows stack edge to edge: no 1px overlaps (each row draws only its
+    // own bottom rule).
+    expect(layout.rows[1]?.top).toBe(SUMMARY_HEIGHT);
+    expect(laneRow(layout, 'a').top).toBe(SUMMARY_HEIGHT + GROUP_HEIGHT);
     expect(laneRow(layout, 'b').top).toBe(
-      SUMMARY_HEIGHT - 1 + GROUP_HEIGHT + ROW_HEIGHT
+      SUMMARY_HEIGHT + GROUP_HEIGHT + ROW_HEIGHT
     );
     expect(layout.height).toBe(
-      SUMMARY_HEIGHT + 2 * (GROUP_HEIGHT - 1) + 3 * ROW_HEIGHT
+      SUMMARY_HEIGHT + 2 * GROUP_HEIGHT + 3 * ROW_HEIGHT
     );
   });
 
@@ -368,11 +372,12 @@ describe('computeConnectors', () => {
     expect(edge?.route).toBe('drop');
     const a1 = layout.bars.get('a1');
     const b1 = layout.bars.get('b1');
-    // Lands on b1's top edge, straight under a1's diamond.
+    // Lands on b1's top edge (a pixel above it), straight under a1's
+    // diamond.
     expect(edge?.d.startsWith(`M${a1?.endX} `)).toBe(true);
-    expect(edge?.d.endsWith(`${a1?.endX} ${(b1?.centerY ?? 0) - 15}`)).toBe(
-      true
-    );
+    expect(
+      edge?.d.endsWith(`${a1?.endX} ${(b1?.centerY ?? 0) - TOP_EDGE}`)
+    ).toBe(true);
   });
 
   test('never aims at a start hidden under the previous diamond', () => {
@@ -388,7 +393,9 @@ describe('computeConnectors', () => {
     expect(edge?.d.startsWith(`M${a2?.endX} `)).toBe(true);
     // Lands on b2's top edge, clear of the 8px diamond reach (+6).
     expect(
-      edge?.d.endsWith(`${(b2?.left ?? 0) + 14} ${(b2?.centerY ?? 0) - 15}`)
+      edge?.d.endsWith(
+        `${(b2?.left ?? 0) + 14} ${(b2?.centerY ?? 0) - TOP_EDGE}`
+      )
     ).toBe(true);
   });
 

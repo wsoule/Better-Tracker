@@ -5,7 +5,6 @@ import {
   Button,
   Chip,
   EmptyState,
-  Link,
   ProgressRule,
   Register,
   RegisterCell,
@@ -14,6 +13,7 @@ import {
   type SegmentedOption,
   StatusMark,
 } from '@better-tracker/ui';
+import { ArrowUpRight, Search } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
@@ -29,7 +29,7 @@ import { plural } from '../../../lib/format';
 import css from './page.module.css';
 
 const COLUMNS =
-  'minmax(0, 1.2fr) 116px minmax(0, 1.5fr) 140px minmax(0, 0.8fr) minmax(0, 1.2fr) 104px';
+  'minmax(0, 1.2fr) 124px minmax(0, 1.5fr) 140px minmax(0, 0.8fr) minmax(0, 1.2fr) 132px';
 
 /* The seven columns stay readable down to a register about 1000px wide
    (1440 with the sidebar open). Narrower (1280 with the sidebar, a
@@ -67,8 +67,9 @@ function syncUrl(query: string, filter: ProjectFilterId): string {
 
 /* The projects register's client island: search box and status filter
    over the rows the server built (filterProjectGroups does the matching),
-   then one hairline block per initiative. Rows open the project's timeline
-   lane; the end cell links to its graph and to Linear. */
+   then one panel per initiative under its section title. Rows open the
+   project's timeline lane; the end cell links to its graph and to Linear
+   as quiet buttons. */
 export default function ProjectsRegister({
   groups,
   filters,
@@ -128,16 +129,24 @@ export default function ProjectsRegister({
           <label className="srOnly" htmlFor={searchId}>
             Search projects
           </label>
-          <input
-            id={searchId}
-            ref={searchRef}
-            className={`input ${css.search}`}
-            type="search"
-            placeholder="Search projects"
-            autoComplete="off"
-            value={query}
-            onChange={(event) => update(event.target.value, filter)}
-          />
+          <span className={css.searchWrap}>
+            <Search
+              className={css.searchIcon}
+              size={13}
+              strokeWidth={1.8}
+              aria-hidden="true"
+            />
+            <input
+              id={searchId}
+              ref={searchRef}
+              className={`input ${css.search}`}
+              type="search"
+              placeholder="Search projects"
+              autoComplete="off"
+              value={query}
+              onChange={(event) => update(event.target.value, filter)}
+            />
+          </span>
           <SegmentedControl
             label="Project status"
             options={filters}
@@ -182,14 +191,13 @@ export default function ProjectsRegister({
           </EmptyState>
         </div>
       ) : (
-        shown.map((group, index) => (
+        shown.map((group) => (
           <section
             key={group.id}
-            className={`${css.blocks} ${css.collapse}`}
+            className={css.blocks}
             aria-label={group.name}
           >
             <BlockBar
-              index={String(index + 1).padStart(2, '0')}
               title={group.name}
               meta={plural(group.rows.length, 'project')}
             />
@@ -223,7 +231,9 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
         {row.name}
       </RegisterCell>
       <RegisterCell label="Linear">
-        <Chip tone={row.linearStatusTone}>{row.linearStatus}</Chip>
+        <Chip tone={row.linearStatusTone} dot>
+          {row.linearStatus}
+        </Chip>
       </RegisterCell>
       {next === null ? (
         <RegisterCell label="Next milestone" variant="mono" tone="muted">
@@ -233,11 +243,9 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
         <RegisterCell
           label="Next milestone"
           sub={
-            next.dueTone === 'accent' ? (
-              <span className={css.accentText}>{next.dueLabel}</span>
-            ) : (
-              next.dueLabel
-            )
+            <span className={css.due} data-tone={next.dueTone}>
+              {next.dueLabel}
+            </span>
           }
         >
           <span className={css.milestone}>
@@ -264,32 +272,28 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
       </RegisterCell>
       <RegisterCell
         label="Lead"
-        variant={row.lead === null ? 'mono' : 'value'}
-        tone={row.lead === null ? 'accent' : 'default'}
+        tone={row.lead === null ? 'warning' : 'default'}
       >
         {row.lead ?? 'No lead'}
       </RegisterCell>
-      <RegisterCell
-        label="Allocation"
-        tone={row.allocation.tone}
-        sub={row.allocation.detail}
-      >
+      <RegisterCell label="Allocation" sub={row.allocation.detail}>
         <Chip tone={row.allocation.tone}>{row.allocation.label}</Chip>
       </RegisterCell>
       <RegisterCell align="end">
         <span className={css.links}>
-          <Link href={row.graphHref} className="accentLink">
+          <Button href={row.graphHref} variant="quiet" size="sm">
             Graph
-          </Link>
-          <Link
+          </Button>
+          <Button
             href={row.linearUrl}
-            className="accentLink"
-            target="_blank"
-            rel="noreferrer noopener"
+            external
+            variant="quiet"
+            size="sm"
+            iconAfter={<ArrowUpRight size={12} strokeWidth={1.8} />}
             aria-label={`${row.name} in Linear (opens in a new tab)`}
           >
             Linear
-          </Link>
+          </Button>
         </span>
       </RegisterCell>
     </RegisterRow>

@@ -55,7 +55,7 @@ export default function RunActions({ liveRunsOn }: { liveRunsOn: boolean }) {
       <div className={css.actionBar}>
         <Button
           variant={liveRunsOn ? 'secondary' : 'primary'}
-          icon={<Eye size={14} strokeWidth={1.5} />}
+          icon={<Eye size={14} strokeWidth={1.8} />}
           disabled={busy !== null}
           onClick={() => void start('dry_run')}
         >
@@ -66,7 +66,7 @@ export default function RunActions({ liveRunsOn }: { liveRunsOn: boolean }) {
             <>
               <Button
                 variant="danger"
-                icon={<Play size={14} strokeWidth={1.5} />}
+                icon={<Play size={14} strokeWidth={1.8} />}
                 disabled={busy !== null}
                 onClick={() => void start('live')}
               >
@@ -83,7 +83,7 @@ export default function RunActions({ liveRunsOn }: { liveRunsOn: boolean }) {
           ) : (
             <Button
               variant="primary"
-              icon={<Play size={14} strokeWidth={1.5} />}
+              icon={<Play size={14} strokeWidth={1.8} />}
               disabled={busy !== null}
               onClick={() => setConfirming(true)}
             >

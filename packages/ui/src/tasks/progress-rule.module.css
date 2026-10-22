@@ -1,50 +1,63 @@
 .wrap {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   width: 100%;
 }
 
-/* The track is a 1px hairline in the ghost grey; the fill is drawn on top
-   of it 2px tall (the emphasis weight; nothing in the system is heavier),
-   centred, so the drawing reads as a rule with a filled run rather than a
-   progress pill. */
+/* Gr8r's progress bar: 4px, rounded, a --surface-3 track. The fill is the
+   accent (Gr8r's progress colour) unless a tone says the progress itself
+   is a status: danger (overdue), warning (behind pace), success (done),
+   muted (inactive). */
 .track {
   position: relative;
   flex: 1 1 auto;
   min-width: 40px;
-  height: 2px;
-  background: linear-gradient(var(--grey-4), var(--grey-4)) center / 100% 1px
-    no-repeat;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
 }
 
 .fill {
   position: absolute;
   inset: 0;
-  background: var(--foreground);
+  border-radius: inherit;
+  background: var(--accent);
   transform-origin: left center;
-  transition: transform 0.5s var(--ease-out-expo);
+  transition: transform 0.5s var(--ease);
 }
 
-.accent .fill {
-  background: var(--accent);
+.wrap:where(
+    [data-tone='danger'],
+    [data-tone='warning'],
+    [data-tone='success'],
+    [data-tone='info'],
+    [data-tone='muted']
+  )
+  .fill {
+  background: var(--tone);
 }
 
 .label {
   flex: none;
   min-width: 4ch;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
   text-align: right;
-  color: var(--foreground);
+  color: var(--text-2);
 }
 
-.accent .label {
-  color: var(--accent-ink);
+.wrap:where(
+    [data-tone='danger'],
+    [data-tone='warning'],
+    [data-tone='success'],
+    [data-tone='info']
+  )
+  .label {
+  color: var(--tone-ink);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -11,9 +11,10 @@ import type { ShellIcon, ShellIconProps } from './types';
 // module: server-rendered components (PropertyList, Kbd, skeletons) call
 // these during the server render.
 
+/* Gr8r's Lucide voice: 16px at a 1.8 stroke. */
 const ICON_PROPS: ShellIconProps = {
   size: 16,
-  strokeWidth: 1.5,
+  strokeWidth: 1.8,
   'aria-hidden': true,
 };
 
@@ -36,4 +37,16 @@ export function renderIcon(icon: ShellIcon | undefined): ReactNode {
 /** Joins class names, dropping empty ones. */
 export function cx(...names: (string | false | null | undefined)[]): string {
   return names.filter((n) => typeof n === 'string' && n !== '').join(' ');
+}
+
+/** Up to two initials of a name ("Milestone Planner" → "MP"): the round
+    avatar and the brand tile. */
+export function initials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter((part) => part !== '')
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase();
 }

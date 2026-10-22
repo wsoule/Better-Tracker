@@ -469,28 +469,17 @@ export function EditableTaskDemo({
   );
 }
 
-/** One labelled cell of block 05. */
-function Cell({
-  index,
-  label,
-  children,
-}: {
-  index: number;
-  label: string;
-  children: ReactNode;
-}) {
+/** One labelled cell of the edit-controls section. */
+function Cell({ label, children }: { label: string; children: ReactNode }) {
   return (
     <li className={css.cell}>
-      <p className={css.stateLabel}>
-        <span className="key">{String(index).padStart(2, '0')}</span>
-        {label}
-      </p>
+      <p className={css.stateLabel}>{label}</p>
       <div className={css.cellBody}>{children}</div>
     </li>
   );
 }
 
-/** Block 05: each control on its own, in the states block 04 does not
+/** Each control on its own, in the states the editable task does not
     reach (loading and failed options, no access, a near-full editor). */
 export function EditControlsDemo() {
   const { toast } = useToast();
@@ -506,7 +495,7 @@ export function EditControlsDemo() {
 
   return (
     <ul className={css.cells}>
-      <Cell index={1} label="Options loading">
+      <Cell label="Options loading">
         <PickerPopover
           label="Reviewer"
           options={[]}
@@ -517,7 +506,7 @@ export function EditControlsDemo() {
           onChange={() => undefined}
         />
       </Cell>
-      <Cell index={2} label="Options failed · Retry">
+      <Cell label="Options failed · Retry">
         <PickerPopover
           label="Owner"
           options={
@@ -542,7 +531,7 @@ export function EditControlsDemo() {
           onChange={(next) => fakeSave(() => setOwner(next))}
         />
       </Cell>
-      <Cell index={3} label="No write access · disabled">
+      <Cell label="No write access · disabled">
         <AssigneePicker
           people={PEOPLE}
           value="u-dev"
@@ -550,7 +539,7 @@ export function EditControlsDemo() {
           onChange={() => undefined}
         />
       </Cell>
-      <Cell index={4} label="Relation search · 2 characters first">
+      <Cell label="Relation search · 2 characters first">
         <TaskRelationPicker
           label="Add related task"
           search={searchTasks}
@@ -567,14 +556,14 @@ export function EditControlsDemo() {
           }
         />
       </Cell>
-      <Cell index={5} label="Inline text · outside a heading">
+      <Cell label="Inline text · outside a heading">
         <InlineTextField
           label="Summary"
           value={plain}
           onSave={(next) => fakeSave(() => setPlain(next))}
         />
       </Cell>
-      <Cell index={6} label="Date · always fails">
+      <Cell label="Date · always fails">
         <DateField
           label="Start date"
           value={due}
@@ -586,7 +575,7 @@ export function EditControlsDemo() {
           }
         />
       </Cell>
-      <Cell index={7} label="Editor near its limit · 240">
+      <Cell label="Editor near its limit · 240">
         <TextAreaEditor
           label="Release note"
           value={note}
@@ -595,7 +584,7 @@ export function EditControlsDemo() {
           onSave={(next) => fakeSave(() => setNote(next))}
         />
       </Cell>
-      <Cell index={8} label="Mono trigger · status line voice">
+      <Cell label="Pill trigger · the status line">
         <StatePicker
           states={STATES}
           value="s-review"

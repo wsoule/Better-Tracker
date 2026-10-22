@@ -61,6 +61,7 @@ const { default: TimelineScreen } =
   await import('../app/(app)/timeline/timeline-screen');
 const { ReadOnlySettings, ReadOnlyWatchers } =
   await import('../app/(app)/settings/read-only-sections');
+const { default: ModesForm } = await import('../app/(app)/settings/modes-form');
 const { default: ReadOnlyNotice, ReadOnlyReasonProvider } =
   await import('../app/(app)/components/read-only-notice');
 const { default: AppError } = await import('../app/(app)/error');
@@ -249,6 +250,21 @@ describe('settings, read only', () => {
       value: 'Europe/Oslo',
     });
     expect(schedule.at(-1)?.label).toBe('Active project statuses');
+  });
+});
+
+describe('settings, for a member', () => {
+  // Both switches show the word "Live"; the row names each one, so a
+  // screen reader hears which setting it is about to change.
+  test('the two mode switches are named by their row', () => {
+    const html = render(
+      <ModesForm
+        initial={{ allocationMode: 'dry_run', warningsMode: 'preview' }}
+      />
+    );
+    expect(html.match(/role="switch"/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Allocation live"');
+    expect(html).toContain('aria-label="Warnings live"');
   });
 });
 

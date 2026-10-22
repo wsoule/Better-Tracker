@@ -9,11 +9,11 @@ import type {
   SkeletonTextProps,
 } from './types';
 
-// Loading placeholders in the blueprint register: hatched, square bars and
-// blocks that hold the page's real layout (Gr8r's skeletons, Analytics'
-// texture). Widths are deterministic so server and client markup agree.
+// Loading placeholders (Gr8r's skeletons): soft shimmering bars and blocks
+// that hold the page's real layout. Widths are deterministic so server and
+// client markup agree.
 
-/** One hatched bar. Decorative: wrap groups in a labelled container. */
+/** One shimmering bar. Decorative: wrap groups in a labelled container. */
 export function Skeleton({
   width = '100%',
   height = 10,
@@ -30,7 +30,7 @@ export function Skeleton({
 }
 
 /** The accessible wrapper every skeleton group uses: one polite "Loading"
-    for assistive tech, the hatched shapes hidden from it. */
+    for assistive tech, the shapes hidden from it. */
 function Busy({
   label,
   className,
@@ -66,7 +66,7 @@ export function SkeletonText({
   );
 }
 
-/** A solid hatched slab for a chart, card or panel. */
+/** A solid block for a chart, card or panel. */
 export function SkeletonBlock({
   height = 120,
   label = 'Loading',
@@ -88,7 +88,7 @@ export function SkeletonRows({
     <Busy label={label} className={styles.rows}>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className={styles.row} aria-hidden="true">
-          <Skeleton width={13} height={13} />
+          <Skeleton width={13} height={13} className={styles.round} />
           <Skeleton
             width={`${38 + ((i * 13) % 30)}%`}
             height={10}

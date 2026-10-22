@@ -1,30 +1,68 @@
-/* Option marks. Square like every mark in the system: initials in a 1px
-   ink box (no hashed hues, one accent), and the label colour as a small
-   filled square — the only colour from data the package paints. */
+/* Option marks. A person is Gr8r's round avatar: initials at 0.4x the
+   size, 600, on a 17% tint of their hue (data-hue, picked from the name
+   among the decorative hues violet, teal, rose and orange)
+   with the hue mixed into the ink, ringed in the surface so it sits
+   cleanly on any row; nobody is a dashed empty circle. 20px in a picker
+   (Gr8r's small avatar), 26px beside a comment. A label's colour is
+   a small rounded square: the only colour from data the package paints. */
 
 .avatar {
+  --c: var(--gray);
+  --sz: 20px;
+
   display: inline-grid;
   place-items: center;
   flex: none;
-  width: 16px;
-  height: 16px;
-  border: 1px solid currentcolor;
-  font-family: var(--font-mono);
-  font-size: 7.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  width: var(--sz);
+  height: var(--sz);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--c) 17%, var(--surface));
+  box-shadow: 0 0 0 1.5px var(--surface);
+  color: color-mix(in srgb, var(--c) 55%, var(--text));
+  font-family: var(--font-body);
+  font-size: calc(var(--sz) * 0.4);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.01em;
   line-height: 1;
-  text-transform: uppercase;
+  text-transform: none;
+  user-select: none;
+}
+
+.avatar[data-size='md'] {
+  --sz: 26px;
+}
+
+.avatar[data-hue='violet'] {
+  --c: var(--violet);
+}
+
+.avatar[data-hue='teal'] {
+  --c: var(--teal);
+}
+
+.avatar[data-hue='rose'] {
+  --c: var(--rose);
+}
+
+.avatar[data-hue='orange'] {
+  --c: var(--orange);
+}
+
+.avatar[data-empty='true'] {
+  background: transparent;
+  box-shadow: none;
+  border: 1.3px dashed var(--border-strong);
+  color: var(--text-4);
 }
 
 .swatch {
   display: inline-block;
   flex: none;
-  width: 9px;
-  height: 9px;
-  border: 1px solid var(--hairline-faint);
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
 }
 
 .swatch[data-empty='true'] {
-  border-color: var(--grey-3);
+  border: 1px solid var(--border-strong);
 }

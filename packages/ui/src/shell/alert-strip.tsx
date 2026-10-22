@@ -6,17 +6,20 @@ import { Link } from '../lib/link';
 import styles from './alert-strip.module.css';
 import type { AlertStripProps } from './types';
 
-/* The explain-panel idiom from the competitors site: a 2px accent frame,
-   a mono key and one sentence, with an optional follow-up ("Overdue by 3
-   days. Reschedule"). The follow-up is a link when it goes somewhere and a
+/* Gr8r's alert: a lead-in word and one sentence, with an optional
+   follow-up ("Overdue by 3 days. Reschedule"), in a box tinted by `tone`
+   (data-tone, docs/architecture.md §8.2): the tone's soft fill with the
+   lead-in and follow-up in its text colour, or a bordered neutral box for
+   default / muted. The follow-up is a link when it goes somewhere and a
    button when it acts in place (e.g. focusing the date field). */
 export default function AlertStrip({
   label = 'Alert',
+  tone = 'warning',
   children,
   action,
 }: AlertStripProps): ReactNode {
   return (
-    <div className={styles.strip}>
+    <div className={styles.strip} data-tone={tone}>
       <span className={styles.key}>{label}</span>
       <p className={styles.text}>
         {children}

@@ -1,3 +1,4 @@
+import { ArrowUpRight } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 
 import { Link } from '../lib/link';
@@ -27,7 +28,8 @@ function hasNode(node: ReactNode): boolean {
 }
 
 /* The key in the status line: a link to the tracker when there is one
-   (new tab for http URLs), plain mono text otherwise. */
+   (new tab for http URLs), plain mono text otherwise. Issue keys are the
+   one place the view keeps Geist Mono. */
 function TaskKey({
   taskKey,
   href,
@@ -49,7 +51,7 @@ function TaskKey({
       {taskKey}
       {external ? (
         <>
-          <span aria-hidden="true"> ↗</span>
+          <ArrowUpRight size={12} strokeWidth={1.8} aria-hidden="true" />
           <span className="srOnly"> ({newTabLabel})</span>
         </>
       ) : null}
@@ -59,8 +61,9 @@ function TaskKey({
 
 /**
  * The content of a task (issue) view, in Gr8r's task-drawer order: a
- * hatched header bar (breadcrumb, actions), the title, a status line (state
- * and key), the alert stack, the host's property sheet and `rail` sections,
+ * header bar (breadcrumb, actions), the title, a status line (key and the
+ * state pill), the alerts (tinted by tone), the host's property sheet and
+ * `rail` sections,
  * then Description, Blocked by, Blocks, Comments, Activity and any host
  * sections. `sectionMeta` puts a host's controls (an "+ Add" relation
  * picker, an Edit button) in those sections' headings.
@@ -150,7 +153,7 @@ export function TaskDetail({
           <span className={styles.control}>{status.control}</span>
         ) : (
           <span className={styles.state} data-kind={status.kind}>
-            <StateGlyph kind={status.kind} size={13} />
+            <StateGlyph kind={status.kind} size={14} />
             {status.label}
           </span>
         )}
@@ -164,6 +167,7 @@ export function TaskDetail({
             <AlertStrip
               key={alert.id ?? `${i}:${alert.label}`}
               label={alert.label}
+              tone={alert.tone}
               action={alert.action}
             >
               {alert.message}

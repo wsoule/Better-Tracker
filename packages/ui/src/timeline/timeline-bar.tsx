@@ -306,7 +306,7 @@ function TimelineBarViewImpl({
           role="slider"
           tabIndex={0}
           className={cx(styles.handle, saving ? styles.handleBusy : undefined)}
-          style={{ left: diamondX - 5 }}
+          style={{ left: diamondX - 6 }}
           aria-label={`Due date of ${bar.label}`}
           aria-orientation="horizontal"
           aria-valuemin={0}

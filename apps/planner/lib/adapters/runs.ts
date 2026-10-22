@@ -9,7 +9,7 @@ import {
   type Snapshot,
 } from '@better-tracker/core';
 import type { Engine } from '@better-tracker/engine';
-import type { ChipTone } from '@better-tracker/ui';
+import type { ChipTone, UiTone } from '@better-tracker/ui';
 
 import { formatInstant, plural } from '../format';
 
@@ -45,10 +45,11 @@ export const MODE_LABEL: Record<AllocationMode, string> = {
   live: 'Live',
 };
 
-/** DRY RUN is a hollow ink chip; LIVE (it wrote to Linear) the accent. */
+/** A run's mode as a dot pill (architecture §8.2 "allocation mode"): a
+ * grey dot for a dry run, blue for a live run (it wrote to Linear). */
 export const MODE_TONE: Record<AllocationMode, ChipTone> = {
-  dry_run: 'default',
-  live: 'accent',
+  dry_run: 'muted',
+  live: 'info',
 };
 
 export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
@@ -58,11 +59,12 @@ export const RUN_STATUS_LABEL: Record<RunStatus, string> = {
   failed: 'Failed',
 };
 
+/** A run's status as a tinted chip (architecture §8.2 "run status"). */
 const RUN_STATUS_TONE: Record<RunStatus, ChipTone> = {
-  running: 'muted',
-  succeeded: 'default',
-  partial: 'accent',
-  failed: 'accent',
+  running: 'info',
+  succeeded: 'success',
+  partial: 'warning',
+  failed: 'danger',
 };
 
 export function runHref(runId: string): string {
@@ -137,7 +139,9 @@ export interface RunRowModel {
   finished: string;
   /** "took 1.2 s", or null while running. */
   took: string | null;
-  rowTone: 'default' | 'accent';
+  /** danger for a failed run or failed writes, warning for a partly
+   * failed one; default otherwise. */
+  rowTone: 'default' | 'warning' | 'danger';
   rowLabel: string;
 }
 
@@ -159,10 +163,14 @@ export function runRow(
           blocked: summary.blockedProjects,
           skipped: summary.skippedIssues,
         };
-  const needsAction =
-    run.status === 'failed' ||
-    run.status === 'partial' ||
-    (counts !== null && counts.failed > 0);
+  const rowTone: RunRowModel['rowTone'] =
+    run.status === 'failed'
+      ? 'danger'
+      : run.status === 'partial'
+        ? 'warning'
+        : counts !== null && counts.failed > 0
+          ? 'danger'
+          : 'default';
   const startedBy = startedByLabel(run, snapshot);
   return {
     id: run.id,
@@ -182,7 +190,7 @@ export function runRow(
         ? 'Still running'
         : formatInstant(run.finishedAt, timeZone),
     took: duration === null ? null : `took ${duration}`,
-    rowTone: needsAction ? 'accent' : 'default',
+    rowTone,
     rowLabel: `${MODE_LABEL[run.mode]} started ${title}`,
   };
 }
@@ -237,10 +245,11 @@ const OUTCOME_LABEL: Record<RunIssueOutcome, string> = {
   skipped: 'Skipped',
 };
 
+/** An issue's outcome chip (architecture §8.2 "run issue outcome"). */
 const OUTCOME_TONE: Record<RunIssueOutcome, ChipTone> = {
   planned: 'default',
-  applied: 'inverse',
-  failed: 'accent',
+  applied: 'success',
+  failed: 'danger',
   stale: 'muted',
   skipped: 'muted',
 };
@@ -260,7 +269,8 @@ export interface RunIssueRow {
   stateMove: string | null;
   /** Why (stale/skip reason, the error), or null. */
   reason: string | null;
-  reasonTone: 'default' | 'muted' | 'accent';
+  /** danger for a Linear error, muted for an explanation. */
+  reasonTone: 'default' | 'muted' | 'danger';
 }
 
 export interface RunBlock {
@@ -288,7 +298,8 @@ export interface RunProjectGroup {
   rows: RunIssueRow[];
   /** already_assigned skips, collapsed into one line. */
   alreadyAssigned: number;
-  tone: 'default' | 'accent';
+  /** danger when a write failed, warning when the project was blocked. */
+  tone: 'default' | 'warning' | 'danger';
 }
 
 export interface RunProperty {
@@ -301,7 +312,7 @@ export interface RunStat {
   label: string;
   value: number;
   note?: string;
-  tone: 'default' | 'muted' | 'accent';
+  tone: UiTone;
 }
 
 export interface RunDetailModel {
@@ -373,7 +384,7 @@ function assignRow(entry: RunEntry, snapshot: Snapshot): RunIssueRow {
       outcome = 'applied';
       if (entry.error !== null) {
         reason = entry.error;
-        reasonTone = 'accent';
+        reasonTone = 'danger';
       } else {
         reason = 'Linear comment left on the issue';
         reasonTone = 'muted';
@@ -382,7 +393,7 @@ function assignRow(entry: RunEntry, snapshot: Snapshot): RunIssueRow {
     case 'failed':
       outcome = 'failed';
       reason = entry.error ?? 'The Linear write failed.';
-      reasonTone = 'accent';
+      reasonTone = 'danger';
       break;
     case 'stale':
       outcome = 'stale';
@@ -541,9 +552,10 @@ export function groupRunEntries(
       return byOutcome !== 0 ? byOutcome : Number(a.key) - Number(b.key);
     });
     group.meta = groupMeta(group);
-    group.tone =
-      group.block !== null || group.rows.some((row) => row.outcome === 'failed')
-        ? 'accent'
+    group.tone = group.rows.some((row) => row.outcome === 'failed')
+      ? 'danger'
+      : group.block !== null
+        ? 'warning'
         : 'default';
   }
   return list.sort((a, b) => {
@@ -609,7 +621,7 @@ export function buildRunDetail(input: {
     label: 'Blocked projects',
     value: blocked,
     note: blocked > 0 ? 'missing an input' : undefined,
-    tone: blocked > 0 ? 'accent' : 'muted',
+    tone: blocked > 0 ? 'warning' : 'muted',
   };
   const stats: RunStat[] = live
     ? [
@@ -618,14 +630,14 @@ export function buildRunDetail(input: {
           label: 'Assigned',
           value: applied,
           note: 'written to Linear',
-          tone: 'default',
+          tone: applied > 0 ? 'success' : 'muted',
         },
         {
           id: 'failed',
           label: 'Failed',
           value: failed,
           note: failed > 0 ? 'Linear refused the write' : undefined,
-          tone: failed > 0 ? 'accent' : 'muted',
+          tone: failed > 0 ? 'danger' : 'muted',
         },
         {
           id: 'stale',

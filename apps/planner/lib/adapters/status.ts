@@ -11,9 +11,9 @@ import {
 import type { UiStatus } from '@better-tracker/ui';
 
 // The one place planner statuses become UI marks (architecture §8.2):
-// complete → done (filled ink), on track → hollow ink, at risk → 2px
-// accent, overdue → filled accent, and anything missing an input
-// (no date, no issues) → hatched.
+// complete → done (green disc with a tick), on track → green ring, at risk
+// → amber half-filled ring, overdue → red disc, and anything missing an
+// input (no date, no issues) → missing (dashed grey ring).
 const STATUS_TO_UI: Record<MilestoneStatus, UiStatus> = {
   complete: 'done',
   on_track: 'on_track',
@@ -34,7 +34,7 @@ export function statusLabel(status: MilestoneStatus): string {
 /**
  * Mark for an assessed milestone (or anything carrying its status and
  * rubric, such as a TimelineBar). A milestone that fails the rubric but is
- * otherwise on track reads as "missing input" (hatched), because the
+ * otherwise on track reads as "missing input" (dashed), because the
  * missing input is what needs action; overdue and at-risk keep their own
  * marks (they are more urgent) and the drawer lists the gaps.
  */

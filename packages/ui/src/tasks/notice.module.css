@@ -1,15 +1,16 @@
-/* Layered on the global .notice / .empty primitives; only what the
-   components add lives here. */
+/* Layered on the global .notice / .empty primitives (Gr8r's alert and
+   empty state); only what the components add lives here. The tone fill
+   comes from data-tone (primitives.css). */
 
 /* Two classes so the quiet tone wins over the global .notice regardless of
-   stylesheet order. */
+   stylesheet order: a bordered neutral box. */
 :global(.notice).quiet {
   border: 1px solid var(--border);
+  background: var(--surface);
 }
 
 .key {
   flex: none;
-  text-transform: uppercase;
 }
 
 .body {
@@ -34,18 +35,17 @@
   flex: 1 1 260px;
 }
 
-/* The key on its own line above the sentence. */
+/* The title on its own line above the sentence (Gr8r: 14.5px semibold). */
 .emptyKey {
   display: block;
-  margin-bottom: 6px;
-  color: var(--foreground);
+  margin-bottom: 4px;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .emptyAction {
   flex: none;
-  font-family: var(--font-body);
-  letter-spacing: normal;
-  text-transform: none;
 }
 
 @media (width <= 768px) {

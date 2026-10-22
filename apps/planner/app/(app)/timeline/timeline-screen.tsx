@@ -8,6 +8,7 @@ import {
   type TimelineZoom,
   useToast,
 } from '@better-tracker/ui';
+import { Search } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   useCallback,
@@ -319,15 +320,23 @@ export default function TimelineScreen({
               <label className="srOnly" htmlFor={searchId}>
                 Search projects
               </label>
-              <input
-                id={searchId}
-                className={`input ${css.search}`}
-                type="search"
-                placeholder="Search"
-                autoComplete="off"
-                value={state.query}
-                onChange={(event) => update({ query: event.target.value })}
-              />
+              <span className={css.searchWrap}>
+                <Search
+                  className={css.searchIcon}
+                  size={13}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
+                <input
+                  id={searchId}
+                  className={`input ${css.search}`}
+                  type="search"
+                  placeholder="Search projects"
+                  autoComplete="off"
+                  value={state.query}
+                  onChange={(event) => update({ query: event.target.value })}
+                />
+              </span>
               <label className="srOnly" htmlFor={initiativeId}>
                 Initiative
               </label>

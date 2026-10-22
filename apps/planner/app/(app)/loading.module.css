@@ -1,14 +1,27 @@
+/* The (app) loading fallback: the page head's two lines, then a section
+   heading row over one panel of skeleton rows (Gr8r's panel: 1px
+   --border, 10px radius). */
+
 .head {
   display: grid;
-  gap: 12px;
+  gap: 10px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
 }
 
+.bar {
+  display: flex;
+  align-items: center;
+  min-height: 32px;
+  padding-bottom: 8px;
+}
+
 .rows {
+  overflow: hidden;
   border: 1px solid var(--border);
-  border-top: 0;
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 @media (width <= 768px) {

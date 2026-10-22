@@ -13,12 +13,12 @@ import {
   useState,
 } from 'react';
 
+import StatusMark from '../components/status-mark';
 import { Link } from '../lib/link';
 import { Button } from '../tasks/button';
 import { cx } from '../tasks/class-names';
 import { SegmentedControl } from '../tasks/segmented-control';
 import { Switch } from '../tasks/switch';
-import type { UiStatus } from '../types';
 import { formatDay, formatDayLong, type TimeScale } from './dates';
 import {
   computeConnectors,
@@ -41,8 +41,9 @@ import type {
   TimelineZoom,
 } from './types';
 
-// The Gr8r Gantt in the Analytics Matrix drawing style (architecture §8.4
-// Timeline). One scroll container owns both axes so the two-row header and
+// Gr8r Studio's Gantt (architecture §8.4 Timeline): a flat toolbar, a
+// legend of status marks, then one panel. One scroll container owns both
+// axes so the two-row header and
 // the lane column stay sticky without scroll syncing; geometry comes from
 // the pure layout module, memoised per data/zoom change; a drag re-renders
 // only the dragged bar. Below 900px the chart gives way to per-project
@@ -78,7 +79,7 @@ interface Override {
 
 interface LiveMessage {
   tone: 'status' | 'error';
-  /** Mono key before the sentence: SAVING, SAVED, NOT SAVED. */
+  /** Lead-in word before the sentence: Saving, Saved, Not saved. */
   key: string;
   text: string;
 }
@@ -247,7 +248,14 @@ const LaneRowView = memo(function LaneRowView({
   onCommit,
 }: LaneRowViewProps): ReactElement {
   const { lane } = row;
-  const accent = lane.sublabelTone === 'accent';
+  // A sublabel that asks for action ("No lead") is drawn in its tone;
+  // an inactive lane's never is.
+  const subTone =
+    lane.sublabelTone === undefined ||
+    lane.sublabelTone === 'default' ||
+    lane.muted === true
+      ? undefined
+      : lane.sublabelTone;
   const groupName =
     lane.sublabel === undefined
       ? lane.label
@@ -301,8 +309,9 @@ const LaneRowView = memo(function LaneRowView({
                 <span
                   className={cx(
                     styles.laneSub,
-                    accent ? styles.laneSubAccent : undefined
+                    subTone === undefined ? undefined : styles.laneSubTone
                   )}
+                  data-tone={subTone}
                 >
                   {lane.sublabel}
                 </span>
@@ -403,15 +412,6 @@ const Connectors = memo(function Connectors({
     </svg>
   );
 });
-
-function LegendSwatch({ status }: { status: UiStatus }): ReactElement {
-  return (
-    <span
-      className={cx(styles.swatch, styles[`s_${status}`])}
-      aria-hidden="true"
-    />
-  );
-}
 
 /* ---- the chart -------------------------------------------------------- */
 
@@ -724,8 +724,8 @@ export function TimelineChart({
           ) : null}
           <Button
             size="sm"
-            variant="secondary"
-            icon={<Crosshair size={14} strokeWidth={1.5} />}
+            variant="quiet"
+            icon={<Crosshair size={14} strokeWidth={1.8} />}
             onClick={scrollToToday}
             disabled={layout.todayX === null || laneCount === 0}
           >
@@ -761,7 +761,10 @@ export function TimelineChart({
           <ul className={styles.legend} aria-label="Legend">
             {legend.map((item) => (
               <li key={item.status} className={styles.legendItem}>
-                <LegendSwatch status={item.status} />
+                {/* The mark is drawing: the label beside it says it. */}
+                <span className={styles.legendMark} aria-hidden="true">
+                  <StatusMark status={item.status} label={item.label} />
+                </span>
                 <span className={styles.legendLabel}>{item.label}</span>
               </li>
             ))}
@@ -812,9 +815,6 @@ export function TimelineChart({
               >
                 <div className={styles.corner}>
                   <span className={styles.cornerLabel}>Project</span>
-                  <span className={styles.cornerSub}>
-                    Lead · {zoom === 'weeks' ? 'days' : 'weeks'}
-                  </span>
                 </div>
                 <TimelineScaleHeader
                   windowStart={windowStart}

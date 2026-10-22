@@ -354,7 +354,7 @@ describe('POST /api/warnings/preview', () => {
     expect(preview.heading).toBe('Digests for Wednesday, October 21');
     expect(preview.digests[0]?.recipient).toBe('Ana Moreno');
     expect(preview.digests[0]?.items[0]).toMatchObject({
-      title: 'Atlas › Dual-write',
+      title: 'Atlas / Dual-write',
       href: '/timeline?milestone=m1',
     });
   });

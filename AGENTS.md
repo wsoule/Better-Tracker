@@ -29,12 +29,17 @@
   permission distinction.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace). Tests never call real Linear or Slack.
-- UI: layout and interaction follow Gr8r Studio (sidebar shell, command palette,
-  grouped lists, Gantt timeline, slide-over drawer); the visual language follows
-  the wsoule/Analytics `competitors-site` design system (tokens in
-  `packages/ui/src/styles/tokens.css`, one accent, hairlines, no radius or
-  shadows). The accent is purple (`#9747ff`), not Analytics' orange. See
-  `docs/architecture.md` §8.
+- UI: layout, interaction AND look follow Gr8r Studio (owner decision
+  2026-10-22, design doc §12): sidebar shell, command palette, grouped lists,
+  Gantt timeline, slide-over drawer; warm neutral surfaces, soft borders,
+  radius, soft shadows only on floating things, tinted semantic status colours
+  (red / amber / green / blue / grey), sentence-case Geist, Geist Mono only for
+  ids and keys. Tokens are in `packages/ui/src/styles/tokens.css`. The accent
+  stays purple (`#9747ff`) in Gr8r's accent role (primary, focus, selection,
+  progress, today, unread) and never means a status. The old Analytics look
+  (black hairlines, mono caps, hatching, numbered blocks, zero radius) is
+  retired; only the dependency graph still draws it until its own restyle lands
+  (`docs/architecture.md` §8 intro). See `docs/architecture.md` §8.2.
 
 ## Agent Environment
 

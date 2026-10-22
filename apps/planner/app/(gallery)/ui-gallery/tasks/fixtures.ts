@@ -1,14 +1,18 @@
 import type {
   ChecklistItem,
+  ChipTone,
   DeadlineGroup,
   SegmentedOption,
   StatCell,
   TaskSectionData,
+  UiTone,
 } from '@better-tracker/ui';
 
 // Fixture props for /ui-gallery/tasks: a fictional workspace on Wednesday,
 // October 21, 2026, seen by Pat (who leads Atlas). Shapes only; nothing
-// here is computed, so the gallery needs no engine.
+// here is computed, so the gallery needs no engine. Tones follow
+// architecture §8.2: overdue danger, at risk / blocked / due soon warning,
+// allocating and in progress info, new to you the accent.
 
 export const WEEK_STATS: StatCell[] = [
   {
@@ -23,7 +27,7 @@ export const WEEK_STATS: StatCell[] = [
     label: 'Overdue milestones',
     value: 1,
     note: 'Atlas · cutover rehearsal',
-    tone: 'accent',
+    tone: 'danger',
     href: '/timeline?milestone=m-atlas-cutover',
   },
   {
@@ -31,12 +35,14 @@ export const WEEK_STATS: StatCell[] = [
     label: 'New to you',
     value: 2,
     note: 'given because you lead Atlas',
+    tone: 'accent',
   },
   {
     id: 'risk',
     label: 'At risk in your projects',
     value: 1,
     note: 'Beacon · public beta',
+    tone: 'warning',
   },
 ];
 
@@ -59,8 +65,8 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
         statusLabel: 'Overdue',
         dueLabel: 'Oct 19',
         daysLeftLabel: '2 days overdue',
-        dueTone: 'accent',
-        progress: { done: 4, total: 7, tone: 'accent' },
+        dueTone: 'danger',
+        progress: { done: 4, total: 7, tone: 'danger' },
         rows: [
           {
             id: 'atl-142',
@@ -73,7 +79,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
             priority: 1,
             priorityLabel: 'Urgent',
             due: 'Oct 19',
-            dueTone: 'accent',
+            dueTone: 'danger',
           },
           {
             id: 'atl-151',
@@ -86,7 +92,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
             priority: 2,
             priorityLabel: 'High',
             due: 'Oct 19',
-            dueTone: 'accent',
+            dueTone: 'danger',
             chips: [NEW_CHIP],
           },
           {
@@ -100,7 +106,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
             priority: 3,
             priorityLabel: 'Medium',
             due: 'Oct 19',
-            dueTone: 'accent',
+            dueTone: 'danger',
             chips: [NEW_CHIP],
           },
         ],
@@ -114,7 +120,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
         statusLabel: 'At risk',
         dueLabel: 'Oct 23',
         daysLeftLabel: '2 days left',
-        progress: { done: 3, total: 7, tone: 'accent' },
+        progress: { done: 3, total: 7, tone: 'warning' },
         rows: [
           {
             id: 'bea-88',
@@ -231,7 +237,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
         status: 'missing',
         statusLabel: 'Missing input',
         dueLabel: 'No target date',
-        dueTone: 'accent',
+        dueTone: 'warning',
         progress: { done: 1, total: 4 },
         rows: [
           {
@@ -289,7 +295,7 @@ export const DEADLINES: DeadlineGroup[] = [
   {
     id: 'overdue',
     label: 'Overdue',
-    tone: 'accent',
+    tone: 'danger',
     items: [
       {
         id: 'm-atlas-cutover',
@@ -306,6 +312,7 @@ export const DEADLINES: DeadlineGroup[] = [
   {
     id: 'tomorrow',
     label: 'Tomorrow',
+    tone: 'warning',
     items: [
       {
         id: 'm-cobalt-export',
@@ -385,15 +392,23 @@ export interface ProjectFixture {
   name: string;
   initiative: string;
   linearStatus: string;
+  /** The Linear status's dot: info started, muted backlog / planned. */
+  linearTone: ChipTone;
   milestone: string;
   milestoneDue: string;
+  /** danger overdue, warning undated or due soon, default later. */
+  milestoneDueTone: UiTone;
+  /** The progress fill: danger overdue, warning behind pace. */
+  progressTone: UiTone;
   status: 'done' | 'on_track' | 'at_risk' | 'overdue' | 'missing';
   statusLabel: string;
   done: number;
   total: number;
   lead: string | null;
   allocation: string;
-  allocationTone: 'default' | 'muted' | 'accent';
+  /** Under the allocation chip: why it is blocked. */
+  allocationDetail?: string;
+  allocationTone: 'default' | 'muted' | 'info' | 'warning';
   active: boolean;
 }
 
@@ -403,15 +418,18 @@ export const PROJECTS: ProjectFixture[] = [
     name: 'Atlas migration',
     initiative: 'Platform',
     linearStatus: 'In Progress',
+    linearTone: 'info',
     milestone: 'Cutover rehearsal',
     milestoneDue: 'Oct 19 · 2 days overdue',
+    milestoneDueTone: 'danger',
+    progressTone: 'danger',
     status: 'overdue',
     statusLabel: 'Overdue',
     done: 4,
     total: 7,
     lead: 'Pat Okafor',
     allocation: 'Allocating 2',
-    allocationTone: 'default',
+    allocationTone: 'info',
     active: true,
   },
   {
@@ -419,15 +437,19 @@ export const PROJECTS: ProjectFixture[] = [
     name: 'Delta',
     initiative: 'Growth',
     linearStatus: 'Planned',
+    linearTone: 'muted',
     milestone: 'Search relevance',
     milestoneDue: 'No target date',
+    milestoneDueTone: 'warning',
+    progressTone: 'default',
     status: 'missing',
     statusLabel: 'Missing input',
     done: 1,
     total: 4,
     lead: null,
-    allocation: 'Blocked: no lead',
-    allocationTone: 'accent',
+    allocation: 'Blocked',
+    allocationDetail: 'Project has no lead',
+    allocationTone: 'warning',
     active: true,
   },
   {
@@ -435,8 +457,11 @@ export const PROJECTS: ProjectFixture[] = [
     name: 'Beacon',
     initiative: 'Growth',
     linearStatus: 'In Progress',
+    linearTone: 'info',
     milestone: 'Public beta',
     milestoneDue: 'Oct 23 · 2 days left',
+    milestoneDueTone: 'default',
+    progressTone: 'warning',
     status: 'at_risk',
     statusLabel: 'At risk',
     done: 3,
@@ -451,15 +476,18 @@ export const PROJECTS: ProjectFixture[] = [
     name: 'Cobalt',
     initiative: 'Revenue',
     linearStatus: 'In Progress',
+    linearTone: 'info',
     milestone: 'Invoices v2',
     milestoneDue: 'Oct 26 · 5 days left',
+    milestoneDueTone: 'default',
+    progressTone: 'default',
     status: 'on_track',
     statusLabel: 'On track',
     done: 6,
     total: 9,
     lead: 'Sam Reyes',
     allocation: 'Allocating 1',
-    allocationTone: 'default',
+    allocationTone: 'info',
     active: true,
   },
   {
@@ -467,8 +495,11 @@ export const PROJECTS: ProjectFixture[] = [
     name: 'Glass',
     initiative: 'Revenue',
     linearStatus: 'Backlog',
+    linearTone: 'muted',
     milestone: 'Pricing page refresh',
     milestoneDue: 'Dec 4 · 44 days left',
+    milestoneDueTone: 'muted',
+    progressTone: 'muted',
     status: 'on_track',
     statusLabel: 'On track',
     done: 0,
