@@ -1,5 +1,5 @@
 /* 2px is emphasis: the strip spends it because it asks for action. The
-   frame and key take the tone hook's colours (data-tone, default accent). */
+   frame and key take the tone hook's colours (data-tone, default warning). */
 .strip {
   display: flex;
   align-items: baseline;

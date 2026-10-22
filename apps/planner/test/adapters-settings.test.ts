@@ -337,15 +337,46 @@ describe('status', () => {
       value: 'Working',
       tone: 'success',
     });
+    // The error is why the row is red, so it takes the red too; working
+    // access's line stays muted.
     expect(byId.get('sync')).toMatchObject({
       value: 'Oct 21, 2:00 PM UTC · failed',
       sub: 'Linear answered 503',
       tone: 'danger',
+      toneDetail: true,
     });
+    expect(byId.get('access')?.toneDetail).toBeUndefined();
     expect(byId.get('webhook')).toMatchObject({
       value: 'None received yet',
       tone: 'muted',
     });
+  });
+
+  test('a sync that went through is green, like working access', () => {
+    const rows = statusRows({
+      installation,
+      syncState: {
+        workspaceId: 'org-1',
+        version: 3,
+        lastFullSyncAt: '2026-10-21T14:00:00.000Z',
+        lastFullSyncStatus: 'ok',
+        lastFullSyncError: null,
+        lastWebhookAt: '2026-10-21T14:05:00.000Z',
+      },
+      users: USER_MAP,
+      timeZone: 'UTC',
+      demo: false,
+    });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    expect(byId.get('access')?.tone).toBe('success');
+    expect(byId.get('sync')).toMatchObject({
+      value: 'Oct 21, 2:00 PM UTC · ok',
+      tone: 'success',
+    });
+    expect(byId.get('sync')?.sub).toBeUndefined();
+    expect(byId.get('sync')?.toneDetail).toBeUndefined();
+    // A received webhook is a plain fact, not a status.
+    expect(byId.get('webhook')?.tone).toBe('default');
   });
 
   test('a revoked installation and no sync are loud; demo says so', () => {
@@ -361,11 +392,13 @@ describe('status', () => {
       value: 'Demo workspace',
       tone: 'muted',
     });
-    // Revoked is red; never synced is a warning.
+    // Revoked is red; never synced is a warning. "Since …" is a date, not
+    // a reason, so its line stays muted.
     expect(byId.get('access')).toMatchObject({
       value: 'Revoked: reinstall from Setup',
       tone: 'danger',
     });
+    expect(byId.get('access')?.toneDetail).toBeUndefined();
     expect(byId.get('sync')).toMatchObject({ value: 'Never', tone: 'warning' });
     // Not installed is a warning too.
     const none = statusRows({
@@ -436,6 +469,8 @@ describe('digest preview', () => {
       tone: 'warning',
       chipFilled: true,
       rowTone: 'warning',
+      // "Whole project": no date to colour.
+      dueTone: 'default',
     });
     expect(isDigestPreviewModel(model)).toBe(true);
     expect(isDigestPreviewModel({ day: 1 })).toBe(false);
@@ -505,6 +540,11 @@ describe('digest preview', () => {
       due: 'No target date',
       dueNote: 'Next milestone: CSV exports',
     });
+    // The Due column takes dueTone, as every other screen: a date in 4
+    // days stays ink under the row's amber rule; no date is a missing
+    // input (amber).
+    expect(dated).toMatchObject({ rowTone: 'warning', dueTone: 'default' });
+    expect(undated).toMatchObject({ rowTone: 'warning', dueTone: 'warning' });
   });
 
   test('overdue is danger; at risk, invalid due soon and stopped are warnings', () => {
@@ -572,11 +612,85 @@ describe('digest preview', () => {
       ['Overdue', 'danger', 'danger'],
       ['At risk', 'warning', 'default'],
     ]);
+    // Their dates by dueTone: overdue red, at risk in 3 days ink.
+    expect(model.digests[0]?.items.map((i) => i.dueTone)).toEqual([
+      'danger',
+      'default',
+    ]);
     // The chips keep their shapes: overdue the filled chip (a red slab),
     // at risk the outline (now amber).
     expect(model.digests[0]?.items.map((i) => i.chipFilled)).toEqual([
       true,
       false,
+    ]);
+  });
+
+  test('the Due column colours the date alone, never the row tone', () => {
+    const notice = {
+      kind: 'invalid_due_soon' as const,
+      subjectKind: 'milestone' as const,
+      subjectId: 'm1',
+      projectId: 'p1',
+      milestoneId: 'm1',
+      key: 'invalid:m1',
+      targetDate: '2026-10-30',
+      daysLeft: 9,
+      reasons: [],
+      gaps: ['no_done_means' as const],
+      blockReason: null,
+      openIssueIds: ['i1'],
+      unassignedIssueIds: [],
+      recipientIds: ['u-ana'],
+      occurrence: 1,
+    };
+    const item = {
+      projectName: 'Atlas',
+      milestoneName: 'Dual-write',
+      leadName: 'Ana Moreno',
+      openCount: 1,
+      unassignedCount: 0,
+      lines: [],
+      url: 'https://planner.example/timeline?milestone=m1',
+    };
+    const model = digestPreview({
+      day: '2026-10-21',
+      mode: 'preview',
+      digests: [
+        {
+          recipientId: 'u-ana',
+          recipientName: 'Ana Moreno',
+          recipientEmail: null,
+          day: '2026-10-21',
+          items: [
+            { ...item, notice },
+            {
+              ...item,
+              notice: { ...notice, targetDate: '2026-10-22', daysLeft: 1 },
+            },
+            // A project whose next milestone is past its date: the label
+            // reads "overdue", so the date is red.
+            {
+              ...item,
+              notice: {
+                ...notice,
+                kind: 'allocation_blocked' as const,
+                subjectKind: 'project' as const,
+                subjectId: 'p1',
+                targetDate: '2026-10-19',
+                daysLeft: -2,
+                blockReason: 'next_milestone_invalid' as const,
+              },
+            },
+          ],
+        },
+      ],
+    });
+    expect(
+      model.digests[0]?.items.map((i) => [i.due, i.rowTone, i.dueTone])
+    ).toEqual([
+      ['Oct 30 · in 9 days', 'warning', 'default'],
+      ['Oct 22 · due tomorrow', 'warning', 'warning'],
+      ['Oct 19 · 2 days overdue', 'warning', 'danger'],
     ]);
   });
 

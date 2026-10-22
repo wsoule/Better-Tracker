@@ -211,9 +211,15 @@
   text-transform: uppercase;
 }
 
-/* Any tone but default and muted: the tone's TEXT colour. */
-.toneText .cellValue,
-.toneText .cellSub {
+/* Any tone but default and muted: the value in the tone's TEXT colour.
+   The mono line under it stays muted (a detail, not the status)... */
+.toneText .cellValue {
+  color: var(--tone-ink);
+}
+
+/* ...unless the cell opts in (toneSub): a reason line that is the point,
+   e.g. a blocked project's "Project has no lead" under BLOCKED. */
+.toneSub .cellSub {
   color: var(--tone-ink);
 }
 

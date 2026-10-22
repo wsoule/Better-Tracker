@@ -149,22 +149,26 @@ const VARIANT_CLASS: Record<
 /* A register cell: an optional mono micro-label over a value, in one of
    three voices: name (sans 15/600, the row's subject), value (body copy)
    or mono (machine furniture: states, counts, dates). A tone other than
-   default and muted colours the value and the sub line in the tone's TEXT
-   colour (data-tone); muted greys the value. */
+   default and muted colours the value in the tone's TEXT colour
+   (data-tone), and the sub line too only when `toneSub` asks (a reason
+   line that is the point); muted greys the value. */
 export function RegisterCell({
   label,
   variant = 'value',
   sub,
   tone = 'default',
+  toneSub = false,
   align = 'start',
   children,
 }: RegisterCellProps) {
+  const toned = tone !== 'default' && tone !== 'muted';
   return (
     <div
       className={cx(
         styles.cell,
         VARIANT_CLASS[variant],
-        tone !== 'default' && tone !== 'muted' ? styles.toneText : undefined,
+        toned ? styles.toneText : undefined,
+        toned && toneSub ? styles.toneSub : undefined,
         tone === 'muted' ? styles.toneMuted : undefined,
         align === 'end' ? styles.end : undefined
       )}

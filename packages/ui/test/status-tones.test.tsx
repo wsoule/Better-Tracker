@@ -145,10 +145,10 @@ describe('Notice', () => {
 });
 
 describe('AlertStrip', () => {
-  test('defaults to the accent and takes a status tone', () => {
+  test('defaults to warning (never the purple) and takes a status tone', () => {
     const plain = render(<AlertStrip label="Note">Hello.</AlertStrip>);
     expect(plain.container.firstElementChild?.getAttribute('data-tone')).toBe(
-      'accent'
+      'warning'
     );
     plain.unmount();
     const overdue = render(
@@ -188,7 +188,7 @@ describe('AlertStrip', () => {
     expect(strips.map((el) => el.getAttribute('data-tone'))).toEqual([
       'danger',
       'warning',
-      'accent',
+      'warning',
     ]);
   });
 });
@@ -242,9 +242,16 @@ describe('Register', () => {
     expect(rule(sheet, '.rowRule')).toContain(
       'border-left: 2px solid var(--tone)'
     );
-    expect(rule(sheet, '.toneText .cellValue, .toneText .cellSub')).toBe(
-      'color: var(--tone-ink);'
-    );
+    expect(rule(sheet, '.toneText .cellValue')).toBe('color: var(--tone-ink);');
+  });
+
+  test('the line under a toned value stays muted unless the cell opts in', () => {
+    const sheet = css('tasks/register.module.css');
+    // The sub line is muted furniture; the tone colours only the value...
+    expect(rule(sheet, '.cellSub')).toContain('color: var(--muted);');
+    expect(sheet).not.toContain('.toneText .cellSub');
+    // ...except where the line is the status's reason (toneSub).
+    expect(rule(sheet, '.toneSub .cellSub')).toBe('color: var(--tone-ink);');
   });
 });
 
@@ -306,9 +313,11 @@ describe('Button', () => {
 });
 
 describe('Checklist (the rubric)', () => {
-  test('met is a filled green square, missing a hollow amber one', () => {
+  test('met is the filled ink square, missing a hollow amber one', () => {
     const sheet = css('tasks/checklist.module.css');
-    expect(rule(sheet, '.met .mark')).toContain('background: var(--green)');
+    // Met stays ink (as done does), so the one amber item stands out.
+    expect(rule(sheet, '.met .mark')).toBe('background: var(--foreground);');
+    expect(sheet).not.toContain('--green');
     expect(rule(sheet, '.missing .mark')).toBe('border-color: var(--amber);');
     expect(rule(sheet, '.missing .state')).toBe('color: var(--amber-ink);');
     expect(sheet).not.toContain('--accent');

@@ -32,18 +32,47 @@ export function escapeMermaidLabel(text: string): string {
     .replace(/["#%&()<>[\]`{|}]/g, (ch) => MERMAID_ESCAPES[ch] ?? ch);
 }
 
-/** Risk nodes and risk-chain edges: the amber status hue (`--amber`). */
-const MERMAID_RISK = '#c27d0a';
-/** Cycle nodes: the red status hue (`--red`). */
-const MERMAID_CYCLE = '#d92d20';
+/** Risk nodes and risk-chain edges: the amber status hue (`--amber`),
+    3:1 or more on Mermaid's default node fills too (3.05:1 on the light
+    theme's #ececff, 4.59:1 on the dark #1f2020). */
+const MERMAID_RISK = '#bd790a';
+/** Overdue and cycle nodes: the red status hue (`--red`). */
+const MERMAID_RED = '#d92d20';
 
 /**
- * Whether a node is drawn as a risk (the `risk` class). An issue or a
- * milestone: it is unassigned/overdue itself or waits on such an issue. A
- * project or an initiative: it is active and overdue, or its status is at
- * risk (a quiet, inactive project is never loud).
+ * Whether a node is drawn overdue (the `overdue` class, the red status
+ * hue), as the planner's canvas floods it red (nodeTone's danger): it is
+ * overdue itself in an active project, or, for a project or an initiative,
+ * its status is overdue. Checked before isRiskNode, so an overdue node is
+ * red and never also classed amber.
+ */
+export function isOverdueNode(node: GraphNode): boolean {
+  if (!node.active) return false;
+  switch (node.kind) {
+    case 'issue':
+    case 'milestone':
+      return node.overdue;
+    case 'project':
+    case 'initiative':
+      return node.overdue || node.status === 'overdue';
+    default: {
+      const unreachable: never = node.kind;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * Whether a node is drawn as a risk (the `risk` class). Only in an active
+ * project: a quiet, inactive project's work is never loud (§2.8), as
+ * isOverdueNode and the canvas's muted box say. An issue or a milestone:
+ * it is unassigned/overdue itself or waits on such an issue (wider than
+ * the canvas's amber rule, which shows the waiting on the risk-chain
+ * edges). A project or an initiative: it is overdue, or its status is at
+ * risk.
  */
 export function isRiskNode(node: GraphNode): boolean {
+  if (!node.active) return false;
   switch (node.kind) {
     case 'issue':
     case 'milestone':
@@ -55,7 +84,7 @@ export function isRiskNode(node: GraphNode): boolean {
       );
     case 'project':
     case 'initiative':
-      return node.active && (node.overdue || node.status === 'at_risk');
+      return node.overdue || node.status === 'at_risk';
     default: {
       const unreachable: never = node.kind;
       return unreachable;
@@ -67,11 +96,12 @@ export function isRiskNode(node: GraphNode): boolean {
  * Renders the graph as `flowchart LR`. Node ids are positional (`n0`, `n1`,
  * …) so they never depend on Linear ids; labels are quoted and escaped;
  * open edges use `-->`, resolved ones `-.->`, and edges summarising more
- * than one relation carry the count. Risk, cycle and external nodes get
- * classes (risk in the amber status hue, cycles in the red one), and
- * risk-chain edges an amber link style. A chain also marks
- * its focus (the `focus` class) and, when the chain was cut, says how many
- * of its issues are shown in a comment.
+ * than one relation carry the count. Overdue, risk, cycle and external
+ * nodes get classes (overdue a 2px red edge, risk a 2px amber one, a
+ * cycle dashed red; an overdue node is never also risk), and risk-chain
+ * edges an amber link style. A chain also marks its focus (the `focus`
+ * class) and, when the chain was cut, says how many of its issues are
+ * shown in a comment.
  */
 export function toMermaid(graph: DependencyGraph): string {
   const lines: string[] = ['flowchart LR'];
@@ -108,13 +138,15 @@ export function toMermaid(graph: DependencyGraph): string {
   // The light theme's status MARK hexes (ui tokens.css --amber, --red;
   // architecture §8.2), never the purple accent, which is not a status.
   lines.push(
+    `  classDef overdue stroke:${MERMAID_RED},stroke-width:2px`,
     `  classDef risk stroke:${MERMAID_RISK},stroke-width:2px`,
-    `  classDef cycle stroke:${MERMAID_CYCLE},stroke-dasharray:5 3`,
+    `  classDef cycle stroke:${MERMAID_RED},stroke-dasharray:5 3`,
     '  classDef external stroke-dasharray:3 3,opacity:0.7'
   );
   if (chain !== null) lines.push('  classDef focus stroke-width:3px');
   const classes: [string, (node: GraphNode) => boolean][] = [
-    ['risk', isRiskNode],
+    ['overdue', isOverdueNode],
+    ['risk', (node) => isRiskNode(node) && !isOverdueNode(node)],
     ['cycle', (node) => node.inCycle],
     ['external', (node) => node.external],
   ];

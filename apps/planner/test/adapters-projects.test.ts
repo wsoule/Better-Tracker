@@ -217,6 +217,9 @@ describe('allocationCell', () => {
       tone: 'warning',
       // The filled chip it always was, now an amber slab.
       filled: true,
+      // The reason is the point of the cell: it opts into the amber too
+      // (RegisterCell toneSub); every other line under a value stays muted.
+      toneDetail: true,
     });
     expect(
       allocationCell(
@@ -231,6 +234,7 @@ describe('allocationCell', () => {
       detail: 'Next milestone is missing: done means…, issues',
       tone: 'warning',
       filled: true,
+      toneDetail: true,
     });
     // Without a recorded reason the chip still says Blocked.
     expect(

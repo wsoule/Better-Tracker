@@ -71,6 +71,7 @@ describe('public API (docs/architecture.md §3)', () => {
     'homeInitiativeIds',
     'findIssue',
     'isRiskNode',
+    'isOverdueNode',
     'toMermaid',
     'buildWeekView',
     'buildTimelineView',

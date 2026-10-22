@@ -218,7 +218,7 @@ function DigestBlock({
             <RegisterCell
               label="Due"
               variant="mono"
-              tone={item.rowTone}
+              tone={item.dueTone}
               sub={item.dueNote ?? undefined}
             >
               {item.due ?? 'Whole project'}

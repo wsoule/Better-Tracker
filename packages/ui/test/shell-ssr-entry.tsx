@@ -70,7 +70,9 @@ function render(): string {
         >
           {/* Linkable drawers (?milestone=<id>) render open on the server. */}
           <SlideOver open onClose={() => undefined} title="M3 Cutover">
-            <AlertStrip label="Overdue">Overdue by 3 days.</AlertStrip>
+            <AlertStrip label="Overdue" tone="danger">
+              Overdue by 3 days.
+            </AlertStrip>
             <PropertyList items={[{ label: 'Due date', value: 'Oct 18' }]} />
             <SkeletonRows rows={2} />
             <Kbd>Esc</Kbd>

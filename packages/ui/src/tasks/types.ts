@@ -480,10 +480,15 @@ export interface RegisterCellProps {
   variant?: 'name' | 'value' | 'mono';
   /** Mono line under the value. */
   sub?: ReactNode;
-  /** The value's colour (and the sub line's, for accent and the status
-   * tones): accent for new, a status tone for a status ("Blocked" warning,
-   * "Failed" danger), muted for quiet. */
+  /** The value's colour: accent for new, a status tone for a status
+   * ("Blocked" warning, "Failed" danger), muted for quiet. The sub line
+   * stays muted unless `toneSub` is set. */
   tone?: UiTone;
+  /** The sub line takes the tone too (any tone but default and muted).
+   * Only for a line that is the status's reason and the point of the
+   * cell, e.g. a blocked project's "Project has no lead" under BLOCKED;
+   * a plain detail under a coloured value stays muted. */
+  toneSub?: boolean;
   align?: 'start' | 'end';
   children?: ReactNode;
 }

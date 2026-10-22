@@ -161,12 +161,17 @@ separators, furniture and disabled controls). The purple never means a status.
 
 Status has its own hues (see "Status vocabulary"): `--red`, `--amber`,
 `--green`, `--blue` and `--grey` are MARK colours (fills, outlines, bars,
-glyphs; 3:1 on the paper and on a flood's ink, so they never swap), `--red-ink`,
-`--amber-ink`, `--green-ink` and `--blue-ink` are their TEXT colours (4.5:1),
-`--<hue>-ink-inverse` the text on an ink flood, and `--on-<hue>` the text on a
-fill. Rather than naming a hue, a component puts `data-tone` on the element and
-uses the hook's `--tone` (mark), `--tone-ink` (text) and `--on-tone`, which
-`tokens.css` defines for every `UiTone`.
+glyphs; 3:1 on the paper, the tint, the chrome's hatch line and a flood's ink,
+so they never swap in an ink flood; inside a purple flood that retints the ink
+to `--on-accent`, such as the sidebar item hover or the accent `Chip`, the block
+also turns `--red`, `--amber`, `--green` and `--grey` to `--on-accent`, since no
+hue holds 3:1 on the purple; dark `--green` steps lighter to `#1c9444` so a 1px
+on-track edge holds 4.9:1 on the black paper, and ink rather than white sits on
+its fill), `--red-ink`, `--amber-ink`, `--green-ink` and `--blue-ink` are their
+TEXT colours (4.5:1), `--<hue>-ink-inverse` the text on an ink flood, and
+`--on-<hue>` the text on a fill. Rather than naming a hue, a component puts
+`data-tone` on the element and uses the hook's `--tone` (mark), `--tone-ink`
+(text) and `--on-tone`, which `tokens.css` defines for every `UiTone`.
 
 A component that floods a row with ink swaps the text tokens along with
 `--background` and `--foreground` (`test/styles-contrast.test.ts` checks every
@@ -310,11 +315,16 @@ The other shared vocabularies:
 - `UiTone`: `default` (ink), `muted` (grey: inactive, nothing to do), `accent`
   (the purple: new, unread, selected; never a status) and the `SemanticTone`s
   `danger` (red: overdue, failed, urgent), `warning` (amber: at risk, blocked,
-  unassigned, a missing input), `success` (green: on track, done, met,
+  unassigned, a missing input), `success` (green: on track, done's words,
   succeeded) and `info` (blue: in progress, running). Components emit it as
-  `data-tone`. `Chip`, `Notice`, `AlertStrip` (default `accent`),
-  `ProgressRule`, `RegisterRow` (a 2px left rule), `RegisterCell` and
-  `StatsStrip` draw every tone; `Button variant="danger"` is red.
+  `data-tone`. `Chip`, `Notice`, `AlertStrip` (default `warning`: an alert is
+  always a status, never the purple), `ProgressRule`, `RegisterRow` (a 2px left
+  rule), `RegisterCell` (the value only; the mono `sub` line under it stays
+  muted unless `toneSub` opts it in, for a reason line that is the point: a
+  blocked project's reason, a failed sync's error) and `StatsStrip` draw every
+  tone; `Button variant="danger"` is red. `Checklist` (the rubric) keeps a met
+  item the filled ink square, like done, so a missing item's hollow amber square
+  and "Missing" are the only hue in the list.
 - `TaskStateKind` (Linear's state types): `triage`, `backlog`, `unstarted`,
   `started`, `completed`, `canceled`, drawn by `StateGlyph` (in progress blue,
   done green, triage / backlog / canceled grey, todo ink).

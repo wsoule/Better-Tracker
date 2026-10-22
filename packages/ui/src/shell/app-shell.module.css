@@ -267,7 +267,8 @@
 
 /* A count in a status tone (data-tone, e.g. warning for blocked
    projects): the same square chip in the status MARK colour with the
-   hue's own text colour (black on amber, white on red, green and blue). */
+   hue's own text colour (--on-<hue>: black on amber, white on red and
+   blue, white on green in light and black in dark). */
 .countToned {
   display: grid;
   place-items: center;
@@ -579,11 +580,21 @@
    ========================================================================== */
 
 @media (hover: hover) and (width >= 901px) {
+  /* The purple flood retints the ink for everything in the item, the
+     status mark's hues included: a red, amber, green or grey mark is
+     1.03-1.34:1 on the purple and would sink into it, while white holds
+     4.51:1. The mark keeps its shape (filled, hollow 1px, 2px outline,
+     hatched), as inside the accent Chip. */
   .item:not([aria-current='page']):hover {
     --foreground: var(--on-accent);
     --border: var(--on-accent);
     --muted: var(--on-accent);
     --accent: var(--on-accent);
+    --red: var(--on-accent);
+    --amber: var(--on-accent);
+    --green: var(--on-accent);
+    --grey: var(--on-accent);
+    --blue: var(--on-accent);
 
     background: var(--shell-flood);
   }

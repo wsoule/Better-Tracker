@@ -223,7 +223,11 @@ async function renderSection(
                 <RegisterCell variant="mono" tone="muted">
                   {row.label}
                 </RegisterCell>
-                <RegisterCell tone={row.tone} sub={row.sub}>
+                <RegisterCell
+                  tone={row.tone}
+                  sub={row.sub}
+                  toneSub={row.toneDetail === true}
+                >
                   {row.value}
                 </RegisterCell>
               </RegisterRow>

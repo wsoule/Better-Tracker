@@ -74,8 +74,10 @@
      inactive. The purple accent never means a status. Each hue has
      three jobs:
      --<hue>          MARK: fills, outlines, rules, bars, glyphs. 3:1 or more
-                      on the paper, the --tint wash AND the ink of a hover
-                      flood, so a mark never needs swapping in a flood.
+                      on the paper, the --tint wash, the chrome's --hatch
+                      line (the sidebar's marks sit on it) AND the ink of a
+                      hover flood, so a mark never needs swapping in an ink
+                      flood (an accent flood turns marks --on-accent).
      --<hue>-ink      TEXT: 4.5:1 or more on the paper and the --tint wash.
      --<hue>-ink-inverse  TEXT on a --foreground hover flood (4.5:1 on the
                       ink): every flood swaps --<hue>-ink to it, like
@@ -88,13 +90,15 @@
   --red-ink: #c4261d; /* 5.77:1 on white, 5.15:1 on the tint */
   --red-ink-inverse: #ff7a70; /* 8.29:1 on black */
   --on-red: #ffffff; /* 4.83:1 */
-  --amber: #c27d0a; /* 3.37:1 on white, 3.01:1 on the tint, 6.23:1 on black */
+  /* 3.56:1 on white, 3.18:1 on the tint, 3.12:1 on the hatch line
+     (#f0f0f0), 5.90:1 on black */
+  --amber: #bd790a;
   --amber-ink: #965a00; /* 5.59:1 on white, 4.99:1 on the tint */
   --amber-ink-inverse: #f0b232; /* 11.12:1 on black */
   /* Amber text on a hatched bar (the hatch's darkest line is #d9d9d9):
      5.40:1 there, 4.84:1 under the hover wash, 7.62:1 on white. */
   --amber-ink-strong: #7a4800;
-  --on-amber: #000000; /* 6.23:1: amber is the light hue, ink sits on it */
+  --on-amber: #000000; /* 5.90:1: amber is the light hue, ink sits on it */
   --green: #16853c; /* 4.71:1 on white, 4.45:1 on black */
   --green-ink: #167a37; /* 5.42:1 on white, 4.84:1 on the tint */
   --green-ink-inverse: #4cc76f; /* 9.71:1 on black */
@@ -155,9 +159,9 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
   --ink-soft-inverse: #1a1a1a;
 
   /* STATUS in the negative: marks stay mid-tone (3:1 on #0f0f0f and on the
-     #ededed flood; --green and the --on-* inks unchanged), text steps
-     lighter, and the inverse text is the light theme's ink (4.5:1 on
-     #ededed). */
+     #ededed flood), text steps lighter, and the inverse text is the light
+     theme's ink (4.5:1 on #ededed). --green steps lighter so a 1px on-track
+     edge holds on the black paper, so ink, not white, sits on its fill. */
   --red: #dc3326; /* 4.15:1 on #0f0f0f, 3.95:1 on #ededed */
   --red-ink: #ff7a70; /* 7.55:1, 6.27:1 on the tint */
   --red-ink-inverse: #c4261d; /* 4.92:1 on #ededed */
@@ -165,11 +169,13 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
   --amber-ink: #f0b232; /* 10.15:1 */
   --amber-ink-inverse: #965a00; /* 4.77:1 on #ededed */
   --amber-ink-strong: #f0b232; /* 5.16:1 on the dark hatch (#444444) */
+  --green: #1c9444; /* 4.90:1, 4.02:1 on the tint, 3.34:1 on #ededed */
   --green-ink: #4cc76f; /* 8.86:1 */
   --green-ink-inverse: #167a37; /* 4.63:1 on #ededed */
   --blue: #2f6fe8; /* 4.16:1, 3.93:1 on #ededed */
   --blue-ink: #6aa5ff; /* 7.70:1 */
   --blue-ink-inverse: #1d58c9; /* 5.45:1 on #ededed */
+  --on-green: #000000; /* 5.37:1 on the #1c9444 fill (white: 3.91:1) */
   --grey: #6e6e6e; /* 3.76:1, 4.36:1 on #ededed */
 
   color-scheme: dark;
@@ -210,11 +216,13 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
     --amber-ink: #f0b232;
     --amber-ink-inverse: #965a00;
     --amber-ink-strong: #f0b232;
+    --green: #1c9444;
     --green-ink: #4cc76f;
     --green-ink-inverse: #167a37;
     --blue: #2f6fe8;
     --blue-ink: #6aa5ff;
     --blue-ink-inverse: #1d58c9;
+    --on-green: #000000;
     --grey: #6e6e6e;
 
     color-scheme: dark;

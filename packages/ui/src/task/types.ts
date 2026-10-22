@@ -32,7 +32,7 @@ export interface TaskDetailAlert {
   label: string;
   /** The alert's colour (AlertStrip's tone, docs/architecture.md §8.2):
       danger for an overdue milestone, warning for blocked, holds up,
-      stalled and unassigned. Default accent. */
+      stalled and unassigned. Default warning (AlertStrip's default). */
   tone?: UiTone;
   /** One sentence ("Waiting on ENG-12 (in progress)."). */
   message: ReactNode;

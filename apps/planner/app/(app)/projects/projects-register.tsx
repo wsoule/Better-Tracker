@@ -281,9 +281,10 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
         {row.lead ?? 'No lead'}
       </RegisterCell>
       {/* The chip carries the tone; a blocked project's reason line under
-          it takes the amber too, as the timeline drawer and its Blocked
-          banner say it (architecture §8.2 "allocation"). A muted cell
-          greys its value; the blue and ink chips colour only themselves. */}
+          it takes the amber too (the adapter's toneDetail opts it in), as
+          the timeline drawer and its Blocked banner say it (architecture
+          §8.2 "allocation"). A muted cell greys its value; the blue and
+          ink chips colour only themselves. */}
       <RegisterCell
         label="Allocation"
         tone={
@@ -291,6 +292,7 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
             ? row.allocation.tone
             : 'default'
         }
+        toneSub={row.allocation.toneDetail === true}
         sub={row.allocation.detail}
       >
         <Chip tone={row.allocation.tone} filled={row.allocation.filled}>

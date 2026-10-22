@@ -91,6 +91,20 @@ const tint = {
   ),
 };
 
+/** The chrome's hatch line (the sidebar, block titlebars) over the paper,
+    per theme: darker than the tint in light (#f0f0f0), and the sidebar's
+    status marks sit on it. */
+const hatch = {
+  light: over(
+    lightTokens['--paper'] ?? '',
+    rgbaToken(':root:where(:not([data-bt-ui-scoped]))', '--hatch')
+  ),
+  dark: over(
+    dark['--paper'] ?? '',
+    rgbaToken("html[data-theme='dark']", '--hatch')
+  ),
+};
+
 describe('text tokens meet 4.5:1 in both themes', () => {
   for (const [theme, t] of [
     ['light', lightTokens],
@@ -153,6 +167,7 @@ describe('status hues meet WCAG in both themes', () => {
     const paper = t['--paper'] ?? '';
     const ink = t['--ink'] ?? '';
     const wash = tint[theme];
+    const line = hatch[theme];
     const token = (name: string): string => t[name] ?? '(missing)';
 
     test(`${theme}: status text is 4.5:1 on the paper and the tint`, () => {
@@ -175,15 +190,27 @@ describe('status hues meet WCAG in both themes', () => {
       expect(below(4.5, pairs)).toEqual([]);
     });
 
-    test(`${theme}: status marks are 3:1 on the paper, the tint and a flood`, () => {
+    test(`${theme}: status marks are 3:1 on the paper, the tint, the hatch and a flood`, () => {
+      if (theme === 'light') expect(line).toBe('#f0f0f0');
       const pairs = MARK_HUES.flatMap(
         (hue): [string, string, string, string][] => [
           [`--${hue}`, token(`--${hue}`), 'paper', paper],
           [`--${hue}`, token(`--${hue}`), 'tint', wash],
+          [`--${hue}`, token(`--${hue}`), 'hatch', line],
           [`--${hue}`, token(`--${hue}`), 'ink', ink],
         ]
       );
       expect(below(3, pairs)).toEqual([]);
+    });
+
+    // An accent (purple) flood turns every mark white (--on-accent), so
+    // the mark needs --on-accent at 3:1 on the purple.
+    test(`${theme}: a mark on the accent flood is 3:1`, () => {
+      expect(
+        below(3, [
+          ['--on-accent', token('--on-accent'), '--accent', token('--accent')],
+        ])
+      ).toEqual([]);
     });
 
     test(`${theme}: text on a status fill is 4.5:1`, () => {
@@ -227,6 +254,23 @@ describe('status hues meet WCAG in both themes', () => {
         'dark on the hatch',
         contrast(dark['--amber-ink-strong'] ?? '', hatchDark),
       ],
+    ];
+    expect(
+      pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([label]) => label)
+    ).toEqual([]);
+  });
+
+  // The on-track mark is only a 1px hollow edge (StatusMark, the timeline
+  // bar's outline), so 3:1 is not enough for it to read on the black
+  // paper: --green holds 4.5:1 on the paper in both themes (dark steps it
+  // to #1c9444, 4.90:1, where the light #16853c is 4.07:1).
+  test('the 1px on-track edge is 4.5:1 on the paper in both themes', () => {
+    const pairs: [string, number][] = [
+      [
+        'light',
+        contrast(lightTokens['--green'] ?? '', lightTokens['--paper'] ?? ''),
+      ],
+      ['dark', contrast(dark['--green'] ?? '', dark['--paper'] ?? '')],
     ];
     expect(
       pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([label]) => label)
@@ -283,6 +327,73 @@ function cssFiles(dir: string): string[] {
     return entry.name.endsWith('.css') ? [full] : [];
   });
 }
+
+/**
+ * The rules of a stylesheet as [selector, body] pairs, innermost first
+ * (an @media wrapper is skipped; the rules inside it are returned).
+ */
+function cssRules(css: string): [string, string][] {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => [
+    (match[1] ?? '').trim(),
+    match[2] ?? '',
+  ]);
+}
+
+describe('coloured floods swap the status mark hues', () => {
+  // A block that fills with a colour and retints the ink for its contents
+  // (`--foreground: var(--on-accent)` on the purple hover flood or the
+  // accent chip, `var(--on-red)` on the graph's overdue box) must turn the
+  // status MARK hues to that ink too: a red, amber, green or grey mark is
+  // under 3:1 on the purple or the red, and the mark's shape stays to say
+  // the status. The swap may sit in the block itself or in a rule that
+  // extends its selector (`.accent .mark`); the graph's node glyph reads
+  // its hues through --glyph-<hue> (and its grey through those same
+  // variables, so --glyph-ink stands in for grey there).
+  test('every on-colour flood swaps --red, --amber, --green and --grey', () => {
+    const missing: string[] = [];
+    for (const file of cssFiles(srcDir)) {
+      const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      const rules = cssRules(css);
+      for (const [selector, body] of rules) {
+        if (!/--foreground:\s*var\(--on-[\w-]+\)/.test(body)) continue;
+        const group = rules
+          .filter(
+            ([other]) =>
+              other === selector ||
+              [' ', '.', ':'].some((next) => other.startsWith(selector + next))
+          )
+          .map(([, groupBody]) => groupBody)
+          .join('\n');
+        for (const hue of ['red', 'amber', 'green', 'grey']) {
+          const glyph = hue === 'grey' ? '--glyph-ink' : `--glyph-${hue}`;
+          if (!new RegExp(`(--${hue}|${glyph}):`).test(group)) {
+            missing.push(
+              `${path.relative(srcDir, file)} ${selector}: --${hue}`
+            );
+          }
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test('the sidebar item hover turns the marks white', () => {
+    const css = readFileSync(
+      path.join(srcDir, 'shell', 'app-shell.module.css'),
+      'utf8'
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    const body = cssRules(css).find(
+      ([selector]) => selector === ".item:not([aria-current='page']):hover"
+    )?.[1];
+    expect(body).toBeDefined();
+    for (const hue of ['red', 'amber', 'green', 'grey']) {
+      expect([hue, body ?? '']).toEqual([
+        hue,
+        expect.stringContaining(`--${hue}: var(--on-accent);`),
+      ]);
+    }
+  });
+});
 
 describe('hover floods swap the text tokens', () => {
   test('a block that floods with ink also swaps accent, status and dim text', () => {

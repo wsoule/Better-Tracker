@@ -95,6 +95,11 @@ export interface ProjectAllocationCell {
   /** BLOCKED keeps the filled chip it had before the status hues (an
       amber slab); the other cells stay outlined. */
   filled?: true;
+  /** The `detail` line takes the chip's tone too (RegisterCell
+      `toneSub`): set for BLOCKED, whose reason is the point of the cell
+      and reads in amber as on the timeline's Blocked banner. A line under
+      any other value stays muted. */
+  toneDetail?: true;
 }
 
 export interface ProjectRowModel {
@@ -229,6 +234,7 @@ export function allocationCell(
             detail: blockedReasonLine(plan.blockReason, plan.gaps),
             tone: 'warning',
             filled: true,
+            toneDetail: true,
           };
     case 'nothing_to_do':
       return { label: 'Nothing to do', tone: 'default' };

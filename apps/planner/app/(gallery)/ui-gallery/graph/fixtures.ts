@@ -512,8 +512,8 @@ function escapeLabel(text: string): string {
 /**
  * The gallery's stand-in for core's toMermaid (the gallery imports only the
  * UI package): `flowchart LR`, positional ids, quoted labels, `-->` open and
- * `-.->` resolved edges, counts on aggregated edges, risk/cycle/external
- * classes.
+ * `-.->` resolved edges, counts on aggregated edges, overdue/risk/cycle/
+ * external classes.
  */
 export function toMermaid(fixture: GraphFixture): string {
   const ids = new Map(fixture.nodes.map((node, i) => [node.id, `n${i}`]));
@@ -534,7 +534,8 @@ export function toMermaid(fixture: GraphFixture): string {
     if (edge.kind === 'risk') risk.push(i);
   });
   lines.push(
-    '  classDef risk stroke:#c27d0a,stroke-width:2px',
+    '  classDef overdue stroke:#d92d20,stroke-width:2px',
+    '  classDef risk stroke:#bd790a,stroke-width:2px',
     '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3'
   );
@@ -543,18 +544,21 @@ export function toMermaid(fixture: GraphFixture): string {
       .filter(test)
       .map((node) => ids.get(node.id))
       .join(',');
+  // Overdue first and red, as the canvas floods it; never also amber risk.
+  const overdue = (node: GraphNodeData) =>
+    node.tags?.includes('OVERDUE') === true;
+  const overdueNodes = classed(overdue);
   const riskNodes = classed(
-    (node) =>
-      node.tags?.includes('UNASSIGNED') === true ||
-      node.tags?.includes('OVERDUE') === true
+    (node) => node.tags?.includes('UNASSIGNED') === true && !overdue(node)
   );
   const cycleNodes = classed((node) => node.tags?.includes('CYCLE') === true);
   const externalNodes = classed((node) => node.external === true);
+  if (overdueNodes !== '') lines.push(`  class ${overdueNodes} overdue`);
   if (riskNodes !== '') lines.push(`  class ${riskNodes} risk`);
   if (cycleNodes !== '') lines.push(`  class ${cycleNodes} cycle`);
   if (externalNodes !== '') lines.push(`  class ${externalNodes} external`);
   if (risk.length > 0) {
-    lines.push(`  linkStyle ${risk.join(',')} stroke:#c27d0a`);
+    lines.push(`  linkStyle ${risk.join(',')} stroke:#bd790a`);
   }
   return lines.join('\n');
 }

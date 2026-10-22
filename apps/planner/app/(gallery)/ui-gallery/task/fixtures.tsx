@@ -213,6 +213,7 @@ export const ENG_24: GalleryTask = {
     {
       id: 'blocked',
       label: 'Blocked',
+      tone: 'warning',
       message:
         'Waiting on ENG-23 (in progress) and ENG-12 (backlog, unassigned).',
       action: { label: 'Graph', href: '/graph?chain=ENG-24' },
@@ -220,6 +221,7 @@ export const ENG_24: GalleryTask = {
     {
       id: 'stalled',
       label: 'Stalled',
+      tone: 'warning',
       message: 'In Todo for 9 days; Search v2 beta is due in 2 days.',
     },
   ],
@@ -330,16 +332,19 @@ export const ENG_32: GalleryTask = {
     {
       id: 'blocked',
       label: 'Blocked',
+      tone: 'warning',
       message: 'Waiting on ENG-31 (backlog, unassigned).',
     },
     {
       id: 'stalled',
       label: 'Stalled',
+      tone: 'warning',
       message: 'In Todo for 10 days with nobody on it.',
     },
     {
       id: 'unassigned',
       label: 'Unassigned',
+      tone: 'warning',
       message: 'Next milestone, due Oct 26.',
       action: { label: 'Preview allocation', href: '/runs?preview=1' },
     },
@@ -410,6 +415,7 @@ export const ENG_23: GalleryTask = {
     {
       id: 'blocked',
       label: 'Blocked',
+      tone: 'warning',
       message:
         'Waiting on ENG-12 in Atlas billing migration, which nobody is on.',
     },
@@ -683,6 +689,7 @@ export const PLATFORM_1042: GalleryTask = {
     {
       id: 'blocked',
       label: 'Blocked',
+      tone: 'warning',
       message: `Waiting on PLATFORM-10417 (${LONG_TOKEN}).`,
     },
   ],

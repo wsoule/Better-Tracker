@@ -55,10 +55,10 @@
 
 /* A filled status chip (the stronger claim: blocked, live, failed,
    assigned, sent): a slab of the status MARK colour with the hue's own
-   text colour (white on red, green and blue, black on amber; 4.5:1 in
-   both themes, styles-contrast.test.ts). MARK colours are 3:1 on the paper
-   and on a flood's ink, so the slab keeps its edge in a flooded row and
-   needs no swap there. */
+   text colour (white on red and blue, black on amber, white on green in
+   light and black in dark; 4.5:1 in both themes, styles-contrast.test.ts).
+   MARK colours are 3:1 on the paper and on a flood's ink, so the slab
+   keeps its edge in a flooded row and needs no swap there. */
 .statusFilled {
   border-color: var(--tone);
   background: var(--tone);

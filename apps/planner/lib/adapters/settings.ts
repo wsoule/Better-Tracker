@@ -23,6 +23,7 @@ import {
   formatLongDate,
   plural,
 } from '../format';
+import { dueTone } from './projects';
 
 // /settings (architecture §8.4 "Settings", §7.1 validation): the section
 // sub-nav, each section's rows, and the bodies its form PATCHes. Everyone
@@ -568,8 +569,10 @@ export function scheduleSavedMessage(
 
 /**
  * One Status row. `tone` colours the value (architecture §8.2 "settings
- * status"): success = working, warning = not installed or never synced,
- * danger = revoked or a failed sync, muted = demo data or no webhook yet.
+ * status"): success = working access or a sync that went through,
+ * warning = not installed or never synced, danger = revoked or a failed
+ * sync, muted = demo data or no webhook yet. The mono line under it stays
+ * muted, except a failed sync's error (`toneDetail`).
  */
 export interface StatusRow {
   id: string;
@@ -578,6 +581,11 @@ export interface StatusRow {
   /** Mono line under the value. */
   sub?: string;
   tone: UiTone;
+  /** The `sub` line takes the tone too (RegisterCell `toneSub`): set for
+      a failed sync, whose error is why the row is red, as a failed
+      digest's error is red text and a BLOCKED project's reason amber.
+      A date or a hint ("Since …") stays muted. */
+  toneDetail?: true;
 }
 
 export function statusRows(input: {
@@ -656,7 +664,9 @@ export function statusRows(input: {
       sub: failed
         ? (syncState.lastFullSyncError ?? 'No error was recorded')
         : undefined,
-      tone: failed ? 'danger' : 'default',
+      // A sync that went through is working, like Linear access above.
+      tone: failed ? 'danger' : 'success',
+      ...(failed ? { toneDetail: true as const } : {}),
     });
   }
   rows.push({
@@ -697,11 +707,17 @@ export interface DigestItemPreview {
       what needs action now (the same items as rowTone), outlined for at
       risk. */
   chipFilled: boolean;
-  /** The row's 2px rule and its due date's colour: the item's tone for
-      what needs action now (overdue, due soon without what the rubric
-      needs, allocation stopped); default for at risk, which is a warning
-      but not yet a missed date or a missing input. */
+  /** The row's 2px rule: the item's tone for what needs action now
+      (overdue, due soon without what the rubric needs, allocation
+      stopped); default for at risk, which is a warning but not yet a
+      missed date or a missing input. */
   rowTone: 'default' | DigestTone;
+  /** The Due column's colour, by the date alone as wherever a date is
+      coloured (dueTone, architecture §8.2 "due date"; My week's Upcoming
+      deadlines colours its group labels instead): danger overdue, warning due
+      today or tomorrow or undated, default later ("Oct 31 · in 9 days"
+      stays ink under an amber rule). */
+  dueTone: 'default' | DigestTone;
 }
 
 /** A digest item's colour (architecture §8.2 "warning kind"). */
@@ -730,6 +746,28 @@ export function noticeTone(kind: NoticeKind): DigestTone {
   return kind === 'overdue' ? 'danger' : 'warning';
 }
 
+/**
+ * A digest item's due date colour through the one dueTone. A notice does
+ * not carry its milestone's status, so overdue is the overdue notice, or a
+ * project notice whose next milestone is past its date (its label reads
+ * "N days overdue"); undated is a missing input; a project notice with no
+ * next milestone ("Whole project") has no date to colour.
+ */
+function digestDueTone(
+  notice: Digest['items'][number]['notice'],
+  hasDue: boolean
+): 'default' | DigestTone {
+  if (!hasDue) return 'default';
+  const overdue =
+    notice.kind === 'overdue' ||
+    (notice.daysLeft !== null && notice.daysLeft < 0);
+  return dueTone(
+    overdue ? 'overdue' : null,
+    notice.daysLeft,
+    notice.targetDate === null
+  );
+}
+
 function previewItem(
   digest: Digest,
   index: number,
@@ -748,15 +786,16 @@ function previewItem(
       notice.milestoneId !== null
         ? `/timeline?milestone=${encodeURIComponent(notice.milestoneId)}`
         : `/timeline?project=${encodeURIComponent(notice.projectId)}`;
+    const due =
+      project && item.milestoneName === null
+        ? null
+        : dueLabel(notice.targetDate, notice.daysLeft, today);
     return {
       id: `${index}:${i}:${notice.key}`,
       kind: notice.kind,
       kindLabel: NOTICE_KIND_LABEL[notice.kind],
       title,
-      due:
-        project && item.milestoneName === null
-          ? null
-          : dueLabel(notice.targetDate, notice.daysLeft, today),
+      due,
       dueNote:
         project && item.milestoneName !== null
           ? `Next milestone: ${item.milestoneName}`
@@ -766,6 +805,7 @@ function previewItem(
       tone: noticeTone(notice.kind),
       chipFilled: notice.kind !== 'at_risk',
       rowTone: notice.kind === 'at_risk' ? 'default' : noticeTone(notice.kind),
+      dueTone: digestDueTone(notice, due !== null),
     };
   });
 }

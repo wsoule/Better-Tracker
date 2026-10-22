@@ -279,8 +279,8 @@ export interface AlertStripProps {
   label?: string;
   /** The 2px frame and the key's colour (docs/architecture.md §8.2):
    * danger for overdue, warning for blocked, holds up, stalled and
-   * unassigned. Rendered as data-tone. Default accent (the purple frame
-   * the strip had before status colours). */
+   * unassigned. Rendered as data-tone. Default warning (amber): an alert
+   * is always a status, never the purple accent. */
   tone?: UiTone;
   /** The sentence. */
   children: ReactNode;
