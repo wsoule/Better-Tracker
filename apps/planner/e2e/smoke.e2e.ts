@@ -185,6 +185,10 @@ test('Esc in a field with unsaved text resets it before closing', async ({
   page,
 }) => {
   await page.goto('/timeline?milestone=ms-atlas-2');
+  // The panel takes focus once it has hydrated. Typing before that loses
+  // the field's focus to the panel, and Esc then closes instead of
+  // resetting (seen on a cold server).
+  await expect(page.getByRole('dialog')).toBeFocused();
   const weight = page.getByLabel('Weight override');
   await weight.fill('3');
   await page.keyboard.press('Escape');
