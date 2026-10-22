@@ -27,7 +27,10 @@ a published package. Everything else is a nit.
   node must match in `.prototools` and `.node-version`.
 - **moon `runInCI` rules.** `runInCI: 'always'` is only safe for tasks with no
   graph edges (no `deps`, no dependents). A task connected to the build graph
-  with `'always'` gets pulled into every `moon ci` run.
+  with `'always'` runs in every `moon ci` run whose targets reach it (as a
+  target or a dependency of one), affected or not. A task CI should run is
+  `runInCI: true` and named in the target list in `.github/workflows/ci.yml`;
+  `moon ci` runs nothing else.
 - **`package.json` scripts are lifecycle hooks only.** New build, test, or lint
   entry points belong in a `moon.yml` task.
 - **`minimumReleaseAgeExclude` additions need a reason.** Exempting a package

@@ -41,7 +41,10 @@ rm -rf packages/utils/dist packages/utils/node_modules packages/utils/*.tsbuildi
    `references` (editor/project discovery only; tasks do not use it).
 
 Then run `pnpm install` and `moonx utils:build utils:typecheck utils:test`. Apps
-follow the same steps under `apps/`.
+follow the same steps under `apps/`. The container build
+(`scripts/build-all.sh`, run by `deploy/Dockerfile`) needs no change: it builds
+every project that has a `tsdown.config.ts` in pnpm's topological order of the
+`package.json` workspace dependencies.
 
 ## Depending on Another Workspace Package
 

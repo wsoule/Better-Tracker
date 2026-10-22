@@ -7,10 +7,14 @@ $schema: 'https://moonrepo.dev/schemas/project.json'
 #
 # Local-only tasks avoid presets and set options explicitly: presets force
 # `runInCI: skip`, and moon refuses to run such tasks in CI-detected shells —
-# which includes agent harnesses that export CI=1. moon ci executes every
-# affected runInCI-enabled task, so `runInCI: 'always'` is reserved for tasks
-# with no graph edges (no deps, no dependents) — they can never be affected
-# through the graph and so never join the CI pipeline uninvited.
+# which includes agent harnesses that export CI=1. `runInCI: 'always'` keeps
+# them runnable there; it is reserved for tasks with no graph edges (no deps,
+# no dependents), so no CI target ever reaches one as a dependency. CI never
+# runs them otherwise: `moon ci` given targets (the only way
+# .github/workflows/ci.yml calls it) runs just the targets that are affected
+# (or 'always') plus their dependencies, never another task. Without targets
+# it would run every 'always' task, clean-all included, so CI always names
+# its targets.
 language: 'typescript'
 
 # Type-aware lint resolves workspace imports through each package's built
@@ -23,6 +27,7 @@ dependsOn:
   - 'logger'
   - 'notify'
   - 'store'
+  - 'worker'
 
 workspace:
   inheritedTasks:

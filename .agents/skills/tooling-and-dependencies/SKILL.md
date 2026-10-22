@@ -81,12 +81,18 @@ instead of moon presets (presets force `runInCI: skip`, which moon refuses to
 run in CI-detected shells; agent harnesses export `CI=1`):
 
 - No graph edges at all (formatters, benchmarks, wt, servers spawned by
-  playwright): use `runInCI: 'always'` — runnable everywhere, and never in the
-  CI pipeline because a task with no deps or dependents is never affected
-  through the graph.
-- Connected to the build graph (dev/prod, e2e variants, publish guards): keep
-  `runInCI: 'skip'` — `moon ci --include-relations` runs affected
-  runInCI-enabled tasks even when unrequested, which would pull them into CI.
-  Run them in CI-marked shells with `moonx <target> --ignore-ci-checks` (works
-  regardless of the shell's CI env). For non-moon commands that CI-gate
-  themselves, unset the var instead: `CI= pnpm publish --dry-run`.
+  playwright): use `runInCI: 'always'` — runnable everywhere. CI never runs
+  them: `moon ci` given targets (the only way `.github/workflows/ci.yml` calls
+  it) runs just the targets that are affected (or `'always'`) plus their
+  dependencies, never another task, and a task with no graph edges is nobody's
+  dependency.
+- Connected to the build graph (dev/prod, publish guards): keep
+  `runInCI: 'skip'` — an untargeted `moon ci` runs every affected
+  runInCI-enabled task (and every `'always'` one), and `'skip'` keeps servers,
+  watchers and publish guards out of any such run. A `'skip'` task named as a
+  `moon ci` target is dropped. A task CI should run is `runInCI: true` and named
+  in the workflow's target list (`planner:test-e2e` is: the workflow installs
+  its Chromium first). Run `'skip'` tasks in CI-marked shells with
+  `moonx <target> --ignore-ci-checks` (works regardless of the shell's CI env).
+  For non-moon commands that CI-gate themselves, unset the var instead:
+  `CI= pnpm publish --dry-run`.

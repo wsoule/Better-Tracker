@@ -58,21 +58,97 @@ jobs:
       - name: Set up moon and caches
         uses: ./.github/actions/setup
 
-      # Note on targets: moon ci executes every affected runInCI-enabled
-      # task — the target list adds entry points (so cold runs are explicit)
-      # but never subtracts. Anything that must not run in CI is
-      # runInCI: 'skip' in its task config.
-      # --summary detailed appends an end-of-log recap naming every action
-      # with status, duration, and cache hash, so a failed target is readable
-      # from the log tail without scrolling through interleaved task output.
       - name: Run format
         run: >-
           moon run root:format-check
 
+      # planner:test-e2e (a target below) drives Playwright's Chromium, so
+      # it is installed before moon runs: from the planner's own Playwright
+      # (the catalog pin), with its OS libraries, the download cached per
+      # Playwright version. moon's own install step then finds the
+      # dependencies up to date.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Read the Playwright version
+        id: playwright
+        run: >-
+          echo "version=$(node -p
+          "require('./apps/planner/node_modules/@playwright/test/package.json').version")"
+          >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          key:
+            ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+          path: ~/.cache/ms-playwright
+
+      - name: Install Playwright Chromium
+        run:
+          pnpm --dir apps/planner exec playwright install --with-deps chromium
+
+      # moon ci runs exactly the targets it is given, each only when it is
+      # affected (or runInCI: 'always'), plus their dependencies; it never
+      # adds a task that is not a target or a dependency of one, whatever its
+      # runInCI. A target whose task is runInCI: 'skip' is dropped. Without
+      # targets moon ci would run every affected runInCI-enabled task and
+      # every 'always' one (root:clean-all included), so CI always names
+      # them. --include-relations with --downstream deep makes a package
+      # change affect the tasks of every project that depends on it, directly
+      # or not (without deep, a store change reached engine but not worker or
+      # planner); packages/ui's noop build carries ui changes to the planner.
+      # --summary detailed appends an end-of-log recap naming every action
+      # with status, duration, and cache hash, so a failed target is readable
+      # from the log tail without scrolling through interleaved task output.
       - name: Run affected tasks
         run: >-
-          moon ci --include-relations --summary detailed :build :test :typecheck
-          root:lint root:lint-css
+          moon ci --include-relations --downstream deep --summary detailed
+          :build :test :typecheck ui:typecheck-host planner:test-e2e root:lint
+          root:lint-css
+
+      # Playwright keeps a trace of each failed e2e test (trace:
+      # retain-on-failure); open it with `playwright show-trace`.
+      - name: Upload e2e traces
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: planner-e2e-traces
+          path: apps/planner/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # The Railway image (deploy/Dockerfile, both services) builds, and both
+  # services start from it in demo mode: the web app answers /api/health and
+  # the worker's tick runs. moon does not see this path (the image builds
+  # with scripts/build-all.sh and starts outside the workspace tooling).
+  image:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build the image
+        run: docker build --file deploy/Dockerfile --tag planner:ci .
+
+      - name: Start the web service
+        run: |
+          docker run --detach --name web --publish 3000:3000 \
+            --env LINEAR_FIXTURE=1 planner:ci
+          for _ in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:3000/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs web
+          exit 1
+
+      - name: Run the worker tick
+        run: >-
+          docker run --rm --env LINEAR_FIXTURE=1 planner:ci node
+          apps/worker/dist/index.js tick
 
   actions-pinned:
     name: Actions pinned to SHA

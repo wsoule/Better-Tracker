@@ -21,8 +21,11 @@ A planning layer over Linear that **does the allocation and the noticing**:
 - **One-week warnings**: when a milestone is at risk or overdue, the lead and
   the configured watchers get one Slack digest per day.
 
-Linear stays the source of truth. The only writes are an issue's assignee and
-state, an issue comment, a milestone's target date, and a project's lead. The
+Linear stays the source of truth. The tool's only automatic write is allocation
+(an issue's assignee and state, plus one comment). People write everything else
+with their own Linear token: a milestone's target date, a project's lead, and
+any issue's title, description, state, assignee, priority, labels, estimate, due
+date, project, milestone and blocking relations, plus comments (design §12). The
 product design is in
 [`docs/design/`](docs/design/2026-10-21-milestone-planner-design.md). The build
 spec is [`docs/architecture.md`](docs/architecture.md). Deployment steps are in
@@ -64,6 +67,7 @@ pnpm install
 moon run root:format root:lint
 moonx :build :typecheck :test
 moonx planner:dev --ignore-ci-checks
+moonx planner:test-e2e   # Playwright smoke in demo mode (also runs in CI)
 ```
 
 When moon cannot download its toolchain plugins, run the tools directly as

@@ -126,11 +126,13 @@ per worktree showing slug, offset, branch, and path — including the main clone
 ## Ports: how the offset system works
 
 Each port-bound dev/test service has a **base port**, registered in `PORT_BASES`
-in `scripts/wt.ts`. The template starts with one:
+in `scripts/wt.ts`:
 
-| Service             | Base port |
-| ------------------- | --------- |
-| Chrome remote debug | 9222      |
+| Service                                  | Base port |
+| ---------------------------------------- | --------- |
+| Planner (`planner:dev`, `planner:start`) | 3000      |
+| Planner e2e server (`planner:test-e2e`)  | 3390      |
+| Chrome remote debug                      | 9222      |
 
 Every worktree owns a **port offset** (0, 10, 20, 30, …). Its actual ports are
 `base + offset`. Main clone is always offset 0 — its ports are unchanged.

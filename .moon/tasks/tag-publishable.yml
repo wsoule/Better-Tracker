@@ -4,12 +4,12 @@ $schema: 'https://moonrepo.dev/schemas/tasks.json'
 # single npm lifecycle script, `"prepublishOnly": "moon run <name>:prepublish"`,
 # which `pnpm publish` fires automatically; everything it runs is defined here.
 #
-# The chain stays `runInCI: 'skip'`: it depends on `build`, and moon ci
-# --include-relations runs affected runInCI-enabled tasks even when they are
-# not requested targets — which would drag publish guards (some of which fail
-# by design outside a real publish) into
-# every CI run. Consequence: publishing from a CI-marked shell needs a `CI=`
-# prefix, e.g. `CI= pnpm publish --dry-run`.
+# The chain stays `runInCI: 'skip'`: some guards fail by design outside a
+# real publish, so no CI invocation may run them. CI's targeted `moon ci`
+# never reaches them (it runs only its targets and their dependencies), but
+# an untargeted `moon ci` runs every affected runInCI-enabled task, and
+# 'skip' keeps the chain out of that too. Consequence: publishing from a
+# CI-marked shell needs a `CI=` prefix, e.g. `CI= pnpm publish --dry-run`.
 inheritedBy:
   tags: ['publishable']
 

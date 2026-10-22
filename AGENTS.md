@@ -45,11 +45,12 @@ hook formats that file with oxfmt.
 
 Most local moon tasks (formatters, worktree management) are configured with
 `runInCI: 'always'` so they keep working in CI-marked shells like agent
-harnesses. Tasks connected to the build graph (dev servers, prod serves, e2e
-variants, publish guards) stay CI-skipped — run those with
-`moonx <target> --ignore-ci-checks`, e.g.
-`moonx planner:dev --ignore-ci-checks`. For non-moon commands that CI-gate
-themselves, unset the var: `CI= pnpm publish --dry-run`.
+harnesses. Tasks connected to the build graph (dev servers, prod serves, publish
+guards) stay CI-skipped — run those with `moonx <target> --ignore-ci-checks`,
+e.g. `moonx planner:dev --ignore-ci-checks`. The planner's browser smoke
+(`planner:test-e2e`) is a CI target instead and runs as
+`moonx planner:test-e2e`. For non-moon commands that CI-gate themselves, unset
+the var: `CI= pnpm publish --dry-run`.
 
 ## Toolchain
 

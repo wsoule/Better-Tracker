@@ -8,4 +8,6 @@
 .moon/cache
 .moon/hooks
 .agents/ignore
-.env*
+# Env files at any depth: apps/planner/.env.local is where local secrets live
+# (.env.example, docs/deploy.md), and Next would load it at build and start.
+**/.env*

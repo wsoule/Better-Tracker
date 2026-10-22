@@ -5,7 +5,7 @@
 # for container builds (deploy/Dockerfile) and sandboxes where moon cannot
 # download its toolchain plugins (see "When moon cannot start" in AGENTS.md).
 # Each step mirrors a moon task: <pkg>:build is `tsdown --clean`,
-# planner:build is `next build`.
+# planner:build is `next build`. pnpm derives the order from the workspace.
 #
 # Usage: scripts/build-all.sh [--skip-planner]
 
@@ -21,15 +21,17 @@ if [ "${1:-}" = "--skip-planner" ]; then
   skip_planner=true
 fi
 
-# Dependencies before dependents: core and logger have no workspace deps;
-# linear, store and notify need core; engine needs all of them.
-for pkg in logger core linear store notify engine; do
-  echo "[build-all] packages/$pkg" >&2
-  (cd "packages/$pkg" && ./node_modules/.bin/tsdown --clean --log-level warn)
-done
-
-echo "[build-all] apps/worker" >&2
-(cd apps/worker && ./node_modules/.bin/tsdown --clean --log-level warn)
+# Every workspace project with a tsdown.config.ts (the packages with a dist,
+# and the worker), dependencies before dependents. pnpm runs recursive
+# commands in topological order of the package.json workspace dependencies
+# (the same edges moon infers) and builds independent projects in parallel,
+# so a new package needs no change here. packages/ui ships source and the
+# planner builds with Next below; neither has a tsdown config.
+pnpm --recursive exec sh -c '
+  if [ -f tsdown.config.ts ]; then
+    echo "[build-all] $PNPM_PACKAGE_NAME" >&2
+    ./node_modules/.bin/tsdown --clean --log-level warn
+  fi'
 
 if [ "$skip_planner" = false ]; then
   echo "[build-all] apps/planner" >&2

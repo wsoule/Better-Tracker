@@ -46,6 +46,10 @@ const WORKTREES_HOME = join(homedir(), 'worktrees', mainCloneBasename());
 // When you add a port-bound dev/E2E service, register its base here so
 // `wt ps` and `wt clean` know about it (see scripts/README.md).
 const PORT_BASES = {
+  // planner:dev and planner:start (apps/planner/moon.yml).
+  planner: 3000,
+  // planner:test-e2e's `next start` (apps/planner/playwright.config.ts).
+  e2e: 3390,
   chrome: 9222,
 } as const;
 
@@ -369,6 +373,8 @@ function cmdClean(rest: string[]): number {
 function cmdPs(): number {
   const worktrees = enumerateWorktrees();
   const services: Array<[keyof typeof PORT_BASES, string]> = [
+    ['planner', 'planner'],
+    ['e2e', 'e2e'],
     ['chrome', 'chrome'],
   ];
 
@@ -569,7 +575,7 @@ function killPorts(ports: number[]): void {
 
 // The main clone has no `.env.worktree` and therefore no offset, but it still
 // owns the default ports (offset 0). Treat it as offset 0 so `wt clean` on the
-// main clone terminates stale servers on 3690/3691/3692/4173/4174/4176/9222.
+// main clone terminates stale servers on 3000/3390/9222.
 function killWorktreePorts(wt: Worktree): void {
   const offset = wt.offset ?? (wt.isMain ? 0 : null);
   if (offset === null) return;
@@ -632,6 +638,8 @@ function printPortMap(slug: string, offset: number, path: string): void {
   const ports = resolvePortMap(offset);
   console.log(`
 Worktree: ${slug} (offset ${offset})
+  planner:      http://localhost:${ports.planner}
+  e2e server:   http://localhost:${ports.e2e}
   chrome debug: localhost:${ports.chrome} (user-data-dir /tmp/chrome-devtools-${slug})
 
 cd ${path}
