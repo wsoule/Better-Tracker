@@ -15,21 +15,75 @@ export { jsonError, rejectCrossOrigin };
 const logger = createLogger({ name: 'planner.http' });
 
 /**
+ * Where a signed-in person grants the planner write access to Linear (the
+ * grant_write OAuth upgrade, offered to everyone since the owner decision
+ * of 2026-10-21), coming back to `returnTo` (a relative path; the OAuth
+ * start route sanitizes it again).
+ */
+export function grantWriteHref(returnTo: string = '/week'): string {
+  return `/api/auth/linear?intent=grant_write&returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+/**
+ * 403 needs_write_scope with the grant_write link, so a client can offer
+ * "Allow edits" right where the save failed.
+ */
+export function needsWriteScope(message: string, returnTo?: string): Response {
+  return jsonError(403, 'needs_write_scope', message, {
+    grantWriteHref: grantWriteHref(returnTo),
+  });
+}
+
+/** Whole seconds until `retryAt` (at least 1), or null without a time. */
+export function retryAfterSeconds(
+  retryAt: string | null,
+  now: number = Date.now()
+): number | null {
+  if (retryAt === null) return null;
+  const at = Date.parse(retryAt);
+  if (Number.isNaN(at)) return null;
+  return Math.max(1, Math.ceil((at - now) / 1000));
+}
+
+/**
  * Maps engine and Linear errors to HTTP responses; logs the unexpected.
  * Engine errors are recognised by name as well as class (lib/engine-errors:
  * the cached engine may come from another bundle's copy of the package).
+ * `returnTo` is the page a needs_write_scope answer's grant link comes
+ * back to; the engine's rate_limited is a 429 with Retry-After when Linear
+ * said when its limit resets.
  */
-export function errorResponse(error: unknown): Response {
+export function errorResponse(
+  error: unknown,
+  options: { returnTo?: string } = {}
+): Response {
   const authCode = engineAuthCode(error);
   if (authCode !== null) {
+    const message = (error as Error).message;
+    if (authCode === 'needs_write_scope') {
+      return needsWriteScope(message, options.returnTo);
+    }
     const status = authCode === 'not_signed_in' ? 401 : 403;
-    return jsonError(status, authCode, (error as Error).message);
+    return jsonError(status, authCode, message);
   }
   const inputCode = engineInputCode(error);
   if (inputCode !== null) {
+    const message = (error as Error).message;
+    if (inputCode === 'rate_limited') {
+      const raw = (error as { retryAt?: unknown }).retryAt;
+      const retryAt = typeof raw === 'string' ? raw : null;
+      const seconds = retryAfterSeconds(retryAt);
+      return jsonError(
+        429,
+        inputCode,
+        message,
+        { retryAt },
+        seconds === null ? undefined : { 'Retry-After': String(seconds) }
+      );
+    }
     const status =
       inputCode === 'not_found' ? 404 : inputCode === 'conflict' ? 409 : 400;
-    return jsonError(status, inputCode, (error as Error).message);
+    return jsonError(status, inputCode, message);
   }
   if (isLinearApiError(error)) {
     const status =

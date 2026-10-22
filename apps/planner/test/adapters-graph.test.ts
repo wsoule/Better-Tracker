@@ -270,6 +270,10 @@ describe('buildGraphPage on the demo workspace', () => {
       const linear = detail?.links.find((l) => l.label === 'Open in Linear');
       expect(linear?.external).toBe(true);
       expect(linear?.href).toBe(snapshot.issues.get(n.id)?.url);
+      // Selecting an issue node opens its slide-over by identifier.
+      expect(detail?.issueKey).toBe(
+        snapshot.issues.get(n.id)?.identifier ?? null
+      );
     }
     // The scope's own milestone is not offered again as a link.
     const inScope = model.nodes.find((n) => n.external !== true);
@@ -365,7 +369,7 @@ describe('nodes with no blocking relation', () => {
     expect(kept.isolated?.rows.some((r) => r.id === first.id)).toBe(false);
   });
 
-  test('issue level lists unrelated issues, opening them in Linear', () => {
+  test('issue level lists unrelated issues, opening their slide-over', () => {
     const model = page({ level: 'issue', milestoneId: 'ms-atlas-2' });
     const list = model.isolated;
     expect(list).not.toBeNull();
@@ -376,8 +380,11 @@ describe('nodes with no blocking relation', () => {
     for (const row of list.rows) {
       const issue = snapshot.issues.get(row.id);
       expect(row.key).toBe(issue?.identifier ?? null);
-      expect(row.href).toBe(issue?.url ?? '');
-      expect(row.external).toBe(true);
+      expect(row.href).toBe(
+        `/graph?milestone=ms-atlas-2&issue=${issue?.identifier ?? ''}`
+      );
+      expect(row.external).toBe(false);
+      expect(row.rowLabel).toBe(`${issue?.identifier ?? ''} ${row.name}`);
       const closed = row.status === 'done';
       // A closed issue shows its milestone's date without a countdown.
       if (closed) expect(row.due).not.toMatch(/overdue|in \d+ days/);

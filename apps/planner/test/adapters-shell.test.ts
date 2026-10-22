@@ -215,6 +215,11 @@ describe('breadcrumbs', () => {
       { label: 'Runs', href: '/runs' },
     ]);
     expect(crumbsFor('/setup', null)).toEqual([{ label: 'Setup' }]);
+    // /issues has no index page, so its crumb is not a link.
+    expect(crumbsFor('/issues/ENG-24', 'ENG-24')).toEqual([
+      { label: 'Issues' },
+      { label: 'ENG-24' },
+    ]);
     expect(crumbsFor('/', null)).toEqual([]);
     expect(crumbsFor('/nowhere', 'Not found')).toEqual([
       { label: 'Not found' },
@@ -302,14 +307,14 @@ describe('palette index (GET /api/palette)', () => {
     ).toEqual(['Fjord analytics', 'Dashboards', 'Usage dashboard']);
   });
 
-  test("issues are the person's open issues, opening in Linear", () => {
+  test("issues are the person's open issues, opening the planner's page", () => {
     const rows = week.sections.flatMap((s) => s.rows);
     expect(index.issues.map((i) => i.id)).toEqual(
       rows.map((r) => `issue:${r.issueId}`)
     );
-    for (const issue of index.issues) {
-      expect(issue.external).toBe(true);
-      expect(issue.href.startsWith('https://linear.app/')).toBe(true);
+    for (const [i, issue] of index.issues.entries()) {
+      expect(issue.external).toBe(false);
+      expect(issue.href).toBe(`/issues/${rows[i]?.identifier ?? ''}`);
       expect(issue.hint).toMatch(/^[A-Z]+-\d+ · /);
     }
   });
@@ -324,9 +329,28 @@ describe('palette index (GET /api/palette)', () => {
     const project = items.find((i) => i.id.startsWith('project:'));
     expect(project?.href).toBeDefined();
     expect(project?.onSelect).toBeUndefined();
+    // Issues navigate in the app now (the page links to Linear).
     const issue = items.find((i) => i.id.startsWith('issue:'));
-    expect(issue?.href).toBeUndefined();
-    issue?.onSelect?.();
+    expect(issue?.href).toMatch(/^\/issues\/[A-Z]+-\d+$/);
+    expect(issue?.onSelect).toBeUndefined();
+    // An external entry (none are built today) still opens a new tab.
+    const external = paletteItemsFromIndex(
+      {
+        projects: [],
+        milestones: [],
+        issues: [
+          {
+            id: 'x',
+            label: 'Elsewhere',
+            hint: '',
+            href: 'https://linear.app/x',
+            external: true,
+          },
+        ],
+      },
+      { openExternal }
+    );
+    external[0]?.onSelect?.();
     expect(openExternal).toHaveBeenCalledTimes(1);
   });
 

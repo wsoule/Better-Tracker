@@ -1,8 +1,10 @@
 import {
   defaultSettings,
+  type Issue,
   type Milestone,
   type Project,
   type User,
+  type WorkflowState,
   type WorkspaceSettings,
 } from '@better-tracker/core';
 import { describe, expect, test } from 'bun:test';
@@ -598,6 +600,108 @@ describe('audit', () => {
       who: 'Ana Moreno',
       when: 'Oct 21, 3:04 PM UTC',
     });
+  });
+
+  test('issue edits name the issue and read as "before → after"', () => {
+    const withIssues = {
+      ...snapshot,
+      issues: new Map([['i1', { id: 'i1', identifier: 'ENG-24' } as Issue]]),
+      states: new Map([
+        ['s-todo', { id: 's-todo', name: 'Todo' } as WorkflowState],
+        ['s-doing', { id: 's-doing', name: 'In Progress' } as WorkflowState],
+      ]),
+    };
+    const rows = auditRows(
+      [
+        audit({
+          action: 'issue.state',
+          subjectId: 'i1',
+          before: 's-todo',
+          after: 's-doing',
+        }),
+        audit({
+          action: 'issue.assignee',
+          subjectId: 'i1',
+          before: null,
+          after: 'u-ben',
+        }),
+        audit({
+          action: 'issue.priority',
+          subjectId: 'i1',
+          before: 3,
+          after: 1,
+        }),
+        audit({
+          action: 'issue.milestone',
+          subjectId: 'i1',
+          before: 'm1',
+          after: null,
+        }),
+        audit({
+          action: 'issue.labels',
+          subjectId: 'i1',
+          before: [],
+          after: [
+            { id: 'l1', name: 'Bug' },
+            { id: 'l2', name: 'Search' },
+          ],
+        }),
+        audit({
+          action: 'issue.description',
+          subjectId: 'i1',
+          before: null,
+          after: { length: 120 },
+        }),
+        audit({
+          action: 'issue.comment',
+          subjectId: 'i1',
+          before: null,
+          after: { commentId: 'c1', length: 5 },
+        }),
+        // An entry from before texts were logged as their length only:
+        // its excerpt is never shown (Settings → Audit is open to every
+        // signed-in person, the text only to those Linear lets read it).
+        audit({
+          action: 'issue.comment',
+          subjectId: 'i1',
+          before: null,
+          after: { commentId: 'c0', length: 1, excerpt: 'Y' },
+        }),
+        audit({
+          action: 'issue.blocker_added',
+          subjectId: 'i1',
+          before: null,
+          after: { blockerIdentifier: 'ENG-23', blockedIdentifier: 'ENG-24' },
+        }),
+        audit({
+          action: 'issue.relation_removed',
+          subjectId: 'gone',
+          before: { blockerIdentifier: 'ENG-12', blockedIdentifier: 'ENG-30' },
+          after: null,
+        }),
+        audit({
+          action: 'issue.due_date',
+          subjectId: 'gone',
+          before: '2026-10-30',
+          after: null,
+        }),
+      ],
+      withIssues,
+      'UTC'
+    );
+    expect(rows.map((r) => [r.what, r.changes])).toEqual([
+      ['ENG-24 · status', ['Todo → In Progress']],
+      ['ENG-24 · assignee', ['unassigned → Ben Carter']],
+      ['ENG-24 · priority', ['Medium → Urgent']],
+      ['ENG-24 · milestone', ['Dual-write → no milestone']],
+      ['ENG-24 · labels', ['none → Bug, Search']],
+      ['ENG-24 · description', ['none → 120 characters']],
+      ['ENG-24 · comment', ['Added a comment (5 characters)']],
+      ['ENG-24 · comment', ['Added a comment (1 character)']],
+      ['ENG-24 · blocked by', ['Added ENG-23']],
+      ['ENG-30 · blocked by', ['Removed ENG-12']],
+      ['A removed issue · due date', ['Oct 30, 2026 → none']],
+    ]);
   });
 
   test('settings updates list only what changed', () => {

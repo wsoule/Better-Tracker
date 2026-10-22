@@ -18,6 +18,7 @@ import {
   useState,
 } from 'react';
 
+import { withIssueParam } from '../../../lib/adapters/issue';
 import {
   countLanes,
   filterTimelineGroups,
@@ -38,6 +39,11 @@ import {
 } from '../../../lib/adapters/timeline';
 import { sendJson } from '../../../lib/api-client';
 import { formatDate, plural } from '../../../lib/format';
+import {
+  type IssueDrawerServer,
+  useIssueDrawerParts,
+  useIssueDrawerState,
+} from '../components/issue-drawer';
 import { PageCrumb } from '../components/page-crumb';
 import MilestoneDrawer from './milestone-drawer';
 import css from './page.module.css';
@@ -51,6 +57,8 @@ interface TimelineScreenProps {
   drawer: MilestoneDrawerModel | null;
   /** ?milestone= named a milestone the mirror does not have. */
   missingMilestoneId: string | null;
+  /** ?issue=: the issue opened from the milestone drawer (§8.5). */
+  issueDrawer: IssueDrawerServer;
 }
 
 /** Rewrites the address bar without a server round trip (Next keeps
@@ -75,6 +83,7 @@ export default function TimelineScreen({
   focusProjectId,
   drawer,
   missingMilestoneId,
+  issueDrawer,
 }: TimelineScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
@@ -124,20 +133,28 @@ export default function TimelineScreen({
     [state]
   );
 
+  // An issue opened from the drawer's list replaces the milestone in the
+  // same panel; its crumb goes back to the milestone (§8.5).
+  const issue = useIssueDrawerState(issueDrawer);
+  const issueRequested = issue.requested;
+
   const update = useCallback(
     (patch: Partial<TimelineUrlState>) => {
       const next = { ...state, ...patch };
       setState(next);
       written.current.push(
         replaceUrl(
-          timelineHref(next, {
-            projectId: focusProjectId,
-            milestoneId: requestedId,
-          })
+          withIssueParam(
+            timelineHref(next, {
+              projectId: focusProjectId,
+              milestoneId: requestedId,
+            }),
+            issueRequested
+          )
         )
       );
     },
-    [state, focusProjectId, requestedId]
+    [state, focusProjectId, requestedId, issueRequested]
   );
 
   const groups = useMemo(
@@ -167,23 +184,27 @@ export default function TimelineScreen({
   const total = countLanes(model.groups);
   const shown = countLanes(visible);
 
+  const forgetIssue = issue.forget;
   const openBar = useCallback(
     (barId: string) => {
+      forgetIssue();
       setRequestedId(barId);
       router.push(
         timelineHref(state, { projectId: focusProjectId, milestoneId: barId }),
         { scroll: false }
       );
     },
-    [router, state, focusProjectId]
+    [router, state, focusProjectId, forgetIssue]
   );
 
+  // Closes the panel, issue and milestone alike (the URL keeps neither).
   const closeDrawer = useCallback(() => {
+    forgetIssue();
     setRequestedId(null);
     router.push(timelineHref(state, { projectId: focusProjectId }), {
       scroll: false,
     });
-  }, [router, state, focusProjectId]);
+  }, [router, state, focusProjectId, forgetIssue]);
 
   const onRedate = useCallback(
     async (barId: string, newEnd: string) => {
@@ -208,6 +229,19 @@ export default function TimelineScreen({
   );
 
   const requested = requestedId === null ? undefined : names[requestedId];
+  const milestoneLabel =
+    drawer !== null && drawer.milestoneId === requestedId
+      ? drawer.title
+      : requested?.label;
+  const issueParts = useIssueDrawerParts(issue, {
+    back:
+      requestedId === null
+        ? undefined
+        : { label: milestoneLabel ?? 'Milestone', onBack: issue.close },
+    fallbackTitle: drawer?.issues.find(
+      (row) => row.key.toUpperCase() === issueRequested?.toUpperCase()
+    )?.title,
+  });
   const focusName =
     focusProjectId === null
       ? undefined
@@ -246,7 +280,7 @@ export default function TimelineScreen({
               }
             >
               You are a PM, but the planner can only read Linear for you. Allow
-              edits to re-date milestones and set project leads.
+              edits to re-date milestones, set project leads and edit issues.
             </Notice>
           ) : null}
           <TimelineBanners banners={model.banners} hrefFor={hrefFor} />
@@ -329,7 +363,7 @@ export default function TimelineScreen({
       </section>
 
       <MilestoneDrawer
-        open={requestedId !== null}
+        open={requestedId !== null || issueRequested !== null}
         loading={requestedId !== null && drawerId !== requestedId}
         model={drawerId === requestedId ? drawer : null}
         fallbackTitle={requested?.label ?? 'Milestone'}
@@ -338,6 +372,9 @@ export default function TimelineScreen({
           hrefFor({ projectId: focusProjectId, milestoneId })
         }
         onClose={closeDrawer}
+        issue={issueRequested === null ? null : issueParts}
+        onOpenIssue={issue.open}
+        issueHref={issue.hrefFor}
       />
     </>
   );

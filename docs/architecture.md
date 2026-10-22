@@ -13,7 +13,8 @@ repo and package scope are `better-tracker`).
 an issue from the planner (title, description, state, assignee, priority,
 labels, estimate, due date, project, milestone, blocking relations) and read and
 add comments, always with their own Linear token. The only automatic write stays
-allocation. The contracts are in §2.12, §3, §4, §5, §7.2 and §8.5.
+allocation. The contracts are in §2.12, §3, §4, §5, §7.2 and §8.5 (the issue
+page and slide-over as built).
 
 ## 1. Layout
 
@@ -438,15 +439,15 @@ Issue page types (`types.ts`): `IssueDetail`, `IssueRelationRow`,
 `IssueWhyItMatters`, `IssueEditOptions`, `IssueProjectOption`, `IssuePersonRef`;
 the live part `IssueExtras` (`issueId`, `description`, `labels`, `estimate`,
 `dueDate`, `comments` oldest first, `commentsTruncated`, `estimateScale`),
-`IssueLabel` (`id`, `name`, `color` — data only, never painted —, `teamId` or
-null for workspace labels, `group` with `singleSelect`), `IssueComment` (`id`,
-`body` markdown, `createdAt`, `url`, `parentId`, `author` `{ id, name }` or
-null, `externalAuthor` for bots and integrations), `EstimateScale` (`type`,
-`allowZero`, `extended`), `EstimateOption`; and the edit `IssuePatch` (any of
-`title`, `description` (null clears), `stateId`, `assigneeId` (null unassigns),
-`priority` 0–4, `projectId` (null), `projectMilestoneId` (null), `dueDate`
-(null), `estimate` (null), `labelIds` (the full new set)) with
-`IssuePatchField = keyof IssuePatch`.
+`IssueLabel` (`id`, `name`, `color` — drawn only as the label picker's small
+swatch, §8.5 —, `teamId` or null for workspace labels, `group` with
+`singleSelect`), `IssueComment` (`id`, `body` markdown, `createdAt`, `url`,
+`parentId`, `author` `{ id, name }` or null, `externalAuthor` for bots and
+integrations), `EstimateScale` (`type`, `allowZero`, `extended`),
+`EstimateOption`; and the edit `IssuePatch` (any of `title`, `description` (null
+clears), `stateId`, `assigneeId` (null unassigns), `priority` 0–4, `projectId`
+(null), `projectMilestoneId` (null), `dueDate` (null), `estimate` (null),
+`labelIds` (the full new set)) with `IssuePatchField = keyof IssuePatch`.
 
 The allocation comment (§7.4) is exactly:
 `Assigned by <appName>: you lead <project> and this is in its next milestone <milestone>, due <Mon D, YYYY>.`
@@ -487,12 +488,14 @@ The allocation comment (§7.4) is exactly:
   - `fetchIssueDetail(issueId) → IssueExtras | null` — one `IssueDetail` query
     (description, estimate, due date, the team's estimate settings with two
     parent levels, the first 50 labels and comments), then every further label
-    page (an edit sends the full set back, so the set must be complete) and up
-    to 3 more comment pages: at most `ISSUE_COMMENTS_MAX` (200) comments, sorted
-    oldest first by `createdAt` (Linear does not document the default direction
-    of `orderBy: createdAt`, so which 200 an issue with more keeps is not
-    guaranteed), `commentsTruncated` when more remain. Null when the issue is
-    gone, archived or trashed. A blank description reads as null.
+    page (an edit sends the full set back, so the set must be complete:
+    `labels(…, includeArchived: true)`, since Linear keeps an archived label on
+    the issues that carry it and the connection leaves archived ones out by
+    default) and up to 3 more comment pages: at most `ISSUE_COMMENTS_MAX` (200)
+    comments, sorted oldest first by `createdAt` (Linear does not document the
+    default direction of `orderBy: createdAt`, so which 200 an issue with more
+    keeps is not guaranteed), `commentsTruncated` when more remain. Null when
+    the issue is gone, archived or trashed. A blank description reads as null.
   - `listIssueLabels(teamId) → IssueLabel[]` — root `issueLabels` filtered to
     the team's labels and workspace labels
     (`or: [{ team: { id: { eq } } }, { team: { null: true } }]`), every page;
@@ -519,8 +522,9 @@ The allocation comment (§7.4) is exactly:
     Engineering and extended T-shirt sizes with zero on Operations, some due
     dates, a seeded discussion), and refuses what Linear would: a state of
     another team, an unknown user, project or label, a milestone of another
-    project, an estimate off the team's scale, a group or archived label, two
-    labels of a single-select group, a self or duplicate relation. A project
+    project, an estimate off the team's scale, a group label, an archived or
+    other-team label the issue does not already carry (one it carries may stay),
+    two labels of a single-select group, a self or duplicate relation. A project
     change without a milestone drops the old project's milestone. Seeded
     comments live in `seededComments`; `comments` stays the list of comments
     written through the gateway.
@@ -570,7 +574,13 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   `description` (markdown), `priority: Int`, `projectId`, `projectMilestoneId`,
   `dueDate: TimelessDate`, `estimate: Int` and `labelIds: [String!]` (the full
   set; `addedLabelIds`/`removedLabelIds` exist but are not used), each nullable
-  where the field can be empty.
+  where the field can be empty. `Issue.labels` leaves archived labels out unless
+  `includeArchived: true`, and Linear keeps an archived label on the issues that
+  carry it while refusing new uses (linear.app/docs/labels), so the issue page
+  reads the set with archived labels and an edit may keep them. Sub-teams may
+  also use their parent team's labels (same page); the planner offers only the
+  team's own and workspace labels (an inherited label an issue carries stays
+  editable as a carried label).
   `issueRelationCreate(input: { issueId, relatedIssueId, type: blocks })` →
   `IssueRelationPayload { success issueRelation }`;
   `issueRelationDelete(id) → DeletePayload { success entityId }`.
@@ -722,9 +732,11 @@ Tables (all keyed by `workspace_id`):
   `issue.project`, `issue.milestone`, `issue.due_date`, `issue.estimate`,
   `issue.labels`, `issue.comment`, `issue.blocker_added`,
   `issue.relation_removed`; `subjectId` is the issue (the blocked issue for
-  relations). Descriptions and comments are logged as `{ length, excerpt }` (the
-  first 80 characters), never in full; labels as `[{ id, name }]`; state,
-  assignee, project and milestone as ids.
+  relations). Descriptions and comments are logged as `{ length }` only (a
+  comment also with its `commentId`), never any of their words: Settings → Audit
+  is open to every signed-in person, while those texts are read with each
+  person's own token (§7.2); labels as `[{ id, name }]`; state, assignee,
+  project and milestone as ids.
 - `listRunEntriesForIssue(workspaceId, issueId, limit)` (additive, issue page) →
   `IssueRunEntry[]`: the run entries about one issue, dry runs included, newest
   first (`created_at`, then run start, run id, seq), each with its run's
@@ -870,8 +882,8 @@ missing/invalid variable), `EngineAuthError`, `EngineInputError`,
 worker derives its timeout cap from, and every type in `src/types.ts` (including
 `IssueDetailResult` and `IssueUpdateResult`, §7.2). Issue page helpers
 (additive): `ISSUE_HISTORY_LIMIT` (20), `normalizeIssuePatch`,
-`normalizeCommentBody`, `textSummary` / `AUDIT_EXCERPT_LENGTH` (80) and
-`engineErrorFromLinear`.
+`normalizeCommentBody`, `textSummary` (a text's `{ length }` for the audit log)
+and `engineErrorFromLinear`.
 
 `createEngineFromEnv`:
 
@@ -1027,11 +1039,16 @@ Additive `Engine` methods. Reads need only a session; writes need
   `detail` = core's `buildIssueDetail` over `load()` (unknown id →
   `EngineInputError('not_found')`); `extra` (`fetchIssueDetail`) and `labels`
   (`listIssueLabels(team)`) are read live in parallel with the **actor's own
-  token** (`linear.forSession`); when that gateway cannot be had (no usable
-  grant, refresh failing) the app's reads instead (`extraSource: 'app'`, logged
-  at warn). A live failure never throws: `extra` null, `labels` [],
-  `estimateScale` null and `extraError` a sentence ("Linear did not answer; …";
-  an issue Linear no longer has says so). `allocationHistory` =
+  token** (`linear.forSession`); when that gateway cannot be had because its
+  refresh failed for a transient reason the app's reads instead
+  (`extraSource: 'app'`, logged at warn). A grant Linear rejected for good
+  (`EngineAuthError('not_signed_in')`: revoked, lost access) is never bridged
+  with the app's token: `extra` null, `extraSource` null, "Linear no longer
+  accepts your sign-in; …". A live failure never throws: `extra` null, `labels`
+  [], `estimateScale` null and `extraError` a sentence ("Linear did not answer;
+  …"). An issue the person's token does not get back reads "Linear does not show
+  this issue to your account: it is in a team you cannot see, or it was deleted
+  or archived." (Linear answers not found for both). `allocationHistory` =
   `listRunEntriesForIssue(…, ISSUE_HISTORY_LIMIT)` (20). `canEdit` =
   `actor.canWriteLinear`.
 - **updateIssue(actor, issueId, patch) → IssueUpdateResult**
@@ -1044,22 +1061,23 @@ Additive `Engine` methods. Reads need only a session; writes need
   without a milestone also sends `projectMilestoneId: null` (the old project's
   milestone is cleared); due date a calendar date or null; estimate a
   non-negative integer allowed by the team's live scale (`notUsed` refuses any)
-  or null; labels the team's live usable labels, at most one per single-select
-  group, duplicates dropped. The current values of description, due date,
-  estimate and labels are read live (actor's token) only when the patch touches
-  them. Values equal to the current ones are dropped; when nothing is left
-  nothing is written (`changed: []`). Then `updateIssueFields` with the actor's
-  token, the mirror is patched at once (`applyMirrorChanges`, which bumps the
-  mirror version so the next render shows it; a write that did not move the
-  state keeps the mirror's later — possibly history-refined —
-  `lastStateChangeAt`; an issue that leaves every mirrored project while closed,
-  or moves to an unmirrored project, is removed with its relations, as a full
-  sync would), and one audit entry per changed field. Edits of one issue are
-  serialized per process.
+  or null; labels the team's live usable labels or ones the issue carries now
+  (an archived or inherited label may stay, never be added anew), at most one
+  per single-select group, duplicates dropped. The current values of
+  description, due date, estimate and labels are read live (actor's token) only
+  when the patch touches them. Values equal to the current ones are dropped;
+  when nothing is left nothing is written (`changed: []`). Then
+  `updateIssueFields` with the actor's token, the mirror is patched at once
+  (`applyMirrorChanges`, which bumps the mirror version so the next render shows
+  it; a write that did not move the state keeps the mirror's later — possibly
+  history-refined — `lastStateChangeAt`; an issue that leaves every mirrored
+  project while closed, or moves to an unmirrored project, is removed with its
+  relations, as a full sync would), and one audit entry per changed field. Edits
+  of one issue are serialized per process.
 - **addComment(actor, issueId, body) → IssueComment**: body trimmed, 1–10,000
   characters; `createComment` with the actor's token; audited as
-  `{ commentId, length, excerpt }`. The mirror holds no comments (the page reads
-  them live).
+  `{ commentId, length }` (never the text). The mirror holds no comments (the
+  page reads them live).
 - **addBlocker(actor, issueId, blockerIssueId) → BlockingRelation**: creates
   "blocker blocks issue" (for "this issue blocks X" call it with X as
   `issueId`); both issues mirrored (else `not_found`), not the same issue
@@ -1094,35 +1112,36 @@ nothing is imported from it.
 
 ### 8.1 Routes
 
-| route                            | who                        | what                                                                                                           |
-| -------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `/`                              | all                        | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                        |
-| `/week`                          | signed in                  | My week (the landing screen); PMs may pass `?user=<id>`                                                        |
-| `/timeline`                      | signed in                  | Gantt timeline; `?milestone=<id>` opens the drawer, `?project=<id>` focuses a lane; edit controls only for PMs |
-| `/projects`                      | signed in                  | projects register: next milestone, status, progress, lead, allocation state                                    |
-| `/graph`                         | signed in                  | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level                |
-| `/runs`, `/runs/[id]`            | signed in                  | allocation run log; PMs get "Preview (dry run)" and "Run now"                                                  |
-| `/settings`                      | PMs (read-only for others) | modes, people, schedule, status, digest preview, notifications, audit                                          |
-| `/setup`                         | signed in                  | install the app into the workspace (admin)                                                                     |
-| `GET /api/palette`               | signed in                  | command-palette index (pages, projects, milestones, the user's open issues), fetched when the palette opens    |
-| `GET /api/auth/linear?intent=`   | —                          | starts OAuth (sets `mp_oauth` cookie)                                                                          |
-| `GET /api/auth/linear/callback`  | —                          | finishes OAuth                                                                                                 |
-| `POST /api/auth/logout`          | —                          | ends session                                                                                                   |
-| `POST /api/auth/demo`            | fixture mode only          | demo sign-in                                                                                                   |
-| `POST /api/webhooks/linear`      | Linear                     | verify, ack 200, process in `after()`                                                                          |
-| `PATCH /api/milestones/[id]`     | PM                         | `{ targetDate?, weight?, doneMeans? }`                                                                         |
-| `PATCH /api/projects/[id]`       | PM                         | `{ leadId }`                                                                                                   |
-| `/issues/[id]`                   | signed in                  | the issue page (§8.5); edit controls for anyone with Linear write access                                       |
-| `GET /api/issues/[id]`           | signed in                  | `IssueDetailResult` for the issue slide-over                                                                   |
-| `PATCH /api/issues/[id]`         | write access               | an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                         |
-| `POST /api/issues/[id]/comments` | write access               | `{ body }` → 201 `{ comment }`                                                                                 |
-| `POST /api/issues/[id]/blockers` | write access               | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                   |
-| `DELETE /api/relations/[id]`     | write access               | removes a blocks relation → 204                                                                                |
-| `POST /api/runs`                 | PM                         | `{ mode: 'dry_run' \| 'live' }`                                                                                |
-| `POST /api/sync`                 | PM                         | full resync                                                                                                    |
-| `POST /api/warnings/preview`     | PM                         | digests without sending                                                                                        |
-| `PATCH /api/settings`            | PM                         | settings patch                                                                                                 |
-| `GET /api/health`                | —                          | `{ ok, db }` for Railway healthchecks                                                                          |
+| route                            | who                        | what                                                                                                                                                                       |
+| -------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                              | all                        | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                                                                                    |
+| `/week`                          | signed in                  | My week (the landing screen); PMs may pass `?user=<id>`; `?issue=<key>` opens the issue slide-over (§8.5)                                                                  |
+| `/timeline`                      | signed in                  | Gantt timeline; `?milestone=<id>` opens the drawer (with `&issue=<key>`, one of its issues in its place, §8.5), `?project=<id>` focuses a lane; edit controls only for PMs |
+| `/projects`                      | signed in                  | projects register: next milestone, status, progress, lead, allocation state                                                                                                |
+| `/graph`                         | signed in                  | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level; `?issue=<key>` opens an issue node's slide-over (§8.5)                    |
+| `/runs`, `/runs/[id]`            | signed in                  | allocation run log; PMs get "Preview (dry run)" and "Run now"                                                                                                              |
+| `/settings`                      | PMs (read-only for others) | modes, people, schedule, status, digest preview, notifications, audit                                                                                                      |
+| `/setup`                         | signed in                  | install the app into the workspace (admin)                                                                                                                                 |
+| `GET /api/palette`               | signed in                  | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                              |
+| `GET /api/auth/linear?intent=`   | —                          | starts OAuth (sets `mp_oauth` cookie); `install` and `grant_write` need a session; `grant_write` is offered to everyone, not only PMs                                      |
+| `GET /api/auth/linear/callback`  | —                          | finishes OAuth                                                                                                                                                             |
+| `POST /api/auth/logout`          | —                          | ends session                                                                                                                                                               |
+| `POST /api/auth/demo`            | fixture mode only          | demo sign-in                                                                                                                                                               |
+| `POST /api/webhooks/linear`      | Linear                     | verify, ack 200, process in `after()`                                                                                                                                      |
+| `PATCH /api/milestones/[id]`     | PM                         | `{ targetDate?, weight?, doneMeans? }`                                                                                                                                     |
+| `PATCH /api/projects/[id]`       | PM                         | `{ leadId }`                                                                                                                                                               |
+| `/issues/[id]`                   | signed in                  | the issue page (§8.5), by identifier (`/issues/ENG-24`) or id; edit controls for anyone with Linear write access                                                           |
+| `GET /api/issues/[id]`           | signed in                  | `{ result: IssueDetailResult }` by id or identifier, private, never cached (the pages render the issue on the server)                                                      |
+| `GET /api/issues/search?q=`      | signed in                  | the relation picker's mirror search (`&near=<issue id>` ranks that issue's milestone and project first) → `{ results }`, at most 20, private                               |
+| `PATCH /api/issues/[id]`         | write access               | `[id]` is the issue id (not the identifier, unlike the GET); an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                        |
+| `POST /api/issues/[id]/comments` | write access               | `{ body }` → 201 `{ comment }`                                                                                                                                             |
+| `POST /api/issues/[id]/blockers` | write access               | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                               |
+| `DELETE /api/relations/[id]`     | write access               | removes a blocks relation (no body) → 204                                                                                                                                  |
+| `POST /api/runs`                 | PM                         | `{ mode: 'dry_run' \| 'live' }`                                                                                                                                            |
+| `POST /api/sync`                 | PM                         | full resync                                                                                                                                                                |
+| `POST /api/warnings/preview`     | PM                         | digests without sending                                                                                                                                                    |
+| `PATCH /api/settings`            | PM                         | settings patch                                                                                                                                                             |
+| `GET /api/health`                | —                          | `{ ok, db }` for Railway healthchecks                                                                                                                                      |
 
 Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
 `APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
@@ -1162,10 +1181,10 @@ Auth and frame details (decided while building `apps/planner`; binding):
   `{ ok: false, db: 'error' }`.
 - `GET /api/palette` returns `{ projects, milestones, issues }`, each entry
   `{ id, label, hint, href, external, status?, statusLabel?, muted? }`; issues
-  are the person's open My week issues and open in Linear in a new tab. An
-  inactive project's entries (§2.8) are `muted` (grey mark, label ending "·
-  inactive project"); a complete milestone's hint reads "complete · Oct 1", not
-  "due Oct 1".
+  are the person's open My week issues and open the planner's issue page
+  (`/issues/<key>`, where Linear is one click away). An inactive project's
+  entries (§2.8) are `muted` (grey mark, label ending "· inactive project"); a
+  complete milestone's hint reads "complete · Oct 1", not "due Oct 1".
 - Unmatched page URLs render `(app)/not-found.tsx` inside the frame (a
   `[...missing]` catch-all, since the two root layouts leave Next without a
   single root 404); like every `(app)` page it streams under
@@ -1227,12 +1246,13 @@ binding):
   "N milestones (issues) have no blocking relations", a small register (mark,
   name, project or assignee, due) collapsed behind "Show N" when longer than six
   (again at each scope: moving between levels does not carry it open). Milestone
-  rows open `/timeline?milestone=<id>`, issue rows the issue in Linear (a
-  scope's issues would all open the same drawer). The receipts and the block
-  meta count drawn vs listed ("4 of 14 milestones"), and Copy Mermaid copies the
-  drawn graph. Milestone nodes take the accent only when at risk or overdue (a
-  later milestone's unassigned issues are normal; they keep the `UNASSIGNED`
-  chip); issue nodes when open and unassigned or overdue.
+  rows open `/timeline?milestone=<id>`, issue rows the issue's slide-over on the
+  graph (`?issue=<key>`, §8.5; they opened Linear before the owner decision of
+  2026-10-21). The receipts and the block meta count drawn vs listed ("4 of 14
+  milestones"), and Copy Mermaid copies the drawn graph. Milestone nodes take
+  the accent only when at risk or overdue (a later milestone's unassigned issues
+  are normal; they keep the `UNASSIGNED` chip); issue nodes when open and
+  unassigned or overdue.
 - `/runs/[id]` answers the not-found page for an unknown id; already-assigned
   skips are collapsed into one count per project.
 - The run and settings registers stack into cards by their own width
@@ -1333,30 +1353,31 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   group rows per milestone (`PROJECT › MILESTONE`, due + days left,
   `completed/scope` with a 1px progress rule, status mark), "THIS WEEK" (always
   shown once anything is open) and "LATER" dividers, rows with identifier
-  (mono), title, state, priority label, and the accent chip "NEW — GIVEN TO YOU
-  BECAUSE YOU LEAD <PROJECT>" (an empty THIS WEEK says "Nothing of yours is due
-  this week."); a final "No milestone" divider with one group per project
-  (`PROJECT › Issues without a milestone`, linking to `/timeline?project=`; a
-  completed or canceled project has no lane, so its group is not a link), then
-  "Issues without a project or milestone". "At risk in your projects" counts the
-  milestones of active projects the person leads whose status is at risk or
-  overdue (§2.5) — a blocked project whose next milestone is on track is not at
-  risk; it appears under "Needs attention" with its reason. Inactive projects
-  (§2.8) are never loud here: the person's issues in them stay in the list,
-  under "LATER", their group drawn quietly (grey mark named "<status> · inactive
-  project", "Inactive project" for the days left, no accent), but THIS WEEK, the
-  this-week counts (receipts, the Open issues note, the sidebar's My week
-  count), "Overdue milestones", "At risk in your projects", the deadlines and
-  "Needs attention" leave them out; the two stats add "+1 in an inactive
-  project" and the empty "Needs attention" names the inactive project it left
-  out. The two columns sit side by side only while the content area (not the
-  viewport) is at least 1040px wide; below that the deadlines and attention
-  panels stack under the list. Right column (Gr8r "Upcoming deadlines"):
-  milestones the user leads or has issues in, grouped Overdue / Today / Tomorrow
-  / This week (up to 6 days out); and "Needs attention" for projects the user
-  leads that are blocked (reason) or have unassigned next-milestone issues. PMs
-  get a person picker (`?user=<id>`, honoured on the server for PMs only and
-  only for people in the mirror).
+  (mono), title (opens the issue slide-over, `?issue=<key>`, §8.5; a separate ↗
+  icon beside it opens the issue in Linear), state, priority label, and the
+  accent chip "NEW — GIVEN TO YOU BECAUSE YOU LEAD <PROJECT>" (an empty THIS
+  WEEK says "Nothing of yours is due this week."); a final "No milestone"
+  divider with one group per project (`PROJECT › Issues without a milestone`,
+  linking to `/timeline?project=`; a completed or canceled project has no lane,
+  so its group is not a link), then "Issues without a project or milestone". "At
+  risk in your projects" counts the milestones of active projects the person
+  leads whose status is at risk or overdue (§2.5) — a blocked project whose next
+  milestone is on track is not at risk; it appears under "Needs attention" with
+  its reason. Inactive projects (§2.8) are never loud here: the person's issues
+  in them stay in the list, under "LATER", their group drawn quietly (grey mark
+  named "<status> · inactive project", "Inactive project" for the days left, no
+  accent), but THIS WEEK, the this-week counts (receipts, the Open issues note,
+  the sidebar's My week count), "Overdue milestones", "At risk in your
+  projects", the deadlines and "Needs attention" leave them out; the two stats
+  add "+1 in an inactive project" and the empty "Needs attention" names the
+  inactive project it left out. The two columns sit side by side only while the
+  content area (not the viewport) is at least 1040px wide; below that the
+  deadlines and attention panels stack under the list. Right column (Gr8r
+  "Upcoming deadlines"): milestones the user leads or has issues in, grouped
+  Overdue / Today / Tomorrow / This week (up to 6 days out); and "Needs
+  attention" for projects the user leads that are blocked (reason) or have
+  unassigned next-milestone issues. PMs get a person picker (`?user=<id>`,
+  honoured on the server for PMs only and only for people in the mirror).
 - **Timeline** (Gr8r Timeline in the Matrix drawing style): banners first (no
   lead / no date / unplanned / blocked, each a count that expands to a list), as
   one compact block: a 1px hairline frame with a single 2px accent rule on its
@@ -1461,29 +1482,109 @@ planner uses these marks, mono labels, and the accent only for "needs action"
 Fixture mode shows a permanent accent-bordered "DEMO DATA — NOT CONNECTED TO
 LINEAR" strip at the top of the content column.
 
-### 8.5 Issue page (owner decision 2026-10-21; contract for the wiring stage)
+### 8.5 Issue page and slide-over (owner decision 2026-10-21)
 
-- Data: one `engine.getIssueDetail(actor, id)` per render (the page, and the
-  slide-over through `GET /api/issues/[id]`). It never fails for Linear being
+- **Where.** `/issues/[id]` takes an identifier in any case or an id; the
+  planner's own links use the identifier (`/issues/ENG-24`). It is the task
+  view's page layout (`TaskDetail`, properties in a right rail when the view is
+  at least 760px wide) with Linear ↗ and Copy link in its header; the topbar
+  reads `ISSUES › ENG-24` (the Issues root is not a link: there is no index
+  page), and an issue the mirror lacks is the app's 404. The **slide-over** is
+  `?issue=<identifier or id>` on `/week`, `/timeline` and `/graph`, rendered on
+  the server from the search params like the milestone drawer
+  (`lib/issue-load.ts`, one `getIssueDetail` per render); a click opens it at
+  once with a skeleton until the server answers, and closing it removes the
+  parameter (scroll kept). Its header carries Linear ↗, copy link and
+  open-as-page (icons); an unknown key reads "Issue not found" in the panel. It
+  opens from My week's row titles (the row's separate ↗ icon still opens Linear;
+  the open row keeps the ink fill), from the milestone drawer's issue list (the
+  issue replaces the milestone in the same panel, crumb `‹ <MILESTONE> / <KEY>`
+  goes back to it; ✕ and Esc close both), from the graph's issue nodes and its
+  "no blocking relations" issue rows (same panel as the node details; the node
+  stays selected on the canvas), and from the relation rows inside it (a plain
+  click swaps the issue in place, a modified click opens its page). The command
+  palette's issues open the page.
+- **Data.** `engine.getIssueDetail(actor, id)` never fails for Linear being
   unreachable: with `extra` null the page shows the mirror's facts and
-  `extraError` in one line where the description and comments would be.
-- Who: every signed-in person sees it. Edit controls (title, description,
-  status, assignee, priority, labels, estimate, due date, project, milestone,
-  "blocked by" / "blocks", the comment box) render when `canEdit`; without it
-  one line links `/api/auth/linear?intent=grant_write&returnTo=<this page>`,
-  offered to **everyone**, not only PMs (PM-only controls elsewhere keep their
-  `isPm` check). The server decides: the routes call the engine, which enforces
-  `canWriteLinear` and validates again.
-- Pickers come from `detail.options` (states in order, assignable people,
-  projects active first with their milestones), `labels` (group-aware: one per
-  single-select group) and `estimateOptions` (labels like "L" on T-shirt teams;
-  no picker when the scale is `notUsed`). Label colours are data only: labels
-  are drawn in the planner's own marks (§8.2), never in Linear's colours.
-- Routes: same order as the PM routes (CSRF guard and session → strict zod body
-  with only the documented keys → engine → `errorResponse`), plus
-  `linear_forbidden` → 403 and the engine's `rate_limited` → 429. A save
-  refreshes the page data (the mirror version moved) rather than patching it
-  locally.
+  `extraError` where the description and comments would be, and the live fields
+  (labels, estimate, due date, description) read "Unavailable" and are not
+  editable, since an edit needs their current value. `GET /api/issues/[id]`
+  serves the same result to other clients; the pages do not use it.
+- **Model** (`lib/adapters/issue.ts`, pure and unit-tested):
+  `buildIssueTaskModel` maps the result to crumbs (project →
+  `/timeline?project=`, milestone → `/timeline?milestone=`), status, alert
+  strips, read-only facts, description, comments, relations, activity and the
+  edit options. Alerts (accent): **Overdue** (its milestone), **Blocked** (the
+  open blockers, with a Graph link), **Holds up** (at-risk or overdue milestones
+  waiting on it), **Stalled** (with the milestone's countdown) and
+  **Unassigned** (in the next milestone: who the next live run gives it to, or
+  why allocation is stopped — no lead, a deactivated lead, the milestone failing
+  the rubric). Closed issues and issues of inactive projects (§2.8) get none,
+  and an inactive project's issue is quiet throughout (grey milestone mark named
+  "<status> · inactive project", no accent on the assignee, due date or time in
+  state). Facts: assignee ("(you)" for the viewer; "Given by the planner on Oct
+  14: they lead <project>." after a live allocation; deactivated people noted),
+  priority, labels, estimate ("3 points", or the T-shirt size), due date with
+  its countdown, project with its lead, milestone with its status line ("At risk
+  · due Oct 23, in 2 days · 3 of 7 done · next milestone"), time in state (whole
+  days; under a day reads "Since today" or "Since yesterday" by the workspace
+  calendar). The description is printed as plain text with its line breaks; it
+  is markdown source and is never parsed into HTML. Comments are oldest first, a
+  bot's or integration's muted, with "First 200 · more in Linear" when Linear
+  holds more. Activity lists the allocation run entries about the issue
+  (identical repeats, such as the same dry-run plan every day, folded into the
+  newest with "Seen in N runs") and the created / started / completed / canceled
+  / moved-to-state instants, newest first.
+- **Who.** Every signed-in person sees it. With `canEdit` the values are the
+  `@better-tracker/ui` edit controls: `InlineTextField` (title, in the heading),
+  `StatePicker` (status line), `AssigneePicker`, `PriorityPicker`,
+  `LabelPicker`, `EstimatePicker` (none when the team's scale is `notUsed`),
+  `DateField`, `ProjectPicker` (Active projects, then Other projects; a project
+  of another team says so), `MilestonePicker` (the current project's
+  milestones), `TextAreaEditor` for the description (markdown source, ⌘/Ctrl
+  - Enter saves) and the comment composer, `TaskRelationPicker` ("+ Add") on
+    Blocked by and Blocks (searching `GET /api/issues/search`, never offering
+    the issue itself or one already linked; "this blocks X" posts to X's
+    blockers), and a remove button per relation row. Without it the values are
+    read-only and one notice under the properties, "Allow edits in Linear",
+    links `/api/auth/linear?intent=grant_write&returnTo=<the current URL>`,
+    offered to **everyone**, not only PMs (PM-only controls elsewhere keep their
+    `isPm` check; the timeline's own read-only notice stays a PM's). The server
+    decides: the routes check the write scope and the engine enforces it and
+    validates again.
+- **Saves.** Each control saves optimistically (the ui save contract: pending,
+  kept, or rolled back with "Not saved · <reason>" beside it); a failure is also
+  toasted ("Not saved", the route's sentence, and "Allow edits" when the answer
+  is `needs_write_scope`), and a success calls `router.refresh()`, so the page
+  shows what the mirror (patched by the engine) and Linear now hold rather than
+  a local guess. A refusal whose goal already holds is not a failure
+  (`lib/issue-writes.ts`): removing a relation answered 404 (already gone) just
+  refreshes, and adding a blocker answered 409 (that issue already blocks this
+  one) refreshes with an "Already linked" note; other 404/409 answers fail and
+  refresh the stale view. Removing a relation row moves focus to the next row's
+  remove button, or for the last row to the section's "+ Add", so a keyboard
+  user stays inside the drawer.
+- **Label colours.** Linear labels are colour-coded, so `LabelPicker` draws each
+  label's colour as a small swatch beside its name (hex values only; anything
+  else is a hollow square). It is the one place a colour from data is drawn;
+  everything else stays in the planner's marks (§8.2).
+- **Routes** (`lib/issue-routes.ts`): the PM routes' order — CSRF guard and
+  session (`requireApiActor`) → strict zod body with only the documented keys
+  (an empty patch, an unknown key, a blank title or comment, a priority outside
+  0–4, an estimate that is negative or not whole, a malformed date: 400 before
+  the engine) → Linear write scope (403 `needs_write_scope`, the body's
+  `error.grantWriteHref` returning to `/issues/<id>`) → engine → `errorResponse`
+  (`linear_forbidden` 403; `rate_limited` 429 with `error.retryAt` and
+  `Retry-After` when Linear said when; the engine's own `needs_write_scope` also
+  carries the link). `DELETE /api/relations/[id]` reads no body.
+  `GET /api/issues/search?q=&near=` (q ≤ 200 characters) matches identifiers
+  (exact, prefix, then containing, so "24" finds ENG-24) and then every word of
+  the title, accent-folded; open issues first, then the `near` issue's milestone
+  and project; at most 20; an empty q lists open issues by that nearness.
+- **Audit.** Settings → Audit words each edit as "ENG-24 · assignee" with "Ana
+  Moreno → Dev Patel" (descriptions and comments as their length only, "Added a
+  comment (42 characters)", never their words, since the audit is open to
+  everyone signed in; relations as "ENG-24 · blocked by" with "Added ENG-23").
 
 ## 9. Worker (apps/worker)
 

@@ -1,0 +1,76 @@
+/* The issue slide-over's own pieces: the "Back to <milestone>" crumb in
+   the drawer bar (the mono trail of TaskCrumbs, with a button first) and
+   the padding of its loading and not-found states. */
+
+.crumb {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.back {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: none;
+  border: 0;
+  transition: color 0.15s ease;
+}
+
+.back svg {
+  flex: none;
+  align-self: center;
+}
+
+.back:focus-visible {
+  color: var(--accent);
+}
+
+.backLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sep {
+  flex: none;
+  margin: 0 8px;
+  color: var(--grey-2);
+}
+
+.key {
+  flex: none;
+  color: var(--foreground);
+}
+
+.state {
+  padding: 4px 0 16px;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .back:hover {
+    color: var(--accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .back {
+    transition: none;
+  }
+}

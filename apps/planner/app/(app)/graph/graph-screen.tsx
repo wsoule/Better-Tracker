@@ -30,19 +30,59 @@ import {
   type IsolatedList,
   levelTabs,
 } from '../../../lib/adapters/graph';
+import {
+  type IssueDrawerParts,
+  type IssueDrawerServer,
+  useIssueDrawerParts,
+  useIssueDrawerState,
+} from '../components/issue-drawer';
 import css from './page.module.css';
 
 /* The graph's client island: level tabs (route links) in the graph's
    toolbar, the legend, the pan/zoom DependencyGraph, Copy Mermaid, and the
-   slide-over for the selected node (what it is, its links, what it waits
-   on and what it holds up — the same upstream chain the graph lights).
-   Everything shown was computed on the server; selection is local. */
-export default function GraphScreen({ model }: { model: GraphPageModel }) {
+   slide-over for the selected node. A milestone node shows what it is,
+   its links, what it waits on and what it holds up (the same upstream
+   chain the graph lights); an issue node opens the issue itself (§8.5,
+   ?issue=<key>, rendered by the server), in the same panel, and stays the
+   canvas's selection while it is open. */
+export default function GraphScreen({
+  model,
+  issueDrawer,
+}: {
+  model: GraphPageModel;
+  issueDrawer: IssueDrawerServer;
+}) {
   const { toast } = useToast();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const issue = useIssueDrawerState(issueDrawer);
+  const issueParts = useIssueDrawerParts(issue);
+  const issueNodeId = useMemo(() => {
+    const wanted = issue.requested?.toUpperCase();
+    if (wanted === undefined) return null;
+    return (
+      Object.values(model.details).find(
+        (detail) =>
+          detail.issueKey?.toUpperCase() === wanted ||
+          detail.id.toUpperCase() === wanted
+      )?.id ?? null
+    );
+  }, [issue.requested, model.details]);
   const selected =
     selectedId === null ? null : (model.details[selectedId] ?? null);
   const tabs = levelTabs(model, selected);
+
+  // Issue nodes open the issue's slide-over; milestone nodes the panel.
+  const select = (id: string) => {
+    const detail = model.details[id];
+    if (detail?.kind === 'issue' && detail.issueKey !== null) {
+      setSelectedId(null);
+      if (issueNodeId === id) issue.close();
+      else issue.open(detail.issueKey);
+      return;
+    }
+    if (issue.requested !== null) issue.close();
+    setSelectedId((current) => (current === id ? null : id));
+  };
 
   return (
     <div className={css.body}>
@@ -56,10 +96,8 @@ export default function GraphScreen({ model }: { model: GraphPageModel }) {
         <DependencyGraph
           nodes={model.nodes}
           edges={model.edges}
-          selectedId={selectedId}
-          onSelect={(id) =>
-            setSelectedId((current) => (current === id ? null : id))
-          }
+          selectedId={issue.requested === null ? selectedId : issueNodeId}
+          onSelect={select}
           ariaSummary={model.ariaSummary}
           emptyMessage={model.emptyMessage}
           toolbar={<NavTabs label="Graph level" size="sm" items={tabs} />}
@@ -67,7 +105,11 @@ export default function GraphScreen({ model }: { model: GraphPageModel }) {
         {/* Keyed by scope: moving between levels keeps this island
             mounted, and a long list must start collapsed at each scope. */}
         {model.isolated !== null ? (
-          <IsolatedRegister key={model.scopeHref} list={model.isolated} />
+          <IsolatedRegister
+            key={model.scopeHref}
+            list={model.isolated}
+            onOpenIssue={issue.open}
+          />
         ) : null}
         {model.nodes.length > 0 ? (
           <MermaidSource
@@ -94,8 +136,10 @@ export default function GraphScreen({ model }: { model: GraphPageModel }) {
       <NodePanel
         model={model}
         selectedId={selectedId}
-        onSelect={setSelectedId}
+        onSelect={select}
         onClose={() => setSelectedId(null)}
+        issue={issue.requested === null ? null : issueParts}
+        onCloseIssue={issue.close}
       />
     </div>
   );
@@ -104,9 +148,15 @@ export default function GraphScreen({ model }: { model: GraphPageModel }) {
 /* The nodes left off the canvas because they have no blocking relation:
    one line saying how many and why, then a small register (mark, name,
    project or assignee, due), each row opening the milestone on the
-   timeline or the issue in Linear. A long list starts collapsed behind a
-   Show button so the canvas stays the subject of the page. */
-function IsolatedRegister({ list }: { list: IsolatedList }) {
+   timeline or the issue in its slide-over. A long list starts collapsed
+   behind a Show button so the canvas stays the subject of the page. */
+function IsolatedRegister({
+  list,
+  onOpenIssue,
+}: {
+  list: IsolatedList;
+  onOpenIssue: (key: string) => void;
+}) {
   const [open, setOpen] = useState(!list.collapsed);
   const listId = useId();
   const count = list.rows.length;
@@ -140,33 +190,42 @@ function IsolatedRegister({ list }: { list: IsolatedList }) {
           ]}
           stackWithin={700}
         >
-          {list.rows.map((row) => (
-            <RegisterRow
-              key={row.id}
-              href={row.href}
-              external={row.external}
-              rowLabel={row.rowLabel}
-              tone={row.tone}
-            >
-              <RegisterCell label={list.nameLabel} variant="name">
-                <span className={css.neighbour}>
-                  <StatusMark status={row.status} label={row.statusLabel} />
-                  <span className={css.neighbourName}>
-                    {row.key !== null ? (
-                      <span className={css.isolatedKey}>{row.key}</span>
-                    ) : null}
-                    {row.name}
+          {list.rows.map((row) => {
+            const key = row.key;
+            // An issue opens in place (scroll kept); a milestone navigates.
+            const target =
+              key === null
+                ? {
+                    href: row.href,
+                    external: row.external,
+                    rowLabel: row.rowLabel,
+                  }
+                : {
+                    onActivate: () => onOpenIssue(key),
+                    rowLabel: row.rowLabel,
+                  };
+            return (
+              <RegisterRow key={row.id} {...target} tone={row.tone}>
+                <RegisterCell label={list.nameLabel} variant="name">
+                  <span className={css.neighbour}>
+                    <StatusMark status={row.status} label={row.statusLabel} />
+                    <span className={css.neighbourName}>
+                      {row.key !== null ? (
+                        <span className={css.isolatedKey}>{row.key}</span>
+                      ) : null}
+                      {row.name}
+                    </span>
                   </span>
-                </span>
-              </RegisterCell>
-              <RegisterCell label={list.contextLabel} tone={row.contextTone}>
-                {row.context}
-              </RegisterCell>
-              <RegisterCell label="Due" variant="mono" tone={row.dueTone}>
-                {row.due}
-              </RegisterCell>
-            </RegisterRow>
-          ))}
+                </RegisterCell>
+                <RegisterCell label={list.contextLabel} tone={row.contextTone}>
+                  {row.context}
+                </RegisterCell>
+                <RegisterCell label="Due" variant="mono" tone={row.dueTone}>
+                  {row.due}
+                </RegisterCell>
+              </RegisterRow>
+            );
+          })}
         </Register>
       </div>
     </section>
@@ -303,11 +362,16 @@ function NodePanel({
   selectedId,
   onSelect,
   onClose,
+  issue,
+  onCloseIssue,
 }: {
   model: GraphPageModel;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onClose: () => void;
+  /** An issue's slide-over, drawn in this same panel. */
+  issue: IssueDrawerParts | null;
+  onCloseIssue: () => void;
 }) {
   const byId = useMemo(
     () => new Map(model.nodes.map((node) => [node.id, node])),
@@ -333,6 +397,20 @@ function NodePanel({
           .map((edge) => byId.get(edge.to))
           .filter((n): n is GraphNodeData => n !== undefined);
 
+  if (issue !== null) {
+    return (
+      <SlideOver
+        open
+        onClose={onCloseIssue}
+        title={issue.title}
+        breadcrumb={issue.breadcrumb}
+        actions={issue.actions}
+        closeLabel={issue.closeLabel}
+      >
+        {issue.body}
+      </SlideOver>
+    );
+  }
   return (
     <SlideOver
       open={selectedId !== null && detail !== undefined}

@@ -4,6 +4,8 @@ import {
   type IsoDate,
   NOTICE_KIND_LABEL,
   type NoticeKind,
+  type Priority,
+  PRIORITY_LABEL,
   type ProjectStatusType,
   type Snapshot,
   type Tuning,
@@ -90,7 +92,8 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   {
     id: 'audit',
     label: 'Audit',
-    description: 'Recent PM edits, newest first, with what changed.',
+    description:
+      "Recent edits made in the planner, newest first, with what changed: PM edits and everyone's issue edits.",
   },
 ];
 
@@ -888,9 +891,133 @@ function dateValue(value: unknown): string {
     : 'none';
 }
 
+/** The parts of the mirror the audit log names things with. */
+type AuditSnapshot = Pick<Snapshot, 'users' | 'milestones' | 'projects'> &
+  Partial<Pick<Snapshot, 'issues' | 'states'>>;
+
+/**
+ * A description or comment as the audit log keeps it: { length } only.
+ * Settings → Audit is open to every signed-in person, while those texts
+ * are read with each person's own Linear token, so no words are shown
+ * here even when an older entry carries an excerpt.
+ */
+function textLength(value: unknown): number | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { length } = value as { length?: unknown };
+  return typeof length === 'number' ? length : null;
+}
+
+function textValue(value: unknown): string {
+  const length = textLength(value);
+  return length === null ? 'none' : plural(length, 'character');
+}
+
+/** A label set logged as [{ id, name }]. */
+function labelsValue(value: unknown): string {
+  if (!Array.isArray(value) || value.length === 0) return 'none';
+  return value
+    .map((label: unknown) =>
+      typeof label === 'object' &&
+      label !== null &&
+      typeof (label as { name?: unknown }).name === 'string'
+        ? (label as { name: string }).name
+        : 'a removed label'
+    )
+    .join(', ');
+}
+
+/** A string field of a logged object, or null. */
+function field(value: unknown, name: string): string | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const found = (value as Record<string, unknown>)[name];
+  return typeof found === 'string' ? found : null;
+}
+
+/**
+ * One audit row of a person's issue edit (owner decision 2026-10-21):
+ * "ENG-24 · assignee" with "Ana Moreno → Dev Patel", in the names the
+ * mirror has now (ids it no longer knows read as removed).
+ */
+export function issueAuditRow(
+  entry: AuditEntry,
+  snapshot: AuditSnapshot
+): { what: string; changes: string[] } {
+  const key =
+    snapshot.issues?.get(entry.subjectId)?.identifier ?? 'A removed issue';
+  const person = (v: unknown) =>
+    typeof v === 'string' ? nameOf(snapshot.users, v) : 'unassigned';
+  const state = (v: unknown) =>
+    typeof v === 'string'
+      ? (snapshot.states?.get(v)?.name ?? 'a removed state')
+      : 'none';
+  const project = (v: unknown) =>
+    typeof v === 'string'
+      ? (snapshot.projects.get(v)?.name ?? 'a removed project')
+      : 'no project';
+  const milestone = (v: unknown) =>
+    typeof v === 'string'
+      ? (snapshot.milestones.get(v)?.name ?? 'a removed milestone')
+      : 'no milestone';
+  const priority = (v: unknown) =>
+    typeof v === 'number' && Object.hasOwn(PRIORITY_LABEL, v)
+      ? PRIORITY_LABEL[v as Priority]
+      : 'none';
+  const pair = (label: string, show: (v: unknown) => string) => ({
+    what: `${key} · ${label}`,
+    changes: [`${show(entry.before)} → ${show(entry.after)}`],
+  });
+  switch (entry.action) {
+    case 'issue.title':
+      return pair('title', plainValue);
+    case 'issue.description':
+      return pair('description', textValue);
+    case 'issue.state':
+      return pair('status', state);
+    case 'issue.assignee':
+      return pair('assignee', person);
+    case 'issue.priority':
+      return pair('priority', priority);
+    case 'issue.project':
+      return pair('project', project);
+    case 'issue.milestone':
+      return pair('milestone', milestone);
+    case 'issue.due_date':
+      return pair('due date', dateValue);
+    case 'issue.estimate':
+      return pair('estimate', plainValue);
+    case 'issue.labels':
+      return pair('labels', labelsValue);
+    case 'issue.comment':
+      return {
+        what: `${key} · comment`,
+        changes: [
+          textLength(entry.after) === null
+            ? 'Added a comment'
+            : `Added a comment (${textValue(entry.after)})`,
+        ],
+      };
+    case 'issue.blocker_added':
+      return {
+        what: `${field(entry.after, 'blockedIdentifier') ?? key} · blocked by`,
+        changes: [
+          `Added ${field(entry.after, 'blockerIdentifier') ?? 'an issue'}`,
+        ],
+      };
+    case 'issue.relation_removed':
+      return {
+        what: `${field(entry.before, 'blockedIdentifier') ?? key} · blocked by`,
+        changes: [
+          `Removed ${field(entry.before, 'blockerIdentifier') ?? 'an issue'}`,
+        ],
+      };
+    default:
+      return { what: `${key} · edit`, changes: ['Changed'] };
+  }
+}
+
 export function auditRows(
   entries: readonly AuditEntry[],
-  snapshot: Pick<Snapshot, 'users' | 'milestones' | 'projects'>,
+  snapshot: AuditSnapshot,
   timeZone: string
 ): AuditRow[] {
   return entries.map((entry, index) => {
@@ -922,6 +1049,10 @@ export function auditRows(
         break;
       }
       default:
+        if (entry.action.startsWith('issue.')) {
+          ({ what, changes } = issueAuditRow(entry, snapshot));
+          break;
+        }
         what = 'Settings';
         changes = settingsChanges(entry.before, entry.after, snapshot.users);
     }

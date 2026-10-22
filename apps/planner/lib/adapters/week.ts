@@ -29,6 +29,7 @@ import {
   greeting,
   plural,
 } from '../format';
+import { issuePagePath } from './issue';
 import { barMark, progressTone } from './projects';
 import { blockedReasonLine, uiStatus, statusLabel } from './status';
 
@@ -81,6 +82,16 @@ export interface WeekPageModel {
   attentionEmpty: string;
 }
 
+/** Wording and links shared by every part of the page. */
+interface WeekCopy {
+  /** The page shows the signed-in person's own week. */
+  isSelf: boolean;
+  /** Their first name ("them" when unknown). */
+  name: string;
+  /** Where a row's title goes (WeekPageInput.issueHref). */
+  issueHref: (identifier: string) => string;
+}
+
 export interface WeekPageInput {
   week: WeekView;
   timeline: TimelineView;
@@ -95,6 +106,12 @@ export interface WeekPageInput {
    * Issues missing here fall back to the timeline lanes' unplanned lists.
    */
   issueProjects?: ReadonlyMap<string, { projectId: string; name: string }>;
+  /**
+   * Where a row's title goes: the page's issue slide-over
+   * (`/week?issue=ENG-24`). Default: the issue's page in the planner. The
+   * issue in Linear stays one click away as the row's ↗ link.
+   */
+  issueHref?: (identifier: string) => string;
 }
 
 /**
@@ -326,7 +343,7 @@ function toTaskRow(
   section: WeekSection,
   projectName: string | undefined,
   today: string,
-  copy: { isSelf: boolean; name: string },
+  copy: WeekCopy,
   active = true
 ): TaskRowData {
   const overdue = active && section.status === 'overdue';
@@ -334,8 +351,9 @@ function toTaskRow(
     id: row.issueId,
     key: row.identifier,
     title: row.title,
-    href: row.url,
-    external: true,
+    href: copy.issueHref(row.identifier),
+    externalHref: row.url,
+    externalLabel: `Open ${row.identifier} in Linear`,
     project: projectName,
     state: row.stateName === '' ? row.stateType : row.stateName,
     stateKind: row.stateType,
@@ -368,7 +386,7 @@ function toTaskGroup(
   section: WeekSection,
   bar: TimelineBar | undefined,
   today: string,
-  copy: { isSelf: boolean; name: string },
+  copy: WeekCopy,
   active = true
 ): TaskGroupData {
   const milestoneId = section.milestoneId ?? '';
@@ -432,7 +450,7 @@ function noMilestoneGroups(
   section: WeekSection,
   unplanned: Map<string, NoMilestoneProject>,
   today: string,
-  copy: { isSelf: boolean; name: string }
+  copy: WeekCopy
 ): TaskGroupData[] {
   const groups = new Map<string, TaskGroupData>();
   const orphans: TaskRowData[] = [];
@@ -479,7 +497,7 @@ function buildSections(
   week: WeekView,
   bars: Map<string, { bar: TimelineBar; lane: TimelineLane }>,
   unplanned: Map<string, NoMilestoneProject>,
-  copy: { isSelf: boolean; name: string }
+  copy: WeekCopy
 ): TaskSectionData[] {
   // THIS WEEK is shown even when empty; it says so in the planner's words.
   const nothingDue = copy.isSelf
@@ -589,7 +607,7 @@ function buildStats(
   week: WeekView,
   timeline: TimelineView,
   bars: Map<string, { bar: TimelineBar; lane: TimelineLane }>,
-  copy: { isSelf: boolean; name: string },
+  copy: WeekCopy,
   newBadgeDays: number,
   leadsProjects: boolean
 ): StatCell[] {
@@ -822,7 +840,7 @@ function inactiveLedProjects(timeline: TimelineView, userId: string): string[] {
 function attentionEmptyLine(
   timeline: TimelineView,
   userId: string,
-  copy: { isSelf: boolean; name: string },
+  copy: WeekCopy,
   leadsProjects: boolean
 ): string {
   if (!leadsProjects) {
@@ -845,7 +863,11 @@ export function buildWeekPage(input: WeekPageInput): WeekPageModel {
   const { week, timeline } = input;
   const isSelf = week.userId === input.viewerId;
   const name = firstName(week.userName);
-  const copy = { isSelf, name: name === '' ? 'them' : name };
+  const copy: WeekCopy = {
+    isSelf,
+    name: name === '' ? 'them' : name,
+    issueHref: input.issueHref ?? issuePagePath,
+  };
   const bars = indexBars(timeline);
   const unplanned = noMilestoneProjects(
     timeline,

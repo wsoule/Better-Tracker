@@ -14,9 +14,11 @@ import {
   StatusMark,
   useToast,
 } from '@better-tracker/ui';
+import { ArrowUpRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
   type FormEvent,
+  type MouseEvent,
   type RefObject,
   useCallback,
   useId,
@@ -30,6 +32,7 @@ import type {
 } from '../../../lib/adapters/timeline';
 import { sendJson } from '../../../lib/api-client';
 import { formatDate } from '../../../lib/format';
+import type { IssueDrawerParts } from '../components/issue-drawer';
 import css from './page.module.css';
 
 interface MilestoneDrawerProps {
@@ -43,6 +46,14 @@ interface MilestoneDrawerProps {
   /** The timeline URL that opens another milestone, keeping the filters. */
   hrefFor: (milestoneId: string) => string;
   onClose: () => void;
+  /** An issue opened from here (§8.5): drawn in this same panel in place
+      of the milestone, with its own title, crumb ("Back to …") and
+      actions. */
+  issue?: IssueDrawerParts | null;
+  /** Opens one of the milestone's issues in place (?issue=<key>). */
+  onOpenIssue?: (key: string) => void;
+  /** The URL that opens an issue here (for new tabs and copied links). */
+  issueHref?: (key: string) => string;
 }
 
 // Line breaks of any kind, including the Unicode line and paragraph
@@ -106,6 +117,9 @@ export default function MilestoneDrawer({
   fallbackCrumb,
   hrefFor,
   onClose,
+  issue,
+  onOpenIssue,
+  issueHref,
 }: MilestoneDrawerProps) {
   const { toast } = useToast();
   const dateRef = useRef<HTMLInputElement>(null);
@@ -130,6 +144,21 @@ export default function MilestoneDrawer({
   }, [model, toast]);
 
   const ready = !loading && model !== null;
+  if (issue !== undefined && issue !== null) {
+    // The same panel, showing the issue: no second slide-in.
+    return (
+      <SlideOver
+        open={open}
+        onClose={onClose}
+        title={issue.title}
+        breadcrumb={issue.breadcrumb}
+        actions={issue.actions}
+        closeLabel={issue.closeLabel}
+      >
+        {issue.body}
+      </SlideOver>
+    );
+  }
   return (
     <SlideOver
       open={open}
@@ -168,6 +197,8 @@ export default function MilestoneDrawer({
           model={model}
           dateRef={dateRef}
           hrefFor={hrefFor}
+          onOpenIssue={onOpenIssue}
+          issueHref={issueHref}
         />
       ) : (
         <div className={css.drawerLoading}>
@@ -182,10 +213,14 @@ function DrawerBody({
   model,
   dateRef,
   hrefFor,
+  onOpenIssue,
+  issueHref,
 }: {
   model: MilestoneDrawerModel;
   dateRef: RefObject<HTMLInputElement | null>;
   hrefFor: (milestoneId: string) => string;
+  onOpenIssue?: (key: string) => void;
+  issueHref?: (key: string) => string;
 }) {
   const { busy, save } = useSave();
   const { permissions } = model;
@@ -397,7 +432,13 @@ function DrawerBody({
       ) : (
         <ul className={css.issues} aria-label="Issues in this milestone">
           {model.issues.map((issue) => (
-            <IssueRow key={issue.id} issue={issue} quiet={model.muted} />
+            <IssueRow
+              key={issue.id}
+              issue={issue}
+              quiet={model.muted}
+              onOpen={onOpenIssue}
+              href={issueHref?.(issue.key)}
+            />
           ))}
         </ul>
       )}
@@ -428,22 +469,53 @@ function DrawerBody({
   );
 }
 
-/** One issue of the milestone. `quiet` (an inactive project, §2.8) keeps
-    "Unassigned" and "Blocked by" out of the accent: nothing there is
-    allocated or warned about while the project is paused. */
-function IssueRow({ issue, quiet }: { issue: DrawerIssue; quiet: boolean }) {
+/** A plain primary click (no modifier, no middle button): the only click
+    the in-place opener takes over; the others keep the link's new tab. */
+function isPlainClick(event: MouseEvent): boolean {
   return (
-    <li>
-      <a
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey
+  );
+}
+
+/** One issue of the milestone: the row opens the issue in this panel
+    (§8.5), its ↗ the issue in Linear. `quiet` (an inactive project, §2.8)
+    keeps "Unassigned" and "Blocked by" out of the accent: nothing there is
+    allocated or warned about while the project is paused. */
+function IssueRow({
+  issue,
+  quiet,
+  onOpen,
+  href,
+}: {
+  issue: DrawerIssue;
+  quiet: boolean;
+  onOpen?: (key: string) => void;
+  href?: string;
+}) {
+  const inApp = href !== undefined;
+  return (
+    <li className={css.issueItem}>
+      <Link
         className={`${css.issue} ${issue.open ? '' : css.issueClosed}`}
-        href={issue.url}
-        target="_blank"
-        rel="noreferrer noopener"
+        href={href ?? issue.url}
+        target={inApp ? undefined : '_blank'}
+        rel={inApp ? undefined : 'noreferrer noopener'}
+        onClick={(event: MouseEvent<HTMLAnchorElement>) => {
+          if (onOpen === undefined || !isPlainClick(event)) return;
+          event.preventDefault();
+          onOpen(issue.key);
+        }}
       >
         <span className={css.issueKey}>{issue.key}</span>
         <span className={css.issueTitle}>
           {issue.title}
-          <span className="srOnly"> (opens Linear in a new tab)</span>
+          {inApp ? null : (
+            <span className="srOnly"> (opens Linear in a new tab)</span>
+          )}
         </span>
         <span className={css.issueMeta}>
           <span className={css.issueState}>
@@ -465,7 +537,19 @@ function IssueRow({ issue, quiet }: { issue: DrawerIssue; quiet: boolean }) {
             </span>
           ) : null}
         </span>
-      </a>
+      </Link>
+      {inApp ? (
+        <a
+          className={css.issueOut}
+          href={issue.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label={`Open ${issue.key} in Linear`}
+          title={`Open ${issue.key} in Linear`}
+        >
+          <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
+        </a>
+      ) : null}
     </li>
   );
 }

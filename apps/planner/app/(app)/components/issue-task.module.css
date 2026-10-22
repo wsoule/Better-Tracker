@@ -1,0 +1,14 @@
+/* The issue view's host additions around TaskDetail: the read-only
+   notice under the properties and the quiet sentence about relations the
+   planner cannot show. */
+
+.notice {
+  margin-top: 12px;
+}
+
+.note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}

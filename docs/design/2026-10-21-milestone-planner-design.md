@@ -232,3 +232,8 @@ these)" list; the original text above is kept for the record.
   override and "done means…".
 - Linear stays the source of truth: every edit goes to Linear first and the
   planner's copy follows.
+- Where (as built): each issue has a page in the planner and opens in a
+  slide-over from My week, the timeline's milestone drawer and the
+  dependency graph; My week's rows and the command palette now open the
+  issue there instead of in Linear (§7.1 said "each opening in Linear"),
+  and Linear stays one click away from every one of them.

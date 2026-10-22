@@ -244,7 +244,7 @@ async function renderSection(
       }
       return (
         <Register
-          label="Recent PM edits, newest first"
+          label="Recent edits made in the planner, newest first"
           columns="152px minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.6fr)"
           stackWithin={700}
           header={[

@@ -6,6 +6,7 @@ import {
 } from '@better-tracker/engine';
 import type { Metadata } from 'next';
 
+import { parseIssueParam } from '../../../lib/adapters/issue';
 import {
   buildMilestoneDrawer,
   buildTimelinePage,
@@ -14,6 +15,7 @@ import {
   timelineReceipts,
 } from '../../../lib/adapters/timeline';
 import { engineInputCode } from '../../../lib/engine-errors';
+import { currentHref, loadIssueDrawer } from '../../../lib/issue-load';
 import {
   loadTimelineView,
   orSetup,
@@ -44,8 +46,9 @@ async function loadDetail(
 /* /timeline (architecture §8.4 "Timeline", §8.3 slide-over): every open
    project as a lane of milestone bars, grouped by initiative, with the
    missing-input banners above. ?milestone=<id> opens the drawer,
-   ?project=<id> focuses a lane; filters, zoom and dependencies live in the
-   URL too. Everyone sees it; only PMs get edit controls (drag handles with
+   ?project=<id> focuses a lane, ?issue=<key> shows one of its issues in
+   the same panel (§8.5); filters, zoom and dependencies live in the URL
+   too. Everyone sees it; only PMs get edit controls (drag handles with
    Linear write access, the drawer's fields), and the PATCH routes enforce
    the same rules. All data comes from the engine; lib/adapters/timeline.ts
    maps it. */
@@ -64,7 +67,7 @@ export default async function TimelinePage({
     canWriteLinear: actor.canWriteLinear,
   };
 
-  const [view, graph, loaded, detail] = await orSetup(
+  const [view, graph, loaded, detail, issueDrawer] = await orSetup(
     Promise.all([
       loadTimelineView(engine, workspaceId),
       engine.getGraph(workspaceId, { level: 'milestone' }),
@@ -72,6 +75,12 @@ export default async function TimelinePage({
       selection.milestoneId === null
         ? Promise.resolve(null)
         : loadDetail(engine, workspaceId, selection.milestoneId),
+      loadIssueDrawer(
+        engine,
+        actor,
+        parseIssueParam(params),
+        currentHref('/timeline', params)
+      ),
     ])
   );
 
@@ -110,6 +119,7 @@ export default async function TimelinePage({
             ? selection.milestoneId
             : null
         }
+        issueDrawer={issueDrawer}
       />
     </>
   );

@@ -1,0 +1,35 @@
+/* /issues/[id]: the page frame around TaskDetail's page layout (its own
+   header, rail and sections draw everything else), and the loading
+   skeleton in the same shape. */
+
+.page {
+  max-width: 1280px;
+  margin: 28px auto 0;
+  padding: 0 48px 72px;
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+
+.skeletonColumns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 32px;
+}
+
+@media (width <= 900px) {
+  .skeletonColumns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (width <= 768px) {
+  .page {
+    margin-top: 16px;
+    padding: 0 16px 48px;
+  }
+}

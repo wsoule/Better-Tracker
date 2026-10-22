@@ -78,7 +78,14 @@ export const NAV_TARGETS: readonly NavTarget[] = [
 ];
 
 /** Breadcrumb roots for paths that are not in the nav. */
-const EXTRA_CRUMBS: Record<string, string> = { setup: 'Setup' };
+const EXTRA_CRUMBS: Record<string, string> = {
+  setup: 'Setup',
+  issues: 'Issues',
+};
+
+/** Roots with no index page of their own: their crumb is not a link
+    (/issues/ENG-24 exists, /issues does not). */
+const UNLINKED_ROOTS: ReadonlySet<string> = new Set(['issues']);
 
 /** True when `pathname` is `href` or a page below it. */
 export function isCurrentPath(pathname: string, href: string): boolean {
@@ -101,10 +108,13 @@ export function crumbsFor(
     return pageCrumb !== null && pageCrumb !== '' ? [{ label: pageCrumb }] : [];
   }
   const root = `/${first}`;
+  const rootCrumb: ShellCrumb = UNLINKED_ROOTS.has(first)
+    ? { label: rootLabel }
+    : { label: rootLabel, href: root };
   if (pageCrumb !== null && pageCrumb !== '') {
-    return [{ label: rootLabel, href: root }, { label: pageCrumb }];
+    return [rootCrumb, { label: pageCrumb }];
   }
-  if (rest.length > 0) return [{ label: rootLabel, href: root }];
+  if (rest.length > 0) return [rootCrumb];
   return [{ label: rootLabel }];
 }
 
@@ -238,7 +248,8 @@ export interface PaletteEntry {
   /** Matched by the fuzzy search too: identifiers, project names. */
   hint: string;
   href: string;
-  /** Opens outside the app (an issue in Linear), in a new tab. */
+  /** Opens outside the app, in a new tab (none do today: issues open the
+      planner's page, which links to Linear). */
   external: boolean;
   status?: UiStatus;
   statusLabel?: string;
@@ -291,7 +302,8 @@ function paletteMark(
 /**
  * The palette's jump targets: every project lane and milestone on the
  * timeline (marked like the sidebar), and the person's open issues from
- * My week (opening in Linear, marked with their milestone's status).
+ * My week (opening the planner's issue page, where Linear is one click
+ * away; marked with their milestone's status).
  */
 export function buildPaletteIndex(input: {
   timeline: TimelineView;
@@ -336,8 +348,8 @@ export function buildPaletteIndex(input: {
         id: `issue:${row.issueId}`,
         label: row.title,
         hint: `${row.identifier} · ${row.stateName}`,
-        href: row.url,
-        external: true,
+        href: `/issues/${encodeURIComponent(row.identifier)}`,
+        external: false,
       };
       if (section.status === null) return entry;
       return {

@@ -5,7 +5,14 @@
 
 export type ApiResult<T> =
   | { ok: true; status: number; data: T }
-  | { ok: false; status: number; code: string; message: string };
+  | {
+      ok: false;
+      status: number;
+      code: string;
+      message: string;
+      /** needs_write_scope: the grant_write link the route offered. */
+      grantWriteHref?: string;
+    };
 
 const NETWORK_MESSAGE =
   'Could not reach the planner. Check your connection and try again.';
@@ -18,13 +25,24 @@ const NETWORK_MESSAGE =
 export function errorFromBody(
   status: number,
   body: unknown
-): { code: string; message: string } {
+): { code: string; message: string; grantWriteHref?: string } {
   if (typeof body === 'object' && body !== null) {
     const error = (body as Record<string, unknown>).error;
     if (typeof error === 'object' && error !== null) {
-      const { code, message } = error as Record<string, unknown>;
+      const { code, message, grantWriteHref } = error as Record<
+        string,
+        unknown
+      >;
       if (typeof message === 'string' && message !== '') {
-        return { code: typeof code === 'string' ? code : 'error', message };
+        const found = {
+          code: typeof code === 'string' ? code : 'error',
+          message,
+        };
+        // Only a same-site path is followed (the routes send one).
+        return typeof grantWriteHref === 'string' &&
+          grantWriteHref.startsWith('/api/auth/linear?')
+          ? { ...found, grantWriteHref }
+          : found;
       }
     }
   }
@@ -88,16 +106,25 @@ export async function sendJson<T = unknown>(
   return { ok: true, status: response.status, data: data as T };
 }
 
-/** GETs a same-origin JSON route; throws an Error with a showable message. */
-export async function getJson(url: string): Promise<unknown> {
+/**
+ * GETs a same-origin JSON route; throws an Error with a showable message.
+ * An aborted request (`signal`) rethrows the browser's AbortError as is,
+ * so a caller can tell "stale" from "failed".
+ */
+export async function getJson(
+  url: string,
+  signal?: AbortSignal
+): Promise<unknown> {
   let response: Response;
   try {
     response = await fetch(url, {
       headers: { accept: 'application/json' },
       credentials: 'same-origin',
       cache: 'no-store',
+      signal,
     });
-  } catch {
+  } catch (error) {
+    if (signal?.aborted === true) throw error;
     throw new Error(NETWORK_MESSAGE);
   }
   const data = await readBody(response);

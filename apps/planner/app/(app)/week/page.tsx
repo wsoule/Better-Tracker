@@ -6,10 +6,10 @@ import {
   RegisterCell,
   RegisterRow,
   StatsStrip,
-  TaskGroupTable,
 } from '@better-tracker/ui';
 import type { Metadata } from 'next';
 
+import { parseIssueParam, withIssueParam } from '../../../lib/adapters/issue';
 import {
   buildWeekPage,
   localHour,
@@ -18,6 +18,7 @@ import {
   WEEK_TASK_COLUMNS,
   weekPeopleOptions,
 } from '../../../lib/adapters/week';
+import { currentHref, loadIssueDrawer } from '../../../lib/issue-load';
 import {
   loadTimelineView,
   loadWeekView,
@@ -26,6 +27,7 @@ import {
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import css from './page.module.css';
+import WeekIssues from './week-issues';
 import WeekUserPicker from './week-user-picker';
 
 export const metadata: Metadata = { title: 'My week' };
@@ -34,7 +36,8 @@ export const metadata: Metadata = { title: 'My week' };
    grouped by milestone, with deadlines and the projects they lead that need
    attention. PMs may pass ?user=<id> to see someone else's week; the id is
    checked here, never trusted from the client, and ignored for everyone
-   else. All data comes from the engine; lib/adapters/week.ts maps it. */
+   else. ?issue=<key> opens that issue in the slide-over (§8.5). All data
+   comes from the engine; lib/adapters/week.ts and issue.ts map it. */
 export default async function WeekPage({
   searchParams,
 }: {
@@ -56,13 +59,19 @@ export default async function WeekPage({
     knownUserIds,
   });
 
-  const [week, timeline] = await orSetup(
+  // ?issue= opens the issue slide-over; every row links there, keeping
+  // the rest of the URL (a PM's ?user=).
+  const issueKey = parseIssueParam(params);
+  const base = withIssueParam(currentHref('/week', params), null);
+  const [week, timeline, drawer] = await orSetup(
     Promise.all([
       loadWeekView(engine, workspaceId, userId),
       loadTimelineView(engine, workspaceId),
+      loadIssueDrawer(engine, actor, issueKey, currentHref('/week', params)),
     ])
   );
   const page = buildWeekPage({
+    issueHref: (key) => withIssueParam(base, key),
     week,
     timeline,
     viewerId,
@@ -101,13 +110,12 @@ export default async function WeekPage({
         <div className={css.columns}>
           <div className={css.grid}>
             <div className={css.main}>
-              <TaskGroupTable
+              <WeekIssues
                 sections={page.sections}
                 columns={WEEK_TASK_COLUMNS}
                 label={page.isSelf ? 'My issues' : `${week.userName}'s issues`}
-                headingLevel={2}
-                storageKey="milestone-planner:week:collapsed"
                 emptyMessage={page.emptyMessage}
+                drawer={drawer}
               />
             </div>
             <aside className={css.side} aria-label="Deadlines and attention">

@@ -25,6 +25,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { dueLabel, formatDate, plural } from '../format';
+import { withIssueParam } from './issue';
 import { assessmentMark, uiStatus } from './status';
 
 // The /graph page (architecture §8.4 "Graph", §2.10): core's
@@ -102,6 +103,9 @@ export interface GraphNodeDetail {
   /** For the level tabs: this milestone's issue-level graph. */
   issuesHref: string | null;
   issuesLabel: string | null;
+  /** An issue node's identifier ("ENG-12"): selecting it opens the
+      issue's slide-over (?issue=, §8.5). Null for milestones. */
+  issueKey: string | null;
 }
 
 /** One node with no blocking relation, listed under the canvas instead. */
@@ -119,7 +123,8 @@ export interface IsolatedRow {
   /** "Oct 26 · in 5 days", "No target date", "No milestone". */
   due: string;
   dueTone: 'default' | 'accent';
-  /** The milestone's timeline drawer, or the issue in Linear. */
+  /** The milestone's timeline drawer, or the issue's slide-over on this
+      graph (?issue=, where Linear is one click away). */
   href: string;
   external: boolean;
   rowLabel: string;
@@ -385,6 +390,7 @@ function milestoneDetail(
     links,
     issuesHref: graphHref({ level: 'issue', milestoneId: node.id }),
     issuesLabel: `Issues in ${node.label}`,
+    issueKey: null,
   };
 }
 
@@ -467,6 +473,7 @@ function issueDetail(
     links,
     issuesHref: null,
     issuesLabel: null,
+    issueKey: issue?.identifier ?? null,
   };
 }
 
@@ -574,11 +581,13 @@ function isolatedMilestoneRow(
   };
 }
 
-/** An issue left off the canvas, as a register row (opens in Linear). */
+/** An issue left off the canvas, as a register row (opens the issue's
+    slide-over on this graph; `scopeHref` is the graph's own URL). */
 function isolatedIssueRow(
   input: GraphPageInput,
   node: GraphNode,
-  data: GraphNodeData
+  data: GraphNodeData,
+  scopeHref: string
 ): IsolatedRow {
   const { snapshot, assessments, today } = input;
   const issue = snapshot.issues.get(node.id);
@@ -608,14 +617,9 @@ function isolatedIssueRow(
             today
           ),
     dueTone: node.overdue ? 'accent' : 'default',
-    // Issues always carry their Linear URL; the drawer is a fallback.
-    href:
-      node.url ??
-      (milestone === undefined
-        ? '/timeline'
-        : timelineMilestoneHref(milestone.id)),
-    external: node.url !== null,
-    rowLabel: `${key === null ? '' : `${key} `}${node.label} in Linear`,
+    href: withIssueParam(scopeHref, key ?? node.id),
+    external: false,
+    rowLabel: `${key === null ? '' : `${key} `}${node.label}`,
     tone:
       data.tone === 'accent'
         ? 'accent'
@@ -706,7 +710,7 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
       isolatedRows.push(
         node.kind === 'milestone'
           ? isolatedMilestoneRow(input, node, data)
-          : isolatedIssueRow(input, node, data)
+          : isolatedIssueRow(input, node, data, graphHref(scope))
       );
     } else {
       nodes.push(data);

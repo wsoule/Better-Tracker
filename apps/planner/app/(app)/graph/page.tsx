@@ -4,7 +4,9 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
 import { buildGraphPage, parseGraphScope } from '../../../lib/adapters/graph';
+import { parseIssueParam } from '../../../lib/adapters/issue';
 import { engineInputCode } from '../../../lib/engine-errors';
+import { currentHref, loadIssueDrawer } from '../../../lib/issue-load';
 import { orSetup, requireInstalledActor } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import GraphScreen from './graph-screen';
@@ -30,7 +32,8 @@ async function loadGraph(
 /* /graph (architecture §8.4 "Graph", §2.10): which milestones wait on
    which, from Linear's blocking relations. ?milestone=<id> or
    ?project=<id> switches to the issue level inside that scope (plus the
-   one-hop blockers outside it). Everyone sees it; it is read-only. The
+   one-hop blockers outside it); ?issue=<key> opens an issue node's
+   slide-over (§8.5). Everyone sees the graph; it is read-only. The
    engine builds the graph, lib/adapters/graph.ts maps it (and computes the
    Mermaid text) on the server, and the client island draws it and opens
    the selected node's details. */
@@ -41,12 +44,18 @@ export default async function GraphPage({
 }) {
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
-  const { engine, workspaceId } = await requireInstalledActor();
+  const { engine, actor, workspaceId } = await requireInstalledActor();
   const scope = parseGraphScope(params);
-  const [graph, loaded] = await orSetup(
+  const [graph, loaded, issueDrawer] = await orSetup(
     Promise.all([
       loadGraph(engine, workspaceId, scope),
       engine.load(workspaceId),
+      loadIssueDrawer(
+        engine,
+        actor,
+        parseIssueParam(params),
+        currentHref('/graph', params)
+      ),
     ])
   );
   if (graph === null) notFound();
@@ -63,7 +72,7 @@ export default async function GraphPage({
         <h1 className={css.title}>{model.heading}</h1>
         <p className={css.receipts}>{model.receipts}</p>
       </header>
-      <GraphScreen model={model} />
+      <GraphScreen model={model} issueDrawer={issueDrawer} />
       {model.crumb !== null ? <PageCrumb label={model.crumb} /> : null}
     </>
   );

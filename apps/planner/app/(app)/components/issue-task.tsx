@@ -1,0 +1,592 @@
+'use client';
+
+import type { IssuePatch } from '@better-tracker/core';
+import {
+  AssigneePicker,
+  Button,
+  DateField,
+  EstimatePicker,
+  InlineTextField,
+  LabelPicker,
+  MilestonePicker,
+  Notice,
+  PriorityGlyph,
+  PriorityPicker,
+  ProjectPicker,
+  type PropertyListItem,
+  StatePicker,
+  StatusMark,
+  TaskDescription,
+  type TaskDetailProps,
+  TaskDetailSection,
+  TaskPropertyValue,
+  type TaskRelation,
+  TaskRelationPicker,
+  type TaskSearchResult,
+  TextAreaEditor,
+  useToast,
+} from '@better-tracker/ui';
+import { ArrowUpRight, Link2, Maximize2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { type ReactNode, useCallback, useMemo } from 'react';
+
+import type {
+  IssueFact,
+  IssueRelationModel,
+  IssueSearchHit,
+  IssueTaskModel,
+} from '../../../lib/adapters/issue';
+import { type ApiResult, getJson, sendJson } from '../../../lib/api-client';
+import {
+  type IssueWriteKind,
+  issueWriteOutcome,
+} from '../../../lib/issue-writes';
+import css from './issue-task.module.css';
+
+// The issue's task view, shared by /issues/[id] (page layout) and the
+// ?issue= slide-over on My week, the timeline and the graph (architecture
+// §8.5). lib/adapters/issue.ts decided every word and option on the
+// server; this file adds what needs the browser: the edit controls of
+// @better-tracker/ui wired to the issue routes. Every save is optimistic
+// in the control itself (pending, kept, or rolled back with "Not saved"
+// beside it); a failure is also toasted (with "Allow edits" when the
+// person's Linear token may not write), and a success refreshes the
+// server data, so the page shows what Linear now holds.
+
+/** The TaskDetail props of an issue, minus what the container decides. */
+export type IssueTaskProps = Omit<
+  TaskDetailProps,
+  'layout' | 'header' | 'headingLevel'
+>;
+
+/** How relation rows open another issue. */
+export interface IssueTaskNav {
+  /** Opens another issue in place (the slide-over swaps). Without it, a
+      row is a plain link to that issue's page. */
+  openIssue?: (key: string) => void;
+}
+
+/** The planner's own wording for the edit controls' error lines. */
+function formatError(error: unknown): string {
+  return error instanceof Error && error.message !== ''
+    ? error.message
+    : 'Linear did not take the change.';
+}
+
+/**
+ * The issue's writes: each PATCHes or POSTs one change, toasts a failure
+ * and rejects with its message (the control rolls back and prints it),
+ * and refreshes the server data on success. A refusal whose goal already
+ * holds (removing a relation that is gone, adding a blocker that already
+ * blocks) is not a failure: lib/issue-writes.ts decides.
+ */
+export function useIssueWrites(issueId: string): {
+  patch: (patch: IssuePatch) => Promise<void>;
+  comment: (body: string) => Promise<void>;
+  addBlocker: (issueId: string, blockerIssueId: string) => Promise<void>;
+  removeRelation: (relationId: string) => Promise<void>;
+  search: (
+    query: string,
+    signal: AbortSignal
+  ) => Promise<readonly TaskSearchResult[]>;
+} {
+  const router = useRouter();
+  const { toast } = useToast();
+
+  const settle = useCallback(
+    (write: IssueWriteKind, result: ApiResult<unknown>): void => {
+      const outcome = issueWriteOutcome(write, result);
+      // A success, a refusal whose goal already holds, or a refusal that
+      // says this view is stale (the issue or relation is gone): show what
+      // the server holds now.
+      if (outcome.kind !== 'failed' || outcome.refresh) router.refresh();
+      if (outcome.kind === 'already' && outcome.note !== null) {
+        toast({ kind: 'info', label: 'Already linked', message: outcome.note });
+      }
+      if (result.ok || outcome.kind !== 'failed') return;
+      const grant = result.grantWriteHref;
+      toast({
+        kind: 'error',
+        label: 'Not saved',
+        message: result.message,
+        action:
+          grant === undefined
+            ? undefined
+            : {
+                label: 'Allow edits',
+                onClick: () => window.location.assign(grant),
+              },
+        duration: grant === undefined ? undefined : 10_000,
+      });
+      throw new Error(result.message);
+    },
+    [router, toast]
+  );
+
+  const url = `/api/issues/${encodeURIComponent(issueId)}`;
+  return useMemo(
+    () => ({
+      patch: async (patch: IssuePatch) =>
+        settle('patch', await sendJson('PATCH', url, patch)),
+      comment: async (body: string) =>
+        settle('comment', await sendJson('POST', `${url}/comments`, { body })),
+      addBlocker: async (blocked: string, blocker: string) =>
+        settle(
+          'addBlocker',
+          await sendJson(
+            'POST',
+            `/api/issues/${encodeURIComponent(blocked)}/blockers`,
+            { blockerIssueId: blocker }
+          )
+        ),
+      removeRelation: async (relationId: string) =>
+        settle(
+          'removeRelation',
+          await sendJson(
+            'DELETE',
+            `/api/relations/${encodeURIComponent(relationId)}`,
+            null
+          )
+        ),
+      search: async (query: string, signal: AbortSignal) => {
+        const body = await getJson(
+          `/api/issues/search?q=${encodeURIComponent(query)}&near=${encodeURIComponent(issueId)}`,
+          signal
+        );
+        return searchResults(body);
+      },
+    }),
+    [settle, url, issueId]
+  );
+}
+
+/** The search route's hits as TaskRelationPicker results. */
+function searchResults(body: unknown): TaskSearchResult[] {
+  if (typeof body !== 'object' || body === null) return [];
+  const raw = (body as { results?: unknown }).results;
+  if (!Array.isArray(raw)) return [];
+  return (raw as IssueSearchHit[]).map((hit) => ({
+    id: hit.id,
+    taskKey: hit.key,
+    title: hit.title,
+    state: { kind: hit.stateKind, label: hit.stateName },
+    group: hit.group ?? 'No project',
+  }));
+}
+
+/** A read-only property value, as the adapter worded it. */
+function FactValue({ fact }: { fact: IssueFact }): ReactNode {
+  return (
+    <TaskPropertyValue
+      tone={fact.tone}
+      note={fact.note}
+      noteTone={fact.noteTone}
+      mono={fact.mono}
+    >
+      {fact.glyph?.kind === 'priority' ? (
+        <PriorityGlyph priority={fact.glyph.priority} size={13} />
+      ) : null}
+      {fact.glyph?.kind === 'status' ? (
+        <StatusMark
+          status={fact.glyph.status}
+          label={fact.glyph.label}
+          muted={fact.glyph.muted}
+        />
+      ) : null}
+      {fact.text}
+    </TaskPropertyValue>
+  );
+}
+
+/** A control with the fact's note under it (the lead, the milestone's
+    status line, why the planner gave it to this person). */
+function Controlled({
+  fact,
+  children,
+}: {
+  fact: IssueFact;
+  children: ReactNode;
+}): ReactNode {
+  return (
+    <TaskPropertyValue note={fact.note} noteTone={fact.noteTone}>
+      {children}
+    </TaskPropertyValue>
+  );
+}
+
+/**
+ * Header actions: Linear (new tab), Copy link (the planner's page) and,
+ * in the slide-over (`compact`), the page itself; there Copy link and Page
+ * are icons, so the drawer's breadcrumb keeps its room.
+ */
+export function IssueHeaderActions({
+  model,
+  compact,
+}: {
+  model: IssueTaskModel;
+  compact: boolean;
+}): ReactNode {
+  const { toast } = useToast();
+  async function copy() {
+    const url = new URL(model.pagePath, window.location.origin).toString();
+    try {
+      await navigator.clipboard.writeText(url);
+      toast({
+        kind: 'info',
+        label: 'Copied',
+        message: `Link to ${model.key} copied.`,
+      });
+    } catch {
+      toast({
+        kind: 'error',
+        label: 'Copy',
+        message: `Could not copy the link. It is ${url}`,
+      });
+    }
+  }
+  return (
+    <>
+      <Button
+        size="sm"
+        variant="quiet"
+        href={model.linearUrl}
+        external
+        title={`Open ${model.key} in Linear`}
+        iconAfter={<ArrowUpRight size={14} strokeWidth={1.5} />}
+      >
+        Linear
+      </Button>
+      <Button
+        size="sm"
+        variant="quiet"
+        icon={<Link2 size={14} strokeWidth={1.5} />}
+        title={`Copy a link to ${model.key}`}
+        aria-label={compact ? `Copy a link to ${model.key}` : undefined}
+        onClick={() => void copy()}
+      >
+        {compact ? null : 'Copy link'}
+      </Button>
+      {compact ? (
+        <Button
+          size="sm"
+          variant="quiet"
+          href={model.pagePath}
+          title={`Open ${model.key} as a page`}
+          aria-label={`Open ${model.key} as a page`}
+          icon={<Maximize2 size={14} strokeWidth={1.5} />}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/** The title editor (for people who may write): Enter saves, Esc cancels. */
+export function IssueTitleField({
+  model,
+}: {
+  model: IssueTaskModel;
+}): ReactNode {
+  const writes = useIssueWrites(model.issueId);
+  return (
+    <InlineTextField
+      label="Title"
+      value={model.edit.values.title}
+      maxLength={model.edit.limits.title}
+      onSave={(title) => writes.patch({ title })}
+      formatError={formatError}
+    />
+  );
+}
+
+/**
+ * The issue's TaskDetail props: read-only facts for everyone, the edit
+ * controls when the person's Linear token may write (else one notice
+ * offering the grant_write upgrade). Live fields (description, labels,
+ * estimate, due date) stay read-only when Linear could not be read, since
+ * an edit needs their current value.
+ */
+export function useIssueTaskProps(
+  model: IssueTaskModel,
+  nav: IssueTaskNav = {}
+): IssueTaskProps {
+  const writes = useIssueWrites(model.issueId);
+  const { facts, edit, canEdit } = model;
+  const { values } = edit;
+  const live = values.live;
+  const loud = !model.closed && !model.quiet;
+
+  const relation = (
+    row: IssueRelationModel,
+    remove: boolean
+  ): TaskRelation => ({
+    id: row.relationId,
+    taskKey: row.taskKey,
+    title: row.title,
+    href: `/issues/${encodeURIComponent(row.taskKey)}`,
+    onOpen:
+      nav.openIssue === undefined
+        ? undefined
+        : () => nav.openIssue?.(row.taskKey),
+    state: row.state,
+    assignee: row.assignee,
+    context: row.context,
+    external: row.external,
+    resolved: row.resolved,
+    onRemove: remove ? () => writes.removeRelation(row.relationId) : undefined,
+  });
+
+  const properties: PropertyListItem[] = canEdit
+    ? [
+        {
+          id: 'assignee',
+          label: 'Assignee',
+          value: (
+            <Controlled fact={facts.assignee}>
+              <AssigneePicker
+                people={edit.people}
+                meId={model.viewerId}
+                value={values.assigneeId}
+                valueLabel={edit.assigneeLabel}
+                placeholderTone={loud ? 'accent' : 'muted'}
+                onChange={(assigneeId) => writes.patch({ assigneeId })}
+                formatError={formatError}
+              />
+            </Controlled>
+          ),
+        },
+        {
+          id: 'priority',
+          label: 'Priority',
+          value: (
+            <PriorityPicker
+              value={values.priority}
+              onChange={(priority) => writes.patch({ priority })}
+              formatError={formatError}
+            />
+          ),
+        },
+        {
+          id: 'labels',
+          label: 'Labels',
+          value:
+            live === null ? (
+              <FactValue fact={facts.labels} />
+            ) : (
+              <LabelPicker
+                labelOptions={edit.labels}
+                value={live.labelIds}
+                onChange={(labelIds) => writes.patch({ labelIds })}
+                formatError={formatError}
+              />
+            ),
+        },
+        {
+          id: 'estimate',
+          label: 'Estimate',
+          value:
+            live === null || edit.estimates === null ? (
+              <FactValue fact={facts.estimate} />
+            ) : (
+              <EstimatePicker
+                estimates={edit.estimates}
+                value={live.estimate}
+                onChange={(estimate) => writes.patch({ estimate })}
+                formatError={formatError}
+              />
+            ),
+        },
+        {
+          id: 'due',
+          label: 'Due date',
+          value:
+            live === null ? (
+              <FactValue fact={facts.dueDate} />
+            ) : (
+              <Controlled fact={facts.dueDate}>
+                <DateField
+                  label="Due date"
+                  value={live.dueDate}
+                  onChange={(dueDate) => writes.patch({ dueDate })}
+                  formatError={formatError}
+                />
+              </Controlled>
+            ),
+        },
+        {
+          id: 'project',
+          label: 'Project',
+          value: (
+            <Controlled fact={facts.project}>
+              <ProjectPicker
+                projects={edit.projects}
+                value={values.projectId}
+                valueLabel={edit.projectLabel}
+                onChange={(projectId) => writes.patch({ projectId })}
+                formatError={formatError}
+              />
+            </Controlled>
+          ),
+        },
+        {
+          id: 'milestone',
+          label: 'Milestone',
+          value: (
+            <Controlled fact={facts.milestone}>
+              <MilestonePicker
+                milestones={
+                  values.projectId === null
+                    ? []
+                    : (edit.milestones[values.projectId] ?? [])
+                }
+                value={values.milestoneId}
+                valueLabel={edit.milestoneLabel}
+                disabled={values.projectId === null}
+                emptyLabel="This project has no milestones"
+                onChange={(projectMilestoneId) =>
+                  writes.patch({ projectMilestoneId })
+                }
+                formatError={formatError}
+              />
+            </Controlled>
+          ),
+        },
+        {
+          id: 'in-state',
+          label: 'Time in state',
+          value: <FactValue fact={facts.inState} />,
+        },
+      ]
+    : [
+        { id: 'assignee', label: 'Assignee', fact: facts.assignee },
+        { id: 'priority', label: 'Priority', fact: facts.priority },
+        { id: 'labels', label: 'Labels', fact: facts.labels },
+        { id: 'estimate', label: 'Estimate', fact: facts.estimate },
+        { id: 'due', label: 'Due date', fact: facts.dueDate },
+        { id: 'project', label: 'Project', fact: facts.project },
+        { id: 'milestone', label: 'Milestone', fact: facts.milestone },
+        { id: 'in-state', label: 'Time in state', fact: facts.inState },
+      ].map(({ id, label, fact }) => ({
+        id,
+        label,
+        value: <FactValue fact={fact} />,
+      }));
+
+  const exclude = (rows: readonly IssueRelationModel[]): string[] => [
+    model.issueId,
+    ...rows.map((row) => row.issueId),
+  ];
+
+  const rail = canEdit ? undefined : (
+    <div className={css.notice}>
+      <Notice
+        label="Read only"
+        tone="default"
+        action={
+          // A plain anchor: the OAuth start must never be prefetched.
+          <Button size="sm" href={model.grantWriteHref}>
+            Allow edits in Linear
+          </Button>
+        }
+      >
+        You can read this issue. To change it here, allow the planner to edit
+        Linear as you; Linear&apos;s own permissions still apply.
+      </Notice>
+    </div>
+  );
+
+  return {
+    taskKey: model.key,
+    title: model.title,
+    titleControl: canEdit ? <IssueTitleField model={model} /> : undefined,
+    href: model.linearUrl,
+    breadcrumb: model.crumbs,
+    status: {
+      kind: model.status.kind,
+      label: model.status.label,
+      control:
+        canEdit && edit.states.length > 0 ? (
+          <StatePicker
+            states={edit.states}
+            value={values.stateId}
+            onChange={(stateId) => writes.patch({ stateId })}
+            formatError={formatError}
+          />
+        ) : undefined,
+    },
+    alerts: model.alerts,
+    properties,
+    rail,
+    description:
+      canEdit && live !== null
+        ? {
+            text: null,
+            content: (
+              <TextAreaEditor
+                label="Description"
+                value={live.description}
+                maxLength={edit.limits.description}
+                emptyLabel="No description"
+                placeholder="Add a description (markdown)…"
+                view={(text) => <TaskDescription text={text} />}
+                onSave={(text) =>
+                  writes.patch({
+                    description: text.trim() === '' ? null : text,
+                  })
+                }
+                formatError={formatError}
+              />
+            ),
+            sourceLabel: 'Markdown source · saved to Linear as you',
+          }
+        : model.description,
+    relations: {
+      blockedBy: model.relations.blockedBy.map((row) => relation(row, canEdit)),
+      blocks: model.relations.blocks.map((row) => relation(row, canEdit)),
+    },
+    sectionMeta: {
+      blockedBy: canEdit ? (
+        <TaskRelationPicker
+          label="Add blocked by"
+          search={writes.search}
+          exclude={exclude(model.relations.blockedBy)}
+          searchPlaceholder="Find the issue this waits on…"
+          onSelect={(task) => writes.addBlocker(model.issueId, task.id)}
+          formatError={formatError}
+        />
+      ) : undefined,
+      blocks: canEdit ? (
+        <TaskRelationPicker
+          label="Add blocks"
+          search={writes.search}
+          exclude={exclude(model.relations.blocks)}
+          searchPlaceholder="Find the issue that waits on this…"
+          onSelect={(task) => writes.addBlocker(task.id, model.issueId)}
+          formatError={formatError}
+        />
+      ) : undefined,
+      comments: model.comments.note,
+    },
+    comments: {
+      items: model.comments.items,
+      error: model.comments.error,
+      composer: canEdit ? (
+        <TextAreaEditor
+          mode="compose"
+          label="New comment"
+          placeholder="Leave a comment… (markdown)"
+          maxLength={edit.limits.comment}
+          onSave={(body) => writes.comment(body)}
+          formatError={formatError}
+        />
+      ) : undefined,
+    },
+    activity: model.activity,
+    activityLimit: 6,
+    children:
+      model.relations.hiddenNote === null ? undefined : (
+        <TaskDetailSection title="Outside the planner">
+          <p className={css.note}>{model.relations.hiddenNote}</p>
+        </TaskDetailSection>
+      ),
+  };
+}

@@ -437,14 +437,16 @@ describe('buildWeekPage sections', () => {
     expect(atRisk?.dueTone).toBeUndefined();
   });
 
-  test('rows open in Linear and carry the "new" chip', () => {
+  test('rows open the planner\'s issue view, Linear beside, and carry the "new" chip', () => {
     const [first, second] = page.sections[0]?.groups[0]?.rows ?? [];
     expect(first).toMatchObject({
       id: 'iss-1',
       key: 'ENG-1',
       title: 'Backfill invoices',
-      href: 'https://linear.app/northwind/issue/ENG-1',
-      external: true,
+      // Without an issueHref the title goes to the issue's page.
+      href: '/issues/ENG-1',
+      externalHref: 'https://linear.app/northwind/issue/ENG-1',
+      externalLabel: 'Open ENG-1 in Linear',
       project: 'Atlas billing migration',
       state: 'In Progress',
       stateKind: 'started',
@@ -461,9 +463,24 @@ describe('buildWeekPage sections', () => {
         tone: 'accent',
       },
     ]);
+    expect(first?.external).toBeUndefined();
     const later = page.sections[1]?.groups[0]?.rows[0];
     expect(later?.priorityLabel).toBe('No priority');
     expect(later?.dueTone).toBeUndefined();
+  });
+
+  test('the host decides where a row title goes (the ?issue= drawer)', () => {
+    const drawer = buildWeekPage({
+      week,
+      timeline,
+      viewerId: 'user-chloe',
+      hour: 9,
+      newBadgeDays: 7,
+      issueHref: (key) => `/week?user=user-chloe&issue=${key}`,
+    });
+    const row = drawer.sections[0]?.groups[0]?.rows[0];
+    expect(row?.href).toBe('/week?user=user-chloe&issue=ENG-1');
+    expect(row?.externalHref).toBe('https://linear.app/northwind/issue/ENG-1');
   });
 
   test('no-milestone rows are grouped per project, from the timeline lanes', () => {

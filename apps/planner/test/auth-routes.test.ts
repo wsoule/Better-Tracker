@@ -41,6 +41,19 @@ const ACTOR: Actor = {
   canWriteLinear: false,
 };
 
+/** A signed-in person who is not a PM, with a read-only Linear token. */
+const MEMBER: Actor = {
+  ...ACTOR,
+  session: {
+    ...ACTOR.session,
+    id: 'sess-member',
+    userId: 'user-chloe',
+    userName: 'Chloe Diaz',
+  },
+  isPm: false,
+  canWriteLinear: false,
+};
+
 interface Calls {
   signIn: { code: string; codeVerifier: string; intent: string }[];
   install: { code: string; actor: Actor }[];
@@ -62,7 +75,9 @@ function fakeEngine(): Engine {
       codeVerifier: `cv-${intent}`,
     }),
     authenticate: (token: string | undefined) =>
-      Promise.resolve(token === 'old-token' ? ACTOR : null),
+      Promise.resolve(
+        token === 'old-token' ? ACTOR : token === 'member-token' ? MEMBER : null
+      ),
     finishSignIn: (input: Calls['signIn'][number]) => {
       calls.signIn.push(input);
       if (signInError !== null) return Promise.reject(signInError);
@@ -170,6 +185,34 @@ describe('GET /api/auth/linear', () => {
       get('/api/auth/linear?intent=install', { mp_session: 'old-token' })
     );
     expect(signedIn.status).toBe(302);
+  });
+
+  test('anyone signed in may grant write access, PM or not (owner decision 2026-10-21)', async () => {
+    const returnTo = '/week?issue=ENG-24';
+    const response = await start(
+      get(
+        `/api/auth/linear?intent=grant_write&returnTo=${encodeURIComponent(returnTo)}`,
+        { mp_session: 'member-token' }
+      )
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe(
+      'https://linear.app/oauth/authorize?state=st-grant_write'
+    );
+    // The member comes back to the issue they were on, drawer open.
+    const oauth = cookieValue(setCookie(response, 'mp_oauth'));
+    const done = await callback(
+      get('/api/auth/linear/callback?code=c-w&state=st-grant_write', {
+        mp_oauth: oauth,
+        mp_session: 'member-token',
+      })
+    );
+    expect(done.status).toBe(303);
+    expect(done.headers.get('location')).toBe(returnTo);
+    expect(calls.signIn).toEqual([
+      { code: 'c-w', codeVerifier: 'cv-grant_write', intent: 'grant_write' },
+    ]);
+    expect(cookieValue(setCookie(done, 'mp_session'))).toBe('new-token');
   });
 
   test('refuses unknown intents and an unusable SESSION_SECRET', async () => {

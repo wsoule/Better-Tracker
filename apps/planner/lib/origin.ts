@@ -1,17 +1,31 @@
 // Request guards with no engine dependency, so they are unit-testable alone.
 
+/** Optional facts an error carries beside its code and sentence. */
+export interface ApiErrorExtras {
+  /**
+   * needs_write_scope: where the person grants the planner write access
+   * to Linear (the grant_write OAuth upgrade), returning to the page that
+   * needed it.
+   */
+  grantWriteHref?: string;
+  /** rate_limited: when Linear said its limit resets, if it said. */
+  retryAt?: string | null;
+}
+
 /** A JSON error body the client islands can show verbatim. */
 export interface ApiErrorBody {
-  error: { code: string; message: string };
+  error: { code: string; message: string } & ApiErrorExtras;
 }
 
 export function jsonError(
   status: number,
   code: string,
-  message: string
+  message: string,
+  extras: ApiErrorExtras = {},
+  headers?: HeadersInit
 ): Response {
-  const body: ApiErrorBody = { error: { code, message } };
-  return Response.json(body, { status });
+  const body: ApiErrorBody = { error: { code, message, ...extras } };
+  return Response.json(body, { status, headers });
 }
 
 /**

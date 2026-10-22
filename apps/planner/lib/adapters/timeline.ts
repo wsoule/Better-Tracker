@@ -161,7 +161,13 @@ export function canEditLinear(p: TimelinePermissions): boolean {
   return p.isPm && p.canWriteLinear;
 }
 
-/** A PM whose Linear token is read-only: offer the grant_write upgrade. */
+/**
+ * A PM whose Linear token is read-only: offer the grant_write upgrade on
+ * the timeline itself, whose Linear writes (re-dating, leads) are PM-only.
+ * Everyone else is offered the same upgrade where they can use it: on an
+ * issue they open (the issue page and slide-over, owner decision
+ * 2026-10-21), never as a timeline banner about controls they do not get.
+ */
 export function needsWriteGrant(p: TimelinePermissions): boolean {
   return p.isPm && !p.canWriteLinear;
 }
