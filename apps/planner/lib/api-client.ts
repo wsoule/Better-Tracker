@@ -3,6 +3,8 @@
 // (the routes' CSRF guard accepts it because the browser sends a matching
 // Origin), and a result the caller can show in a toast without parsing.
 
+import type { IssueBulkPatch, IssueListOptions } from '@better-tracker/core';
+import type { IssueBulkResult } from '@better-tracker/engine';
 import type { ToastInput } from '@better-tracker/ui';
 
 export type ApiResult<T> =
@@ -158,4 +160,63 @@ export function notSavedToast(
     action: { label: 'Allow edits', onClick: () => navigate(grant) },
     duration: 10_000,
   };
+}
+
+/** What GET /api/issues/options answers. */
+export interface IssueListOptionsBody {
+  options: IssueListOptions;
+  mirrorVersion: number;
+}
+
+/** The answer has the options' shape (its four lists and the version). */
+export function isIssueListOptionsBody(
+  body: unknown
+): body is IssueListOptionsBody {
+  if (typeof body !== 'object' || body === null) return false;
+  const { options, mirrorVersion } = body as Record<string, unknown>;
+  if (typeof mirrorVersion !== 'number') return false;
+  if (typeof options !== 'object' || options === null) return false;
+  const lists = options as Record<string, unknown>;
+  return ['initiatives', 'projects', 'people', 'teams'].every((key) =>
+    Array.isArray(lists[key])
+  );
+}
+
+/**
+ * The Issues page's picker options (GET /api/issues/options), read as the
+ * signed-in person. Throws with a sentence when the route refuses or
+ * answers something else.
+ */
+export async function getIssueListOptions(
+  signal?: AbortSignal
+): Promise<IssueListOptionsBody> {
+  const body = await getJson('/api/issues/options', signal);
+  if (!isIssueListOptionsBody(body)) {
+    throw new Error('The filter options came back in an unexpected shape.');
+  }
+  return body;
+}
+
+/** What PATCH /api/issues takes: the issue list's bulk change. */
+export interface IssueBulkRequest {
+  issueIds: readonly string[];
+  patch: IssueBulkPatch;
+  /** The /issues view a grant_write link comes back to. */
+  returnTo?: string;
+}
+
+/**
+ * PATCH /api/issues (the Issues page's bulk change, drop and Undo): one
+ * IssueBulkPatch for up to 100 issues, written to Linear as the signed-in
+ * person. Resolves with the route's answer; a 200 carries `{ result }`
+ * with one outcome per issue (partial results included).
+ */
+export function patchIssues(
+  request: IssueBulkRequest
+): Promise<ApiResult<{ result: IssueBulkResult }>> {
+  return sendJson<{ result: IssueBulkResult }>('PATCH', '/api/issues', {
+    issueIds: [...request.issueIds],
+    patch: request.patch,
+    ...(request.returnTo === undefined ? {} : { returnTo: request.returnTo }),
+  });
 }

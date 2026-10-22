@@ -1606,6 +1606,16 @@ export function createFixtureGateway(
     return entry;
   }
 
+  // An issue as the gateway returns it: a copy carrying its due date from
+  // the fields store (fixture-details.ts keeps it, its one source), as
+  // Linear's IssueFields carry it. Reads never create a fields entry.
+  function withFields(issue: Issue): Issue {
+    return {
+      ...copy(issue),
+      dueDate: store.issueFields[issue.id]?.dueDate ?? null,
+    };
+  }
+
   function scaleOf(teamId: string): EstimateScale {
     return store.estimateScales[teamId] ?? NO_ESTIMATES;
   }
@@ -1777,7 +1787,10 @@ export function createFixtureGateway(
     },
 
     fetchWorkspace(): Promise<WorkspaceData> {
-      return settle(() => copy(store.data));
+      return settle(() => {
+        const { issues, ...rest } = store.data;
+        return { ...copy(rest), issues: issues.map(withFields) };
+      });
     },
 
     fetchLastStateChanges(
@@ -1796,7 +1809,7 @@ export function createFixtureGateway(
     fetchIssue(id: string): Promise<Issue | null> {
       return settle(() => {
         const issue = findIssue(id);
-        return issue === undefined ? null : copy(issue);
+        return issue === undefined ? null : withFields(issue);
       });
     },
 
@@ -1885,7 +1898,7 @@ export function createFixtureGateway(
           issue.lastStateChangeAt = now;
         }
         issue.updatedAt = now;
-        return copy(issue);
+        return withFields(issue);
       });
     },
 
@@ -1987,7 +2000,7 @@ export function createFixtureGateway(
         const issue = findIssue(issueId);
         if (issue === undefined) throw notFound('issue', issueId);
         applyPatch(issue, patch);
-        return copy(issue);
+        return withFields(issue);
       });
     },
 

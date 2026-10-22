@@ -1,0 +1,164 @@
+/* Issues page furniture around the package components, in Gr8r's Tasks
+   layout: the page header (title, the "every issue across" line, quiet
+   receipts), the preset tabs, the notices, the toolbar and chips bar
+   (each a row over a soft rule, spanning the content column), then the
+   grouped list as one panel. The old list stays on screen, dimmed and
+   marked busy, while the server answers a view change. Built only from
+   the shared tokens. */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.title {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
+}
+
+.subtitle {
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
+}
+
+.receipts {
+  font-size: var(--fs-xs);
+  line-height: var(--lh);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The preset tabs scroll sideways rather than wrap on a narrow screen. */
+.tabs {
+  max-width: 1440px;
+  margin: 14px auto 0;
+  padding: 0 48px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* NavTabs wraps its strip; here it stays one row (its rule spanning the
+   column) and the strip scrolls instead. */
+.tabs ul {
+  flex-wrap: nowrap;
+  width: max-content;
+  min-width: 100%;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+/* The toolbar and chips bar sit in the content column, so their own
+   gutter is zero and their rules span the column. */
+.toolbarWrap {
+  --view-toolbar-gutter: 0;
+
+  max-width: 1440px;
+  margin: 4px auto 0;
+  padding: 0 48px;
+}
+
+.notices {
+  display: grid;
+  gap: 8px;
+  max-width: 1440px;
+  margin: 12px auto 8px;
+  padding: 0 48px;
+}
+
+/* The table's column header sticks under the shell's topbar. */
+.list {
+  --task-sticky-top: var(--nav-h, 0px);
+
+  max-width: 1440px;
+  margin: 16px auto 48px;
+  padding: 0 48px;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.list[data-busy='true'] {
+  opacity: 0.6;
+}
+
+/* While rows are selected the bulk bar floats over the end of the list:
+   room to scroll the last rows above it. */
+.list[data-selecting='true'] {
+  padding-bottom: 72px;
+}
+
+/* Loading skeleton: the header's lines, the tabs and the toolbar row. */
+.skeletonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+}
+
+.skeletonTabs {
+  display: flex;
+  align-items: center;
+  height: 36px;
+}
+
+.skeletonToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--border);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .list {
+    transition: none;
+  }
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .tabs,
+  .toolbarWrap,
+  .notices,
+  .list {
+    padding: 0 16px;
+  }
+}
+
+/* Phones: the toolbar's triggers drop their "Sort:" / "Group:" words, as
+   Gr8r's do, so the controls row stays short. */
+@media (width <= 640px) {
+  .title {
+    font-size: var(--fs-xl);
+    letter-spacing: var(--ls-heading);
+  }
+
+  .toolbarWrap :global([data-toolbar-word]) {
+    display: none;
+  }
+}
+
+/* The toolbar's Select button (wrapped, so the button's own display
+   stays its own): only where the checkboxes wait for it, touch screens
+   and phones (the list's hideOnTouch query). */
+.selectWrap {
+  display: none;
+}
+
+@media (pointer: coarse), (width <= 640px) {
+  .selectWrap {
+    display: contents;
+  }
+}

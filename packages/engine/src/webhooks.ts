@@ -7,6 +7,7 @@
 // recorded on the delivery and logged, never thrown to the route.
 
 import {
+  type BlockingRelation,
   elapsedMs,
   isOpenState,
   type IsoDateTime,
@@ -176,6 +177,65 @@ export function keepsLooseIssue(snapshot: Snapshot, issue: Issue): boolean {
   return isOpenState(type);
 }
 
+/**
+ * Every Issue key, so sameIssue compares them all (the Record type makes a
+ * new Issue field a compile error here until it is listed).
+ */
+const ISSUE_KEYS: Readonly<Record<keyof Issue, true>> = {
+  id: true,
+  identifier: true,
+  title: true,
+  url: true,
+  teamId: true,
+  projectId: true,
+  milestoneId: true,
+  assigneeId: true,
+  stateId: true,
+  priority: true,
+  createdAt: true,
+  updatedAt: true,
+  startedAt: true,
+  completedAt: true,
+  canceledAt: true,
+  lastStateChangeAt: true,
+  dueDate: true,
+};
+
+/**
+ * True when two copies of an issue are the same mirror value: every Issue
+ * key compared with === (all are scalars), an absent dueDate (a mirror
+ * written before 2026-10-22) read as null. Used to skip writing a webhook
+ * refetch, or a bulk edit's late mirror patch, that changes nothing.
+ */
+export function sameIssue(a: Issue, b: Issue): boolean {
+  for (const key of Object.keys(ISSUE_KEYS) as (keyof Issue)[]) {
+    const left = key === 'dueDate' ? (a.dueDate ?? null) : a[key];
+    const right = key === 'dueDate' ? (b.dueDate ?? null) : b[key];
+    if (left !== right) return false;
+  }
+  return true;
+}
+
+// Whether Linear's relations of an issue are exactly the mirrored ones
+// touching it: the same ids with the same blocker and blocked ends.
+function sameRelations(
+  snapshot: Snapshot,
+  issueId: string,
+  fetched: readonly BlockingRelation[]
+): boolean {
+  const key = (r: BlockingRelation): string =>
+    `${r.id}\u0000${r.blockerId}\u0000${r.blockedId}`;
+  const mirrored = new Set(
+    snapshot.data.relations
+      .filter((r) => r.blockerId === issueId || r.blockedId === issueId)
+      .map(key)
+  );
+  const seen = new Set(fetched.map(key));
+  if (seen.size !== mirrored.size) return false;
+  for (const entry of seen) if (!mirrored.has(entry)) return false;
+  return true;
+}
+
 async function issueChanges(
   rt: EngineRuntime,
   event: WebhookEvent,
@@ -214,11 +274,22 @@ async function issueChanges(
 
   // Replace every relation touching the issue with Linear's current set.
   const relations = await gateway.fetchIssueRelations(issueId);
+  const mirrored = snapshot.issues.get(issueId);
+  const entity = refetchedIssue(event, issue, mirrored);
+  // The echo of a change the mirror already holds (a person's edit or a
+  // bulk move, patched at once): writing it again would only bump the
+  // mirror version and make the next read re-index the whole mirror.
+  if (
+    changes.upsert.length === 0 &&
+    changes.remove.length === 0 &&
+    mirrored !== undefined &&
+    sameIssue(mirrored, entity) &&
+    sameRelations(snapshot, issueId, relations)
+  ) {
+    return { upsert: [], remove: [] };
+  }
   changes.remove.push(...relationRefsTouching(snapshot, issueId));
-  changes.upsert.push({
-    kind: 'issue',
-    entity: refetchedIssue(event, issue, snapshot.issues.get(issueId)),
-  });
+  changes.upsert.push({ kind: 'issue', entity });
   for (const relation of relations) {
     changes.upsert.push({ kind: 'relation', entity: relation });
   }

@@ -1,8 +1,11 @@
+import type { Issue } from '@better-tracker/core';
 import { LinearApiError, type LinearGateway } from '@better-tracker/linear';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import type { Engine } from '../src/index';
+import { sameIssue } from '../src/webhooks';
 import {
+  actorFor,
   createDemoHarness,
   type DemoHarness,
   fixtureIssue,
@@ -179,6 +182,188 @@ describe('issue events', () => {
     fixtureIssue(h.fixture, 'iss-eng-80').stateId = 'st-eng-done';
     await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-80'));
     expect((await snapshot(h)).issues.has('iss-eng-80')).toBe(false);
+  });
+});
+
+// A plain issue value for sameIssue (no harness needed).
+function fixtureIssueCopy(): Issue {
+  return {
+    id: 'iss-1',
+    identifier: 'ENG-1',
+    title: 'Title',
+    url: 'https://linear.app/x/issue/ENG-1',
+    teamId: 'team-eng',
+    projectId: null,
+    milestoneId: null,
+    assigneeId: null,
+    stateId: 'st-eng-todo',
+    priority: 0,
+    createdAt: '2026-10-01T00:00:00.000Z',
+    updatedAt: '2026-10-02T00:00:00.000Z',
+    startedAt: null,
+    completedAt: null,
+    canceledAt: null,
+    lastStateChangeAt: '2026-10-01T00:00:00.000Z',
+    dueDate: null,
+  };
+}
+
+// Every change the planner writes comes back as an Issue webhook whose
+// refetch equals what the mirror already holds (architecture §7, §9.10 of
+// the issue list spec): writing it again would bump the mirror version and
+// re-index the whole mirror on the next read.
+describe('echoes of what the mirror already holds', () => {
+  async function versionOf(h: DemoHarness): Promise<number> {
+    return (await h.engine.load(WORKSPACE_ID)).mirrorVersion;
+  }
+
+  test('a refetch equal to the mirror writes nothing', async () => {
+    const h = await linearHarness();
+    const before = await versionOf(h);
+    expect(
+      await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-12'))
+    ).toBe('processed');
+    expect(await versionOf(h)).toBe(before);
+  });
+
+  test('a changed field, or a changed relation set, still applies', async () => {
+    const h = await linearHarness();
+    const before = await versionOf(h);
+    fixtureIssue(h.fixture, 'iss-eng-12').priority = 3;
+    await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-12'));
+    const afterField = await versionOf(h);
+    expect(afterField).toBeGreaterThan(before);
+    expect((await snapshot(h)).issues.get('iss-eng-12')?.priority).toBe(3);
+
+    h.fixture.data.relations.push({
+      id: 'rel-echo',
+      blockerId: 'iss-eng-13',
+      blockedId: 'iss-eng-12',
+    });
+    await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-12'));
+    expect(await versionOf(h)).toBeGreaterThan(afterField);
+    expect(
+      (await snapshot(h)).data.relations.some((r) => r.id === 'rel-echo')
+    ).toBe(true);
+
+    // The same relation id now joining other issues is a change too.
+    const moved = h.fixture.data.relations.find((r) => r.id === 'rel-echo');
+    if (moved !== undefined) moved.blockerId = 'iss-eng-17';
+    const afterRelation = await versionOf(h);
+    await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-12'));
+    expect(await versionOf(h)).toBeGreaterThan(afterRelation);
+  });
+
+  test('an echo naming a milestone the mirror lacks still brings in its project', async () => {
+    const h = await linearHarness();
+    h.fixture.data.milestones.push({
+      id: 'ms-atlas-4',
+      projectId: 'proj-atlas',
+      name: 'Decommission',
+      description: null,
+      targetDate: null,
+      sortOrder: 4,
+    });
+    fixtureIssue(h.fixture, 'iss-eng-17').milestoneId = 'ms-atlas-4';
+    // The mirror already holds the issue exactly as Linear has it, but not
+    // the milestone it names (created since the last sync).
+    const held = (await snapshot(h)).issues.get('iss-eng-17');
+    if (held === undefined) throw new Error('iss-eng-17 is not mirrored');
+    await h.store.applyMirrorChanges(WORKSPACE_ID, {
+      upsert: [
+        { kind: 'issue', entity: { ...held, milestoneId: 'ms-atlas-4' } },
+      ],
+      remove: [],
+    });
+    const before = await versionOf(h);
+    expect(
+      await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-17'))
+    ).toBe('processed');
+    expect(await versionOf(h)).toBeGreaterThan(before);
+    const s = await snapshot(h);
+    expect(s.milestones.get('ms-atlas-4')?.name).toBe('Decommission');
+    expect(s.issues.get('iss-eng-17')?.milestoneId).toBe('ms-atlas-4');
+  });
+
+  test('sameIssue reads an absent due date (an older mirror) as none', () => {
+    const base = { ...fixtureIssueCopy() };
+    delete base.dueDate;
+    expect(sameIssue(base, { ...base, dueDate: null })).toBe(true);
+    expect(sameIssue(base, { ...base, dueDate: '2026-11-30' })).toBe(false);
+    expect(sameIssue(base, { ...base, title: 'Other' })).toBe(false);
+    expect(sameIssue(base, { ...base })).toBe(true);
+  });
+
+  test('a due date Linear changed applies', async () => {
+    const h = await linearHarness();
+    const before = await versionOf(h);
+    h.fixture.issueFields['iss-eng-12'] = {
+      ...(h.fixture.issueFields['iss-eng-12'] ?? {
+        description: null,
+        labelIds: [],
+        estimate: null,
+      }),
+      dueDate: '2026-11-30',
+    };
+    await h.engine.handleWebhook(event('Issue', 'update', 'iss-eng-12'));
+    expect(await versionOf(h)).toBeGreaterThan(before);
+    expect((await snapshot(h)).issues.get('iss-eng-12')?.dueDate).toBe(
+      '2026-11-30'
+    );
+  });
+
+  test('after a bulk move, the echo of every moved issue writes nothing', async () => {
+    const h = await linearHarness();
+    const chloe = await actorFor(h, 'user-chloe');
+    const result = await h.engine.updateIssues(
+      chloe,
+      ['iss-eng-54', 'iss-eng-55', 'iss-eng-18'],
+      { move: { projectId: 'proj-garnet', milestoneId: 'ms-garnet-2' } }
+    );
+    expect(result.counts.changed).toBe(3);
+    const before = await versionOf(h);
+    for (const id of ['iss-eng-54', 'iss-eng-55', 'iss-eng-18']) {
+      expect(
+        await h.engine.handleWebhook({
+          ...event('Issue', 'update', id),
+          updatedFrom: { projectMilestoneId: null },
+        })
+      ).toBe('processed');
+    }
+    expect(await versionOf(h)).toBe(before);
+    expect((await snapshot(h)).issues.get('iss-eng-18')).toMatchObject({
+      projectId: 'proj-garnet',
+      milestoneId: 'ms-garnet-2',
+    });
+  });
+
+  test('after a bulk status change, the echoes write nothing', async () => {
+    const h = await linearHarness();
+    const chloe = await actorFor(h, 'user-chloe');
+    h.clock.set('2026-10-21T16:00:00.000Z');
+    const result = await h.engine.updateIssues(
+      chloe,
+      ['iss-eng-13', 'iss-ops-1'],
+      { state: { type: 'started', name: 'In Review' } }
+    );
+    expect(result.counts.changed).toBe(2);
+    const before = await versionOf(h);
+    // Linear names the moved state in updatedFrom: the webhook dates the
+    // move from updatedAt, as the write's answer did.
+    for (const [id, from] of [
+      ['iss-eng-13', 'st-eng-todo'],
+      ['iss-ops-1', 'st-ops-backlog'],
+    ] as const) {
+      await h.engine.handleWebhook({
+        ...event('Issue', 'update', id),
+        updatedFrom: { stateId: from },
+      });
+    }
+    expect(await versionOf(h)).toBe(before);
+    expect((await snapshot(h)).issues.get('iss-ops-1')).toMatchObject({
+      stateId: 'st-ops-review',
+      lastStateChangeAt: '2026-10-21T16:00:00.000Z',
+    });
   });
 });
 

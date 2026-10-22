@@ -478,6 +478,11 @@ function DrawerBody({
           ))}
         </ul>
       )}
+      <p className={css.listLink}>
+        <Link href={model.listHref} className="accentLink">
+          Open as list
+        </Link>
+      </p>
 
       <h3 className={css.subhead}>What does this wait on?</h3>
       {model.waitsOn.length === 0 ? (

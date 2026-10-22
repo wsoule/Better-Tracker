@@ -19,6 +19,7 @@ import {
   signOut,
   startOAuth,
 } from './auth';
+import { updateIssues } from './bulk-issue-edits';
 import { cleanup } from './cleanup';
 import { runDaily } from './daily';
 import { getIssueDetail } from './issue-detail';
@@ -28,6 +29,7 @@ import {
   removeRelation,
   updateIssue,
 } from './issue-edits';
+import { getIssueList, getIssueListOptions } from './issue-list';
 import { loadWorkspace } from './load';
 import {
   setMilestoneDoneMeans,
@@ -110,6 +112,11 @@ export function createEngine(deps: EngineDeps): Engine {
       getGraph(rt, workspaceId, scope, viewer),
     getMilestoneDetail: (workspaceId, milestoneId, viewer) =>
       getMilestoneDetail(rt, workspaceId, milestoneId, viewer),
+    // Reads: a guest gets the list and its options too.
+    getIssueList: (workspaceId, query, viewer) =>
+      getIssueList(rt, workspaceId, query, viewer),
+    getIssueListOptions: (workspaceId, viewer) =>
+      getIssueListOptions(rt, workspaceId, viewer),
     listRuns: (workspaceId, limit) => deps.store.listRuns(workspaceId, limit),
     getRun: async (workspaceId, runId, viewer) => {
       const found = await deps.store.getRun(workspaceId, runId);
@@ -192,6 +199,9 @@ export function createEngine(deps: EngineDeps): Engine {
     ),
     removeRelation: writable((actor, relationId) =>
       removeRelation(rt, actor, relationId)
+    ),
+    updateIssues: writable((actor, issueIds, patch) =>
+      updateIssues(rt, actor, issueIds, patch)
     ),
 
     cleanup: () => cleanup(rt),

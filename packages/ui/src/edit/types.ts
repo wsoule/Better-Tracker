@@ -67,9 +67,18 @@ export interface PickerOption {
  * How the trigger is drawn. value = the property sheet's voice (the value
  * as text, a --surface-2 pill on hover, Gr8r's .pillbtn); pill = a
  * bordered pill (the status line's state); quiet = a small ghost button
- * ("+ Add"). `mono` is the old name of `pill` and draws the same.
+ * ("+ Add"); cell = a list cell's value (Gr8r's .pillbtn at 26px, ghost
+ * until hover, its text where a plain cell's would be); bar = a ghost
+ * button on an inverted bar (the bulk bar's actions, in --text-inv). `mono`
+ * is the old name of `pill` and draws the same.
  */
-export type PickerAppearance = 'value' | 'pill' | 'mono' | 'quiet';
+export type PickerAppearance =
+  | 'value'
+  | 'pill'
+  | 'mono'
+  | 'quiet'
+  | 'cell'
+  | 'bar';
 
 /** Wording of every built-in label in the edit family. */
 export interface EditLabels {
@@ -142,10 +151,18 @@ interface PickerBaseProps {
   /** Filter `options` by the search text here. Default true; false when
       the host already filtered them (server search). */
   filter?: boolean;
+  /** Draw the search row. Default true; false for a short menu (Filter,
+      Sort, a row's "…"): the list itself takes focus and the arrow keys,
+      Enter and Space work on it. */
+  searchable?: boolean;
   appearance?: PickerAppearance;
   /** Which trigger edge the popover lines up with. Default 'start'; 'end'
       for a trigger at the right of its row (a section's "+ Add"). */
   align?: 'start' | 'end';
+  /** Opens at this viewport point instead of under the trigger (a row's
+      context menu at the pointer); the trigger still takes focus back
+      when it closes. A phone keeps its bottom sheet. */
+  anchorPoint?: { x: number; y: number } | null;
   /** Replaces the trigger's face (an "Add" action, a host's own glyph). */
   trigger?: ReactNode;
   /** Replaces the trigger's accessible name (with a custom face). */
@@ -183,6 +200,11 @@ export interface MultiPickerProps extends PickerBaseProps {
   /** Computes the list after a toggle; default adds or removes `toggled`.
       (LabelPicker uses it for groups that allow one label.) */
   resolveToggle?: (current: readonly string[], toggled: string) => string[];
+  /** How chosen options are marked: 'box' (default) a checkbox square on
+      every row; 'tick' the single picker's trailing accent check and no
+      squares, for a menu whose groups each hold one choice (a Sort or
+      Group menu whose resolveToggle keeps one per group). */
+  marks?: 'box' | 'tick';
 }
 
 export type PickerPopoverProps = SinglePickerProps | MultiPickerProps;

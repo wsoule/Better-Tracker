@@ -93,7 +93,7 @@ function showInTopLayer(layer: HTMLElement): void {
  */
 function positionLayer(
   layer: HTMLElement,
-  anchor: HTMLElement | null,
+  anchor: HTMLElement | { x: number; y: number } | null,
   panel: HTMLElement | null,
   sheet: boolean,
   align: 'start' | 'end'
@@ -106,14 +106,20 @@ function positionLayer(
   }
   // The trigger's own box is its drawn pill (the value face pads itself
   // and takes the padding back with a negative margin), so the popover
-  // lines up with the pill's edge.
-  const box = anchor.getBoundingClientRect();
-  const rect = {
-    top: box.top,
-    bottom: box.bottom,
-    left: box.left,
-    right: box.right,
-  };
+  // lines up with the pill's edge. A point (a context menu) is a box of
+  // no size there.
+  const rect =
+    anchor instanceof HTMLElement
+      ? (() => {
+          const box = anchor.getBoundingClientRect();
+          return {
+            top: box.top,
+            bottom: box.bottom,
+            left: box.left,
+            right: box.right,
+          };
+        })()
+      : { top: anchor.y, bottom: anchor.y, left: anchor.x, right: anchor.x };
   style.setProperty(
     '--picker-anchor-width',
     `${Math.round(rect.right - rect.left)}px`
@@ -192,6 +198,11 @@ function keepInView(scroller: HTMLElement, el: HTMLElement): void {
  * Placement: the popover sits in the browser's top layer when available,
  * anchored below the trigger (above it when it does not fit), sliding left
  * at the right edge; at 640px and below it is a full-width bottom sheet.
+ *
+ * Menus: `searchable={false}` drops the search row, so a short list of
+ * actions (Filter, Sort, a row's "…") reads as a menu. The listbox itself
+ * then takes focus (aria-activedescendant on it), with the same keys plus
+ * Space to pick.
  */
 export function PickerPopover(props: PickerPopoverProps): ReactNode {
   const {
@@ -209,8 +220,10 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
     query: queryProp,
     onQueryChange,
     filter = true,
+    searchable = true,
     appearance = 'value',
     align = 'start',
+    anchorPoint = null,
     trigger,
     triggerLabel,
     disabled = false,
@@ -222,6 +235,9 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
     className,
   } = props;
   const multiple = props.multiple === true;
+  // A multiple picker drawn as one-choice-per-group menu: no squares, the
+  // trailing tick instead.
+  const boxes = multiple && props.marks !== 'tick';
   const action = props.multiple !== true && props.action === true;
   const labels = editLabels(labelOverrides);
 
@@ -234,15 +250,21 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
   const layerRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const sheet = useMediaQuery(SHEET_QUERY);
   const hoverCapable = useMediaQuery(HOVER_QUERY);
+  // The point as two numbers, so a host's new object for the same point
+  // does not re-place the open popover.
+  const anchorX = anchorPoint?.x ?? null;
+  const anchorY = anchorPoint?.y ?? null;
 
   const [openState, setOpenState] = useState(false);
   const isOpen = !disabled && (openProp ?? openState);
   const [queryState, setQueryState] = useState('');
-  const query = queryProp ?? queryState;
+  // A menu has no search box, so nothing narrows it.
+  const query = searchable ? (queryProp ?? queryState) : '';
   // null = automatic: the chosen option when nothing is typed, else the
   // first match. The arrow keys and the pointer make it explicit.
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -377,12 +399,22 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
     if (layer === null) return undefined;
     showInTopLayer(layer);
     let frame = 0;
+    const point =
+      anchorX === null || anchorY === null ? null : { x: anchorX, y: anchorY };
     const place = (): void => {
       frame = 0;
-      positionLayer(layer, triggerRef.current, panelRef.current, sheet, align);
+      positionLayer(
+        layer,
+        point ?? triggerRef.current,
+        panelRef.current,
+        sheet,
+        align
+      );
     };
     place();
-    inputRef.current?.focus({ preventScroll: true });
+    (searchable ? inputRef.current : listRef.current)?.focus({
+      preventScroll: true,
+    });
     const schedule = (event?: Event): void => {
       if (event?.target instanceof Node && layer.contains(event.target)) {
         return;
@@ -402,7 +434,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
       document.removeEventListener('scroll', schedule, true);
       observer?.disconnect();
     };
-  }, [isOpen, sheet, align]);
+  }, [isOpen, sheet, align, searchable, anchorX, anchorY]);
 
   useEffect(() => {
     if (!isOpen || activeId === undefined) return;
@@ -445,8 +477,15 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
     setKeyboardNav(true);
   }
 
-  function onInputKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+  // The search box's keys, and the list's when there is no search box
+  // (where Space picks too, as in any menu).
+  function onListKeyDown(event: KeyboardEvent<HTMLElement>): void {
     if (event.nativeEvent.isComposing) return;
+    if (!searchable && event.key === ' ') {
+      event.preventDefault();
+      if (activeRow !== null) choose(activeRow);
+      return;
+    }
     switch (event.key) {
       case 'ArrowDown':
         event.preventDefault();
@@ -612,7 +651,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => choose(row)}
       >
-        {multiple && row.kind !== 'retry' ? (
+        {boxes && row.kind !== 'retry' ? (
           <span
             className={styles.check}
             aria-hidden="true"
@@ -632,7 +671,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
         {hint !== undefined && hint !== '' ? (
           <span className={styles.hint}>{hint}</span>
         ) : null}
-        {!multiple && chosen ? (
+        {!boxes && chosen ? (
           <Check
             className={styles.tick}
             size={13}
@@ -654,7 +693,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
         className={cx(styles.option, styles.disabled)}
         onMouseDown={(event) => event.preventDefault()}
       >
-        {multiple ? <span className={styles.check} aria-hidden="true" /> : null}
+        {boxes ? <span className={styles.check} aria-hidden="true" /> : null}
         <span className={styles.optionMark}>
           {option.mark !== undefined ? (
             <PickerMarkView mark={option.mark} />
@@ -711,50 +750,60 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
         }
       }}
     >
-      <div ref={panelRef} className={styles.panel}>
-        <div className={styles.searchRow}>
-          <Search
-            className={styles.searchIcon}
-            size={14}
-            strokeWidth={1.5}
-            aria-hidden="true"
-          />
-          <input
-            ref={inputRef}
-            type="text"
-            role="combobox"
-            aria-label={label}
-            aria-expanded="true"
-            aria-controls={listId}
-            aria-autocomplete="list"
-            aria-activedescendant={activeId}
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            enterKeyHint="done"
-            className={styles.input}
-            placeholder={searchPlaceholder ?? labels.search}
-            value={query}
-            onChange={(event) => changeQuery(event.target.value)}
-            onKeyDown={onInputKeyDown}
-          />
-          <button
-            type="button"
-            tabIndex={-1}
-            className={styles.close}
-            aria-label={labels.close}
-            onClick={() => close('button')}
-          >
-            <span className={styles.closeKey}>
-              <Kbd>Esc</Kbd>
-            </span>
-            <span className={styles.closeWord}>{labels.done}</span>
-          </button>
-        </div>
+      <div
+        ref={panelRef}
+        className={styles.panel}
+        data-searchable={searchable ? undefined : 'false'}
+      >
+        {searchable ? (
+          <div className={styles.searchRow}>
+            <Search
+              className={styles.searchIcon}
+              size={14}
+              strokeWidth={1.5}
+              aria-hidden="true"
+            />
+            <input
+              ref={inputRef}
+              type="text"
+              role="combobox"
+              aria-label={label}
+              aria-expanded="true"
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={activeId}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="done"
+              className={styles.input}
+              placeholder={searchPlaceholder ?? labels.search}
+              value={query}
+              onChange={(event) => changeQuery(event.target.value)}
+              onKeyDown={onListKeyDown}
+            />
+            <button
+              type="button"
+              tabIndex={-1}
+              className={styles.close}
+              aria-label={labels.close}
+              onClick={() => close('button')}
+            >
+              <span className={styles.closeKey}>
+                <Kbd>Esc</Kbd>
+              </span>
+              <span className={styles.closeWord}>{labels.done}</span>
+            </button>
+          </div>
+        ) : null}
         <div ref={scrollRef} className={styles.scroll}>
           <div
+            ref={listRef}
             role="listbox"
             id={listId}
+            tabIndex={searchable ? undefined : -1}
+            aria-activedescendant={searchable ? undefined : activeId}
+            onKeyDown={searchable ? undefined : onListKeyDown}
             aria-label={label}
             aria-multiselectable={multiple ? 'true' : undefined}
             aria-busy={loading ? 'true' : undefined}
@@ -806,7 +855,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
             <PendingNote text={labels.saving} />
           ) : saveError !== null ? (
             <SaveErrorLine label={labels.notSaved} message={saveError} />
-          ) : (
+          ) : searchable ? (
             <span className={styles.hints} aria-hidden="true">
               <span>
                 <Kbd>↑↓</Kbd> {labels.move}
@@ -815,6 +864,19 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
                 <Kbd>↵</Kbd> {multiple ? labels.toggle : labels.select}
               </span>
             </span>
+          ) : null}
+          {searchable ? null : (
+            // The search row's close button is gone with it; a phone sheet
+            // still needs one ("Done").
+            <button
+              type="button"
+              tabIndex={-1}
+              className={styles.sheetClose}
+              aria-label={labels.close}
+              onClick={() => close('button')}
+            >
+              {labels.done}
+            </button>
           )}
         </div>
         <span className="srOnly" role="status">

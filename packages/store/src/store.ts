@@ -1625,6 +1625,38 @@ class SqlStore implements Store {
     );
   }
 
+  async appendAuditEntries(entries: readonly AuditEntry[]): Promise<void> {
+    if (entries.length === 0) return;
+    // One statement for the whole list. The ORDER BY over the array's
+    // ordinality makes the identity ids follow the given order (an
+    // INSERT … SELECT without it promises no row order), so entries that
+    // share one occurred_at still list in a stable order. jsonParam cleans
+    // every string (U+0000, lone surrogates) as write() does.
+    await this.write(
+      `INSERT INTO audit_log (workspace_id, actor_user_id, action, subject_id,
+         before_value, after_value, occurred_at)
+       SELECT e.value->>'workspaceId', e.value->>'actorUserId',
+         e.value->>'action', e.value->>'subjectId', e.value->'before',
+         e.value->'after', (e.value->>'at')::timestamptz
+       FROM jsonb_array_elements($1::text::jsonb) WITH ORDINALITY AS e(value, ord)
+       ORDER BY e.ord`,
+      [
+        jsonParam(
+          entries.map((entry) => ({
+            workspaceId: entry.workspaceId,
+            actorUserId: entry.actorUserId,
+            action: entry.action,
+            subjectId: entry.subjectId,
+            // undefined is stored as JSON null, as appendAudit does.
+            before: entry.before === undefined ? null : entry.before,
+            after: entry.after === undefined ? null : entry.after,
+            at: entry.at,
+          }))
+        ),
+      ]
+    );
+  }
+
   async listAudit(workspaceId: string, limit: number): Promise<AuditEntry[]> {
     const rows = await this.sql.query<AuditRow>(
       `SELECT workspace_id, actor_user_id, action, subject_id, before_value,

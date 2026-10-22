@@ -145,6 +145,7 @@ fragment IssueFields on Issue {
   startedAt
   completedAt
   canceledAt
+  dueDate
   team { id }
   project { id }
   projectMilestone { id }

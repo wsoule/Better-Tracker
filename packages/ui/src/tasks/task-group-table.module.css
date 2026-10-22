@@ -4,7 +4,14 @@
    status mark, semibold title, quiet count, then the due date and
    progress) over flat rows split by soft dividers. Rows take the hover
    fill; the open row the accent tint. Status colour lives in the glyphs,
-   the due date and the progress fill; names stay neutral text. */
+   the due date and the progress fill; names stay neutral text.
+
+   The issue list's additions are switched on by data attributes on the
+   root (data-select, data-drag, data-row-actions), so My week's table,
+   which sets none of them, draws exactly as before: lead columns (an 18px
+   drag grip on fine pointers, a 30px checkbox), a 40px "…" column, the
+   selected / pending / done / dragged rows, drop targets, tags, the
+   amber "Missing" line and group footers. */
 
 .root {
   /* Where row content starts: under the group's status mark (group row
@@ -12,6 +19,14 @@
   --task-indent: 38px;
   --task-key-col: 64px;
   --task-pad-x: 14px;
+  /* The lead columns before the title (the grip only where a fine pointer
+     can drag), the trailing actions column, and --task-lead: the width of
+     the lead columns this table draws, so group headers, empty lines and
+     footers line up with the rows' titles. */
+  --task-grip-col: 0px;
+  --task-check-col: 30px;
+  --task-actions-col: 40px;
+  --task-lead: 0px;
 
   position: relative;
   /* clip, not hidden: the panel keeps its rounded corners without
@@ -26,12 +41,33 @@
   container: task-table / inline-size;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .root {
+    --task-grip-col: 18px;
+  }
+}
+
+.root[data-drag] {
+  --task-lead: var(--task-grip-col);
+}
+
+.root[data-select] {
+  --task-lead: var(--task-check-col);
+}
+
+.root[data-drag][data-select] {
+  --task-lead: calc(var(--task-grip-col) + var(--task-check-col));
+}
+
 /* ---- column header ----------------------------------------------------- */
 
 .head {
   position: sticky;
   top: var(--task-sticky-top, 0);
-  z-index: 2;
+  /* Above every in-row layer (the lead, picker and actions cells and the
+     ↗ link sit at 2 over the stretched title link), so rows scrolling
+     under the header never paint through it. */
+  z-index: 3;
   display: grid;
   grid-template-columns: var(--task-cols);
   align-items: center;
@@ -50,6 +86,11 @@
 
 .headTitle {
   padding-left: var(--task-indent);
+}
+
+/* An empty lead or actions cell of the column header. */
+.leadCell {
+  min-width: 0;
 }
 
 /* ---- sections: recessed bands ----------------------------------------- */
@@ -197,6 +238,84 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A state, priority or avatar glyph in the status mark's place. */
+.groupMark {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* "Next", "↑2": the timeline's small pills. */
+.tags {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+/* The checkbox (and the grip's width) before the chevron, in the rows'
+   lead columns: the negative margin takes back the row's left padding so
+   the box sits exactly above the rows' boxes. */
+.groupLead {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  width: var(--task-lead);
+  margin-left: -8px;
+}
+
+.groupLead > .checkCell {
+  width: var(--task-check-col);
+}
+
+/* The group's "…" menu: quiet until the header is hovered or it is in
+   use (Gr8r's .grp .ibtn). */
+.groupActions {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  margin: -4px -6px -4px 0;
+  opacity: 0.55;
+  transition: opacity var(--dur) ease;
+}
+
+.groupActions:focus-within,
+.groupActions:has([aria-expanded='true']) {
+  opacity: 1;
+}
+
+/* Why a dragged row cannot land here ("Already there."): a tooltip does
+   not show during a drag, so the header says it. */
+.dropReason {
+  max-width: 320px;
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+
+/* An input the group lacks ("Missing: done means…"), under its title. */
+.missing {
+  margin: 0;
+  padding: 0 var(--task-pad-x) 9px calc(var(--task-indent) + var(--task-lead));
+  font-size: var(--fs-xs);
+  color: var(--amber);
+}
+
 .groupMeta {
   flex: none;
   display: flex;
@@ -257,6 +376,14 @@
 
   .groupRow:hover .toggle {
     color: var(--text);
+  }
+
+  .groupRow:hover .groupActions {
+    opacity: 1;
+  }
+
+  .groupRow:hover .tag {
+    background: var(--surface-3);
   }
 
   .groupLink:hover {
@@ -390,6 +517,73 @@
   vertical-align: 1px;
 }
 
+/* What is happening to the row ("Moving to Dual-write…") or why a change
+   did not happen ("Not moved · …", warning). */
+.note {
+  margin-left: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.note:where(
+  [data-tone='danger'],
+  [data-tone='warning'],
+  [data-tone='info'],
+  [data-tone='success'],
+  [data-tone='accent']
+) {
+  color: var(--tone-ink);
+}
+
+/* Lead and trailing cells sit above the stretched title link, so their
+   controls stay their own targets. */
+.gripCell,
+.checkCell,
+.actionsCell {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+
+.gripCell {
+  overflow: hidden;
+}
+
+.checkWrap {
+  display: inline-flex;
+}
+
+/* Gr8r's drag handle: shown on row hover, only where a row can be
+   dragged (a fine pointer; the attribute comes from the same query). */
+.grip {
+  display: none;
+  place-items: center;
+  width: 16px;
+  height: 24px;
+  border-radius: var(--r-xs);
+  color: var(--text-4);
+  opacity: 0;
+  cursor: grab;
+  transition: opacity var(--dur) ease;
+}
+
+.grip[data-draggable='true'] {
+  display: inline-grid;
+}
+
+.grip:active {
+  cursor: grabbing;
+}
+
+/* A cell whose value is a host control (a picker trigger). */
+.cell[data-control] {
+  position: relative;
+  z-index: 2;
+}
+
 .cell {
   display: flex;
   align-items: center;
@@ -461,11 +655,115 @@
   color: var(--text-3);
 }
 
+/* The assignee: a round avatar and the name; "Unassigned" in its tone
+   (muted, or warning when the issue needs a person). */
+.person {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.personName {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.person[data-tone] .personName {
+  color: var(--tone-ink);
+}
+
+/* "Project › Milestone", ellipsized; "No milestone" muted. */
+/* "Dual-write · Atlas billing migration": the milestone's name keeps its
+   room (cut only when it alone is wider than the cell); its project
+   follows muted and gives way first. */
+.milestone {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.milestoneName {
+  flex: 0 0 auto;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.milestoneProject {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  color: var(--text-3);
+}
+
+.milestone[data-tone='muted'] {
+  color: var(--text-3);
+}
+
 .emptyLine {
   margin: 0;
-  padding: 10px var(--task-pad-x) 10px var(--task-indent);
+  padding: 10px var(--task-pad-x) 10px
+    calc(var(--task-indent) + var(--task-lead));
   font-size: var(--fs-sm);
   color: var(--text-3);
+}
+
+/* "Showing 12 of 212 · Show more · Only this milestone" (Gr8r's quiet
+   add-row voice). */
+.footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-height: 36px;
+  padding: 6px var(--task-pad-x) 6px calc(var(--task-indent) + var(--task-lead));
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.footerItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footerDot {
+  color: var(--text-4);
+}
+
+.footerAction {
+  font: inherit;
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition:
+    color var(--dur) ease,
+    text-decoration-color var(--dur) ease;
+}
+
+.footerAction:disabled {
+  color: var(--text-3);
+  font-weight: var(--fw-regular);
+  cursor: default;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .footerAction:not(:disabled):hover {
+    color: var(--text);
+    text-decoration-color: var(--border-strong);
+  }
 }
 
 /* A section with no groups says so under its band. */
@@ -486,6 +784,59 @@
   background: var(--accent-soft);
 }
 
+/* Selected rows (Gr8r's .trow.sel): the accent tint, kept while focused. */
+.row[data-selected='true'],
+.row[data-selected='true']:has(.titleLink:focus-visible) {
+  background: var(--accent-soft);
+}
+
+/* A change in flight: the row dims, its note stays readable. */
+.row[data-pending='true'] .key,
+.row[data-pending='true'] .titleText,
+.row[data-pending='true'] .cell {
+  opacity: 0.5;
+}
+
+/* A closed issue (Gr8r's .trow.done). */
+.row[data-done='true'] .titleLink {
+  color: var(--text-3);
+  text-decoration-line: line-through;
+  text-decoration-color: var(--text-3);
+}
+
+/* The rows a drag is carrying. */
+.row[data-dragged='true'] {
+  opacity: 0.35;
+}
+
+/* A group a drag may land on: a faint accent wash and an inset accent
+   line; one that would refuse it keeps the not-allowed cursor. */
+.group[data-drop='ok'] {
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.group[data-drop='no'] {
+  cursor: not-allowed;
+}
+
+/* The drag image (setDragImage): an inverted card naming the count,
+   drawn off screen for the moment the browser takes its picture. */
+.dragGhost {
+  position: fixed;
+  top: -1000px;
+  left: -1000px;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  box-shadow: var(--shadow-drag);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  color: var(--text-inv);
+  pointer-events: none;
+}
+
 .groupRow:has(.toggle:focus-visible) {
   z-index: 1;
   background: var(--surface-2);
@@ -502,12 +853,91 @@
 }
 
 @media (hover: hover) and (width >= 901px) {
-  .row:not([aria-current='true']):hover {
+  .row:not([aria-current='true'], [data-selected='true']):hover {
     background: var(--surface-2);
   }
 
   .row:hover .titleLink {
     text-decoration-color: var(--border-strong);
+  }
+
+  .row:hover .grip {
+    opacity: 1;
+  }
+
+  /* No hover fill under a drag: the drop target's wash is the signal. */
+  .root[data-dragging] .row:hover {
+    background: transparent;
+  }
+}
+
+/* ---- narrower: columns give way (dropColumns) -------------------------- */
+
+/* A table too narrow for every column beside a readable title steps down
+   at 1160, 1000 and 860px of its own width: each step's data-drop-*
+   attribute names the columns it drops (the host's order) and its
+   --task-cols-* the grid without them. Below 720px the cards show every
+   column again. Steps nest: a narrower step drops what the wider ones
+   did, and its grid comes later. */
+@container task-table (720px <= width < 1160px) {
+  .root[data-drop-lg] :is(.head, .row) {
+    grid-template-columns: var(--task-cols-lg);
+  }
+
+  .root[data-drop-lg~='project'] [data-column='project'],
+  .root[data-drop-lg~='milestone'] [data-column='milestone'],
+  .root[data-drop-lg~='assignee'] [data-column='assignee'],
+  .root[data-drop-lg~='state'] [data-column='state'],
+  .root[data-drop-lg~='priority'] [data-column='priority'],
+  .root[data-drop-lg~='due'] [data-column='due'] {
+    display: none;
+  }
+}
+
+@container task-table (720px <= width < 1000px) {
+  .root[data-drop-md] :is(.head, .row) {
+    grid-template-columns: var(--task-cols-md);
+  }
+
+  .root[data-drop-md~='project'] [data-column='project'],
+  .root[data-drop-md~='milestone'] [data-column='milestone'],
+  .root[data-drop-md~='assignee'] [data-column='assignee'],
+  .root[data-drop-md~='state'] [data-column='state'],
+  .root[data-drop-md~='priority'] [data-column='priority'],
+  .root[data-drop-md~='due'] [data-column='due'] {
+    display: none;
+  }
+}
+
+@container task-table (720px <= width < 860px) {
+  .root[data-drop-sm] :is(.head, .row) {
+    grid-template-columns: var(--task-cols-sm);
+  }
+
+  .root[data-drop-sm~='project'] [data-column='project'],
+  .root[data-drop-sm~='milestone'] [data-column='milestone'],
+  .root[data-drop-sm~='assignee'] [data-column='assignee'],
+  .root[data-drop-sm~='state'] [data-column='state'],
+  .root[data-drop-sm~='priority'] [data-column='priority'],
+  .root[data-drop-sm~='due'] [data-column='due'] {
+    display: none;
+  }
+}
+
+/* ---- touch: checkboxes wait for the host's selection mode ---------------- */
+
+/* hideOnTouch: on a touch screen or a phone the checkboxes are hidden
+   here, not by the host after hydration, so the server's markup and the
+   page agree (no flash of checkboxes). The column keeps its place at 0px
+   and the boxes stay in the DOM, invisible and out of the tab order. */
+@media (pointer: coarse), (width <= 640px) {
+  .root[data-touch-select='hidden'] {
+    --task-check-col: 0px;
+  }
+
+  .root[data-touch-select='hidden'] .checkCell {
+    overflow: hidden;
+    visibility: hidden;
   }
 }
 
@@ -544,10 +974,18 @@
 
   .groupMeta {
     flex: 1 1 100%;
+    order: 1;
     justify-content: space-between;
     gap: 14px;
     margin-left: 0;
     padding-left: 30px;
+  }
+
+  /* The "…" stays on the title's line, at its end. */
+  .groupActions {
+    align-self: flex-start;
+    margin-top: -2px;
+    opacity: 1;
   }
 
   .groupProgress {
@@ -584,6 +1022,62 @@
   .cell[data-repeats-heading] {
     display: none;
   }
+
+  .milestone {
+    max-width: 240px;
+  }
+
+  /* No dragging on a stacked list: the grip column goes, and the lead is
+     the checkbox alone. */
+  .gripCell {
+    display: none;
+  }
+
+  .root[data-drag] .section {
+    --task-lead: 0px;
+  }
+
+  .root[data-select] .section {
+    --task-lead: var(--task-check-col);
+  }
+
+  .groupLead {
+    margin-right: -4px;
+    margin-left: -4px;
+  }
+
+  /* Rows start after the checkbox gutter, under the group's mark. */
+  .root[data-select] .row {
+    padding-left: calc(var(--task-indent) + var(--task-lead));
+  }
+
+  .row > .checkCell {
+    position: absolute;
+    top: 7px;
+    left: 0;
+    width: var(--task-check-col);
+  }
+
+  .row > .actionsCell {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+  }
+
+  .root[data-row-actions] .titleCell {
+    padding-right: 36px;
+  }
+}
+
+/* Touch: the row's checkbox and "…" are 40px targets (the box itself
+   stays 15px; its label takes the taps). */
+@media (pointer: coarse) {
+  .checkCell label,
+  .actionsCell button {
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -593,7 +1087,10 @@
   .row,
   .titleLink,
   .linkOut,
-  .chevron {
+  .chevron,
+  .grip,
+  .groupActions,
+  .footerAction {
     transition: none;
   }
 }

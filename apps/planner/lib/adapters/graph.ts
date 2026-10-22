@@ -363,6 +363,12 @@ function milestoneDetail(
       external: false,
     },
     {
+      // The same issues on the Issues page (filter, group, move).
+      label: 'Open as list',
+      href: `/issues?milestone=${encodeURIComponent(node.id)}`,
+      external: false,
+    },
+    {
       label: 'Open on the timeline',
       href: timelineMilestoneHref(node.id),
       external: false,

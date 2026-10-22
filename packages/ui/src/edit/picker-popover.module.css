@@ -1,7 +1,9 @@
 /* The property picker in Gr8r's idiom. The trigger reads as the value it
    holds and is a pill on hover (Gr8r's .pillbtn: a --surface-2 fill, 6px
    radius); the status line's trigger is a bordered pill, an "+ Add" a
-   ghost button. The popover is Gr8r's .pop: a white 10px-radius card on
+   ghost button; a list cell's a 26px ghost pill (Gr8r's .pillbtn), and the
+   bulk bar's a ghost button in --text-inv. The popover is Gr8r's .pop: a
+   white 10px-radius card on
    --shadow-pop with 4px of padding, a search row on top, 30px rows that
    fill --surface-2 when active, eyebrow group titles and an accent check.
    On phones it is a bottom sheet over the --overlay scrim. */
@@ -132,16 +134,76 @@
   color: var(--text);
 }
 
+/* cell: Gr8r's .pillbtn in a list cell (26px, 6px radius, ghost until
+   hover), its padding taken back so the text sits where a plain cell's
+   value would. Secondary text, like the cells around it. */
+.cell {
+  max-width: calc(100% + 14px);
+  min-height: var(--h-sm);
+  margin: 0 -7px;
+  padding: 0 7px;
+  font-size: var(--fs-sm);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.cell .face {
+  gap: 6px;
+}
+
+.cell[aria-expanded='true'] {
+  background: var(--surface-2);
+}
+
+/* bar: a ghost button on the inverted bulk bar (Gr8r's .bulkbar .btn):
+   --text-inv at 0.85 opacity, a faint light wash on hover or while open. */
+.bar {
+  min-height: var(--h-sm);
+  padding: 0 8px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--text-inv);
+  opacity: 0.85;
+}
+
+.bar .face {
+  gap: 6px;
+}
+
+.bar[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--text-inv) 14%, transparent);
+  opacity: 1;
+}
+
+.bar:disabled {
+  opacity: 0.45;
+}
+
+/* The pending note beside a bar trigger sits on the inverted fill too. */
+.bar + [data-edit-pending] {
+  color: var(--text-inv);
+  opacity: 0.7;
+}
+
 @media (hover: hover) and (width >= 901px) {
   .value:not(:disabled):hover,
   .pill:not(:disabled):hover,
-  .mono:not(:disabled):hover {
+  .mono:not(:disabled):hover,
+  .cell:not(:disabled):hover {
     background: var(--surface-2);
   }
 
   .quiet:not(:disabled):hover {
     background: var(--surface-2);
     color: var(--text);
+  }
+
+  .bar:not(:disabled):hover {
+    background: color-mix(in srgb, var(--text-inv) 14%, transparent);
+    opacity: 1;
   }
 }
 
@@ -352,6 +414,29 @@
   display: none;
 }
 
+/* A menu (no search row): the list holds focus, and its active option is
+   the focus indicator, as the search box's active option is. */
+.list:focus-visible {
+  outline: none;
+}
+
+/* A menu's "Done" for the phone sheet (the search row's is gone). A menu
+   draws no key hints (Gr8r's menus have no foot), so on a desktop its
+   foot shows only while a pick saves or after one failed. */
+.sheetClose {
+  display: none;
+}
+
+.foot:has(> .sheetClose:only-child) {
+  display: none;
+}
+
+/* A menu item without a mark starts at the edge (a picker keeps the mark
+   column so marked and unmarked values line up). */
+.panel[data-searchable='false'] .optionMark:empty {
+  display: none;
+}
+
 /* Groups part with Gr8r's menu separator: a divider to the card's edges. */
 .option + .group,
 .group + .group {
@@ -461,12 +546,21 @@
 }
 
 .disabled {
+  padding-top: 6px;
+  padding-bottom: 6px;
   color: var(--text-3);
   cursor: not-allowed;
 }
 
 .disabled .optionMark {
   opacity: 0.6;
+}
+
+/* A disabled row is often a sentence (why a choice is off, a menu's
+   note): it wraps instead of being cut. */
+.disabled .optionLabel {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .retryRow .optionLabel {
@@ -636,6 +730,22 @@
 
   .closeWord {
     display: inline;
+    font-size: var(--fs);
+    font-weight: var(--fw-semibold);
+    color: var(--accent-ink);
+  }
+
+  .foot:has(> .sheetClose:only-child) {
+    display: flex;
+  }
+
+  .sheetClose {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    margin-left: auto;
+    padding: 0 10px;
+    border-radius: var(--r-sm);
     font-size: var(--fs);
     font-weight: var(--fw-semibold);
     color: var(--accent-ink);

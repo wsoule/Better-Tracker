@@ -1,5 +1,6 @@
-import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode, Ref } from 'react';
 
+import type { PickerMark } from '../edit/types';
 import type { UiStatus, UiTone } from '../types';
 
 // Prop vocabulary of the "tasks" family: primitives, the grouped task table,
@@ -129,6 +130,10 @@ export interface CheckboxProps {
   /** Overrides the accessible name; keep the visible label inside it
       ("Ana Moreno: Watcher"). */
   'aria-label'?: string;
+  /** Some but not all of what the box stands for is on (a group of rows
+      partly selected): a dash in the accent box, aria-checked="mixed".
+      A click then reports `true` (select the rest). */
+  indeterminate?: boolean;
 }
 
 /** One cell of a NavTabs strip: a destination, not a state. */
@@ -144,6 +149,10 @@ export interface NavTabItem {
   count?: number;
   /** Short muted note after the label ("select a milestone"). */
   note?: string;
+  /** A plain click (primary button, no modifier) calls this instead of
+      following `href`, so the host can show the change at once and
+      navigate itself; `href` stays for a new tab or a middle click. */
+  onFollow?: () => void;
 }
 
 export interface NavTabsProps {
@@ -250,7 +259,13 @@ export type TaskStateKind =
 export type TaskPriority = 0 | 1 | 2 | 3 | 4;
 
 /** Optional meta columns; the key + title column is always shown. */
-export type TaskColumnId = 'project' | 'state' | 'priority' | 'due';
+export type TaskColumnId =
+  | 'project'
+  | 'state'
+  | 'priority'
+  | 'due'
+  | 'assignee'
+  | 'milestone';
 
 export interface TaskChipData {
   label: string;
@@ -284,6 +299,28 @@ export interface TaskRowData {
   due?: string;
   dueTone?: UiTone;
   chips?: TaskChipData[];
+  /** The assignee column's name; null (or absent) reads "Unassigned"
+      beside the dashed empty avatar. */
+  assignee?: string | null;
+  /** The "Unassigned" placeholder's tone: warning when the issue needs a
+      person (unassigned in a next milestone); quiet by default. */
+  assigneeTone?: UiTone;
+  /** The milestone column's name ("Dual-write"); null (or absent) reads
+      "No milestone", muted. */
+  milestone?: string | null;
+  /** The milestone's project, drawn muted after the name and cut first
+      when the cell is narrow ("Dual-write · Atlas billing migration").
+      Leave it out where the group or section already names the project. */
+  milestoneProject?: string;
+  /** A closed issue: the title in --text-3 with a strike-through. */
+  done?: boolean;
+  /** A change to this row is in flight: the row dims (and is marked
+      aria-busy) while `note` says what is happening ("Moving to
+      Dual-write…"). */
+  pending?: boolean;
+  /** A short line after the title: what is happening to the row, or why
+      a change did not happen ("Not moved · …", tone warning). */
+  note?: { text: string; tone?: UiTone };
 }
 
 export interface TaskGroupProgress {
@@ -313,13 +350,40 @@ export interface TaskGroupData {
    * greys, and the due date and progress grey, whatever dueTone and
    * progress.tone say. */
   muted?: boolean;
+  /** The rows shown (in order). May be fewer than `count`. */
   rows: TaskRowData[];
+  /** Every matching row, shown or not: the header's count (and the
+   * section's). Defaults to rows.length. */
+  count?: number;
+  /** A glyph drawn where the status mark goes (a state, priority or avatar
+   * mark of the edit family) for groups that are not milestones. */
+  mark?: PickerMark;
+  /** Small pills after the title ("Next", "↑2"). */
+  tags?: string[];
+  /** An amber line under the heading: an input the group is missing
+   * ("Missing: done means…"). */
+  missingLabel?: string;
+  /** A footer row after the rows ("Showing 12 of 212") with host actions
+   * ("Show more", "Only this milestone"). Drawn while the group is open. */
+  footer?: {
+    text: string;
+    actions: { label: string; onActivate: () => void; disabled?: boolean }[];
+  };
+  /** The body when there are no rows. Default "No open issues". A group
+   * with no rows and a footer shows only the footer (it says what the
+   * group holds: "212 issues not shown · Show more"). */
+  emptyLabel?: string;
+  /** With TaskGroupTableProps.drag: false = never a drop target (the table
+   * does not ask drag.canDrop and shows nothing while a row is dragged
+   * over it). Default: every group is asked. */
+  droppable?: boolean;
 }
 
 export interface TaskSectionData {
   id: string;
-  /** Divider label, e.g. "This week", "Later", "No milestone". */
-  label: string;
+  /** Divider label, e.g. "This week", "Later", "No milestone". Without
+   * one no divider is drawn (a list with a single, unnamed section). */
+  label?: string;
   /** Quiet note after the label; defaults to the issue count. */
   note?: string;
   /** Said when the section has no groups; defaults to "Nothing in this
@@ -332,6 +396,14 @@ export interface TaskGroupTableProps {
   sections: TaskSectionData[];
   /** Visible meta columns in order. Default: project, state, priority, due. */
   columns?: TaskColumnId[];
+  /**
+   * Columns that give way, first to last, when the table is too narrow to
+   * show them beside a readable title (at least 260px): the table steps
+   * at 1160, 1000 and 860px of its own width, dropping as few of these as
+   * that step needs; below 720px rows become cards with every column, as
+   * without it. Without it no column drops (My week's few columns fit).
+   */
+  dropColumns?: readonly TaskColumnId[];
   /** Header wording; defaults: Issue / Project / State / Priority / Due. */
   columnLabels?: Partial<Record<TaskColumnId | 'title', string>>;
   /** Accessible name of the table. */
@@ -364,6 +436,157 @@ export interface TaskGroupTableProps {
     row: TaskRowData,
     group: TaskGroupData
   ) => void;
+  /** Turns on selection: a checkbox per row, a tri-state one per group
+   * header and in the column header, shift-click ranges, `x`, Shift+↑/↓
+   * and ⌘/Ctrl+A. The host owns the set (see task-selection.ts). Rows in
+   * folded groups are not shown, so they leave the selection. */
+  selection?: TaskSelectionProps;
+  /** Replaces a meta cell's value with a host control (a picker trigger,
+   * appearance 'cell'). Return undefined to keep the plain value. */
+  renderCell?: (
+    column: TaskColumnId,
+    row: TaskRowData,
+    group: TaskGroupData
+  ) => ReactNode | undefined;
+  /** A trailing 40px cell per row (its "…" menu). */
+  rowActions?: (row: TaskRowData, group: TaskGroupData) => ReactNode;
+  /** Right-click on a row (desktop): call event.preventDefault() to open
+   * the host's own menu instead of the browser's. */
+  onRowContextMenu?: (
+    event: MouseEvent<HTMLElement>,
+    row: TaskRowData,
+    group: TaskGroupData
+  ) => void;
+  /** A slot at the end of each group header (its "…" menu). */
+  groupActions?: (group: TaskGroupData) => ReactNode;
+  /** Drag rows onto groups (desktop, fine pointers only): an 18px grip
+   * per row. Dragging a selected row drags the whole selection. There is
+   * no reordering: a drop targets a group, never a position. */
+  drag?: TaskDragProps;
+}
+
+export interface TaskSelectionProps {
+  selected: ReadonlySet<string>;
+  /** The complete new set after each change. */
+  onChange: (next: ReadonlySet<string>) => void;
+  /** Selection mode on a touch screen: a plain click on a row toggles it
+   * instead of opening it. */
+  toggleOnClick?: boolean;
+  /** Hide the checkboxes on touch screens and phones ((pointer: coarse),
+   * (width <= 640px)) in CSS, so the server's markup and the hydrated
+   * page agree; the host turns this off in its own selection mode (a
+   * Select button). Rows keep their selected tint either way. */
+  hideOnTouch?: boolean;
+}
+
+export interface TaskDragProps {
+  /** true when dropping these rows on the group would do something, or
+   * the reason it would not (shown as the group's title while dragging). */
+  canDrop: (rowIds: readonly string[], groupId: string) => true | string;
+  onDrop: (rowIds: readonly string[], groupId: string) => void;
+  /** The drag image's text, e.g. n => `${n} issues`. */
+  label: (count: number) => string;
+}
+
+/* ---- list toolbar, filter chips, bulk bar ------------------------------ */
+
+export interface ViewToolbarSearch {
+  value: string;
+  /** Every keystroke (a host may debounce before acting). */
+  onChange: (value: string) => void;
+  /** Enter, or leaving the field: the search is final. */
+  onCommit?: (value: string) => void;
+  placeholder: string;
+  /** Accessible name of the field ("Search issues"). */
+  label: string;
+  /** The field, for a host's own shortcut (`/` focuses the search). */
+  inputRef?: Ref<HTMLInputElement>;
+}
+
+export interface ViewToolbarProps {
+  search: ViewToolbarSearch;
+  /** Filter / Sort / Group triggers (host pickers), left to right. */
+  controls: ReactNode;
+  /** Trailing actions at the right edge ("Open as graph", "Copy link"). */
+  end?: ReactNode;
+  /** A view change is loading: a 2px accent progress rule under the bar,
+   * and the region is marked aria-busy. */
+  busy?: boolean;
+  /** Accessible name of the toolbar. Default "View options". */
+  label?: string;
+}
+
+export interface FilterChipData {
+  id: string;
+  /** A 12px icon before the field name. */
+  icon?: ReactNode;
+  /** The field's name: "Project". */
+  field: string;
+  /** The values: "Atlas billing migration, Beacon search" or
+   * "3 projects". Read after "is". */
+  summary: string;
+  /** A value the host does not know ("Not found"): the summary is drawn in
+   * the warning tone. */
+  unknown?: boolean;
+  /** Wraps the chip's face in the host's picker, so a click on the chip
+   * reopens its values (the face becomes the picker's trigger). Without
+   * it the face is plain text. */
+  renderEditor?: (face: ReactNode) => ReactNode;
+  onRemove: () => void;
+  /** Accessible name of the × button ("Remove project filter"). */
+  removeLabel: string;
+}
+
+export interface FilterChipsProps {
+  chips: FilterChipData[];
+  /** A trailing control after the chips ("+ Filter"). */
+  add?: ReactNode;
+  /** Shows "Clear all" at the far right. */
+  onClearAll?: () => void;
+  /** The filters are already the default: Clear all is disabled. */
+  clearDisabled?: boolean;
+  /** "Clear all" by default. */
+  clearLabel?: string;
+  /** Accessible name of the bar. Default "Filters". */
+  label?: string;
+}
+
+export interface BulkBarConfirm {
+  /** "Move 24 issues to Garnet mobile app › Push notifications? …" */
+  message: string;
+  /** The primary button: "Move 24 issues". */
+  confirmLabel: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  /** "Cancel" by default. */
+  cancelLabel?: string;
+}
+
+export interface BulkBarProps {
+  /** How many rows are selected. The bar renders nothing at 0. */
+  count: number;
+  /** Default "{count} selected". */
+  countLabel?: string;
+  /** The action triggers (host pickers with appearance 'bar'). */
+  children: ReactNode;
+  /** Clears the selection: the ✕ button, and Esc anywhere in the bar.
+   * The bar then unmounts, so the host returns focus to the list (the
+   * last focused row). */
+  onClear: () => void;
+  /** The ✕ button's accessible name. Default "Clear selection". */
+  clearLabel?: string;
+  /** A change is being sent ("Moving 12 issues…"): shown in place of the
+   * actions, which are disabled. */
+  busy?: string | null;
+  /** A sentence after the actions that also disables them ("At most 100
+   * at a time (312 selected)."). */
+  note?: string | null;
+  /** An inline confirmation that replaces the actions; focus moves to its
+   * primary button, and Cancel brings the actions back. */
+  confirm?: BulkBarConfirm | null;
+  /** Accessible name of the toolbar. Default "Actions for {count}
+   * selected issues". */
+  label?: string;
 }
 
 /* ---- deadlines --------------------------------------------------------- */

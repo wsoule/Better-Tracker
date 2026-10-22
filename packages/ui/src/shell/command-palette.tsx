@@ -621,6 +621,9 @@ export function CommandPaletteProvider({
   >([]);
   const loadStarted = useRef(false);
   const nextGroupId = useRef(0);
+  // The first key of a two-key shortcut waiting for its second (G of G W),
+  // and when it was pressed. Read by isSequencePending().
+  const sequence = useRef<{ key: string; at: number } | null>(null);
   const mod = useModKeyLabel();
 
   const allItems = useMemo(
@@ -699,37 +702,37 @@ export function CommandPaletteProvider({
   });
 
   useEffect(() => {
-    let pending: { key: string; at: number } | null = null;
     function onKeyDown(event: KeyboardEvent): void {
       if (event.defaultPrevented) return;
       const state = latest.current;
       const key = event.key.toLowerCase();
       if ((event.ctrlKey || event.metaKey) && !event.altKey && key === 'k') {
         event.preventDefault();
-        pending = null;
+        sequence.current = null;
         state.toggle();
         return;
       }
       if (state.view !== null) return;
       if (['shift', 'control', 'meta', 'alt'].includes(key)) return;
       if (event.ctrlKey || event.metaKey || event.altKey) {
-        pending = null;
+        sequence.current = null;
         return;
       }
       if (isTypingTarget(event.target) || modalIsOpen()) {
-        pending = null;
+        sequence.current = null;
         return;
       }
       if (key === '?') {
         event.preventDefault();
-        pending = null;
+        sequence.current = null;
         state.openShortcuts();
         return;
       }
       const { byCode, firsts } = state.shortcuts;
+      const pending = sequence.current;
       if (pending !== null && Date.now() - pending.at < SEQUENCE_MS) {
         const hit = byCode.get(`${pending.key} ${key}`);
-        pending = null;
+        sequence.current = null;
         if (hit !== undefined) {
           event.preventDefault();
           state.runItem(hit);
@@ -737,10 +740,10 @@ export function CommandPaletteProvider({
         }
       }
       if (firsts.has(key)) {
-        pending = { key, at: Date.now() };
+        sequence.current = { key, at: Date.now() };
         return;
       }
-      pending = null;
+      sequence.current = null;
       const single = byCode.get(key);
       if (single !== undefined) {
         event.preventDefault();
@@ -779,9 +782,30 @@ export function CommandPaletteProvider({
     ];
   }, [mod, allItems, registered, shortcutGroups]);
 
+  const isSequencePending = useCallback(() => {
+    const pending = sequence.current;
+    return pending !== null && Date.now() - pending.at < SEQUENCE_MS;
+  }, []);
+
   const api = useMemo<CommandPaletteApi>(
-    () => ({ view, open, openShortcuts, close, toggle, registerShortcutGroup }),
-    [view, open, openShortcuts, close, toggle, registerShortcutGroup]
+    () => ({
+      view,
+      open,
+      openShortcuts,
+      close,
+      toggle,
+      registerShortcutGroup,
+      isSequencePending,
+    }),
+    [
+      view,
+      open,
+      openShortcuts,
+      close,
+      toggle,
+      registerShortcutGroup,
+      isSequencePending,
+    ]
   );
 
   return (

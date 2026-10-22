@@ -24,6 +24,7 @@ import {
   isPaletteIndex,
   laneMark,
   GUEST_BADGE,
+  NAV_TARGETS,
   PALETTE_SUGGESTIONS,
   paletteItemsFromIndex,
   paletteSuggestions,
@@ -208,6 +209,30 @@ describe('shell frame', () => {
   });
 });
 
+describe('navigation', () => {
+  test('Issues sits after My week, with G I and a hint for "tasks"', () => {
+    expect(NAV_TARGETS.map((target) => target.label)).toEqual([
+      'My week',
+      'Issues',
+      'Timeline',
+      'Projects',
+      'Graph',
+      'Runs',
+      'Settings',
+    ]);
+    expect(NAV_TARGETS[1]).toEqual({
+      id: 'issues',
+      label: 'Issues',
+      href: '/issues',
+      shortcut: ['G', 'I'],
+      hint: 'All tasks',
+    });
+    // Every two-key shortcut is unique.
+    const codes = NAV_TARGETS.map((target) => target.shortcut.join(' '));
+    expect(new Set(codes).size).toBe(codes.length);
+  });
+});
+
 describe('breadcrumbs', () => {
   test('the section comes from the path; a page may add its own crumb', () => {
     expect(crumbsFor('/week', null)).toEqual([{ label: 'My week' }]);
@@ -219,11 +244,12 @@ describe('breadcrumbs', () => {
       { label: 'Runs', href: '/runs' },
     ]);
     expect(crumbsFor('/setup', null)).toEqual([{ label: 'Setup' }]);
-    // /issues has no index page, so its crumb is not a link.
+    // /issues lists every issue, so an issue page's root crumb links there.
     expect(crumbsFor('/issues/ENG-24', 'ENG-24')).toEqual([
-      { label: 'Issues' },
+      { label: 'Issues', href: '/issues' },
       { label: 'ENG-24' },
     ]);
+    expect(crumbsFor('/issues', null)).toEqual([{ label: 'Issues' }]);
     expect(crumbsFor('/', null)).toEqual([]);
     expect(crumbsFor('/nowhere', 'Not found')).toEqual([
       { label: 'Not found' },

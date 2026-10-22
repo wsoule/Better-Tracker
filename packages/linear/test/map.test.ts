@@ -239,7 +239,19 @@ describe('mapIssue', () => {
       completedAt: null,
       canceledAt: null,
       lastStateChangeAt: '2026-10-01T10:00:00.000Z',
+      dueDate: null,
     });
+  });
+
+  test('maps the due date; a malformed or absent one reads null', () => {
+    expect(mapIssue(issueNode('8', { dueDate: '2026-11-02' })).dueDate).toBe(
+      '2026-11-02'
+    );
+    expect(mapIssue(issueNode('9', { dueDate: 'next week' })).dueDate).toBe(
+      null
+    );
+    expect(mapIssue(issueNode('10', { dueDate: null })).dueDate).toBe(null);
+    expect(mapIssue(issueNode('11')).dueDate).toBe(null);
   });
 
   test('missing required fields raise a graphql LinearApiError', () => {

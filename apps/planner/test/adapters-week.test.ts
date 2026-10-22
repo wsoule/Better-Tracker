@@ -321,6 +321,9 @@ describe('buildWeekPage header and stats', () => {
     expect(page.receipts).toBe(
       'Wednesday, October 21 · 3 issues due this week · 1 milestone overdue'
     );
+    // The header's way to every one of your issues (the Issues page).
+    expect(page.allIssuesLabel).toBe('All my issues');
+    expect(page.allIssuesHref).toBe('/issues?assignee=me');
   });
 
   test('anyone looking at someone else gets their name, not a greeting', () => {
@@ -333,6 +336,8 @@ describe('buildWeekPage header and stats', () => {
     });
     expect(other.isSelf).toBe(false);
     expect(other.heading).toBe("Chloe Diaz's week");
+    expect(other.allIssuesLabel).toBe("All of Chloe's issues");
+    expect(other.allIssuesHref).toBe(`/issues?assignee=${week.userId}`);
     expect(other.stats.map((s) => s.label)).toEqual([
       'Open issues',
       'Overdue milestones',

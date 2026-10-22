@@ -62,6 +62,16 @@
   opacity: 1;
 }
 
+/* Mixed (some of a group selected): the accent box with a dash. */
+.glyph[data-mixed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.glyph[data-mixed='true'] .check {
+  opacity: 1;
+}
+
 .input:focus-visible + .glyph {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -94,7 +104,8 @@
   background: var(--surface-2);
 }
 
-.checkbox[data-disabled='true'] .input:checked + .glyph {
+.checkbox[data-disabled='true'] .input:checked + .glyph,
+.checkbox[data-disabled='true'] .glyph[data-mixed='true'] {
   border-color: var(--border-strong);
   background: var(--border-strong);
 }

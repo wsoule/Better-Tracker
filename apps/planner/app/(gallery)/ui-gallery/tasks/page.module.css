@@ -147,6 +147,43 @@
   gap: 8px;
 }
 
+/* The issue list composition: the toolbar and chips bar sit flush with
+   the list panel's edges (no gutter of their own inside the block). */
+.issueList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.issueControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+}
+
+.issueFrame {
+  --view-toolbar-gutter: 0px;
+
+  min-width: 0;
+}
+
+.issueTable {
+  min-width: 0;
+  transition: opacity var(--dur) ease;
+}
+
+.issueTable[aria-busy='true'] {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .issueTable {
+    transition: none;
+  }
+}
+
 @media (width <= 1200px) {
   .specimens {
     grid-template-columns: repeat(2, minmax(0, 1fr));

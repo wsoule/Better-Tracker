@@ -17,6 +17,7 @@ import {
   ExternalLink,
   FolderKanban,
   History,
+  ListChecks,
   Network,
   Play,
   RefreshCw,
@@ -48,6 +49,7 @@ import { ReadOnlyReasonProvider } from './read-only-notice';
 
 const NAV_ICONS: Record<NavTargetId, ShellIcon> = {
   week: CalendarCheck,
+  issues: ListChecks,
   timeline: ChartGantt,
   projects: FolderKanban,
   graph: Network,
@@ -61,12 +63,14 @@ const SUGGESTION_ICONS: Record<PaletteSuggestionAction, ShellIcon> = {
   theme: Contrast,
 };
 
-/** Destinations on the phone tab bar; "More" (the drawer) is appended. */
+/** Destinations on the phone tab bar; "More" (the drawer, which lists
+    every destination, Graph and Runs included) is appended. Issues took
+    Graph's place (owner request 2026-10-22, "every issue in one list"). */
 const TAB_IDS: readonly NavTargetId[] = [
   'week',
+  'issues',
   'timeline',
   'projects',
-  'graph',
 ];
 
 /** Flips html[data-theme] and remembers it, as the ThemeToggle does. */
@@ -176,6 +180,7 @@ function PaletteFrame({
     const navigation = NAV_TARGETS.map((target): PaletteItem => ({
       id: `nav-${target.id}`,
       label: `Go to ${target.label}`,
+      hint: target.hint,
       section: PALETTE_SECTIONS.navigation,
       href: target.href,
       shortcut: target.shortcut,

@@ -1,5 +1,6 @@
 import {
   BlockBar,
+  Button,
   Chip,
   DeadlineList,
   EmptyState,
@@ -95,12 +96,17 @@ export default async function WeekPage({
           <h1 className={css.title}>{page.heading}</h1>
           <p className={css.receipts}>{page.receipts}</p>
         </div>
-        <WeekUserPicker
-          key={userId}
-          options={weekPeopleOptions(users, viewerId)}
-          value={userId}
-          viewerId={viewerId}
-        />
+        <div className={css.headActions}>
+          <Button variant="quiet" size="sm" href={page.allIssuesHref}>
+            {page.allIssuesLabel}
+          </Button>
+          <WeekUserPicker
+            key={userId}
+            options={weekPeopleOptions(users, viewerId)}
+            value={userId}
+            viewerId={viewerId}
+          />
+        </div>
       </header>
 
       <div className={css.body}>

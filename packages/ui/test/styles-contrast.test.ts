@@ -190,6 +190,71 @@ describe('text tokens meet 4.5:1 in both themes', () => {
   });
 });
 
+// The issue list's surfaces: the inverted bulk bar (its ghost actions
+// are --text-inv at a reduced opacity, read from the stylesheets so a
+// change there is checked), the selected-row and filter-chip tint, and the
+// drop target's faint accent wash.
+function ruleOpacity(file: string, selector: RegExp): number {
+  const css = readFileSync(path.join(srcDir, file), 'utf8');
+  const match = selector.exec(css);
+  expect({ file, found: match !== null }).toEqual({ file, found: true });
+  return Number(match?.[1] ?? 0);
+}
+
+describe('the issue list keeps its text readable', () => {
+  const barOpacity = ruleOpacity(
+    'edit/picker-popover.module.css',
+    /\n\.bar \{[^}]*?opacity: ([\d.]+);/
+  );
+  const ghostOpacity = ruleOpacity(
+    'tasks/bulk-bar.module.css',
+    /\n\.ghost,\n\.close \{[^}]*?opacity: ([\d.]+);/
+  );
+
+  for (const [theme, tokens] of [
+    ['light', lightTokens],
+    ['dark', darkTokens],
+  ] as const) {
+    test(`${theme}: the bulk bar's ink on its --text fill, dimmed and washed`, () => {
+      const fill = hex(tokens, '--text');
+      const ink = hex(tokens, '--text-inv');
+      const wash = over(ink, fill, 0.14);
+      const failing: string[] = [];
+      for (const [name, opacity] of [
+        ['count', 1],
+        ['picker bar trigger', barOpacity],
+        ['ghost and close', ghostOpacity],
+      ] as const) {
+        const shown = over(ink, fill, opacity);
+        const ratio = contrast(shown, fill);
+        if (ratio < 4.5) failing.push(`${name} at ${opacity}: ${ratio}`);
+      }
+      // Hovered or open: full ink on the light wash.
+      const washed = contrast(ink, wash);
+      if (washed < 4.5) failing.push(`on the hover wash: ${washed}`);
+      expect(failing).toEqual([]);
+    });
+
+    test(`${theme}: text on selected rows, filter chips and drop targets`, () => {
+      const surface = hex(tokens, '--surface');
+      const accentShare = tintShare(lightTokens, '--accent-soft');
+      const selected = over(hex(tokens, '--accent'), surface, accentShare);
+      const drop = over(hex(tokens, '--accent'), surface, 0.06);
+      const failing: string[] = [];
+      for (const text of ['--text', '--text-2', '--text-3']) {
+        for (const [ground, color] of [
+          ['--accent-soft', selected],
+          ['drop wash', drop],
+        ] as const) {
+          const ratio = contrast(hex(tokens, text), color);
+          if (ratio < 4.5) failing.push(`${text} on ${ground}: ${ratio}`);
+        }
+      }
+      expect(failing).toEqual([]);
+    });
+  }
+});
+
 /** Every CSS file under src. */
 function cssFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

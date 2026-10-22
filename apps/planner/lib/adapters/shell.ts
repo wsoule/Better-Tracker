@@ -114,6 +114,7 @@ export function userBadge(frame: {
 
 export type NavTargetId =
   | 'week'
+  | 'issues'
   | 'timeline'
   | 'projects'
   | 'graph'
@@ -126,11 +127,21 @@ export interface NavTarget {
   href: string;
   /** Two-key shortcut registered by the palette (G then W …). */
   shortcut: string[];
+  /** Extra words the palette matches (its item's hint): typing "tasks"
+      finds Issues. */
+  hint?: string;
 }
 
 /** Every top-level destination, in sidebar order (Settings sits in the footer). */
 export const NAV_TARGETS: readonly NavTarget[] = [
   { id: 'week', label: 'My week', href: '/week', shortcut: ['G', 'W'] },
+  {
+    id: 'issues',
+    label: 'Issues',
+    href: '/issues',
+    shortcut: ['G', 'I'],
+    hint: 'All tasks',
+  },
   {
     id: 'timeline',
     label: 'Timeline',
@@ -156,12 +167,12 @@ export const NAV_TARGETS: readonly NavTarget[] = [
 /** Breadcrumb roots for paths that are not in the nav. */
 const EXTRA_CRUMBS: Record<string, string> = {
   setup: 'Setup',
-  issues: 'Issues',
 };
 
-/** Roots with no index page of their own: their crumb is not a link
-    (/issues/ENG-24 exists, /issues does not). */
-const UNLINKED_ROOTS: ReadonlySet<string> = new Set(['issues']);
+/** Roots with no index page of their own: their crumb is not a link.
+    None today: /issues lists every issue (owner request 2026-10-22), so
+    /issues/ENG-24 reads "Issues / ENG-24" with "Issues" linking there. */
+const UNLINKED_ROOTS: ReadonlySet<string> = new Set<string>();
 
 /** True when `pathname` is `href` or a page below it. */
 export function isCurrentPath(pathname: string, href: string): boolean {

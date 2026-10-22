@@ -295,6 +295,19 @@ describe('queries.ts against the Linear schema', () => {
     });
   }
 
+  test('IssueFields selects the due date (mirrored since 2026-10-22)', () => {
+    // Every document that reads an issue for the mirror uses IssueFields.
+    for (const doc of [
+      queries.PROJECT_ISSUES_QUERY,
+      queries.OPEN_ISSUES_WITHOUT_PROJECT_QUERY,
+      queries.ISSUE_QUERY,
+      queries.ISSUE_UPDATE_MUTATION,
+    ]) {
+      expect(doc).toContain('...IssueFields');
+      expect(doc).toMatch(/fragment IssueFields on Issue \{[^}]*\bdueDate\b/);
+    }
+  });
+
   test('the complexity estimate counts connections by first', () => {
     // The connection object (1) + 50 × (a user: 1 + 8 scalars × 0.1, and
     // pageInfo: 1 + 2 × 0.1) = 1 + 50 × 3 = 151.

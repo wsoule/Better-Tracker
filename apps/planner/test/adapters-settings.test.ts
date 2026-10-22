@@ -13,6 +13,7 @@ import {
   type AuditEntry,
   auditRows,
   digestPreview,
+  foldAuditEntries,
   formStatusText,
   type Installation,
   isDigestPreviewModel,
@@ -752,6 +753,172 @@ describe('audit', () => {
       ['ENG-30 · blocked by', ['Removed ENG-12']],
       ['A removed issue · due date', ['Oct 30, 2026 → none']],
     ]);
+  });
+
+  // A bulk issue edit (architecture §7.3) writes one entry per changed
+  // field per issue with one shared `at`; Settings → Audit folds them.
+  describe('folding bulk issue edits', () => {
+    const BULK_AT = '2026-10-22T12:00:00.000Z';
+    const withIssues = {
+      ...snapshot,
+      milestones: new Map<string, Milestone>([
+        ...snapshot.milestones,
+        [
+          'm2',
+          {
+            id: 'm2',
+            projectId: 'p2',
+            name: 'Push notifications',
+            description: null,
+            targetDate: '2026-11-11',
+            sortOrder: 2,
+          },
+        ],
+      ]),
+      projects: new Map<string, Project>([
+        ...snapshot.projects,
+        ['p2', { id: 'p2', name: 'Garnet mobile app' } as Project],
+      ]),
+      issues: new Map(
+        [
+          'ENG-12',
+          'ENG-14',
+          'ENG-15',
+          'ENG-16',
+          'ENG-17',
+          'ENG-54',
+          'ENG-55',
+        ].map((key) => [
+          `i-${key}`,
+          { id: `i-${key}`, identifier: key } as Issue,
+        ])
+      ),
+    };
+    const move = (key: string, at = BULK_AT): AuditEntry =>
+      audit({
+        action: 'issue.milestone',
+        subjectId: `i-${key}`,
+        before: null,
+        after: 'm2',
+        at,
+      });
+
+    test('one bulk move reads as one row: the field, the value after, the keys', () => {
+      const rows = foldAuditEntries(
+        [move('ENG-55'), move('ENG-54')],
+        withIssues,
+        'UTC'
+      );
+      expect(rows.map((r) => [r.who, r.what, r.changes])).toEqual([
+        [
+          'Ana Moreno',
+          '2 issues · milestone',
+          ['→ Push notifications', 'ENG-54, ENG-55'],
+        ],
+      ]);
+    });
+
+    test('more than three keys end with "and N more"', () => {
+      const rows = foldAuditEntries(
+        ['ENG-12', 'ENG-14', 'ENG-15', 'ENG-16', 'ENG-17'].map((key) =>
+          move(key)
+        ),
+        withIssues,
+        'UTC'
+      );
+      expect(rows.map((r) => r.changes)).toEqual([
+        ['→ Push notifications', 'ENG-12, ENG-14, ENG-15 and 2 more'],
+      ]);
+    });
+
+    test('a cross-project move is exactly two rows, even interleaved', () => {
+      const project = (key: string): AuditEntry =>
+        audit({
+          action: 'issue.project',
+          subjectId: `i-${key}`,
+          before: 'p1',
+          after: 'p2',
+          at: BULK_AT,
+        });
+      const rows = foldAuditEntries(
+        [
+          project('ENG-12'),
+          move('ENG-12'),
+          project('ENG-14'),
+          move('ENG-14'),
+          project('ENG-15'),
+          move('ENG-15'),
+        ],
+        withIssues,
+        'UTC'
+      );
+      expect(rows.map((r) => [r.what, r.changes])).toEqual([
+        [
+          '3 issues · project',
+          ['→ Garnet mobile app', 'ENG-12, ENG-14, ENG-15'],
+        ],
+        [
+          '3 issues · milestone',
+          ['→ Push notifications', 'ENG-12, ENG-14, ENG-15'],
+        ],
+      ]);
+    });
+
+    test('single edits stay apart; different values after never fold', () => {
+      const rows = foldAuditEntries(
+        [
+          move('ENG-12', '2026-10-22T12:05:00.000Z'),
+          move('ENG-14', '2026-10-22T12:04:00.000Z'),
+          audit({
+            action: 'issue.milestone',
+            subjectId: 'i-ENG-15',
+            before: null,
+            after: 'm1',
+            at: BULK_AT,
+          }),
+          move('ENG-16'),
+          audit({
+            action: 'milestone.weight',
+            subjectId: 'm1',
+            before: null,
+            after: 2,
+            at: BULK_AT,
+          }),
+        ],
+        withIssues,
+        'UTC'
+      );
+      expect(rows.map((r) => r.what)).toEqual([
+        'ENG-12 · milestone',
+        'ENG-14 · milestone',
+        'ENG-15 · milestone',
+        'ENG-16 · milestone',
+        'Dual-write · weight',
+      ]);
+    });
+
+    test('another person’s equal edit at the same instant is not folded in', () => {
+      const rows = foldAuditEntries(
+        [move('ENG-12'), { ...move('ENG-14'), actorUserId: 'u-ben' }],
+        withIssues,
+        'UTC'
+      );
+      expect(rows.map((r) => [r.who, r.what])).toEqual([
+        ['Ana Moreno', 'ENG-12 · milestone'],
+        ['Ben Carter', 'ENG-14 · milestone'],
+      ]);
+    });
+
+    test('at most `limit` rows, counted after folding', () => {
+      const entries = [
+        ...['ENG-12', 'ENG-14', 'ENG-15'].map((key) => move(key)),
+        move('ENG-16', '2026-10-21T12:00:00.000Z'),
+        move('ENG-17', '2026-10-20T12:00:00.000Z'),
+      ];
+      expect(
+        foldAuditEntries(entries, withIssues, 'UTC', 2).map((r) => r.what)
+      ).toEqual(['3 issues · milestone', 'ENG-16 · milestone']);
+    });
   });
 
   test('settings updates list only what changed', () => {

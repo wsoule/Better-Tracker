@@ -1,5 +1,7 @@
 import {
+  DEFAULT_ISSUE_LIST_QUERY,
   type Issue,
+  LIST_ME,
   PRIORITY_LABEL,
   type Project,
   type TimelineBar,
@@ -31,6 +33,7 @@ import {
   plural,
 } from '../format';
 import { issuePagePath } from './issue';
+import { issueListHref, withFilterValues } from './issue-list';
 import { barMark, dueTone, progressTone } from './projects';
 import { blockedReasonLine, uiStatus, statusLabel } from './status';
 
@@ -87,6 +90,11 @@ export interface WeekPageModel {
   deadlines: DeadlineGroup[];
   attention: WeekAttentionItem[];
   attentionEmpty: string;
+  /** The header's quiet link to the same person's issues on the Issues
+      page: "All my issues" (`/issues?assignee=me`) on your own week,
+      "All of Dev's issues" (`/issues?assignee=<id>`) on someone else's. */
+  allIssuesHref: string;
+  allIssuesLabel: string;
 }
 
 /** Wording and links shared by every part of the page. */
@@ -954,5 +962,15 @@ export function buildWeekPage(input: WeekPageInput): WeekPageModel {
       copy,
       leadsProjects
     ),
+    allIssuesHref: issueListHref(
+      withFilterValues(DEFAULT_ISSUE_LIST_QUERY, 'assigneeIds', [
+        isSelf ? LIST_ME : week.userId,
+      ])
+    ),
+    allIssuesLabel: isSelf
+      ? 'All my issues'
+      : name === ''
+        ? 'All their issues'
+        : `All of ${name}'s issues`,
   };
 }

@@ -113,20 +113,25 @@ export function compareProjects(a: Project, b: Project): number {
 }
 
 /**
- * Projects grouped the way the timeline shows them (§2.11): initiatives in
- * order, each project under the first of its initiatives in that order
- * (unmirrored initiative ids are ignored), then a final `initiative: null`
- * group. Includes every project, whatever its status; empty groups are left
- * out.
+ * The id of the "No initiative" group, graph node and graph container (the
+ * timeline's ?initiative=none). Linear ids are UUIDs, so it cannot clash.
  */
-export function groupProjectsByInitiative(
-  snapshot: Snapshot
-): { initiative: Initiative | null; projects: Project[] }[] {
-  const initiatives = [...snapshot.data.initiatives].sort(compareInitiatives);
-  const rankOf = new Map<string, number>();
-  initiatives.forEach((initiative, index) => rankOf.set(initiative.id, index));
+export const NO_INITIATIVE_ID = 'none';
 
-  const grouped = new Map<string | null, Project[]>();
+/**
+ * Each mirrored project's first initiative: the best-ranked of its mirrored
+ * initiatives in compareInitiatives order; null when it has none. This is
+ * the timeline's grouping rule (§2.11), shared so the graph and the timeline
+ * cannot disagree. Unmirrored initiative ids are ignored. O(project links).
+ */
+export function homeInitiativeIds(
+  snapshot: Snapshot
+): ReadonlyMap<string, string | null> {
+  const rankOf = new Map<string, number>();
+  [...snapshot.data.initiatives]
+    .sort(compareInitiatives)
+    .forEach((initiative, index) => rankOf.set(initiative.id, index));
+  const home = new Map<string, string | null>();
   for (const project of snapshot.data.projects) {
     let best: string | null = null;
     let bestRank = Number.POSITIVE_INFINITY;
@@ -137,13 +142,34 @@ export function groupProjectsByInitiative(
         bestRank = rank;
       }
     }
+    home.set(project.id, best);
+  }
+  return home;
+}
+
+/**
+ * Projects grouped the way the timeline shows them (§2.11): initiatives in
+ * order, each project under the first of its initiatives in that order
+ * (homeInitiativeIds; unmirrored initiative ids are ignored), then a final
+ * `initiative: null` group. Includes every project, whatever its status;
+ * empty groups are left out.
+ */
+export function groupProjectsByInitiative(
+  snapshot: Snapshot
+): { initiative: Initiative | null; projects: Project[] }[] {
+  const home = homeInitiativeIds(snapshot);
+  const grouped = new Map<string | null, Project[]>();
+  for (const project of snapshot.data.projects) {
+    const best = home.get(project.id) ?? null;
     const list = grouped.get(best);
     if (list === undefined) grouped.set(best, [project]);
     else list.push(project);
   }
 
   const groups: { initiative: Initiative | null; projects: Project[] }[] = [];
-  for (const initiative of initiatives) {
+  for (const initiative of [...snapshot.data.initiatives].sort(
+    compareInitiatives
+  )) {
     const projects = grouped.get(initiative.id);
     if (projects !== undefined) {
       groups.push({ initiative, projects: projects.sort(compareProjects) });

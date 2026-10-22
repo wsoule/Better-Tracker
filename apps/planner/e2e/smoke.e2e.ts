@@ -39,6 +39,7 @@ test('every screen renders', async ({ page }) => {
     '/graph',
     '/runs',
     '/settings',
+    '/issues',
     '/issues/ENG-24',
   ]) {
     await page.goto(path);
@@ -152,6 +153,7 @@ test.describe('a Linear guest', () => {
       '/graph',
       '/runs',
       '/settings',
+      '/issues',
       '/issues/OPS-1',
     ]) {
       await page.goto(path);

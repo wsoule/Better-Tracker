@@ -214,6 +214,15 @@ export interface CommandPaletteApi {
   toggle: () => void;
   /** Adds rows to the "?" sheet while mounted; returns the remover. */
   registerShortcutGroup: (group: ShortcutGroup) => () => void;
+  /**
+   * True between the first key of a registered two-key shortcut (G) and
+   * the second, within the sequence window (1.2 s). A host's own single-key
+   * commands (a list row's `s` or `p`) yield while it is true, so G S and
+   * G P still reach the palette with a row focused. React handlers run
+   * before the palette's document listener, so the host sees the pending
+   * state the first key left behind.
+   */
+  isSequencePending: () => boolean;
 }
 
 export type ToastKind = 'info' | 'error';

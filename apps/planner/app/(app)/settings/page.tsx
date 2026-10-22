@@ -10,7 +10,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 import {
-  auditRows,
+  foldAuditEntries,
   modesReadOnlyRows,
   notificationRows,
   parseSettingsSection,
@@ -42,6 +42,10 @@ export const metadata: Metadata = { title: 'Settings' };
 
 /** How many notification and audit rows a section lists. */
 const LIST_LIMIT = 50;
+
+/** Audit entries read to fill LIST_LIMIT rows once a bulk issue edit (one
+    entry per issue and field) is folded into one row per field. */
+const AUDIT_READ_LIMIT = 500;
 
 type Loaded = Awaited<ReturnType<InstalledContext['engine']['load']>>;
 
@@ -278,9 +282,9 @@ async function renderSection(
     }
     case 'audit': {
       const entries = await orSetup(
-        engine.listAudit(workspaceId, LIST_LIMIT, context.actor)
+        engine.listAudit(workspaceId, AUDIT_READ_LIMIT, context.actor)
       );
-      const rows = auditRows(entries, snapshot, timeZone);
+      const rows = foldAuditEntries(entries, snapshot, timeZone, LIST_LIMIT);
       if (rows.length === 0) {
         return (
           <EmptyState label="No edits yet">

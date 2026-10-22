@@ -10,6 +10,7 @@ interface SsrResult {
   hasDocument: boolean;
   page: string;
   drawer: string;
+  issueList: string;
 }
 
 function serverRender(): SsrResult {
@@ -56,5 +57,27 @@ describe('task family server render', () => {
     expect(html).toContain('Search analytics events');
     expect(html).toContain('data-layout="drawer"');
     expect(html).toContain('Typo tolerance');
+  });
+
+  test('the issue list parts render, with no grip draggable before hydration', () => {
+    const html = result.issueList;
+    expect(html).toContain('aria-label="Search issues"');
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain('Remove status filter');
+    expect(html).toContain('Select ENG-12');
+    expect(html).toContain('data-selected="true"');
+    expect(html).toContain('Moving to Dual-write…');
+    expect(html).toContain('title="Atlas › Dual-write"');
+    expect(html).toContain('Missing: done means…');
+    expect(html).toContain('Showing 1 of 212');
+    expect(html).toContain('212 issues');
+    expect(html).toContain('Group menu');
+    expect(html).toContain('data-appearance="cell"');
+    expect(html).toContain('Move 24 issues to Atlas › Dual-write?');
+    // Media queries read false on the server: drag turns on after
+    // hydration on a fine pointer, so the markup has no draggable grip.
+    expect(html).not.toContain('draggable');
+    // No popover is open on the server.
+    expect(html).not.toContain('role="listbox"');
   });
 });

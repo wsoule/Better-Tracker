@@ -15,5 +15,7 @@ export * from './mermaid';
 export * from './views';
 export * from './estimates';
 export * from './issue-detail';
+export * from './issue-search';
+export * from './issue-list';
 export * from './labels';
 export * from './visibility';

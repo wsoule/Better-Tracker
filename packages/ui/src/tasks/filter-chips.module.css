@@ -1,0 +1,183 @@
+/* Gr8r's chips bar: a row the toolbar's height under a soft rule, in the
+   quiet --fs-xs voice, holding filter chips (26px, --r-chip, an accent
+   tint with an accent-line border, the field name in 500 --text-2) joined
+   by a muted "and". A chip naming something the host cannot find takes
+   the warning tint instead. The horizontal padding follows the toolbar's
+   (--view-toolbar-gutter). */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px var(--view-toolbar-gutter, var(--gutter));
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.lead {
+  flex: none;
+  color: var(--text-4);
+}
+
+/* The chips wrap inside the list, which wraps inside the bar. */
+.list {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.and {
+  color: var(--text-3);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  height: var(--h-sm);
+  padding: 0 3px 0 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-chip);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.chip[data-unknown='true'] {
+  border-color: var(--amber-line);
+  background: var(--amber-soft);
+}
+
+.face {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--text-2);
+}
+
+.field {
+  flex: none;
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+
+.is {
+  flex: none;
+  color: var(--text-2);
+}
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+}
+
+.summary[data-unknown='true'] {
+  color: var(--amber);
+}
+
+/* The host's picker trigger around the face: it takes the chip's voice
+   instead of its own appearance, with a faint wash on hover. */
+.editor {
+  display: inline-flex;
+  min-width: 0;
+}
+
+/* The picker caps its parts at 100% of their box, which in this
+   shrink-to-fit chip cut the summary short of its own width. */
+.editor [data-picker],
+.editor [data-picker] > span {
+  max-width: none;
+}
+
+.chip .editor button[data-appearance] {
+  max-width: none;
+  min-height: 0;
+  height: 22px;
+  margin: 0 0 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: var(--r-xs);
+  background: transparent;
+  box-shadow: none;
+  font: inherit;
+  color: inherit;
+  opacity: 1;
+}
+
+.chip .editor button[data-appearance][aria-expanded='true'] {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.remove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
+}
+
+.add {
+  display: inline-flex;
+  align-items: center;
+}
+
+.clear {
+  display: inline-flex;
+  margin-left: auto;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .chip .editor button[data-appearance]:hover {
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+  }
+
+  .remove:hover {
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text);
+  }
+}
+
+/* Phones: the chips wrap at once, so the leading icon would sit alone. */
+@media (width <= 640px) {
+  .lead {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remove {
+    transition: none;
+  }
+}

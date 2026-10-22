@@ -472,6 +472,8 @@ export interface TimelineBannerItem {
   detail?: string;
   /** Issue links into Linear. */
   links?: TimelineBannerLink[];
+  /** A planner action after the row ("Plan in Issues"). */
+  action?: TimelineBannerLink;
 }
 
 export interface TimelineBanner {
@@ -572,6 +574,12 @@ export function buildTimelineBanners(
           detail: plural(project.issueIds.length, 'open issue'),
           target: { projectId: project.projectId },
           links,
+          // The Issues page with the project's unplanned issues and its
+          // open milestones as targets to move them into.
+          action: {
+            label: 'Plan in Issues',
+            href: `/issues?project=${encodeURIComponent(project.projectId)}&milestone=none`,
+          },
         };
       }),
     });
@@ -792,6 +800,9 @@ export interface MilestoneDrawerModel {
   openIssues: number;
   waitsOn: { id: string; label: string }[];
   graphHref: string;
+  /** "Open as list": every issue of the milestone on the Issues page,
+      closed ones too (the drawer lists them): `/issues?milestone=<id>&state=all`. */
+  listHref: string;
   /**
    * Weight and "done means…" are editable by everyone signed in but a
    * guest; date and lead are Linear writes and need the person's write
@@ -1137,6 +1148,7 @@ export function buildMilestoneDrawer(input: {
       label: `${other.projectName} / ${other.name}`,
     })),
     graphHref: `/graph?milestone=${encodeURIComponent(milestone.id)}`,
+    listHref: `/issues?milestone=${encodeURIComponent(milestone.id)}&state=all`,
     permissions: {
       canEditLinear: linear,
       grantWriteHref:

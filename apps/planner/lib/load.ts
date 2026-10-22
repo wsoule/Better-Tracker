@@ -3,6 +3,7 @@ import { createLogger } from '@better-tracker/logger';
 import { redirect } from 'next/navigation';
 import { cache } from 'react';
 
+import { parseIssueListSearch } from './adapters/issue-list';
 import { buildShellFrame, type ShellFrame } from './adapters/shell';
 import { signInLocation } from './auth-cookies';
 import { engineAuthCode } from './engine-errors';
@@ -66,6 +67,26 @@ export const loadWeekView: (
 ) => ReturnType<Engine['getWeekView']> = cache(
   async (engine: Engine, workspaceId: string, userId: string) =>
     engine.getWeekView(workspaceId, userId, await requestViewer())
+);
+
+/**
+ * The issue list (architecture §2.14) as the request's person sees it,
+ * once per request. Keyed by the view's canonical /issues URL (a string:
+ * cache() compares arguments by identity, so a query object would never
+ * hit), which is parsed again here.
+ */
+export const loadIssueList: (
+  engine: Engine,
+  workspaceId: string,
+  canonical: string
+) => ReturnType<Engine['getIssueList']> = cache(
+  async (engine: Engine, workspaceId: string, canonical: string) => {
+    const at = canonical.indexOf('?');
+    const query = parseIssueListSearch(
+      at === -1 ? '' : canonical.slice(at + 1)
+    );
+    return engine.getIssueList(workspaceId, query, await requestViewer());
+  }
 );
 
 /** True for an installation the app can use (present and not revoked). */

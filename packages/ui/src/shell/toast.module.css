@@ -12,6 +12,13 @@
   pointer-events: none;
 }
 
+/* A bulk bar (fixed 24px above the bottom, its height published as
+   --bulk-bar-h) is up: the toasts stack above it, so an Undo toast never
+   covers the selection's actions or its ✕. */
+:global(body:has([data-bulk-bar='true'])) .viewport {
+  bottom: calc(24px + var(--bulk-bar-h, 44px) + 12px);
+}
+
 .stack {
   display: flex;
   flex-direction: column;
@@ -157,6 +164,19 @@
   }
   :global(body:has([data-shell-tabbar='true'])) .viewport {
     bottom: calc(56px + 12px + env(safe-area-inset-bottom, 0px));
+  }
+  /* Above the phone's bulk bar (16px up, or above the tab bar). */
+  :global(body:has([data-bulk-bar='true'])) .viewport {
+    bottom: calc(
+      16px + var(--bulk-bar-h, 44px) + 8px + env(safe-area-inset-bottom, 0px)
+    );
+  }
+  :global(body:has([data-shell-tabbar='true']):has([data-bulk-bar='true']))
+    .viewport {
+    bottom: calc(
+      56px + 12px + var(--bulk-bar-h, 44px) + 8px +
+        env(safe-area-inset-bottom, 0px)
+    );
   }
   .stack {
     align-items: stretch;

@@ -3,6 +3,12 @@
 
 import type {
   AllocationBlockReason,
+  IssueListGroupBy,
+  IssueListPresetId,
+  IssueListQuick,
+  IssueListSectionBy,
+  IssueListSectionValue,
+  IssueListSort,
   IssuePatchField,
   IssueSkipReason,
   MilestoneStatus,
@@ -10,6 +16,7 @@ import type {
   Priority,
   RiskReason,
   RubricGap,
+  WorkflowStateType,
 } from './types';
 
 /** What a rubric gap means, as a standalone line ("Missing a target date"). */
@@ -81,6 +88,83 @@ export const NOTICE_KIND_LABEL: Record<NoticeKind, string> = {
   at_risk: 'At risk',
   invalid_due_soon: 'Due soon, missing required details',
   allocation_blocked: 'Allocation stopped',
+};
+
+/** A workflow state type as the issue list's Status filter names it. */
+export const STATE_TYPE_LABEL: Record<WorkflowStateType, string> = {
+  triage: 'Triage',
+  backlog: 'Backlog',
+  unstarted: 'Todo',
+  started: 'In progress',
+  completed: 'Done',
+  canceled: 'Canceled',
+};
+
+/** The issue list's Group menu. */
+export const ISSUE_LIST_GROUP_LABEL: Record<IssueListGroupBy, string> = {
+  milestone: 'Milestone',
+  project: 'Project',
+  initiative: 'Initiative',
+  assignee: 'Assignee',
+  state: 'Status',
+  priority: 'Priority',
+  none: 'None',
+};
+
+/** The issue list's sections ("Group: Milestone · by initiative"). */
+export const ISSUE_LIST_SECTION_LABEL: Record<IssueListSectionBy, string> = {
+  none: 'None',
+  initiative: 'Initiative',
+  project: 'Project',
+};
+
+/** The issue list's Sort menu. */
+export const ISSUE_LIST_SORT_LABEL: Record<IssueListSort, string> = {
+  weight: 'Weight',
+  priority: 'Priority',
+  due: 'Due date',
+  updated: 'Last updated',
+  created: 'Created',
+  title: 'Title',
+};
+
+/** What each sort means, as the Sort menu hints it. */
+export const ISSUE_LIST_SORT_HINT: Record<IssueListSort, string> = {
+  weight:
+    'Overdue milestones first, then weight, due date and project priority; inside a milestone, priority then oldest.',
+  priority: 'Urgent first',
+  due: "The issue's own due date, soonest first",
+  updated: 'Newest first',
+  created: 'Newest first',
+  title: 'A to Z',
+};
+
+/** The issue list's quick filters. */
+export const ISSUE_LIST_QUICK_LABEL: Record<IssueListQuick, string> = {
+  blocked: 'Blocked',
+  at_risk: 'At risk',
+  next: 'In next milestones',
+};
+
+/** The tier dividers of the default issue list (group by milestone). */
+export const ISSUE_LIST_TIER_LABEL: Record<
+  Extract<IssueListSectionValue, { kind: 'tier' }>['tier'],
+  string
+> = {
+  overdue: 'Overdue',
+  upcoming: 'Upcoming',
+  unplanned: 'No milestone',
+  inactive: 'Inactive projects',
+};
+
+/** The issue list's preset tabs. */
+export const ISSUE_LIST_PRESET_LABEL: Record<IssueListPresetId, string> = {
+  all: 'All',
+  mine: 'Mine',
+  unplanned: 'Unplanned',
+  unassigned: 'Unassigned',
+  blocked: 'Blocked',
+  at_risk: 'At risk',
 };
 
 /** `1 issue`, `2 issues`: the count followed by the right noun form. */

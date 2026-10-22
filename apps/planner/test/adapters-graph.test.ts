@@ -220,8 +220,17 @@ describe('buildGraphPage on the demo workspace', () => {
       expect(detail?.issuesHref).toBe(
         `/graph?milestone=${encodeURIComponent(n.id)}`
       );
-      expect(detail?.links.map((l) => l.label)).toContain(
-        'Open on the timeline'
+      // The graph's own link, then the Issues page, then the timeline.
+      expect(detail?.links.map((l) => l.label)).toEqual([
+        'Issues of this milestone',
+        'Open as list',
+        'Open on the timeline',
+        ...(detail?.links.some((l) => l.label === 'Project in Linear')
+          ? ['Project in Linear']
+          : []),
+      ]);
+      expect(detail?.links[1]?.href).toBe(
+        `/issues?milestone=${encodeURIComponent(n.id)}`
       );
     }
     expect(model.mermaid.startsWith('flowchart LR\n')).toBe(true);

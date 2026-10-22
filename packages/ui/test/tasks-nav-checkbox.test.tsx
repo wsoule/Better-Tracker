@@ -81,6 +81,45 @@ describe('NavTabs', () => {
   });
 });
 
+describe('NavTabs onFollow', () => {
+  test('a plain click goes to the host; a modified or middle click stays a link', () => {
+    const follow = mock(() => undefined);
+    const { getByRole } = render(
+      <NavTabs
+        label="Issue presets"
+        items={[
+          { id: 'all', label: 'All', href: '/issues', current: true },
+          {
+            id: 'blocked',
+            label: 'Blocked',
+            href: '/issues?quick=blocked',
+            onFollow: follow,
+          },
+        ]}
+      />
+    );
+    const link = getByRole('link', { name: 'Blocked' });
+    expect(link.getAttribute('href')).toBe('/issues?quick=blocked');
+    const plain = new MouseEvent('click', { bubbles: true, cancelable: true });
+    link.dispatchEvent(plain);
+    expect(plain.defaultPrevented).toBe(true);
+    expect(follow).toHaveBeenCalledTimes(1);
+    const modified = new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      metaKey: true,
+    });
+    link.dispatchEvent(modified);
+    expect(modified.defaultPrevented).toBe(false);
+    fireEvent.click(link, { button: 1 });
+    expect(follow).toHaveBeenCalledTimes(1);
+    // A cell without onFollow is left to the link.
+    const all = new MouseEvent('click', { bubbles: true, cancelable: true });
+    getByRole('link', { name: 'All' }).dispatchEvent(all);
+    expect(all.defaultPrevented).toBe(false);
+  });
+});
+
 describe('Checkbox', () => {
   test('is a native checkbox named by its label, toggled by the label', () => {
     const onChange = mock((_: boolean) => {});
@@ -123,5 +162,56 @@ describe('Checkbox', () => {
     expect((box as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(box);
     expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
+describe('Checkbox indeterminate', () => {
+  test('mixed: aria-checked="mixed", the native flag, and a click asks for on', () => {
+    const onChange = mock((_: boolean) => {});
+    const { getByRole, rerender } = render(
+      <Checkbox
+        label="Select the 3 shown issues in Dual-write"
+        hideLabel
+        checked={false}
+        indeterminate
+        onChange={onChange}
+      />
+    );
+    const box = getByRole('checkbox', {
+      name: 'Select the 3 shown issues in Dual-write',
+    }) as HTMLInputElement;
+    expect(box.getAttribute('aria-checked')).toBe('mixed');
+    expect(box.indeterminate).toBe(true);
+    fireEvent.click(box);
+    expect(onChange).toHaveBeenCalledWith(true);
+    // The host refused: still mixed, and the native flag is put back.
+    rerender(
+      <Checkbox
+        label="Select the 3 shown issues in Dual-write"
+        hideLabel
+        checked={false}
+        indeterminate
+        onChange={onChange}
+      />
+    );
+    expect(box.indeterminate).toBe(true);
+    // Checked wins over mixed; neither leaves aria-checked behind.
+    rerender(
+      <Checkbox
+        label="Select the 3 shown issues in Dual-write"
+        hideLabel
+        checked
+        indeterminate
+        onChange={onChange}
+      />
+    );
+    expect(box.hasAttribute('aria-checked')).toBe(false);
+    expect(box.indeterminate).toBe(false);
+    expect(box.checked).toBe(true);
+  });
+
+  test('without indeterminate there is no aria-checked at all', () => {
+    const { getByRole } = render(<Checkbox label="Watcher" />);
+    expect(getByRole('checkbox').hasAttribute('aria-checked')).toBe(false);
   });
 });

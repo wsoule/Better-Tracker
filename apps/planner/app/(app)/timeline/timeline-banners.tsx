@@ -124,6 +124,11 @@ function BannerRow({
                 ))}
               </span>
             )}
+            {item.action === undefined ? null : (
+              <Link href={item.action.href} className={css.bannerPlan}>
+                {item.action.label}
+              </Link>
+            )}
           </li>
         ))}
       </ul>

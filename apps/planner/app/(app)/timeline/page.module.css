@@ -142,6 +142,29 @@
   gap: 4px 8px;
 }
 
+/* "Plan in Issues": the unplanned row's way into the Issues page, at the
+   row's end in the link colour. */
+.bannerPlan {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--accent-ink);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur) ease;
+}
+
+.bannerPlan:focus-visible {
+  text-decoration-color: currentcolor;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .bannerPlan:hover {
+    text-decoration-color: currentcolor;
+  }
+}
+
 /* Issue keys are ids: mono, quiet, underlined on hover like a title. */
 .issueKeyLink {
   font-family: var(--font-mono);
@@ -528,6 +551,12 @@
 
 .graphLink {
   margin-top: 12px;
+}
+
+/* "Open as list", right under the drawer's issues. */
+.listLink {
+  margin-top: 8px;
+  font-size: var(--fs-sm);
 }
 
 /* ---- loading ---------------------------------------------------------- */

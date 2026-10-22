@@ -43,6 +43,7 @@ import {
   WEEK_STATS,
   ZOOM_OPTIONS,
 } from './fixtures';
+import { IssueListGallery } from './issue-list-gallery';
 import css from './page.module.css';
 
 // The gallery's router: a plain anchor that records the href instead of
@@ -272,6 +273,27 @@ export default function TasksGallery({
                   </Register>
                 </div>
               </aside>
+            </div>
+          </section>
+
+          {/* ---- Issue list --------------------------------------------- */}
+          <section className="block" aria-labelledby="issues-title">
+            <BlockBar
+              title="Issue list"
+              meta="Selection, drag, cell pickers, menus, chips, bulk bar"
+            />
+            <div className={css.stack}>
+              <header className={css.hero}>
+                <h2 id="issues-title" className={css.greeting}>
+                  Issues
+                </h2>
+                <p className={css.receipts}>
+                  Every issue across 3 projects. Select rows (shift-click, x,
+                  Shift+↓, ⌘A), drag one onto another group, or pick from a
+                  cell; the rows dim while the pretend change is sent.
+                </p>
+              </header>
+              <IssueListGallery record={setOpened} />
             </div>
           </section>
 

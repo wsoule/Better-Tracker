@@ -1,8 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  assessWorkspace,
   buildDigests,
+  buildIssueList,
+  buildIssueListOptions,
   buildTimelineView,
+  normalizeIssueListQuery,
   buildWeekView,
   planAllocation,
   planWarnings,
@@ -178,6 +182,123 @@ describe('visibleSnapshot', () => {
       g.lanes.map((l) => l.projectId)
     );
     expect(lanes).toEqual(['orion']);
+  });
+});
+
+describe('the issue list follows visibility', () => {
+  // The list and its options as `userId` gets them: built from the
+  // narrowed snapshot, assessed over it, as the engine's load() does.
+  function listFor(userId: string, rawQuery: unknown = {}) {
+    const evaluated = evaluate(scenario());
+    const seen = visibleSnapshot(
+      evaluated.snapshot,
+      viewerScope(evaluated.snapshot, userId)
+    );
+    const assessments = assessWorkspace(seen, evaluated.ctx);
+    return {
+      view: buildIssueList({
+        snapshot: seen,
+        ctx: evaluated.ctx,
+        assessments,
+        allocationPlan: planAllocation(seen, evaluated.ctx, assessments),
+        query: normalizeIssueListQuery(rawQuery),
+        viewerId: userId,
+      }),
+      options: buildIssueListOptions(seen, evaluated.ctx, assessments),
+    };
+  }
+
+  test('someone who sees every team gets every issue', () => {
+    const { view, options } = listFor('sam');
+    expect(view.total).toBe(3);
+    expect(view.counts.blocked).toBe(1);
+    expect(options.projects.map((p) => p.id)).toEqual(['orion', 'vault']);
+  });
+
+  test('a member outside a private team: nothing of it in rows, counts, flags, refs or options', () => {
+    const { view, options } = listFor('wyat', {
+      filters: { assigneeIds: ['me'] },
+    });
+    // Wyat's own Security issue is hidden from him, so "mine" is empty.
+    expect(view.total).toBe(0);
+    expect(view.counts).toEqual({
+      all: 1,
+      mine: 0,
+      unplanned: 0,
+      unassigned: 0,
+      blocked: 0,
+      // Orion's milestone is due in 3 days with all its work open.
+      at_risk: 1,
+    });
+    const all = listFor('wyat').view;
+    const row = all.sections[0]?.groups[0]?.rows[0];
+    expect(row?.identifier).toBe('ENG-1');
+    // The blocker sits in the private team: not counted.
+    expect(row?.blockedBy).toBe(0);
+    expect(Object.keys(all.refs.projects)).toEqual(['orion']);
+    expect(Object.keys(all.refs.teams)).toEqual([TEAM]);
+    expect(options.projects.map((p) => p.id)).toEqual(['orion']);
+    expect(options.teams.map((t) => t.id)).toEqual([TEAM]);
+    expect(options.initiatives.map((i) => i.id)).toEqual(['init-1']);
+    const text = JSON.stringify([all, options]);
+    expect(text).not.toContain('vault');
+    expect(text).not.toContain('Rotate the root keys');
+    expect(text).not.toContain('SEC-');
+  });
+
+  test("naming another team's milestone gives no header, name, count or progress", () => {
+    const { view } = listFor('wyat', {
+      filters: { milestoneIds: ['m-vault'] },
+    });
+    expect(view.sections).toEqual([]);
+    expect(view.total).toBe(0);
+    expect(view.unknownIds).toEqual([{ facet: 'milestone', id: 'm-vault' }]);
+    expect(view.refs.milestones).toEqual({});
+    // An unknown id gets exactly the same answer.
+    const unknown = listFor('wyat', { filters: { milestoneIds: ['m-none'] } });
+    expect(unknown.view.unknownIds).toEqual([
+      { facet: 'milestone', id: 'm-none' },
+    ]);
+    expect({ ...unknown.view, unknownIds: [] }).toEqual({
+      ...view,
+      unknownIds: [],
+      query: unknown.view.query,
+    });
+  });
+
+  test('a guest: their teams only, no initiatives, the fallback', () => {
+    const { view, options } = listFor('cleo', {
+      filters: { initiativeIds: ['init-1'] },
+      group: 'initiative',
+    });
+    expect(view.fallback).toEqual({ reason: 'no_initiatives' });
+    expect(view.query.group).toBe('project');
+    expect(view.total).toBe(1);
+    expect(view.refs.initiatives).toEqual({});
+    expect(view.refs.projects['orion']?.homeInitiativeId).toBeNull();
+    expect(options.initiatives).toEqual([]);
+    expect(options.projects.map((p) => p.id)).toEqual(['orion']);
+    expect(JSON.stringify([view, options])).not.toContain('vault');
+  });
+
+  test("a project shared with a hidden team lists only the viewer's teams", () => {
+    const data = scenario();
+    data.projects = data.projects.map((p) =>
+      p.id === 'orion' ? { ...p, teamIds: [TEAM, SEC] } : p
+    );
+    const evaluated = evaluate(data);
+    const seen = visibleSnapshot(
+      evaluated.snapshot,
+      viewerScope(evaluated.snapshot, 'wyat')
+    );
+    // The narrowed snapshot keeps the full list; the options do not.
+    expect(seen.projects.get('orion')?.teamIds).toEqual([TEAM, SEC]);
+    const options = buildIssueListOptions(
+      seen,
+      evaluated.ctx,
+      assessWorkspace(seen, evaluated.ctx)
+    );
+    expect(options.projects[0]?.teamIds).toEqual([TEAM]);
   });
 });
 

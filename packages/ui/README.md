@@ -333,7 +333,10 @@ the types for the rest.
 |          | `ThemeToggle`                                                                                                          | `storageKey`                                                       |
 | tasks    | `Button` (`variant`; `size` `sm` 26px / `md` 30px / `lg` 36px; `block` for full width)                                 | none (`href` renders a link)                                       |
 |          | `Checkbox`, `Switch` (`aria-label` / `aria-labelledby` when its visible label is shared), `SegmentedControl`, `Chip`   | see `tasks/types.ts`                                               |
-|          | `TaskGroupTable` (grouped issue list)                                                                                  | `sections`                                                         |
+|          | `TaskGroupTable` (grouped issue list; selection, drag and slots below)                                                 | `sections`                                                         |
+|          | `ViewToolbar` (list toolbar: search, the host's Filter / Sort / Group, end actions), `ToolbarBadge`                    | `search`, `controls`                                               |
+|          | `FilterChips` ("Project is …" chips joined by "and", + Filter, Clear all)                                              | `chips`                                                            |
+|          | `BulkBar` (the inverted bar of a selection; confirm strip, busy, note)                                                 | `count`, `onClear`, `children`                                     |
 |          | `DeadlineList`, `StatsStrip`, `ProgressRule`                                                                           | `groups`; `cells`; `done`/`total`                                  |
 |          | `Register`, `RegisterRow`, `RegisterCell`                                                                              | `columns`, `label`, `children`                                     |
 |          | `Notice` (`tone`), `EmptyState` (optional `label` title above the sentence), `NavTabs`, `Checklist`                    | see `tasks/types.ts`                                               |
@@ -357,7 +360,104 @@ the types for the rest.
 
 Pure helpers are exported too: the timeline's date scale (`createScale`,
 `xForDate`, …), the graph layout (`layoutGraph`, `upstreamChain`, …), the
-palette's `fuzzyMatch`, and the collapsed-group storage helpers.
+palette's `fuzzyMatch`, the collapsed-group storage helpers, and the selection
+helpers (`toggleId`, `rangeIds`, `setIds`, `pruneSelection`: pure, never
+mutating, and returning the same set when nothing changes).
+
+### Lists: selection, drag, slots, toolbar, chips, bulk bar
+
+`TaskGroupTable` takes optional props for a list people act on (the planner's
+Issues page). With none of them it renders exactly what it rendered before (a
+DOM snapshot of My week's props guards that).
+
+- **Data.** Columns `assignee` (round avatar and name; `null` reads
+  "Unassigned", toned by `assigneeTone`) and `milestone` (the milestone's name,
+  then `milestoneProject` muted after " · " and cut first, the full "Project ›
+  Milestone" as its tooltip; `null` reads "No milestone", muted). Rows: `done`
+  (struck through), `pending` (dimmed, `aria-busy`) and `note` ("Moving to
+  Dual-write…", or a warning "Not moved · …"). Groups: `count` (every match; the
+  header and section count it, `rows` may hold fewer), `mark` (a state, priority
+  or avatar glyph in the status mark's place), `tags` ("Next", "↑2"),
+  `missingLabel` (an amber line under the heading), `footer` ("Showing 12 of
+  212" with host actions; a group with no rows and a footer shows only the
+  footer, not the empty line), `emptyLabel`, `droppable`. A section without
+  `label` draws no divider.
+- **`dropColumns`** (column ids, first to give way first): a table too narrow
+  for its columns beside a readable title (260px) steps down at 1160, 1000 and
+  860px of its own width, each step dropping as few of these as it needs
+  (`data-drop-lg|md|sm` name them, `--task-cols-lg|md|sm` hold the grid without
+  them, container queries apply both); below 720px the cards show every column
+  again. Without it nothing drops (and the head cells carry no `data-column`).
+- **`selection`** `{ selected, onChange, toggleOnClick? }`: the host owns the
+  set. A checkbox per row ("Select ENG-12"), a tri-state one per group header
+  ("Select the 12 shown issues in Dual-write"; on a folded group it unfolds it)
+  and in the column header ("Select all 40 shown issues"), which then stops
+  being `aria-hidden` (its labels are). Click toggles and sets the anchor;
+  shift-click applies the clicked row's new state to the range from the anchor,
+  across groups, in drawn order. Selected rows take `--accent-soft`; the
+  checkbox carries the state (list items never get `aria-selected`). Rows that
+  stop being drawn (a folded group, a refresh) leave the selection through
+  `onChange`. `toggleOnClick` is the phone's selection mode: a plain click
+  toggles a row instead of opening it. `hideOnTouch` hides the checkboxes in CSS
+  on touch screens and phones (`(pointer: coarse), (width <= 640px)`), so the
+  server's markup and the hydrated page agree; turn it off in the host's own
+  selection mode (a Select button rendered always and shown by the same query).
+- **`drag`** `{ canDrop, onDrop, label }`: HTML5 drag from an 18px grip that
+  shows on row hover, only under `(hover: hover) and (pointer: fine)` (nothing
+  is draggable on the server or on touch). A selected row drags the whole
+  selection (in drawn order), otherwise itself; the drag image is an inverted
+  card reading `label(n)`. Over a group the table asks `canDrop(ids, groupId)`
+  once per group per drag: `true` washes the group with a faint accent and an
+  inset accent line and allows the drop; a string is the reason, shown in the
+  header (and as its `title`) with the not-allowed cursor. `droppable: false`
+  groups are never asked. There is no reordering: a drop targets a group. Keep a
+  keyboard and menu path for every drop (WCAG 2.5.7).
+- **Header.** The column header is sticky above every in-row layer (z-index 3
+  over the lead, picker, ↗ and actions cells at 2).
+- **Slots.** `renderCell(column, row, group)` replaces a cell's value with a
+  host control (a picker with `appearance="cell"`; return `undefined` to keep
+  the plain value), `rowActions(row, group)` adds a trailing 40px cell (the
+  row's "…"), `groupActions(group)` a slot at the end of each header,
+  `onRowContextMenu(event, row, group)` takes right-clicks (call
+  `preventDefault()` to open your menu). Keys and clicks inside a host control
+  (a text field, an open picker) are never the list's.
+- **Keyboard.** On top of ↑/↓, j/k, Home/End, ←/→ and ↵: with `selection`, `x`
+  toggles the focused row, Shift+↑/↓ extend the selection from the anchor (it
+  grows and shrinks over what the anchor started from) and move focus, ⌘/Ctrl+A
+  selects every drawn row. Every other key on a row goes to `onRowKeyDown`; a
+  host's single-key commands should yield while
+  `useCommandPalette().isSequencePending()` is true, so G S and G P still reach
+  the palette.
+
+`ViewToolbar` lays out Gr8r's list toolbar: a 26px search (`onChange` per
+keystroke, `onCommit` on Enter and on leaving the field, so it may fire twice
+for one value; `inputRef` for a `/` shortcut), the host's triggers, and `end`
+actions at the right edge. `busy` sets `aria-busy` and runs a 2px accent rule
+along the bottom. Phones put the search on its own row and scroll the controls
+sideways. `ToolbarBadge` is the accent count pill of a Filter trigger.
+`FilterChips` draws one chip per filter ("{field} is {summary}", "and" between),
+a named × each, the host's add control and Clear all (`clearDisabled` while the
+filters are the default); `renderEditor(face)` wraps a chip's face in the host's
+picker; `unknown` tints a chip amber. Both bars take the page gutter as
+horizontal padding; set `--view-toolbar-gutter` (for example to `0px`) inside a
+padded column. Neither renders anything when there is nothing to show
+(`FilterChips` with no chips, `BulkBar` at 0).
+
+`BulkBar` is the fixed, inverted toolbar at the bottom centre (above the shell's
+tab bar on phones): "{n} selected" in a polite live region, the host's action
+triggers (pickers with `appearance="bar"`), ✕. `busy` ("Moving 12 issues…")
+replaces the count and disables the actions (they sit in a `<fieldset>`), as
+does a `note` ("At most 100 at a time"); `confirm` replaces the actions with a
+sentence, a primary button that takes focus, and Cancel (focus returns to the
+first action). Esc clears the selection (or cancels the confirmation), ← and →
+move between its buttons; after `onClear` the host puts focus back in the list.
+Mark a trigger's text `data-bulk-label`: it hides at 390px and below, so give
+each trigger a `triggerLabel`. While the bar is up (`data-bulk-bar`) the toasts
+stack above it: it publishes its height as `--bulk-bar-h` on the root element.
+
+`NavTabs` items may take `onFollow`: a plain click calls it instead of following
+`href` (a host that navigates itself and shows the change at once); a modified
+or middle click still opens the link.
 
 ### Edit controls
 
@@ -367,6 +467,20 @@ shows the new value with a "Saving" note; when it resolves the value stays; when
 it rejects the control rolls back and prints the error beside itself
 (`formatError` turns the rejection into that sentence, `saveErrorMessage` is the
 default). Returning nothing means "saved".
+
+`PickerPopover` is also the family's menu: `searchable={false}` drops the search
+row (the list takes focus; ↑/↓, ↵ and Space pick, Esc closes) and the key-hint
+foot, and with `action` every pick is an action rather than a value (a row's
+"…", Filter, Sort, Group). Two more trigger appearances serve lists: `cell`
+(Gr8r's 26px ghost pill, its text where a plain cell's value sits) and `bar` (a
+ghost button in `--text-inv` on the bulk bar). A multiple picker whose groups
+each hold one choice (Sort, Group) takes `marks="tick"`: the single picker's
+trailing accent tick instead of checkbox squares. `anchorPoint={{ x, y }}` opens
+the popover at a viewport point instead of under its trigger (a context menu at
+the pointer; a phone keeps its sheet). A disabled option wraps, so a menu's note
+or a reason can be a whole sentence. `useModKeyLabel()` is "⌘" on Apple
+platforms and "Ctrl" elsewhere (the server renders "Ctrl"), for a host's own
+shortcut rows.
 
 ## Browser behaviour hosts should know about
 
@@ -378,7 +492,16 @@ touches none of it.
   binds `[` to collapse the sidebar, and locks `<html>` scrolling while the
   phone drawer is open. `sidebarCollapseScript(key)` is its pre-paint script.
 - `CommandPaletteProvider` binds Ctrl/⌘ K, `?` and two-key `G …` shortcuts on
-  `document`. Do not mount it in a host that has its own command palette.
+  `document`. Do not mount it in a host that has its own command palette. Its
+  API's `isSequencePending()` is true between a sequence's first key and its
+  second (1.2 s): React handlers run before that document listener, so a host's
+  own single keys can check it and stay out of a chord's way.
+- `TaskGroupTable` with `drag` reads `(hover: hover) and (pointer: fine)`
+  through a media query and appends (then removes) a drag-image element.
+  `BulkBar` is `position: fixed` and lifts itself above
+  `[data-shell-tabbar='true']` on phones, as the toasts do; while it is up it
+  sets `--bulk-bar-h` on `<html>` (removed when it goes) and the toasts stack
+  above it.
 - `SlideOver` closes on Esc and traps focus; `TaskGroupTable` can persist folded
   groups in `localStorage` or `sessionStorage` (`storage="session"` suits a
   desktop app). Storage failures are tolerated everywhere.
