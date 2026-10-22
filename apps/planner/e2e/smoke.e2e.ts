@@ -106,6 +106,10 @@ test('Ctrl K opens the command palette', async ({ page }) => {
 test('a drawer swapped in place keeps focus in the panel', async ({ page }) => {
   await page.goto('/week?issue=ENG-12');
   const dialog = page.getByRole('dialog');
+  // The drawer moves focus to itself once it has hydrated. Step into it
+  // only after that, or its first focus pulls focus back off the row and
+  // Enter lands on the panel instead of the link.
+  await expect(dialog).toBeFocused();
   const row = dialog.locator('a[href*="ENG-23"]').first();
   await row.focus();
   await page.keyboard.press('Enter');
