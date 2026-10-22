@@ -196,25 +196,56 @@
   max-width: 100%;
 }
 
-/* Desktop: the toolbar is one row from about 1050px of chart width (a
-   1366px window with the sidebar open): the search gives up width
-   (220 → 100) before anything wraps, then grows back to 220 where there is
-   room. Narrower, the Show control wraps to a second row. */
+/* "Open as graph" after the filters: the same work as a dependency graph,
+   as a quiet mono link that floods the accent on hover like the chart's
+   group links. The negative margin lets the flood reach into the gaps
+   without widening the toolbar. */
+.graphOpen {
+  flex: none;
+  margin: 0 -6px;
+  padding: 5px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey-2-ink);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .graphOpen:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* Desktop: the toolbar is one row from about 1083px of chart width (a
+   1431px window with the sidebar open, so 1440 keeps one row; 1366 before
+   "Open as graph" joined the filters): the search gives up width (220 →
+   80) before anything wraps, then grows back to 220 where there is room.
+   Narrower, the Show control wraps to a second row. */
 @media (width >= 901px) {
   /* An explicit min-width: the search's 220px width would otherwise make
-     the min-content (and so the wrap point) 415px. It holds the search at
-     its 100px minimum, the gap and the select at its 200px cap, so a long
-     initiative name never pushes the select over the zoom control. */
+     the min-content (and so the wrap point) 516px. It holds the search at
+     its 80px minimum (still wider than its "Search" placeholder), the gap,
+     the select at its 200px cap, the gap and "Open as graph" (about 91px),
+     so a long initiative name never pushes the select or the link over the
+     zoom control. */
   .filters {
-    flex: 1 1 310px;
+    flex: 1 1 391px;
     flex-wrap: nowrap;
-    min-width: 310px;
-    max-width: 430px;
+    min-width: 391px;
+    max-width: 531px;
   }
 
   .search {
     flex: 1 1 220px;
-    min-width: 100px;
+    min-width: 80px;
   }
 
   /* Sized by its longest option ("All initiatives" here), capped: a longer
@@ -518,6 +549,9 @@
 }
 
 .graphLink {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
   margin-top: 12px;
 }
 

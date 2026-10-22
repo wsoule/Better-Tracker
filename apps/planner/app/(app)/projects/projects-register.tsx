@@ -67,8 +67,9 @@ function syncUrl(query: string, filter: ProjectFilterId): string {
 
 /* The projects register's client island: search box and status filter
    over the rows the server built (filterProjectGroups does the matching),
-   then one hairline block per initiative. Rows open the project's timeline
-   lane; the end cell links to its graph and to Linear. */
+   then one hairline block per initiative, whose bar links to the
+   initiative's dependency graph. Rows open the project's timeline lane;
+   the end cell links to its graph and to Linear. */
 export default function ProjectsRegister({
   groups,
   filters,
@@ -192,7 +193,15 @@ export default function ProjectsRegister({
               index={String(index + 1).padStart(2, '0')}
               title={group.name}
               meta={plural(group.rows.length, 'project')}
-            />
+            >
+              <Link
+                href={group.graphHref}
+                className="accentLink"
+                aria-label={`Dependency graph of ${group.name}`}
+              >
+                Graph
+              </Link>
+            </BlockBar>
             <Register
               label={`${group.name} projects`}
               columns={COLUMNS}

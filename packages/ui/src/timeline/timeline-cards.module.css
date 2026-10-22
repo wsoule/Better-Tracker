@@ -40,11 +40,56 @@
   text-transform: uppercase;
 }
 
+/* The heading takes the head's mono voice (not the h3 default size) and
+   ellipsizes before the count or the link give way. */
+.groupLabel {
+  min-width: 0;
+  overflow: hidden;
+  font-size: inherit;
+  font-weight: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .groupCount {
+  flex: none;
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.1em;
   color: var(--muted);
+}
+
+/* The group's quiet link (TimelineGroup.link): mono, dim grey, pushed to
+   the head's right edge; its padding is the hover flood's area, and the
+   negative margin keeps the text on the head's padding line. */
+.groupLink {
+  flex: none;
+  margin: -3px -6px -3px auto;
+  padding: 3px 6px;
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  color: var(--grey-2-ink);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Cards only draw at ≤ 900px, so (as for the card names) only touch is
+   kept from the flood. */
+@media (hover: hover) {
+  .groupLink:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .groupLink {
+    transition: none;
+  }
 }
 
 .card {

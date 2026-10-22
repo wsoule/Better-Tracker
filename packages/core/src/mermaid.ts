@@ -32,23 +32,40 @@ export function escapeMermaidLabel(text: string): string {
     .replace(/["#%&()<>[\]`{|}]/g, (ch) => MERMAID_ESCAPES[ch] ?? ch);
 }
 
-// A node is drawn as a risk when it is unassigned/overdue itself or waits
-// on such an issue.
-function isRiskNode(node: GraphNode): boolean {
-  return (
-    node.unassigned ||
-    node.overdue ||
-    node.waitsOnUnassigned ||
-    node.waitsOnOverdue
-  );
+/**
+ * Whether a node is drawn as a risk (the `risk` class). An issue or a
+ * milestone: it is unassigned/overdue itself or waits on such an issue. A
+ * project or an initiative: it is active and overdue, or its status is at
+ * risk (a quiet, inactive project is never loud).
+ */
+export function isRiskNode(node: GraphNode): boolean {
+  switch (node.kind) {
+    case 'issue':
+    case 'milestone':
+      return (
+        node.unassigned ||
+        node.overdue ||
+        node.waitsOnUnassigned ||
+        node.waitsOnOverdue
+      );
+    case 'project':
+    case 'initiative':
+      return node.active && (node.overdue || node.status === 'at_risk');
+    default: {
+      const unreachable: never = node.kind;
+      return unreachable;
+    }
+  }
 }
 
 /**
  * Renders the graph as `flowchart LR`. Node ids are positional (`n0`, `n1`,
  * …) so they never depend on Linear ids; labels are quoted and escaped;
- * open edges use `-->`, resolved ones `-.->`, and milestone edges summarising
- * more than one relation carry the count. Risk, cycle and external nodes get
- * classes, and risk-chain edges an accent link style.
+ * open edges use `-->`, resolved ones `-.->`, and edges summarising more
+ * than one relation carry the count. Risk, cycle and external nodes get
+ * classes, and risk-chain edges an accent link style. A chain also marks
+ * its focus (the `focus` class) and, when the chain was cut, says how many
+ * of its issues are shown in a comment.
  */
 export function toMermaid(graph: DependencyGraph): string {
   const lines: string[] = ['flowchart LR'];
@@ -75,16 +92,27 @@ export function toMermaid(graph: DependencyGraph): string {
     edgeIndex += 1;
   }
 
+  const chain = graph.chain;
+  if (chain !== null && chain.hidden > 0) {
+    const kept = graph.nodes.length;
+    lines.push(
+      `  %% Showing the nearest ${kept} of ${kept + chain.hidden} issues on this chain`
+    );
+  }
   lines.push(
     '  classDef risk stroke:#9747ff,stroke-width:2px',
     '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3,opacity:0.7'
   );
+  if (chain !== null) lines.push('  classDef focus stroke-width:3px');
   const classes: [string, (node: GraphNode) => boolean][] = [
     ['risk', isRiskNode],
     ['cycle', (node) => node.inCycle],
     ['external', (node) => node.external],
   ];
+  if (chain !== null) {
+    classes.push(['focus', (node) => node.id === chain.focusId]);
+  }
   for (const [name, applies] of classes) {
     const ids = graph.nodes.flatMap((node, i) =>
       applies(node) ? [`n${i}`] : []

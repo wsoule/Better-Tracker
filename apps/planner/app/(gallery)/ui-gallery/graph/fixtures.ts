@@ -331,6 +331,119 @@ export const GRAPHS: Record<string, GraphFixture> = {
   [ISSUE_GRAPH.id]: ISSUE_GRAPH,
 };
 
+// ---- one issue's chain -----------------------------------------------------
+// What /graph?chain=ATL-43 draws: everything the unassigned backfill waits
+// on and everything waiting on it, through open issues. The focus carries
+// the 2px ink rule (DependencyGraph focusId); a closed direct blocker is a
+// resolved leaf; PLT-9 leads on to two issues the chain cap left out, so it
+// carries the +2 MORE chip.
+
+const chainNodes: GraphNodeData[] = [
+  {
+    id: 'ATL-43',
+    label: 'Backfill orders table',
+    sublabel: 'ATL-43 · unassigned',
+    tone: 'accent',
+    status: 'missing',
+    statusLabel: 'Todo',
+    tags: ['UNASSIGNED'],
+    group: 'Atlas',
+    href: 'https://linear.app/acme/issue/ATL-43',
+  },
+  {
+    id: 'ATL-42',
+    label: 'Dual-write shim',
+    sublabel: 'ATL-42 · Ben',
+    tone: 'default',
+    status: 'on_track',
+    statusLabel: 'In progress',
+    group: 'Atlas',
+    href: 'https://linear.app/acme/issue/ATL-42',
+  },
+  {
+    id: 'ATL-40',
+    label: 'Snapshot the legacy DB',
+    sublabel: 'ATL-40 · Ana',
+    tone: 'muted',
+    status: 'done',
+    statusLabel: 'Done',
+    group: 'Atlas',
+    href: 'https://linear.app/acme/issue/ATL-40',
+  },
+  {
+    id: 'BIL-12',
+    label: 'Invoice ID migration',
+    sublabel: 'BIL-12 · Dana',
+    tone: 'default',
+    status: 'on_track',
+    statusLabel: 'In progress',
+    group: 'Billing',
+    href: 'https://linear.app/acme/issue/BIL-12',
+  },
+  {
+    id: 'ATL-44',
+    label: 'Switch read path to the new cluster',
+    sublabel: 'ATL-44 · Ana',
+    tone: 'default',
+    status: 'on_track',
+    statusLabel: 'Todo',
+    group: 'Atlas',
+    href: 'https://linear.app/acme/issue/ATL-44',
+  },
+  {
+    id: 'ATL-52',
+    label: 'Archive legacy tables',
+    sublabel: 'ATL-52 · Chi',
+    tone: 'default',
+    status: 'on_track',
+    statusLabel: 'Backlog',
+    group: 'Atlas',
+    href: 'https://linear.app/acme/issue/ATL-52',
+  },
+  {
+    id: 'PLT-9',
+    label: 'Provision write replica',
+    sublabel: 'PLT-9 · Eve',
+    tone: 'default',
+    status: 'on_track',
+    statusLabel: 'In progress',
+    tags: ['+2 MORE'],
+    group: 'Platform',
+    href: 'https://linear.app/acme/issue/PLT-9',
+  },
+  {
+    id: 'MOB-30',
+    label: 'Offline cache schema',
+    sublabel: 'MOB-30 · Eve',
+    tone: 'default',
+    status: 'on_track',
+    statusLabel: 'Todo',
+    group: 'Mobile',
+    href: 'https://linear.app/acme/issue/MOB-30',
+  },
+];
+
+const chainEdges: GraphEdgeData[] = [
+  { from: 'PLT-9', to: 'ATL-42', kind: 'cross' },
+  { from: 'ATL-40', to: 'ATL-43', kind: 'resolved' },
+  { from: 'ATL-42', to: 'ATL-43', kind: 'default' },
+  { from: 'BIL-12', to: 'ATL-43', kind: 'cross' },
+  { from: 'ATL-43', to: 'ATL-44', kind: 'risk' },
+  { from: 'ATL-43', to: 'ATL-52', kind: 'risk' },
+  { from: 'ATL-44', to: 'MOB-30', kind: 'risk' },
+];
+
+export const CHAIN_GRAPH: GraphFixture & { focusId: string } = {
+  id: 'chain',
+  title: 'Blocking chain of ATL-43',
+  focusId: 'ATL-43',
+  nodes: chainNodes,
+  edges: chainEdges,
+  ariaSummary:
+    'Blocking chain of ATL-43 Backfill orders table: it waits on the dual-write shim (which waits on Platform PLT-9), on Billing BIL-12 and on the finished legacy snapshot; it holds up the read-path switch, which holds up Mobile MOB-30, and the legacy archive.',
+  emptyMessage: 'ATL-43 neither blocks nor waits on another issue.',
+};
+
 // ---- a Dispatch-shaped epic ----------------------------------------------
 // Top-to-bottom, no groups, read-only: the shape Dispatch's epic graph
 // takes (tasks with blockedBy), to show the component outside the planner.

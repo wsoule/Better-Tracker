@@ -35,6 +35,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { formatDate, plural } from '../format';
+import { chainHref } from './graph-scope';
 import { assessmentMark } from './status';
 
 // The issue page and the issue slide-over (architecture §8.5, owner
@@ -138,6 +139,11 @@ export interface IssueTaskModel {
   quiet: boolean;
   /** PROJECT / MILESTONE / KEY, linking to the timeline. */
   crumbs: ShellCrumb[];
+  /** Its blocking chain as a graph (issueChainHref), shown beside
+      "Blocked by" (or "Blocks" when nothing blocks it) for everyone,
+      guests too; null with no relation, or when the view is drawn over
+      that chain (IssueTaskInput.pageHref). */
+  chainHref: string | null;
   milestone: { id: string; name: string } | null;
   status: { kind: TaskStateKind; label: string };
   alerts: TaskDetailAlert[];
@@ -194,6 +200,11 @@ export interface IssueTaskInput {
   viewerId: string;
   /** The grant_write link for this view (lib/http grantWriteHref). */
   grantWriteHref: string;
+  /** The page this view is drawn on, without its ?issue= (a slide-over's
+      host page). A Graph link to it is left out: on /graph?chain=ENG-24
+      ENG-24's own chain is already the page, and the link would only close
+      the slide-over. */
+  pageHref?: string;
 }
 
 /* ---- links ----------------------------------------------------------- */
@@ -231,19 +242,20 @@ export function parseIssueParam(
 
 /**
  * The mirrored issue a URL names: its id, or its identifier in any case
- * ("ENG-24", "eng-24"). Undefined when the mirror has neither.
+ * ("ENG-24", "eng-24"). It moved to core so the engine resolves `?chain=`
+ * keys the same way; re-exported for the planner's routes and loaders.
  */
-export function findIssue(
-  issues: ReadonlyMap<string, Issue>,
-  key: string
-): Issue | undefined {
-  const byId = issues.get(key);
-  if (byId !== undefined) return byId;
-  const wanted = key.toUpperCase();
-  for (const issue of issues.values()) {
-    if (issue.identifier.toUpperCase() === wanted) return issue;
-  }
-  return undefined;
+export { findIssue } from '@better-tracker/core';
+
+/**
+ * The issue's blocking chain as a graph (`/graph?chain=ENG-24`), or null
+ * when it neither blocks nor waits on an issue the planner holds: that
+ * chain would be the issue alone, an empty graph.
+ */
+export function issueChainHref(detail: IssueDetail): string | null {
+  return detail.blockedBy.length > 0 || detail.blocks.length > 0
+    ? chainHref(detail.issue.identifier)
+    : null;
 }
 
 /** One answer of GET /api/issues/search. */
@@ -429,17 +441,23 @@ function relationModel(row: IssueRelationRow): IssueRelationModel {
 export function issueAlerts(
   detail: IssueDetail,
   today: string,
-  options: { closed: boolean; quiet: boolean }
+  options: {
+    closed: boolean;
+    quiet: boolean;
+    /** The chain link to offer (default issueChainHref); null for none. */
+    chainHref?: string | null;
+  }
 ): TaskDetailAlert[] {
   if (options.closed || options.quiet) return [];
   const alerts: TaskDetailAlert[] = [];
   const { milestone, project } = detail;
-  const graphHref =
-    milestone !== null
-      ? `/graph?milestone=${encodeURIComponent(milestone.id)}`
-      : project !== null
-        ? `/graph?project=${encodeURIComponent(project.id)}`
-        : undefined;
+  // Blocked and Holds up both open the issue's own blocking chain.
+  const chain =
+    options.chainHref === undefined
+      ? issueChainHref(detail)
+      : options.chainHref;
+  const graphAction =
+    chain === null ? undefined : { label: 'Graph', href: chain };
 
   if (
     milestone !== null &&
@@ -461,10 +479,7 @@ export function issueAlerts(
       id: 'blocked',
       label: 'Blocked',
       message: `Waiting on ${listPhrase(openBlockers.map(blockerPhrase))}.`,
-      action:
-        graphHref === undefined
-          ? undefined
-          : { label: 'Graph', href: graphHref },
+      action: graphAction,
     });
   }
 
@@ -479,6 +494,7 @@ export function issueAlerts(
             `${m.projectName} › ${m.name} (${m.status === 'overdue' ? 'overdue' : 'at risk'})`
         )
       )} waits on this.`,
+      action: graphAction,
     });
   }
 
@@ -1098,6 +1114,9 @@ export function buildIssueTaskModel(
   crumbs.push({ label: issue.identifier });
 
   const hidden = detail.hiddenRelations;
+  // The chain as a graph, unless the view is drawn over that very graph.
+  const ownChain = issueChainHref(detail);
+  const chainHref = ownChain === input.pageHref ? null : ownChain;
   return {
     issueId: issue.id,
     key: issue.identifier,
@@ -1109,10 +1128,11 @@ export function buildIssueTaskModel(
     closed,
     quiet,
     crumbs,
+    chainHref,
     milestone:
       milestone === null ? null : { id: milestone.id, name: milestone.name },
     status: { kind, label: detail.state?.name ?? 'Unknown state' },
-    alerts: issueAlerts(detail, today, { closed, quiet }),
+    alerts: issueAlerts(detail, today, { closed, quiet, chainHref }),
     facts: {
       assignee: assigneeFact(detail, result.allocationHistory, input, loud),
       priority: {

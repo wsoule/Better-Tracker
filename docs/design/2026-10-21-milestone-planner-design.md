@@ -158,6 +158,11 @@ Banners: projects with no lead; milestones with no date; issues with no mileston
 (counts, click to list).
 
 ### 7.3 Dependency graph
+*(Extended 2026-10-22, §12 "graphs at every level": four zoom levels instead of
+two — initiative, project, milestone and issue — each drawn for the whole
+workspace or inside one initiative, project or milestone, plus one issue's
+blocking chain. The original text is kept.)*
+
 Rendered from Linear `blocks`/`blocked by` relations, as a mermaid-style directed graph.
 Two zoom levels: **milestone level** (milestone A depends on milestone B if any issue in
 A is blocked by an issue in B) and **issue level** within a milestone or project.
@@ -323,3 +328,38 @@ person; nothing else in them changes.
   sidebar says "Guest".
 - **Demo mode** has one guest, Gus Hart (a member of Operations only), so the
   read-only planner can be tried; the demo picker labels him Guest.
+
+### 2026-10-22 — graphs at every level
+
+Decided by the product owner, in their words: "The graphs need to be available
+all the way from initiative to individual issues." It extends §7.3 (two zoom
+levels); nothing else changes.
+
+- **Four levels.** The dependency graph is drawn at the initiative, project,
+  milestone or issue level, for the whole workspace or inside one initiative (or
+  the projects with none), one project or one milestone; each offers the levels
+  finer than itself. Above the issue level a box waits on another when an open
+  issue in it is blocked by an open issue in the other, and the arrow counts how
+  many.
+- **One issue's chain.** Every issue can be drawn with everything it waits on
+  and everything waiting on it, through open issues.
+- **Reachable from where people are**: the timeline's initiative groups and
+  toolbar, a milestone's drawer ("what it waits on"), the projects register, and
+  every issue. Every existing graph link keeps its meaning; `/graph` still opens
+  on milestones.
+- **Read-only**, like every graph: it writes nothing to Linear. Guests see no
+  initiatives in Linear, so their graphs cover every project they can see, and
+  the page says so.
+
+*Builder's calls, flagged for review:*
+- a project in several initiatives counts under the first, as on the timeline
+  (the page names it in the others);
+- an arrow between projects or initiatives, and now between milestones too, is a
+  risk chain only when a blocking issue it summarises is unassigned, overdue or
+  waits on one (before, any risk in the blocking milestone counted);
+- inactive projects are drawn quietly at every level;
+- graphs over 200 boxes or 300 arrows are not drawn; the page offers narrower
+  ones;
+- a chain shows the nearest 150 issues;
+- an initiative or a project whose boxes block nothing still lists them, each
+  opening its own graph, so every level stays reachable from the one above it.

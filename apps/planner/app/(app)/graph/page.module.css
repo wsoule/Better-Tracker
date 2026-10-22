@@ -26,6 +26,25 @@
   color: var(--muted);
 }
 
+/* The drill-up trail above the h1 (TaskCrumbs: Workspace / initiative /
+   project / milestone / issue); it keeps to one line and shrinks the
+   earlier crumbs first. */
+.trail {
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Quiet one-line notes under the receipts: why the graph covers more
+   than asked (no initiatives), what this level cannot place, what has no
+   relation, a project counted under another initiative, a closed or cut
+   chain. */
+.notice {
+  max-width: 96ch;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
 .body {
   max-width: 1440px;
   margin: 24px auto 0;
@@ -107,6 +126,18 @@
 }
 
 .isolatedNote {
+  color: var(--muted);
+}
+
+/* "Showing 100 of 240. Narrow the graph to see the rest." under a cut
+   register. */
+.cutLine {
+  padding: 10px 18px;
+  border: 1px solid var(--border);
+  border-top: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
   color: var(--muted);
 }
 

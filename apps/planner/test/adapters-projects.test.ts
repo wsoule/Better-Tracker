@@ -320,6 +320,22 @@ describe('buildProjectsPage', () => {
     expect(row('proj-3').initiative).toBe('No initiative');
   });
 
+  test('each group links to its initiative’s graph', () => {
+    expect(page.groups.map((g) => g.graphHref)).toEqual([
+      '/graph?initiative=init-0',
+      '/graph?initiative=none',
+    ]);
+    // A guest's mirror has no initiatives, so the only group is "No
+    // initiative" and its graph is the workspace's projects.
+    const guest = buildProjectsPage({
+      timeline: timeline([[lane({ projectId: 'proj-9' })]]),
+      statusNames: new Map(),
+    });
+    expect(guest.groups.map((g) => [g.id, g.graphHref])).toEqual([
+      ['none', '/graph?level=project'],
+    ]);
+  });
+
   test('uses the Linear status name, falling back to the default name', () => {
     expect(row('proj-1').linearStatus).toBe('Building');
     expect(row('proj-2').linearStatus).toBe('In Progress');

@@ -111,7 +111,7 @@ export {
   SkeletonRows,
   SkeletonText,
 } from './shell/skeleton';
-export { default as SlideOver } from './shell/slide-over';
+export { default as SlideOver, SLIDE_OVER_WIDTH } from './shell/slide-over';
 export { ToastProvider, useToast } from './shell/toast';
 export type {
   AlertStripAction,
@@ -178,6 +178,7 @@ export type {
   TimelineChartProps,
   TimelineDependency,
   TimelineGroup,
+  TimelineGroupLink,
   TimelineLane,
   TimelineLegendItem,
   TimelineUndated,

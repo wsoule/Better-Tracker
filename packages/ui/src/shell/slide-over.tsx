@@ -16,6 +16,11 @@ import type { SlideOverProps } from './types';
 
 const EXIT_MS = 320;
 
+/** The panel's width on a wide window, in px (slide-over.module.css
+    `min(560px, 100vw)`): what a page passes as DependencyGraph's
+    `coveredRight` while a slide-over is open over the graph. */
+export const SLIDE_OVER_WIDTH = 560;
+
 /**
  * Gr8r's slide-over drawer in the Analytics skin: a right-hand panel
  * (min(560px, 100vw)) with a 2px accent left rule, a hatched header bar

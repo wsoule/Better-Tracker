@@ -5,6 +5,8 @@
 // preview), while the worker's own jobs keep the whole mirror and each
 // digest names only what its recipient may see.
 
+import type { GraphScope } from '@better-tracker/core';
+import { FIXTURE_GUEST_USER_ID } from '@better-tracker/linear';
 import { afterEach, describe, expect, test } from 'bun:test';
 
 import { type Actor, EngineInputError } from '../src/index';
@@ -105,6 +107,54 @@ describe('a private team', () => {
       (await h.engine.getMilestoneDetail(WORKSPACE_ID, 'ms-delta-1')).milestone
         .id
     ).toBe('ms-delta-1');
+  });
+
+  test('graphs at every level hold nothing of it, and count only what is seen', async () => {
+    const { h, chloe } = await privateOps();
+    for (const scope of [
+      { level: 'initiative' },
+      { level: 'project' },
+      { level: 'issue' },
+      { level: 'project', initiativeId: 'init-platform' },
+      { level: 'project', initiativeId: 'init-growth' },
+      { level: 'milestone', initiativeId: 'init-platform' },
+      { level: 'issue', initiativeId: 'init-platform' },
+    ] as GraphScope[]) {
+      const graph = await h.engine.getGraph(WORKSPACE_ID, scope, chloe);
+      const text = JSON.stringify(graph);
+      for (const id of [...OPS_ONLY_PROJECTS, 'ms-delta-1', 'iss-ops-']) {
+        expect(text).not.toContain(id);
+      }
+    }
+    // Platform holds Atlas, Delta, Fjord, Harbor and Juniper; Chloe sees
+    // three of them, and not OPS-20, so Growth no longer waits back on it.
+    const initiatives = await h.engine.getGraph(
+      WORKSPACE_ID,
+      { level: 'initiative' },
+      chloe
+    );
+    expect(initiatives.nodes.map((n) => [n.id, n.sublabel])).toEqual([
+      ['init-platform', '3 projects'],
+      ['init-growth', '3 projects'],
+      ['none', '1 project'],
+    ]);
+    expect(initiatives.edges.map((e) => [e.from, e.to])).toEqual([
+      ['init-platform', 'init-growth'],
+    ]);
+    const all = await h.engine.getGraph(WORKSPACE_ID, { level: 'initiative' });
+    expect(all.nodes.find((n) => n.id === 'init-platform')?.sublabel).toBe(
+      '5 projects'
+    );
+    // A hidden project is not found, exactly like an unknown one.
+    expect(
+      await rejection(
+        h.engine.getGraph(
+          WORKSPACE_ID,
+          { level: 'milestone', projectId: 'proj-delta' },
+          chloe
+        )
+      )
+    ).toMatchObject({ code: 'not_found' });
   });
 
   test('the issue page and edits treat its issues as not found', async () => {
@@ -232,6 +282,36 @@ describe('a guest', () => {
     const asMember = (await h.engine.load(WORKSPACE_ID, member)).snapshot;
     expect(asMember.projects.has('proj-delta')).toBe(true);
     expect(asMember.initiatives.size).toBeGreaterThan(0);
+  });
+
+  test('graphs naming initiatives cover every project they see instead', async () => {
+    harness = await createDemoHarness();
+    const h = harness;
+    const gus = await actorFor(h, FIXTURE_GUEST_USER_ID);
+    for (const scope of [
+      { level: 'initiative' },
+      { level: 'project', initiativeId: 'init-platform' },
+      { level: 'project', initiativeId: 'init-nope' },
+    ] as GraphScope[]) {
+      const graph = await h.engine.getGraph(WORKSPACE_ID, scope, gus);
+      expect(graph.scope).toEqual({ level: 'project' });
+      expect(graph.fallback).toEqual({
+        reason: 'no_initiatives',
+        requested: scope,
+      });
+      expect(graph.nodes.every((n) => n.initiativeId === 'none')).toBe(true);
+      expect(graph.edges).toEqual([]);
+    }
+    // ENG-24 is an Engineering issue: not his to see, so not found.
+    expect(
+      await rejection(
+        h.engine.getGraph(
+          WORKSPACE_ID,
+          { level: 'issue', issueId: 'ENG-24' },
+          gus
+        )
+      )
+    ).toMatchObject({ code: 'not_found' });
   });
 
   test('a viewer from another workspace is refused', async () => {

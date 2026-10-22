@@ -499,37 +499,119 @@ export interface Digest {
 }
 
 // ---------------------------------------------------------------------------
-// Dependency graph (§7.3)
+// Dependency graph (§7.3; graphs at every level, owner decision 2026-10-22)
 // ---------------------------------------------------------------------------
 
-export type GraphLevel = 'milestone' | 'issue';
+/** What one node stands for: the zoom level. */
+export type GraphLevel = 'initiative' | 'project' | 'milestone' | 'issue';
 
+/**
+ * What a dependency graph shows (§2.10): a level inside a container. With no
+ * container key the container is the whole workspace, as the viewer sees it.
+ * Otherwise exactly one key names the container, and the container is always
+ * coarser than the level. `initiativeId` may be NO_INITIATIVE_ID ('none'):
+ * the projects in no mirrored initiative. `issueId` is one issue's blocking
+ * chain; on input it may be an id or an identifier in any case, and the
+ * resolved scope always carries the id. Today's three shapes
+ * ({ level: 'milestone' }, { level: 'issue', milestoneId },
+ * { level: 'issue', projectId }) keep their meaning.
+ * Branch on a scope only through graphContainer(), with an exhaustive switch.
+ */
 export type GraphScope =
-  | { level: 'milestone' }
+  | { level: GraphLevel }
+  | { level: 'project' | 'milestone' | 'issue'; initiativeId: string }
+  | { level: 'milestone' | 'issue'; projectId: string }
   | { level: 'issue'; milestoneId: string }
-  | { level: 'issue'; projectId: string };
+  | { level: 'issue'; issueId: string };
+
+/** A scope's container as a tagged value (graphContainer). */
+export type GraphContainer =
+  | { kind: 'workspace' }
+  | { kind: 'initiative'; id: string }
+  | { kind: 'project'; id: string }
+  | { kind: 'milestone'; id: string }
+  | { kind: 'chain'; id: string };
+
+/** Why the graph answers a wider scope than the one asked for. */
+export interface GraphFallback {
+  /**
+   * The viewer's mirror holds no initiatives: a Linear guest (or a person
+   * the mirror does not know), or a workspace without initiatives.
+   */
+  reason: 'no_initiatives';
+  /** The scope as asked. */
+  requested: GraphScope;
+}
+
+/** One issue's chain, summarised (chain scopes only). */
+export interface GraphChain {
+  focusId: string;
+  /**
+   * Issues found upstream / downstream of the focus by the full walk
+   * (§2.10), before the cap; the focus is not counted.
+   */
+  upstream: number;
+  downstream: number;
+  /** Walk nodes left out by CHAIN_MAX_NODES. */
+  hidden: number;
+}
 
 export interface GraphNode {
+  /** Initiative id, NO_INITIATIVE_ID, project, milestone or issue id. */
   id: string;
   kind: GraphLevel;
   label: string;
-  /** Issue: "ENG-12 · Ana"; milestone: project name. */
+  /**
+   * Issue: "ENG-12 · Ana"; milestone: project name; project: lead's name
+   * or "No lead"; initiative: "4 projects".
+   */
   sublabel: string;
+  /**
+   * Issue and project: their Linear URL. Milestone and initiative: null
+   * (the mirror keeps no initiative URL).
+   */
   url: string | null;
+  /**
+   * The first initiative (homeInitiativeIds) of the node's project;
+   * NO_INITIATIVE_ID when the project has none; an initiative node: its own
+   * id. Null only for an issue with no (mirrored) project.
+   */
+  initiativeId: string | null;
   projectId: string | null;
   milestoneId: string | null;
+  /** Assignee (issue), project lead (milestone, project), null (initiative). */
   ownerId: string | null;
-  /** Issue nodes outside the requested scope (one hop away). */
+  /** Outside the requested container, one hop away. */
   external: boolean;
+  /**
+   * Its project is active (§2.8); an issue with no mirrored project counts
+   * as active; an initiative: one of its projects is.
+   */
+  active: boolean;
   open: boolean;
   unassigned: boolean;
   overdue: boolean;
   inCycle: boolean;
+  /**
+   * An open issue under this node is on a blocking cycle among open
+   * issues, anywhere in the viewer's mirror. For an issue node: itself.
+   */
+  holdsCycle: boolean;
   /** Transitively waits on an open unassigned issue. */
   waitsOnUnassigned: boolean;
   /** Transitively waits on an issue in an overdue milestone. */
   waitsOnOverdue: boolean;
   status: MilestoneStatus | WorkflowStateType;
+  /**
+   * Chain graphs only: signed hops from the focus (0 = the focus, negative
+   * = upstream).
+   */
+  distance?: number;
+  /**
+   * Chain graphs only: this node's relations to walk nodes that
+   * CHAIN_MAX_NODES left out (set only when above 0).
+   */
+  hiddenNeighbours?: number;
 }
 
 export interface GraphEdge {
@@ -539,21 +621,56 @@ export interface GraphEdge {
   to: string;
   /** Blocker is already completed/canceled (issue level only). */
   resolved: boolean;
+  /**
+   * The ends are in different projects (always true at the project and
+   * initiative levels).
+   */
   crossProject: boolean;
+  /**
+   * Both ends have a project and their first initiatives differ (always
+   * true at the initiative level).
+   */
+  crossInitiative: boolean;
+  /**
+   * Owners set and different (issue: assignees; milestone, project: leads;
+   * initiative: always false).
+   */
   crossOwner: boolean;
   inCycle: boolean;
-  /** Part of a chain that ends in an unassigned or overdue issue. */
+  /**
+   * Issue level: the blocker is unassigned/overdue or waits on one.
+   * Aggregate levels: one relation it summarises has such a blocker.
+   */
   onRiskChain: boolean;
-  /** Milestone level: how many issue relations the edge summarises. */
+  /** Aggregate levels: how many issue relations the edge summarises. */
   weight: number;
 }
 
 export interface DependencyGraph {
+  /**
+   * The scope drawn: resolved (a chain carries the issue id) and, after a
+   * fallback, the wider scope.
+   */
   scope: GraphScope;
   nodes: GraphNode[];
   edges: GraphEdge[];
   /** Each cycle as node ids in order. */
   cycles: string[][];
+  /** Set when the scope named initiatives the viewer has none of. */
+  fallback: GraphFallback | null;
+  /**
+   * Aggregate levels: open→open relations that touch the container but
+   * have an end with no node at this level (no milestone at the milestone
+   * level; no project at the project and initiative levels).
+   */
+  unplacedRelations: number;
+  /**
+   * Issue level in the workspace or an initiative: open issues under the
+   * container on no counted relation (counted, not nodes).
+   */
+  unrelatedIssues: number;
+  /** Chain scopes only. */
+  chain: GraphChain | null;
 }
 
 // ---------------------------------------------------------------------------

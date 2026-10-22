@@ -7,6 +7,7 @@
   right: 0;
   bottom: 0;
   z-index: 50;
+  /* SLIDE_OVER_WIDTH in slide-over.tsx: keep the two in step. */
   width: min(560px, 100vw);
   display: flex;
   flex-direction: column;

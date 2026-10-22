@@ -4,6 +4,7 @@ import {
   buildIssueTaskModel,
   findIssue,
   type IssueTaskModel,
+  withIssueParam,
 } from './adapters/issue';
 import { engineInputCode } from './engine-errors';
 import { grantWriteHref } from './http';
@@ -42,6 +43,7 @@ export async function loadIssueModel(
     timeZone: loaded.settings.timezone,
     viewerId: actor.session.userId,
     grantWriteHref: grantWriteHref(returnTo),
+    pageHref: withIssueParam(returnTo, null),
     names: new Map(
       loaded.snapshot.data.users.map((user) => [user.id, user.name])
     ),

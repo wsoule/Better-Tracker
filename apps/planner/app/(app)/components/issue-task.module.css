@@ -1,5 +1,6 @@
 /* The issue view's host additions around TaskDetail: the read-only
-   notice under the properties and the quiet sentence about relations the
+   notice under the properties, the "Blocked by" heading's Graph link
+   beside its "+ Add" picker, and the quiet sentence about relations the
    planner cannot show. */
 
 .notice {
@@ -11,4 +12,12 @@
   font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
+}
+
+.sectionMeta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px 14px;
 }

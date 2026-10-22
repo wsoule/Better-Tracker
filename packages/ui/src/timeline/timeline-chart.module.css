@@ -404,13 +404,50 @@
   white-space: nowrap;
 }
 
-.groupCount {
+/* The count with the group's link under it, right-aligned in one column
+   as wide as the longer of the two, so the label keeps the width it had
+   before the link (the 36px row holds both lines). */
+.groupMeta {
+  display: flex;
   flex: none;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
   margin-left: auto;
+}
+
+.groupCount {
   font-family: var(--font-mono);
   font-size: 9.5px;
+  line-height: 12px;
   letter-spacing: 0.08em;
   color: var(--muted);
+}
+
+/* The group's quiet link (TimelineGroup.link, e.g. "Graph"): mono in the
+   dim text grey. Its padding is the hover flood's area; the negative
+   margins keep the text on the count's right edge and the row's height. */
+.groupLink {
+  margin: -2px -6px;
+  padding: 2px 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey-2-ink);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .groupLink:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
 }
 
 /* ---- lanes ---------------------------------------------------------- */
@@ -643,6 +680,7 @@ a.laneName:focus-visible {
   .pointMark,
   .pointLabel,
   .laneName,
+  .groupLink,
   .chip {
     transition: none;
   }

@@ -1,9 +1,18 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import { afterEach, describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { renderToString } from 'react-dom/server';
 
 import {
   type BlockBarProps,
+  GraphLegend,
   type PickerMarkViewProps,
   type StatusMarkProps,
   type TabItem,
@@ -93,6 +102,51 @@ describe('ThemeToggle', () => {
     expect(document.documentElement.dataset.theme).toBe('light');
     fireEvent.click(screen.getByRole('button'));
     expect(document.documentElement.dataset.theme).toBe('dark');
+  });
+});
+
+describe('GraphLegend focus swatch', () => {
+  test('node-focus draws in the Nodes row with its name and note', () => {
+    render(
+      <GraphLegend
+        label="Chain legend"
+        items={[
+          { mark: 'node', label: 'Issue' },
+          {
+            mark: 'node-focus',
+            label: 'Focus',
+            note: 'the issue this chain is about',
+          },
+          { mark: 'edge-risk', label: 'Risk chain' },
+        ]}
+      />
+    );
+    const legend = screen.getByRole('group', { name: 'Chain legend' });
+    const [nodes, edges] = within(legend).getAllByRole('list');
+    const item = within(nodes)
+      .getAllByRole('listitem')
+      .find((li) => li.textContent?.includes('Focus'));
+    expect(item?.textContent).toBe('Focusthe issue this chain is about');
+    const swatch = item?.querySelector('[data-mark]');
+    expect(swatch?.getAttribute('data-mark')).toBe('node-focus');
+    expect(swatch?.getAttribute('aria-hidden')).toBe('true');
+    expect(edges.querySelector('[data-mark="node-focus"]')).toBeNull();
+  });
+
+  test('the swatch repeats the graph’s inner 2px ink rule', () => {
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'graph',
+        'graph-legend.module.css'
+      ),
+      'utf8'
+    );
+    const rule = /\.nodeFocus::after \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toContain('inset: 2px;');
+    expect(rule).toContain('border: 2px solid var(--foreground);');
   });
 });
 

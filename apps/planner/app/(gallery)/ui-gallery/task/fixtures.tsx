@@ -215,7 +215,7 @@ export const ENG_24: GalleryTask = {
       label: 'Blocked',
       message:
         'Waiting on ENG-23 (in progress) and ENG-12 (backlog, unassigned).',
-      action: { label: 'Graph', href: '/graph?focus=ENG-24' },
+      action: { label: 'Graph', href: '/graph?chain=ENG-24' },
     },
     {
       id: 'stalled',

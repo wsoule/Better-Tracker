@@ -37,6 +37,25 @@ const WHEEL_RATE = 0.0025;
 const FIT_PADDING = 16;
 /** Pointer travel (px) before a press on the background becomes a pan. */
 const PAN_THRESHOLD = 3;
+/** The least frame width (px) a host's right-hand panel must leave
+    uncovered for the graph to keep room beside it (coveredRight). */
+const MIN_UNCOVERED = 240;
+
+/**
+ * How many px at the frame's right a panel of `width` px, fixed along the
+ * window's right edge, covers: 0 for no panel, for one that misses the
+ * frame, or for one that would leave less than MIN_UNCOVERED of it (a
+ * phone's full-width sheet, where moving the drawing helps nobody).
+ */
+function coveredPart(viewport: HTMLElement, width: number): number {
+  if (width <= 0) return 0;
+  const frame = viewport.getBoundingClientRect();
+  const panelLeft = window.innerWidth - Math.min(width, window.innerWidth);
+  const covered = Math.max(0, frame.right - Math.max(panelLeft, frame.left));
+  return viewport.clientWidth - covered >= MIN_UNCOVERED
+    ? Math.round(covered)
+    : 0;
+}
 
 const EDGE_WORDS: Record<GraphEdgeKind, string> = {
   default: 'blocks',
@@ -86,12 +105,14 @@ function isTyping(target: EventTarget | null): boolean {
 
 /**
  * The sentence a screen reader hears on a node: name, context, status,
- * flags, scope, and how many open edges touch it.
+ * flags, scope, how many open edges touch it, and last the focus words
+ * when the graph is about this node.
  */
 function nodeName(
   node: GraphNodeData,
   waitsOn: number,
-  holdsUp: number
+  holdsUp: number,
+  focusWords: string | null
 ): string {
   const parts = [node.label];
   if (node.sublabel !== undefined && node.sublabel !== '') {
@@ -104,6 +125,7 @@ function nodeName(
   if (tags.length > 0) parts.push(tags.map((t) => t.toLowerCase()).join(', '));
   if (node.external === true) parts.push('outside this scope');
   parts.push(`waits on ${waitsOn}, blocks ${holdsUp}`);
+  if (focusWords !== null && focusWords !== '') parts.push(focusWords);
   return `${parts.join('. ')}.`;
 }
 
@@ -188,6 +210,12 @@ function neighbour(
  *   loses its scroll.
  * - Screen readers get the summary sentence on the drawing and a hidden
  *   table of every edge.
+ * - `focusId` marks the node the graph is about with an inner ink rule
+ *   (it lights nothing); the first paint scrolls the frame so that node,
+ *   else the selected one, sits in the middle (of the part a host's open
+ *   right-hand panel leaves uncovered, `coveredRight`).
+ * - `layout` takes a layout the host already computed (e.g. on the
+ *   server), so the client never runs dagre.
  */
 export function DependencyGraph({
   nodes,
@@ -200,11 +228,16 @@ export function DependencyGraph({
   cluster,
   toolbar,
   hint = 'Drag to pan · Ctrl + wheel to zoom',
+  layout: givenLayout,
+  focusId = null,
+  focusLabel = 'focus',
+  coveredRight,
   className,
 }: DependencyGraphProps): ReactNode {
+  // A host-computed layout is used as is; dagre runs only without one.
   const layout = useMemo(
-    () => layoutGraph(nodes, edges, { direction, cluster }),
-    [nodes, edges, direction, cluster]
+    () => givenLayout ?? layoutGraph(nodes, edges, { direction, cluster }),
+    [givenLayout, nodes, edges, direction, cluster]
   );
   const horizontal = layout.direction === 'LR';
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
@@ -212,8 +245,10 @@ export function DependencyGraph({
   const waiters = useMemo(() => waiterIndex(edges), [edges]);
 
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const [focusId, setFocusId] = useState<string | null>(null);
-  const candidate = hoverId ?? focusId ?? selectedId;
+  // The node holding keyboard focus (not the `focusId` prop, which names
+  // the node the whole graph is about).
+  const [focusedId, setFocusedId] = useState<string | null>(null);
+  const candidate = hoverId ?? focusedId ?? selectedId;
   const activeId = candidate !== null && byId.has(candidate) ? candidate : null;
   const chain = useMemo(
     () => (activeId === null ? null : upstreamChain(activeId, blockers)),
@@ -226,7 +261,8 @@ export function DependencyGraph({
 
   // The one node Tab reaches. Focus moves it; a new selection from
   // outside (a drawer's "Waits on" list) moves it too, so Tab returns to
-  // what the reader picked last.
+  // what the reader picked last. Before either, Tab lands on the node the
+  // graph is about.
   const [rovingId, setRovingId] = useState<string | null>(null);
   const [seenSelected, setSeenSelected] = useState(selectedId);
   if (selectedId !== seenSelected) {
@@ -234,7 +270,7 @@ export function DependencyGraph({
     if (selectedId !== null) setRovingId(selectedId);
   }
   const tabStop =
-    [rovingId, selectedId].find((id) => id !== null && byId.has(id)) ??
+    [rovingId, selectedId, focusId].find((id) => id !== null && byId.has(id)) ??
     layout.nodes[0]?.id ??
     null;
   const helpId = useId();
@@ -329,6 +365,54 @@ export function DependencyGraph({
     viewport.addEventListener('wheel', onWheel, { passive: false });
     return () => viewport.removeEventListener('wheel', onWheel);
   }, [zoomAround, hasNodes]);
+
+  // While a host panel covers the frame's right (coveredRight), the frame
+  // gets that much right padding: a drawing narrower than the frame then
+  // centres in the uncovered part, and a wider one can scroll its right
+  // end out from under the panel. Set on the element before paint (and
+  // before the centring below reads it), so nothing jumps.
+  const reserveRef = useRef(0);
+  useIsomorphicLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (!hasNodes || viewport === null) return;
+    const reserve = coveredPart(viewport, coveredRight ?? 0);
+    reserveRef.current = reserve;
+    viewport.style.paddingRight = reserve > 0 ? `${reserve}px` : '';
+  }, [hasNodes, coveredRight]);
+
+  // On the first paint that has a frame, centre the node the graph is
+  // about (the focus, else the selection) in the frame, so a long chain
+  // opens on its subject rather than on its leftmost blocker. Beside a
+  // host panel it scrolls only as far as it takes to show the whole box in
+  // the uncovered part (when that is less than centring), so the box is
+  // not hidden under its own panel and what it waits on, to its left,
+  // stays in view. Only the frame scrolls, never the page, with no
+  // animation; it happens once, so later selections never move the
+  // drawing under the reader.
+  const centredRef = useRef(false);
+  const centreId = focusId ?? selectedId;
+  useIsomorphicLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    if (centredRef.current || !hasNodes || viewport === null) return;
+    centredRef.current = true;
+    const box =
+      centreId === null
+        ? undefined
+        : layout.nodes.find((n) => n.id === centreId);
+    if (box === undefined) return;
+    const k = zoomRef.current;
+    const visibleWidth = viewport.clientWidth - reserveRef.current;
+    const centred = (box.x + box.width / 2) * k - visibleWidth / 2;
+    const revealed = (box.x + box.width) * k + FIT_PADDING - visibleWidth;
+    viewport.scrollLeft = Math.max(
+      0,
+      reserveRef.current > 0 ? Math.min(centred, revealed) : centred
+    );
+    viewport.scrollTop = Math.max(
+      0,
+      (box.y + box.height / 2) * k - viewport.clientHeight / 2
+    );
+  }, [hasNodes, centreId, layout]);
 
   // Link nodes render through the host's <Link>, whose props carry no
   // tabIndex or aria-describedby, so the roving tab stop and the key help
@@ -615,6 +699,7 @@ export function DependencyGraph({
               const overdue = tags.includes('OVERDUE');
               const inCycle = tags.includes('CYCLE');
               const selected = box.id === selectedId;
+              const focus = box.id === focusId;
               const state: HighlightState | undefined =
                 lit === null
                   ? undefined
@@ -631,6 +716,7 @@ export function DependencyGraph({
                 overdue && styles.overdueNode,
                 inCycle && styles.cycle,
                 selected && styles.selected,
+                focus && styles.focus,
                 state === undefined ? undefined : STATE_CLASS[state]
               );
               const position: CSSProperties = {
@@ -642,7 +728,8 @@ export function DependencyGraph({
               const name = nodeName(
                 node,
                 blockers.get(box.id)?.length ?? 0,
-                waiters.get(box.id)?.length ?? 0
+                waiters.get(box.id)?.length ?? 0,
+                focus ? focusLabel : null
               );
               const body = (
                 <>
@@ -686,16 +773,17 @@ export function DependencyGraph({
               const handlers = {
                 'data-graph-node': box.id,
                 'data-state': state,
+                'data-focus': focus ? '' : undefined,
                 ref: (el: HTMLElement | null) => {
                   if (el === null) nodeRefs.current.delete(box.id);
                   else nodeRefs.current.set(box.id, el);
                 },
                 onFocus: () => {
-                  setFocusId(box.id);
+                  setFocusedId(box.id);
                   setRovingId(box.id);
                 },
                 onBlur: () =>
-                  setFocusId((current) =>
+                  setFocusedId((current) =>
                     current === box.id ? null : current
                   ),
                 onPointerEnter: (event: ReactPointerEvent) => {

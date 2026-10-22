@@ -2,6 +2,7 @@
 
 import {
   Button,
+  Link,
   Notice,
   SegmentedControl,
   TimelineChart,
@@ -31,6 +32,7 @@ import {
   showFilters,
   type TimelinePageModel,
   type TimelineSelection,
+  timelineGraphHref,
   timelineShow,
   type TimelineUrlState,
   timelineHref,
@@ -343,6 +345,14 @@ export default function TimelineScreen({
                   </option>
                 ))}
               </select>
+              {/* The same work as a dependency graph: the workspace's
+                  milestones, or the filtered initiative's. */}
+              <Link
+                href={timelineGraphHref(initiative, model.hasInitiatives)}
+                className={css.graphOpen}
+              >
+                Open as graph
+              </Link>
             </div>
           }
           toolbarEnd={

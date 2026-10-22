@@ -44,6 +44,19 @@ method and by the routes of the actor-less jobs (resync, preview); the pages
 offer a guest no controls and one quiet notice. The contracts are in §2.13, §7,
 §7.1, §7.2, §8.1, §8.3, §8.4 and §8.5.
 
+**Owner decision 2026-10-22, graphs at every level** (design doc §12): "The
+graphs need to be available all the way from initiative to individual issues."
+The dependency graph is drawn at the initiative, project, milestone or issue
+level, for the whole workspace or inside one initiative (or the projects with
+none), one project or one milestone, plus one issue's blocking chain; a project
+in several initiatives counts under the first, as on the timeline; risk on an
+aggregate edge is per relation. The core and engine contracts are in §2.10,
+§2.11, §2.13, §3 and §7; the `/graph` page (URLs, trail, level tabs, panels,
+draw limits) is in §8.1 and §8.4 "Graph"; the ways in (the timeline's group
+links, "Open as graph" and the milestone drawer, the projects register's group
+links, every issue's chain) are in §8.4 "Timeline" and "Projects" and §8.5. The
+graph is read-only, so guests keep every graph link.
+
 ## 1. Layout
 
 ```
@@ -263,25 +276,142 @@ issues unassigned", "no state change in 9 days", "2/7 done with 2 days left",
 `?project=<id>`). `openIssues` is optional in the type only because digests
 stored before it existed lack it.
 
-### 2.10 Dependency graph (§7.3)
+### 2.10 Dependency graph (§7.3; graphs at every level, owner decision 2026-10-22)
 
-- Issue level, scope = a milestone's or project's issues; plus the direct
-  blockers and blocked issues outside the scope as `external` nodes (that is
-  where cross-project blockers show up). Edge = `blocks` relation where the
-  blocked issue is in scope or the blocker is in scope; `resolved` when the
-  blocker is closed.
-- Milestone level: node per milestone in an active project with open issues or
-  with edges; edge B → A when an **open** issue in A is blocked by an **open**
-  issue in B (A ≠ B), `weight` = number of such relations.
-- Flags: `unassigned`, `overdue` (issue's milestone overdue / milestone
-  overdue), `inCycle` (Tarjan SCC size > 1 or self-loop), `waitsOnUnassigned` /
-  `waitsOnOverdue` (transitively over open blockers), `crossProject` /
-  `crossOwner` on edges (owner = assignee for issues, project lead for
-  milestones), `onRiskChain` when the edge's blocker is unassigned/overdue or
-  itself waits on one.
+`buildDependencyGraph(snapshot, ctx, assessments, scope)` (`graph.ts`) draws a
+**level** (what one node is: `initiative`, `project`, `milestone` or `issue`)
+inside a **container**: the whole workspace (as the viewer sees it), one
+initiative (or `NO_INITIATIVE_ID = 'none'`, the projects in no mirrored
+initiative), one project, one milestone, or one issue's blocking **chain**.
+
+- **Scope.** `GraphScope` is `{ level }` (the workspace) or a level with exactly
+  one of `initiativeId`, `projectId`, `milestoneId`, `issueId` (the chain). Each
+  container offers the levels finer than itself (`GRAPH_LEVELS_WITHIN`:
+  workspace all four; initiative project, milestone, issue; project milestone,
+  issue; milestone and chain issue) and opens at `DEFAULT_GRAPH_LEVEL`
+  (workspace milestone, initiative project, the rest issue), so today's three
+  shapes (`{ level: 'milestone' }`, `{ level: 'issue', milestoneId }`,
+  `{ level: 'issue', projectId }`) keep their meaning. Code branches on a scope
+  only through `graphContainer(scope)`
+  (`workspace | initiative | project | milestone | chain`, with an id) and an
+  exhaustive switch; `graphScopeFor(container, level?)` builds a scope (an
+  unoffered level gives the default).
+- **`resolveGraphScope(snapshot, raw)`** validates, in order: an object ("A
+  graph scope is required."); one of the four levels; container ids are strings,
+  at most one of them; the level is offered by the container (one message per
+  container); then the **no-initiatives fallback**: a scope naming initiatives
+  (the initiative level, or `initiativeId`) when the snapshot has none (a
+  guest's, or a workspace without initiatives) resolves `ok` to the same level
+  for the workspace (the initiative level to `project`) with
+  `fallback: { reason: 'no_initiatives', requested }`; no id is checked, so
+  every id gets the same answer and nothing leaks. Otherwise the container must
+  exist in the given snapshot (`none` always does; unknown and hidden ids are
+  both `not_found`); a chain may name its issue by id or identifier in any case
+  (`findIssue`) and resolves to the id. The builder resolves the scope itself: a
+  failure gives an empty graph for the scope as given (today's unknown-id
+  answer), success draws `res.scope` and sets `fallback`.
+- **Facts, once per build** over the viewer's snapshot: open, unassigned and
+  overdue (the issue's milestone is overdue) issues; `waitsOnUnassigned` /
+  `waitsOnOverdue` (transitively over open blockers, `waitingIssues`); `risky` =
+  unassigned or overdue or waits on either; the open issues on a blocking cycle
+  among open issues (one Tarjan pass); each project's first initiative
+  (`homeInitiativeIds`, the timeline's rule, §2.11; `none` when it has none);
+  project activity (§2.8; an issue with no mirrored project counts as active).
+  O(issues + relations), no per-node scans.
+- **Membership and units.** An issue is under the workspace always; under
+  initiative X when its mirrored project's first initiative is X (an issue with
+  no project is in no initiative); under a project or milestone by its ids.
+  Above the issue level each issue counts toward one **unit**: its mirrored
+  milestone, its mirrored project, or its project's first initiative (a project
+  in several initiatives counts once, under the first: no duplicated boxes, no
+  invented cycles); no such unit → none.
+- **Aggregate levels** (initiative, project, milestone). A relation b blocks w
+  counts when both ends are open, one end is under the container and, in the
+  workspace only, one end is in an active project (inside a container there is
+  no activity filter: the person asked for it). An end without a unit adds to
+  `unplacedRelations`; ends in one unit make no edge; otherwise the edge unit(b)
+  → unit(w) gets `weight` += 1 and `onRiskChain` ||= `risky(b)` (risk is **per
+  relation** at every aggregate level, so drilling from a project edge to its
+  milestone edges keeps the accent consistent; before 2026-10-22 a milestone
+  edge was a risk whenever its blocker milestone held any risk). Nodes: the
+  units of open issues under the container (in the workspace: in active
+  projects) plus both ends of every edge; `external` = the unit is not under the
+  container (only ever an edge end, never in the workspace; edges between two
+  externals cannot exist). At the workspace milestone level this is exactly the
+  earlier rule (active projects' milestones with open issues, plus edge ends);
+  goldens in `graph.test.ts` prove the output unchanged.
+- **Node fields** (`GraphNode`): `id` (initiative id or `none`, project,
+  milestone or issue id), `kind` (the level), `label` (name; "No initiative"),
+  `sublabel` (issue "ENG-12 · Ana"; milestone its project; project its lead,
+  "Unknown user" or "No lead"; initiative "4 projects", the visible projects
+  whose first initiative it is), `url` (issue and project; null for milestone
+  and initiative), `initiativeId` (the project's first initiative or `none`; an
+  initiative itself; null only for an issue with no mirrored project),
+  `projectId`, `milestoneId`, `ownerId` (assignee; project lead; null for an
+  initiative), `external`, `active` (its project is active; an initiative: one
+  of its projects is), `open`, `unassigned`, `overdue`, `waitsOn*` and
+  `holdsCycle` (an open issue under the node is on a blocking cycle among open
+  issues, anywhere in the viewer's mirror; for an issue node, itself), each
+  folded over the unit's open issues (all of them, also for an external);
+  `inCycle` (Tarjan SCC over the drawn unresolved edges, size > 1 or a
+  self-loop); `status`: issue its state type; milestone its assessment; project
+  its next milestone's (§2.6) status, `empty` without one; initiative the most
+  severe (overdue, at_risk, unscheduled, empty, on_track, complete) of its
+  active projects' statuses, of all its projects when none is active. Milestone
+  nodes keep their assessment-based `open`, `unassigned` and `overdue`. Chains
+  add `distance` and `hiddenNeighbours` (below).
+- **Edge fields** (`GraphEdge`): `resolved` (issue level: the blocker is
+  closed), `crossProject` (always at the project and initiative levels),
+  `crossInitiative` (both ends have a project and their first initiatives
+  differ; always at the initiative level; never for a guest, whose projects have
+  none), `crossOwner` (assignees; leads at the milestone and project levels;
+  never at the initiative level), `inCycle`, `onRiskChain`, `weight`.
+- **Order.** Nodes under the container first, then externals, each group sorted
+  together (listed units and unlisted in-container edge ends alike): initiatives
+  by `compareInitiatives` with `none` last, projects in `orderProjects` order,
+  milestones by `compareMilestones`, issues by `compareIssues`. Edges in node
+  order (`sortEdges`), so output is stable.
+- **Issue level inside a milestone or project** (unchanged): all of its issues,
+  open and closed, every relation touching one, one hop of external blockers and
+  blocked issues, `resolved` when the blocker is closed. **Inside an initiative
+  or the workspace**: only the ends of counted relations are nodes (in-container
+  first, then externals, initiative only; issues with no project are externals
+  of an initiative); a relation counts when it touches the container, one end is
+  open (closed↔closed is history) and, in the workspace, one end is in an active
+  project; open issues under the container on no counted relation are only
+  counted (`unrelatedIssues`).
+- **One issue's chain** (`{ level: 'issue', issueId }`): breadth-first from the
+  focus F upstream over its blockers and downstream over what it blocks. F's
+  direct relations are always walked, in any state; past F the walk goes through
+  open issues only (a closed issue holds nothing up and waits on nothing), and a
+  closed F is one hop. Side blockers of downstream issues are not part of F's
+  chain. `distance` is 0 for F, otherwise −(hops upstream) when that is no
+  longer than the downstream path, else +(hops downstream).
+  `chain: { focusId, upstream, downstream, hidden }` counts the full walk. Past
+  `CHAIN_MAX_NODES = 150` walk issues only the nearest are kept (by |distance|,
+  upstream first, then issue order; F always), `hidden` counts the rest and a
+  kept issue with relations to left-out walk issues carries `hiddenNeighbours`.
+  Edges: every relation between two kept issues; nodes are never external; F
+  comes first. O(the component) plus sorting. The chain cap is the only cap in
+  core: everything else is uncapped (the timeline's connectors come from the
+  workspace milestone level), and the planner decides what is drawn (§8.4).
+- **Visibility.** Every level is built from the viewer's narrowed snapshot
+  (§2.13), so hidden teams' issues, hidden projects and their milestones, and
+  relations with a hidden end never become nodes, edges, externals, weights,
+  counts (`unplacedRelations`, `unrelatedIssues`, "N projects") or risk inputs;
+  nothing hidden is counted. Risk follows the viewer's mirror too: a member may
+  see an edge off the risk chain although a hidden team's blocker is unassigned.
+- **`DependencyGraph`** =
+  `{ scope (resolved), nodes, edges, cycles (node ids in walk order), fallback, unplacedRelations, unrelatedIssues, chain }`.
 - `toMermaid(graph)` emits `flowchart LR` with stable sanitized ids (`n0`, `n1`,
-  …), quoted labels, `-->` for open edges, `-.->` for resolved, and `classDef`s
-  for risk/cycle/external.
+  …), quoted labels (label `<br/>` sublabel), `-->` for open edges, `-.->` for
+  resolved, `|n|` weights, `classDef`s for risk/cycle/external and an accent
+  `linkStyle` for risk-chain edges. `isRiskNode(node)`: issue and milestone
+  nodes when unassigned, overdue or waiting on either; project and initiative
+  nodes when active and overdue or at risk. A chain adds
+  `classDef focus stroke-width:3px` on its focus and, when cut, the comment
+  `%% Showing the nearest {kept} of {kept + hidden} issues on this chain` before
+  the classes.
 
 ### 2.11 Views
 
@@ -295,7 +425,8 @@ stored before it existed lack it.
   this user within `newBadgeDays` and it is still assigned to them.
 - `buildTimelineView` (§7.2): window `today - timelineDaysBack` →
   `today + timelineDaysAhead`. Groups per initiative (initiative priority rank,
-  then `sortOrder`; projects in several initiatives appear under the first),
+  then `sortOrder`; projects in several initiatives appear under the first, as
+  computed by `homeInitiativeIds`, which the dependency graph shares, §2.10),
   then "No initiative". Lanes = projects not completed/canceled, ordered by
   project priority rank then `sortOrder`. Bars per dated milestone: `start` =
   previous dated milestone's date (same project), else project `startDate`, else
@@ -376,6 +507,13 @@ private teams):
   the same `guest` test — a Linear guest, or a person the mirror does not know —
   also makes a person read-only in the planner (the engine's `Actor.readOnly`,
   §7): they see what this section allows and change nothing.
+- Dependency graphs (§2.10) are built from the viewer's snapshot at every level:
+  nothing hidden becomes a node, an external, an edge, a weight, a risk input or
+  a count. A container id the viewer cannot see (a project, milestone or chain
+  issue of a hidden team) is `not_found` exactly like an unknown one. A guest
+  has no initiatives, so every project's first initiative is `none`, and a scope
+  naming initiatives answers the workspace with `fallback` (`no_initiatives`)
+  for every id alike (`resolveGraphScope`).
 - Warnings (§2.9): a lead or watcher who cannot see a notice's project is not
   among its recipients, and each digest names only the open issues its recipient
   can see (`visibleDigest`, also used for the Settings preview with the
@@ -400,6 +538,12 @@ export function isValidTimeZone(value: string): boolean;
 export function indexWorkspace(data: WorkspaceData): Snapshot;
 export function isOpenState(type: WorkflowStateType): boolean;
 export function priorityRank(p: Priority): number; // 1..4, none = 5
+// The issue a URL names: its id, or its identifier in any case. Moved from
+// the planner's issue adapter (2026-10-22), which re-exports it.
+export function findIssue(
+  issues: ReadonlyMap<string, Issue>,
+  key: string
+): Issue | undefined;
 // rubric.ts / progress.ts / assess.ts
 export function resolveDoneMeans(
   m: Milestone,
@@ -431,6 +575,11 @@ export function compareMilestones(
 ): (a: Milestone, b: Milestone) => number;
 export function compareIssues(a: Issue, b: Issue): number;
 export function orderProjects(snapshot: Snapshot): Project[];
+export const NO_INITIATIVE_ID = 'none'; // "No initiative" group, node, container
+// Each mirrored project's first initiative (the timeline's grouping, §2.11).
+export function homeInitiativeIds(
+  snapshot: Snapshot
+): ReadonlyMap<string, string | null>;
 // allocation.ts
 export function resolveTodoState(
   snapshot: Snapshot,
@@ -463,14 +612,34 @@ export function buildDigests(input: {
   notices: readonly Notice[];
   appUrl: string;
 }): Digest[];
-// graph.ts / mermaid.ts
+// graph.ts / mermaid.ts — the dependency graph at every level (§2.10)
 export function buildDependencyGraph(
   snapshot: Snapshot,
   ctx: EvalContext,
   assessments: ReadonlyMap<string, MilestoneAssessment>,
   scope: GraphScope
 ): DependencyGraph;
+export const CHAIN_MAX_NODES = 150;
+export const GRAPH_LEVELS_WITHIN: Readonly<
+  Record<GraphContainer['kind'], readonly GraphLevel[]>
+>;
+export const DEFAULT_GRAPH_LEVEL: Readonly<
+  Record<GraphContainer['kind'], GraphLevel>
+>;
+export function graphContainer(scope: GraphScope): GraphContainer;
+export function graphScopeFor(
+  container: GraphContainer,
+  level?: GraphLevel
+): GraphScope;
+export type GraphScopeResolution =
+  | { ok: true; scope: GraphScope; fallback: GraphFallback | null }
+  | { ok: false; problem: 'invalid' | 'not_found'; message: string };
+export function resolveGraphScope(
+  snapshot: Snapshot,
+  raw: unknown
+): GraphScopeResolution;
 export function toMermaid(graph: DependencyGraph): string;
+export function isRiskNode(node: GraphNode): boolean;
 // views.ts
 export function buildWeekView(input: {
   snapshot: Snapshot;
@@ -535,6 +704,9 @@ export const BLOCK_REASON_LABEL: Record<AllocationBlockReason, string>;
 export const PRIORITY_LABEL: Record<Priority, string>;
 export const ISSUE_FIELD_LABEL: Record<IssuePatchField, string>; // "Status", "Due date", …
 ```
+
+Graph types (`types.ts`, §2.10): `GraphLevel`, `GraphScope`, `GraphContainer`,
+`GraphFallback`, `GraphChain`, `GraphNode`, `GraphEdge`, `DependencyGraph`.
 
 Issue page types (`types.ts`): `IssueDetail`, `IssueRelationRow`,
 `IssueDetailProject`, `IssueDetailMilestone`, `IssueDetailTiming`,
@@ -1018,6 +1190,17 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `getIssueDetail` reports `readOnly` and
   `canEdit: canWriteLinear && !readOnly`. Nothing a refused call touches is
   written: not Linear, the mirror, settings, the run log or the audit log.
+- **getGraph(workspaceId, scope, viewer?)** (§2.10): a read. The scope is
+  checked by core's `resolveGraphScope` against the viewer's narrowed mirror (no
+  hand-written checks): a malformed scope or a level the container does not
+  offer is `EngineInputError('invalid')`, a container id the viewer's mirror
+  lacks (unknown or hidden alike, including a `?chain=` issue) is `not_found`.
+  The graph is built for the resolved scope: a chain carries the issue id even
+  when asked by identifier, and a scope naming initiatives for a viewer whose
+  mirror has none (a guest, a person the mirror does not know, a workspace
+  without initiatives) is drawn for the workspace with `fallback` set, never
+  a 404. It writes nothing and never calls `requireWritable`, so a guest gets
+  every level.
 - **getSettings(workspaceId)** (additive): the saved settings over the defaults,
   exactly as `load` reports them, with no sync, no mirror read and no
   installation check (the timezone as saved, even if invalid). The worker reads
@@ -1396,37 +1579,37 @@ nothing is imported from it.
 
 ### 8.1 Routes
 
-| route                            | who               | what                                                                                                                                                                                                                                                                |
-| -------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                              | all               | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                                                                                                                                                                             |
-| `/week`                          | signed in         | My week (the landing screen); anyone may pass `?user=<id>` to see a person's week; `?issue=<key>` opens the issue slide-over (§8.5)                                                                                                                                 |
-| `/timeline`                      | signed in         | Gantt timeline; `?milestone=<id>` opens the drawer (with `&issue=<key>`, one of its issues in its place, §8.5), `?project=<id>` focuses a lane; edit controls for everyone but a guest (date and lead need Linear write access)                                     |
-| `/projects`                      | signed in         | projects register: next milestone, status, progress, lead, allocation state                                                                                                                                                                                         |
-| `/graph`                         | signed in         | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level; `?issue=<key>` opens an issue node's slide-over (§8.5)                                                                                                             |
-| `/runs`, `/runs/[id]`            | signed in         | allocation run log; everyone but a guest gets "Preview (dry run)" and, while allocation is live, "Run now"                                                                                                                                                          |
-| `/settings`                      | signed in         | modes, watchers, schedule, status, digest preview, notifications, audit; editable by everyone but a guest (read-only for them)                                                                                                                                      |
-| `/setup`                         | signed in         | install the app into the workspace (admin; nothing to start for a guest)                                                                                                                                                                                            |
-| `GET /api/palette`               | signed in         | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                                                                                                                       |
-| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets `mp_oauth` cookie); `install` and `grant_write` need a session and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else |
-| `GET /api/auth/linear/callback`  | —                 | finishes OAuth                                                                                                                                                                                                                                                      |
-| `POST /api/auth/logout`          | —                 | ends session                                                                                                                                                                                                                                                        |
-| `POST /api/auth/demo`            | fixture mode only | demo sign-in                                                                                                                                                                                                                                                        |
-| `POST /api/webhooks/linear`      | Linear            | verify, ack 200, process in `after()`                                                                                                                                                                                                                               |
-| `PATCH /api/milestones/[id]`     | not a guest       | `{ targetDate?, weight?, doneMeans? }`; `targetDate` needs Linear write access                                                                                                                                                                                      |
-| `PATCH /api/projects/[id]`       | write access      | `{ leadId }`                                                                                                                                                                                                                                                        |
-| `/issues/[id]`                   | signed in         | the issue page (§8.5), by identifier (`/issues/ENG-24`) or id; edit controls for anyone with Linear write access (never a guest)                                                                                                                                    |
-| `GET /api/issues/[id]`           | signed in         | `{ result: IssueDetailResult }` by id or identifier, private, never cached (the pages render the issue on the server)                                                                                                                                               |
-| `GET /api/issues/search?q=`      | signed in         | the relation picker's mirror search (`&near=<issue id>` ranks that issue's milestone and project first) → `{ results }`, at most 20, private                                                                                                                        |
-| `PATCH /api/issues/[id]`         | write access      | `[id]` is the issue id (not the identifier, unlike the GET); an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                                                                                                                 |
-| `POST /api/issues/[id]/comments` | write access      | `{ body }` → 201 `{ comment }`                                                                                                                                                                                                                                      |
-| `POST /api/issues/[id]/blockers` | write access      | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                                                                                                                        |
-| `DELETE /api/relations/[id]`     | write access      | removes a blocks relation (no body) → 204                                                                                                                                                                                                                           |
-| `POST /api/runs`                 | not a guest       | `{ mode: 'dry_run' \| 'live' }`                                                                                                                                                                                                                                     |
-| `POST /api/sync`                 | not a guest       | full resync; 429 `resync_cooldown` with `Retry-After` within 60 s of the workspace's last web resync                                                                                                                                                                |
-| `POST /api/warnings/preview`     | not a guest       | digests without sending                                                                                                                                                                                                                                             |
-| `PATCH /api/settings`            | not a guest       | settings patch (audited)                                                                                                                                                                                                                                            |
-| `GET /api/health`                | —                 | `{ ok, db }` for Railway healthchecks                                                                                                                                                                                                                               |
-| `/ui-gallery/*`                  | demo mode only    | the `@better-tracker/ui` component gallery with fixture props (no engine); 404 unless `LINEAR_FIXTURE=1` or `next dev`, checked per request                                                                                                                         |
+| route                            | who               | what                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| -------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/`                              | all               | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `/week`                          | signed in         | My week (the landing screen); anyone may pass `?user=<id>` to see a person's week; `?issue=<key>` opens the issue slide-over (§8.5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `/timeline`                      | signed in         | Gantt timeline; `?milestone=<id>` opens the drawer (with `&issue=<key>`, one of its issues in its place, §8.5), `?project=<id>` focuses a lane; edit controls for everyone but a guest (date and lead need Linear write access)                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `/projects`                      | signed in         | projects register: next milestone, status, progress, lead, allocation state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `/graph`                         | signed in         | dependency graph (§8.4) at four levels inside the workspace or one container: `?initiative=<id\|none>` (default: projects), `?project=<id>` (default: issues), `?milestone=<id>` (issues), `?chain=<identifier or id>` (one issue's chain); most specific wins; `?level=initiative\|project\|milestone\|issue` picks another level the container offers (otherwise ignored); no params = the workspace's milestones; `?node=<id>` selects a box on arrival; an unknown or hidden id renders the not-found page (streamed with status 200, like every `(app)` page, below), except initiative ids for a viewer with no initiatives (the workspace, with a notice); `?issue=<key>` opens the slide-over (§8.5) |
+| `/runs`, `/runs/[id]`            | signed in         | allocation run log; everyone but a guest gets "Preview (dry run)" and, while allocation is live, "Run now"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `/settings`                      | signed in         | modes, watchers, schedule, status, digest preview, notifications, audit; editable by everyone but a guest (read-only for them)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `/setup`                         | signed in         | install the app into the workspace (admin; nothing to start for a guest)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `GET /api/palette`               | signed in         | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets `mp_oauth` cookie); `install` and `grant_write` need a session and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `GET /api/auth/linear/callback`  | —                 | finishes OAuth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /api/auth/logout`          | —                 | ends session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `POST /api/auth/demo`            | fixture mode only | demo sign-in                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `POST /api/webhooks/linear`      | Linear            | verify, ack 200, process in `after()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `PATCH /api/milestones/[id]`     | not a guest       | `{ targetDate?, weight?, doneMeans? }`; `targetDate` needs Linear write access                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `PATCH /api/projects/[id]`       | write access      | `{ leadId }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `/issues/[id]`                   | signed in         | the issue page (§8.5), by identifier (`/issues/ENG-24`) or id; edit controls for anyone with Linear write access (never a guest)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `GET /api/issues/[id]`           | signed in         | `{ result: IssueDetailResult }` by id or identifier, private, never cached (the pages render the issue on the server)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GET /api/issues/search?q=`      | signed in         | the relation picker's mirror search (`&near=<issue id>` ranks that issue's milestone and project first) → `{ results }`, at most 20, private                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `PATCH /api/issues/[id]`         | write access      | `[id]` is the issue id (not the identifier, unlike the GET); an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `POST /api/issues/[id]/comments` | write access      | `{ body }` → 201 `{ comment }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /api/issues/[id]/blockers` | write access      | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `DELETE /api/relations/[id]`     | write access      | removes a blocks relation (no body) → 204                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `POST /api/runs`                 | not a guest       | `{ mode: 'dry_run' \| 'live' }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `POST /api/sync`                 | not a guest       | full resync; 429 `resync_cooldown` with `Retry-After` within 60 s of the workspace's last web resync                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `POST /api/warnings/preview`     | not a guest       | digests without sending                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `PATCH /api/settings`            | not a guest       | settings patch (audited)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `GET /api/health`                | —                 | `{ ok, db }` for Railway healthchecks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `/ui-gallery/*`                  | demo mode only    | the `@better-tracker/ui` component gallery with fixture props (no engine); 404 unless `LINEAR_FIXTURE=1` or `next dev`, checked per request                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
 `APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
@@ -1599,18 +1782,69 @@ binding):
   and, under Due, the next milestone's date with "Next milestone: <name>";
   "Whole project" only when there is no next milestone.
 - `/graph` with no edges in scope shows the empty state rather than a field of
-  unconnected boxes. Otherwise only nodes on at least one edge are drawn (and
-  any id the adapter is asked to keep); the rest are listed under the canvas as
-  "N milestones (issues) have no blocking relations", a small register (mark,
-  name, project or assignee, due) collapsed behind "Show N" when longer than six
-  (again at each scope: moving between levels does not carry it open). Milestone
-  rows open `/timeline?milestone=<id>`, issue rows the issue's slide-over on the
-  graph (`?issue=<key>`, §8.5; they opened Linear before the owner decision of
-  2026-10-21). The receipts and the block meta count drawn vs listed ("4 of 14
-  milestones"), and Copy Mermaid copies the drawn graph. Milestone nodes take
-  the accent only when at risk or overdue (a later milestone's unassigned issues
-  are normal; they keep the `UNASSIGNED` chip); issue nodes when open and
-  unassigned or overdue.
+  unconnected boxes; inside an initiative or a project an aggregate level then
+  still lists every box in the register below (its note says what a row opens,
+  "Open one to see its issues."), so each one's own graph stays a click away and
+  drilling down never dead-ends (the workspace, the guest fallback included, and
+  every issue level keep the plain empty state). Otherwise only nodes on at
+  least one edge are drawn (plus kept ids: the `?node=` box and a chain's
+  issue); the rest are listed under the canvas as "N initiatives (projects,
+  milestones, issues) have no blocking relations", a small register per level
+  (initiatives: name / projects / target; projects: name / lead, "No lead" in
+  the accent when active / next milestone; milestones: name / project / due;
+  issues: name / assignee / due; an inactive project's rows are muted and never
+  accent: no accent date, lead or "Unassigned"), collapsed behind "Show N" when
+  longer than six (again at each scope: moving between levels does not carry it
+  open) and cut at 100 rows with "Showing 100 of N. Narrow the graph to see the
+  rest." Initiative rows open `/graph?initiative=<id>`, project rows
+  `/graph?project=<id>`, milestone rows `/timeline?milestone=<id>`, issue rows
+  the issue's slide-over on the graph (`?issue=<key>`, §8.5; they opened Linear
+  before the owner decision of 2026-10-21); opening a listed issue does not move
+  it onto the canvas. The receipts and the block meta count drawn vs listed ("4
+  of 14 milestones"), and Copy Mermaid copies the drawn graph. Slide-over
+  details are built only for drawn nodes and listed rows. The server lays the
+  drawn graph out once (`layoutGraph`, passed to `DependencyGraph` as `layout`),
+  so the browser never runs dagre.
+- `/graph` draws at most 200 boxes and 300 arrows (`GRAPH_DRAW_LIMITS` in
+  `lib/adapters/graph-scope.ts`, about 0.45 s of layout; core stays uncapped
+  except a chain's 150 issues, so the timeline's connectors keep every milestone
+  edge). Past either limit the page builds no node data, details, layout or
+  Mermaid: a quiet hairline "Too large" notice (a size limit, not a risk, so no
+  accent) says how many boxes and arrows it would need, and a "Narrow to"
+  register (name / kind / on edges, at most 50 rows, most boxes first, ties in
+  node order) offers the workspace's initiatives (its projects without
+  initiatives), an initiative's projects or a project's milestones at the same
+  level; inside a milestone its 20 most connected issues, and in a chain the
+  focus's direct neighbours, each opening its own chain. An issue level whose
+  issues have no smaller container (no project, or in a project no milestone)
+  falls back to the 20 most connected issues, so the list is never empty; the
+  message ends "Narrow it down:" only when rows follow. A `?node=` box's own
+  container (a milestone's project, a project's first initiative) is the first
+  row, with `node` kept.
+- `/graph` notices (quiet lines under the receipts, in this order): the
+  no-initiatives fallback, worded by `Actor.readOnlyReason` ("Linear shows
+  guests no initiatives, so this graph covers every project you can see."; a
+  person the mirror does not know; otherwise "This workspace has no initiatives
+  in Linear…"); relations this level cannot place (an end with no milestone, or
+  no project: "the Issues tab shows them"); open issues in the container on no
+  relation (initiative and workspace issue levels); in an initiative, its
+  projects that count under another first initiative ("Juniper design system is
+  also in Customer growth in Linear and counts under Platform reliability, its
+  first initiative, as on the timeline."); a closed chain focus ("only its own
+  relations are drawn"); a cut chain ("Drawn: the nearest 150 issues; N more are
+  further out…").
+- `/graph` emphasis: an inactive project's work is never loud. Initiative,
+  project and milestone boxes of inactive projects are muted with `INACTIVE`;
+  issue boxes of inactive projects keep the default tone, with no `OVERDUE`
+  chip. Otherwise milestone boxes take the accent only when at risk or overdue
+  (a later milestone's unassigned issues are normal; they keep the `UNASSIGNED`
+  chip); project and initiative boxes when their (most severe) next milestone is
+  at risk or overdue (no `UNASSIGNED` chip: they always hold some later
+  unassigned work; an active project without a lead gets `NO LEAD`); issue boxes
+  when open and unassigned or overdue. Boxes above the issue level holding an
+  issue loop get `CYCLE INSIDE`. The same holds in the register and the panels:
+  an inactive project's milestone or issue row, and its panel's properties and
+  Overdue strip, say the same facts without the accent.
 - `/runs/[id]` answers the not-found page for an unknown id; already-assigned
   skips are collapsed into one count per project.
 - The run and settings registers stack into cards by their own width
@@ -1789,28 +2023,30 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   a quiet Show / Hide), banners at zero left out. A toolbar: project search,
   zoom **Weeks / Months** (segmented tab strip), **Today** (scrolls to today),
   filters (initiative; **Show All / Active / At risk** as one segmented control,
-  since at risk only ever keeps active lanes), **Dependencies** toggle. It is
-  one row from a 1366px window with the sidebar open (the search gives up width,
-  220 → 100px, before anything wraps, and the initiative select is capped at
-  200px with an ellipsis so a long initiative name cannot push it over the zoom
-  control); narrower, the Show control wraps under it. The receipts line counts
-  overdue and at-risk milestones in active projects only and says how many
-  projects are inactive ("9 projects (1 inactive) · …"). The chart: a sticky
-  left column of lanes grouped by initiative (lane = project name, lead or
-  `NO LEAD` in accent), a two-row sticky header (month names; day/week ticks in
-  mono 9.5px; weekends shaded with `--tint`), today as a 1px accent vertical
-  rule, a "Milestones" summary row with a diamond (45°-rotated square mark) at
-  each due date like Gr8r, bars per milestone (start → due date) with a diamond
-  at the end, styled by status (overdue accent fill; at risk 2px accent border;
-  on track ink border; complete ink fill; rubric-invalid hatched with "MISSING:
-  …"), a `NEXT` tag on each lane's next milestone, `↑2` for a weight override.
-  With Dependencies on, milestone-level edges are drawn as 1px curved connectors
-  between bars (accent when on a risk chain), like Gr8r's dependency arrows.
-  Anyone with Linear write access drags a bar's right edge to re-date (snaps to
-  days, date tooltip, Esc cancels, PATCH on drop, optimistic with rollback +
-  toast); keyboard: focus the handle, ←/→ ±1 day, ↵ commit. Clicking a bar opens
-  the slide-over drawer. Below 900px: per-project cards. Built while wiring it
-  (binding):
+  since at risk only ever keeps active lanes), **Dependencies** toggle, and a
+  quiet **Open as graph** after the filters (below). It is one row from about a
+  1431px window with the sidebar open, so 1440 keeps one row (1366 before "Open
+  as graph" joined it in the graphs-at-every-level change; the search gives up
+  width, 220 → 80px, before anything wraps, and the initiative select is capped
+  at 200px with an ellipsis so a long initiative name cannot push it or the link
+  over the zoom control); narrower, the Show control wraps under it. The
+  receipts line counts overdue and at-risk milestones in active projects only
+  and says how many projects are inactive ("9 projects (1 inactive) · …"). The
+  chart: a sticky left column of lanes grouped by initiative (lane = project
+  name, lead or `NO LEAD` in accent), a two-row sticky header (month names;
+  day/week ticks in mono 9.5px; weekends shaded with `--tint`), today as a 1px
+  accent vertical rule, a "Milestones" summary row with a diamond (45°-rotated
+  square mark) at each due date like Gr8r, bars per milestone (start → due date)
+  with a diamond at the end, styled by status (overdue accent fill; at risk 2px
+  accent border; on track ink border; complete ink fill; rubric-invalid hatched
+  with "MISSING: …"), a `NEXT` tag on each lane's next milestone, `↑2` for a
+  weight override. With Dependencies on, milestone-level edges are drawn as 1px
+  curved connectors between bars (accent when on a risk chain), like Gr8r's
+  dependency arrows. Anyone with Linear write access drags a bar's right edge to
+  re-date (snaps to days, date tooltip, Esc cancels, PATCH on drop, optimistic
+  with rollback + toast); keyboard: focus the handle, ←/→ ±1 day, ↵ commit.
+  Clicking a bar opens the slide-over drawer. Below 900px: per-project cards.
+  Built while wiring it (binding):
   - The toolbar state is mirrored to the URL in place (`?q=`, `?initiative=`,
     `?active=1`, `?risk=1`, `?zoom=months`, `?deps=1`; Dependencies start off,
     Weeks is the default zoom), and every link the page builds (lane names,
@@ -1842,6 +2078,28 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     only", not "Guest"). Complete milestones have no drag handle. Every open
     milestone failing the rubric carries its "Missing: …" line, overdue and
     at-risk ones included (their marks stay).
+  - The way into the dependency graph (graphs at every level, owner decision
+    2026-10-22; `lib/adapters/timeline.ts` writes every URL through
+    `lib/adapters/graph-scope.ts`). Each initiative row of the chart (under its
+    project count, in one right-aligned column, so the initiative name keeps its
+    width) and each phone card head (after the count) carries a quiet mono
+    **Graph** link (ui `TimelineGroup.link`, accessible name "Dependency graph
+    of <group>") to `/graph?initiative=<id|none>`, or to `/graph?level=project`
+    when no group is an initiative (a guest, or a workspace without initiatives:
+    that is the graph such a viewer gets for any initiative). The toolbar ends
+    its filters with a quiet **Open as graph** (`timelineGraphHref`): `/graph`
+    while every initiative is shown or there are none,
+    `/graph?initiative=<id>&level=milestone` when filtered to one. The drawer's
+    "What does this wait on?" ends with **What it waits on** (only when it waits
+    on something) and **Its issues** (`/graph?milestone=<id>`). The first
+    selects the milestone on a milestone graph: `/graph?node=<id>` when its lane
+    is active, otherwise (or when the drawer was built without the view)
+    `/graph?project=<project>&level=milestone&node=<id>`, because the workspace
+    graph drops relations between two inactive projects (§2.10) and a paused
+    project's milestone may be no box there, while its project's graph has no
+    activity filter and draws everything it waits on. Only the workspace's
+    milestone graph feeds the chart's connectors (`chartDependencies` gives none
+    for any other scope).
   - The drawer opens on click with a skeleton and fills when the server answers
     `?milestone=`; an id the mirror lacks closes it and shows a "Not found"
     notice. A lane focused by `?project=` is scrolled into the page too (chart
@@ -1884,18 +2142,117 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   on the timeline's Blocked banner and My week's "Needs attention": "Project has
   no lead", "Next milestone is missing: done means…" / `NOTHING TO DO` /
   `NO OPEN MILESTONE` / `INACTIVE`), links to its timeline lane (the row), graph
-  and Linear. An inactive project's next milestone is drawn in greys (grey mark,
-  muted date, ink progress). Search + status filter (All / Blocked / At risk =
-  an active project's next milestone at risk or overdue / Inactive) in a
-  toolbar, mirrored to `?q=` and `?filter=` so a filtered register can be
-  linked; the register also follows the URL when it changes under it
-  (back/forward, a link to `/projects` while filtered).
-- **Graph**: level tabs (Milestones / Issues in <scope>); SVG laid out with
-  `@dagrejs/dagre` (rankdir LR) on the server, hairline boxes with mono labels;
-  risk chains in accent, cycles dashed accent, cross-project edges dashed ink,
-  resolved edges faint; legend; hover/focus highlights the upstream chain; click
-  a node → slide-over details; "Copy Mermaid" copies `toMermaid` output. Nodes
-  with no blocking relation are listed under the canvas, not drawn (§8.1).
+  and Linear. Each initiative block's bar carries a **Graph** accent link
+  (accessible name "Dependency graph of <group>") to
+  `/graph?initiative=<id|none>`, or `/graph?level=project` when the viewer has
+  no initiatives; a row's Graph link is its project's issue graph
+  (`/graph?project=<id>`). An inactive project's next milestone is drawn in
+  greys (grey mark, muted date, ink progress). Search + status filter (All /
+  Blocked / At risk = an active project's next milestone at risk or overdue /
+  Inactive) in a toolbar, mirrored to `?q=` and `?filter=` so a filtered
+  register can be linked; the register also follows the URL when it changes
+  under it (back/forward, a link to `/projects` while filtered).
+- **Graph** (graphs at every level, owner decision 2026-10-22): one page for
+  every level and container (§8.1 routes; `lib/adapters/graph-scope.ts` reads
+  and writes the URLs, `lib/adapters/graph.ts` builds the page model on the
+  server).
+  - **Header.** Above the h1 a mono trail (`TaskCrumbs`, labelled "Graph
+    scope"):
+    `Workspace / <first initiative | No initiative> / <project> / <milestone> / <KEY>`,
+    levels the scope lacks skipped, the initiative crumb left out for a viewer
+    with no initiatives, none at the four workspace levels. Each ancestor links
+    to itself one level below it, so drilling up zooms out: Workspace →
+    `/graph?level=initiative` (`?level=project` without initiatives), an
+    initiative → `/graph?initiative=<id>`, a project →
+    `?project=<id>&level=milestone`, a milestone → `?milestone=<id>`; the last
+    crumb is the page. The h1: "Dependencies" for the workspace at every level;
+    "Projects / Milestones / Issues in <initiative>" ("Projects with no
+    initiative", "Milestones of projects with no initiative", …); "Milestones /
+    Issues in <project>"; "Issues in <milestone>"; "Blocking chain of <KEY>".
+    The topbar keeps `GRAPH › <h1>` ("Chain of <KEY>" for a chain; nothing for
+    the workspace). Receipts and notices (§8.1) follow. "No initiative" is a
+    group of projects, not a name, so its sentences read "1 project with no
+    initiative, none joined to another by a blocking relation.", "3 milestones
+    in projects with no initiative…" and "No open issue in a project with no
+    initiative blocks, or waits on, …". The workspace initiative receipts name
+    each cycle in parentheses, keeping one colon: "2 initiatives joined by 2
+    blocking edges: 1 cycle (Platform reliability and Customer growth wait on
+    each other)."
+  - **Level tabs** (route links, "Graph level"): exactly the levels the
+    container offers (workspace: Initiatives, without initiatives left out,
+    Projects, Milestones, Issues; an initiative: Projects, Milestones, Issues; a
+    project: Milestones, Issues); none for a milestone or a chain (the trail is
+    the way up). They sit in the canvas toolbar while something is drawn and in
+    the block bar when nothing is (the empty and too-large states), so the other
+    levels stay one click away exactly when this one shows nothing. The block
+    bar is titled by the level (Initiatives, Projects, Milestones, Issues) or
+    "Chain".
+  - **Canvas.** SVG laid out with `@dagrejs/dagre` (rankdir LR) once on the
+    server, hairline boxes with mono labels; risk chains in accent, cycles
+    dashed accent, cross edges dashed ink (crossing a project at the issue and
+    milestone levels, a first initiative at the project level, never at the
+    initiative level), resolved edges faint; weights as mono counts; externals
+    (outside the container, one hop) dashed and muted (an overdue external keeps
+    its dashes in the paper colour on the accent flood); hover/focus highlights
+    the upstream chain; click a box → its slide-over; "Copy Mermaid" copies
+    `toMermaid` of the drawn graph. Nodes with no blocking relation are listed
+    under the canvas, not drawn (§8.1). Sublabels: an initiative "4 projects ·
+    <target date | no target date>", a project its lead or "No lead", a
+    milestone "<project> · <date>", an issue "KEY · assignee". Chips, in order:
+    `UNASSIGNED` (issues, milestones), `OVERDUE` (active work only), `CYCLE`,
+    `CYCLE INSIDE`, `NO LEAD`, `INACTIVE`, `+N MORE` (a chain issue leading on
+    past the cap).
+  - **Legends** per level: initiatives and projects ("blockers sit left of what
+    waits", Overdue = a project's milestone is past due, At risk = a project's
+    next milestone, In a cycle, Inactive = no active project / paused or not
+    started, Blocks, Risk chain = a blocking issue is unassigned or overdue or
+    waits on one, Cycle, Cross-initiative at the project level with initiatives,
+    Count); milestones (the muted swatch reads "Complete or inactive — nothing
+    open, or a paused project"); issues unchanged, except that the workspace's
+    issue level (which has no externals) leaves out External; a chain: the issue
+    legend without External plus "Focus — the issue this chain is about". Inside
+    an initiative or a project, the aggregate legends add "External — outside
+    this initiative / this project".
+  - **Panels** (the same slide-over; links in this order, a link to the page
+    itself left out). An initiative: breadcrumb "Initiative" ("Projects with no
+    initiative"), its status mark, Target date, Projects ("5 projects · 1
+    inactive"), Open issues ("20 open · 7 unassigned"), At risk (the active
+    projects' next milestones at risk or overdue, "Atlas billing migration ›
+    Dual-write (overdue)", accent); links "Projects in X", "Milestones in X",
+    "Issues in X", "Open on the timeline" (`/timeline?initiative=`); no Linear
+    link (the mirror keeps no initiative URL). A project: breadcrumb its first
+    initiative ("Project" without initiatives), the next milestone's mark (or
+    "No open milestone"), Linear status, Lead ("No lead" accent when active),
+    Next milestone, Progress, Allocation (the register's cell), Initiatives when
+    it is in several ("Platform reliability · also in Customer growth"), Scope
+    for an external ("Outside <container>: it blocks or waits on a project
+    here"); links "Milestones of P", "Issues of P", "Lane on the timeline",
+    "Project in Linear". A milestone: today's panel plus "Milestones of
+    <project>" (`?project=&level=milestone&node=<id>`) after "Issues of this
+    milestone", and Scope for an external. An issue box opens the issue
+    slide-over (`?issue=`, §8.5). The "Waits on" / "Blocks" lists select
+    neighbours at every level.
+  - **Arrival.** `?node=<id>` (initiative, project or milestone levels only, and
+    not while `?issue=` is open) selects that box, keeps it drawn, opens its
+    panel and scrolls it into view; the page remounts the client island per
+    scope and `?node=` (`pageKey`) and never writes `?node=` back. Until the
+    panel opened on arrival (the `?node=` panel, or a `?issue=` slide-over, as
+    on `/graph?chain=ENG-23&issue=ENG-23`) first closes, the canvas keeps room
+    beside it (ui `coveredRight`, the slide-over's 560px), so the box the visit
+    is about is brought into the part the panel leaves uncovered instead of
+    lying under it (scrolled only as far as it takes to show it whole, so what
+    it waits on stays in view to its left); on a phone, where the sheet covers
+    everything, nothing moves.
+  - **A chain** (`?chain=<KEY>`): the issue is ruled as the focus (ui `focusId`,
+    a 2px ink rule, not a selection) and kept; no panel opens. Clicking any box
+    opens its slide-over, whose Graph link re-centres the graph on that issue's
+    chain: that is how long chains are followed. `?chain=<KEY>&issue=<KEY2>`
+    draws the chain with KEY2's slide-over open.
+  - **A viewer with no initiatives** (a guest, or a workspace without them)
+    asking for the initiative level or an initiative gets the workspace at the
+    same level (the initiative level at the project level) with the fallback
+    notice, never the not-found page, the same for every id; no Initiatives tab
+    and no initiative crumb.
 - **Runs**: register of runs (mode chip DRY RUN / LIVE, trigger, counts); detail
   lists assigned / would assign / failed / stale / skipped / blocked grouped by
   project with reasons. Everyone signed in gets "Preview (dry run)" above the
@@ -1945,26 +2302,37 @@ LINEAR" strip at the top of the content column.
   `/timeline?project=`, milestone → `/timeline?milestone=`), status, alert
   strips, read-only facts, description, comments, relations, activity and the
   edit options. Alerts (accent): **Overdue** (its milestone), **Blocked** (the
-  open blockers, with a Graph link), **Holds up** (at-risk or overdue milestones
-  waiting on it), **Stalled** (with the milestone's countdown) and
-  **Unassigned** (in the next milestone: who the next live run gives it to, or
-  why allocation is stopped — no lead, a deactivated lead, the milestone failing
-  the rubric). Closed issues and issues of inactive projects (§2.8) get none,
-  and an inactive project's issue is quiet throughout (grey milestone mark named
-  "<status> · inactive project", no accent on the assignee, due date or time in
-  state). Facts: assignee ("(you)" for the viewer; "Given by the planner on Oct
-  14: they lead <project>." after a live allocation; deactivated people noted),
-  priority, labels, estimate ("3 points", or the T-shirt size), due date with
-  its countdown, project with its lead, milestone with its status line ("At risk
-  · due Oct 23, in 2 days · 3 of 7 done · next milestone"), time in state (whole
-  days; under a day reads "Since today" or "Since yesterday" by the workspace
-  calendar). The description is printed as plain text with its line breaks; it
-  is markdown source and is never parsed into HTML. Comments are oldest first, a
-  bot's or integration's muted, with "First 200 · more in Linear" when Linear
-  holds more. Activity lists the allocation run entries about the issue
-  (identical repeats, such as the same dry-run plan every day, folded into the
-  newest with "Seen in N runs") and the created / started / completed / canceled
-  / moved-to-state instants, newest first.
+  open blockers), **Holds up** (at-risk or overdue milestones waiting on it),
+  both with a Graph action to the issue's own blocking chain
+  (`/graph?chain=<KEY>`; Blocked linked its milestone's issue graph before
+  graphs at every level, owner decision 2026-10-22), **Stalled** (with the
+  milestone's countdown) and **Unassigned** (in the next milestone: who the next
+  live run gives it to, or why allocation is stopped — no lead, a deactivated
+  lead, the milestone failing the rubric). Closed issues and issues of inactive
+  projects (§2.8) get none, and an inactive project's issue is quiet throughout
+  (grey milestone mark named "<status> · inactive project", no accent on the
+  assignee, due date or time in state). The "Blocked by" heading carries a
+  **Graph** link to the same chain (`chainHref`, accessible name "Blocking chain
+  of <KEY> as a graph") whenever the issue blocks or waits on an issue the
+  planner holds, before the "+ Add" picker; when nothing blocks the issue the
+  link heads "Blocks" instead, never an empty "Nothing blocks this task."
+  section; a guest gets it too, alone (the graph only reads). A slide-over drawn
+  over its own chain (`/graph?chain=ENG-24&issue=ENG-24`) offers neither the
+  link nor the alerts' Graph action: the chain is already the page
+  (`IssueTaskInput.pageHref`). Facts: assignee ("(you)" for the viewer; "Given
+  by the planner on Oct 14: they lead <project>." after a live allocation;
+  deactivated people noted), priority, labels, estimate ("3 points", or the
+  T-shirt size), due date with its countdown, project with its lead, milestone
+  with its status line ("At risk · due Oct 23, in 2 days · 3 of 7 done · next
+  milestone"), time in state (whole days; under a day reads "Since today" or
+  "Since yesterday" by the workspace calendar). The description is printed as
+  plain text with its line breaks; it is markdown source and is never parsed
+  into HTML. Comments are oldest first, a bot's or integration's muted, with
+  "First 200 · more in Linear" when Linear holds more. Activity lists the
+  allocation run entries about the issue (identical repeats, such as the same
+  dry-run plan every day, folded into the newest with "Seen in N runs") and the
+  created / started / completed / canceled / moved-to-state instants, newest
+  first.
 - **Who.** Every signed-in person sees it (a Linear guest only the issues of
   their teams, §2.13). With `canEdit` the values are the `@better-tracker/ui`
   edit controls: `InlineTextField` (title, in the heading), `StatePicker`
@@ -2174,8 +2542,10 @@ not read; a deploy that still sets it boots normally and logs one warning
   second resync within a minute is a 429; a JSON body past 1 MiB is a 413 before
   it is parsed; the demo's guest gets 403 `read_only` from every mutating route
   and changes nothing, while his reads work. The read-only views are rendered to
-  HTML (`test/read-only-render.test.tsx`: drawer, timeline, settings) and must
-  hold no inputs, Save buttons, drag handles or grant links.
+  HTML (`test/read-only-render.test.tsx`: drawer, timeline, issue page,
+  settings) and must hold no inputs, Save buttons, drag handles or grant links,
+  while keeping every graph link (the drawer's two, the timeline's group links
+  and "Open as graph", the issue's Blocked-by Graph).
 - planner browser smoke (Playwright 1.56, `apps/planner/e2e/*.e2e.ts`,
   `playwright.config.ts`; moon `planner:test-e2e`, which builds first; CI runs
   it as a `moon ci` target whenever the planner or anything it depends on
@@ -2185,9 +2555,19 @@ not read; a deploy that still sets it boots normally and logs one warning
   error, that dragging a due date PATCHes the milestone and survives a reload,
   that an issue's title edit saves, that Ctrl K opens the palette, that a drawer
   swapped in place keeps focus in the panel, and that Esc in a drawer field with
-  unsaved text resets it before closing; then, signed in as the demo's guest,
-  that every page renders with no edit controls (no drag handle, drawer field,
-  comment box, run button, Save or Resync), that the palette offers no run or
+  unsaved text resets it before closing; for the graphs at every level, that the
+  extra graph screens render (`?level=initiative`, `?initiative=`,
+  `?project=&level=milestone`, `?chain=`, `?node=`), the drill walk (select
+  Platform reliability on `/graph?level=initiative`, "Projects in Platform
+  reliability", then the trail's Workspace back to the initiatives), that an
+  empty graph (`/graph?project=proj-compass&level=milestone`) keeps its level
+  tabs in the block bar with Issues one click away, and that a milestone
+  drawer's "What it waits on" lands on `/graph?node=` with the box selected;
+  then, signed in as the demo's guest, that every page renders with no edit
+  controls (no drag handle, drawer field, comment box, run button, Save or
+  Resync), that `/graph?initiative=init-platform` falls back to his projects
+  with the guest notice and no Initiatives tab (never the not-found page,
+  checked by its headline: both answer 200), that the palette offers no run or
   resync, and that a direct PATCH or POST is refused 403. It needs Playwright's
   Chromium (`playwright install chromium`) or `PLAYWRIGHT_CHROMIUM_PATH` /
   `PLAYWRIGHT_BROWSERS_PATH` pointing at one.

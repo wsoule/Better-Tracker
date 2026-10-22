@@ -4,9 +4,11 @@ import { expect, type Page, test } from '@playwright/test';
 // screen renders, dragging a milestone's due date re-dates it, an issue
 // takes an edit, Ctrl K opens the palette, the slide-over's keyboard
 // behaviour (focus on a swap, Esc with unsaved text) holds in a real
-// browser, and the demo's Linear guest gets a read-only planner (owner
-// decision 2026-10-22, "Guests limited to read only"). Demo data is
-// fictional and lives only in this server.
+// browser, the dependency graph drills from initiatives down and back up
+// (owner decision 2026-10-22, graphs at every level), and the demo's Linear
+// guest gets a read-only planner (owner decision 2026-10-22, "Guests
+// limited to read only") whose graphs fall back to the projects he can
+// see. Demo data is fictional and lives only in this server.
 
 /** Signs in through the demo picker on "/" (Chloe Diaz unless told). */
 async function signIn(page: Page, userId = 'user-chloe'): Promise<void> {
@@ -37,6 +39,11 @@ test('every screen renders', async ({ page }) => {
     '/timeline',
     '/projects',
     '/graph',
+    '/graph?level=initiative',
+    '/graph?initiative=init-growth',
+    '/graph?project=proj-atlas&level=milestone',
+    '/graph?chain=ENG-23',
+    '/graph?node=ms-atlas-2',
     '/runs',
     '/settings',
     '/issues/ENG-24',
@@ -46,6 +53,63 @@ test('every screen renders', async ({ page }) => {
     await expect(page.getByText('Something went wrong'), path).toHaveCount(0);
   }
   expect(errors).toEqual([]);
+});
+
+test('the graph drills from initiatives to projects and back up', async ({
+  page,
+}) => {
+  await page.goto('/graph?level=initiative');
+  await page.getByRole('button', { name: /^Platform reliability\./ }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('link', { name: 'Projects in Platform reliability' })
+    .click();
+  await expect(page).toHaveURL(/\/graph\?initiative=init-platform$/);
+  await expect(page.locator('h1')).toHaveText(
+    'Projects in Platform reliability'
+  );
+  // The trail above the heading zooms back out.
+  await page
+    .getByRole('navigation', { name: 'Graph scope' })
+    .getByRole('link', { name: 'Workspace' })
+    .click();
+  await expect(page).toHaveURL(/\/graph\?level=initiative$/);
+  await expect(page.locator('h1')).toHaveText('Dependencies');
+});
+
+test('an empty graph keeps the level tabs in its block bar', async ({
+  page,
+}) => {
+  // Compass's milestones do not wait on each other: nothing is drawn, so
+  // the tabs sit in the block bar, still one click from the issues.
+  await page.goto('/graph?project=proj-compass&level=milestone');
+  await expect(
+    page.getByText(
+      'No open issue in Compass onboarding blocks, or waits on, an open issue in another milestone.'
+    )
+  ).toBeVisible();
+  const tabs = page.getByRole('navigation', { name: 'Graph level' });
+  await expect(tabs.getByRole('link', { name: 'Milestones' })).toBeVisible();
+  await expect(tabs.getByRole('link', { name: 'Issues' })).toHaveAttribute(
+    'href',
+    '/graph?project=proj-compass'
+  );
+});
+
+test('a milestone drawer opens what it waits on as a graph', async ({
+  page,
+}) => {
+  await page.goto('/timeline?milestone=ms-beacon-1');
+  await page
+    .getByRole('dialog')
+    .getByRole('link', { name: 'What it waits on' })
+    .click();
+  await expect(page).toHaveURL(/\/graph\?node=ms-beacon-1$/);
+  // Arriving with ?node= selects the box and opens its panel.
+  await expect(
+    page.getByRole('button', { name: /^Search v2 beta\./ })
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('dialog')).toBeVisible();
 });
 
 test('dragging a due date re-dates the milestone', async ({ page }) => {
@@ -194,6 +258,35 @@ test.describe('a Linear guest', () => {
     await expect(page.getByRole('button', { name: 'Resync now' })).toHaveCount(
       0
     );
+  });
+
+  // Linear shows guests no initiatives: an initiative's graph is his
+  // projects', with a notice, never a 404, and the levels he has.
+  test('an initiative graph falls back to his projects', async ({ page }) => {
+    const errors = trackErrors(page);
+    // The status cannot tell the fallback from the not-found page (the
+    // (app) loading boundary streams both with 200), so the page itself
+    // must not be the not-found one.
+    await page.goto('/graph?initiative=init-platform');
+    await expect(page.locator('h1')).toHaveText('Dependencies');
+    await expect(page.getByText('Nothing lives at this address.')).toHaveCount(
+      0
+    );
+    await expect(
+      page.getByText(
+        'Linear shows guests no initiatives, so this graph covers every project you can see.'
+      )
+    ).toBeVisible();
+    const tabs = page.getByRole('navigation', { name: 'Graph level' });
+    await expect(tabs.getByRole('link')).toHaveText([
+      'Projects',
+      'Milestones',
+      'Issues',
+    ]);
+    await expect(page.getByRole('link', { name: 'Initiatives' })).toHaveCount(
+      0
+    );
+    expect(errors).toEqual([]);
   });
 
   test('the palette keeps navigation and the theme, not runs', async ({

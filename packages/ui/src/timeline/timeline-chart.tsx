@@ -213,9 +213,26 @@ const GroupRowView = memo(function GroupRowView({
   return (
     <div className={cx(styles.row, styles.groupRow)} style={{ height }}>
       <div className={cx(styles.laneCell, styles.groupCell)}>
-        <h3 className={styles.groupLabel}>{group.label}</h3>
-        <span className={styles.groupCount}>
-          {count} {count === 1 ? 'project' : 'projects'}
+        {/* The title shows the whole name when the count has ellipsized
+            it. */}
+        <h3 className={styles.groupLabel} title={group.label}>
+          {group.label}
+        </h3>
+        {/* The count and the link stack in one narrow column on the
+            right, so the link costs the name no width. */}
+        <span className={styles.groupMeta}>
+          <span className={styles.groupCount}>
+            {count} {count === 1 ? 'project' : 'projects'}
+          </span>
+          {group.link !== undefined ? (
+            <Link
+              href={group.link.href}
+              className={styles.groupLink}
+              aria-label={group.link.ariaLabel}
+            >
+              {group.link.label}
+            </Link>
+          ) : null}
         </span>
       </div>
       <div className={styles.track} />

@@ -337,6 +337,40 @@ Pure helpers are exported too: the timeline's date scale (`createScale`,
 `xForDate`, …), the graph layout (`layoutGraph`, `upstreamChain`, …), the
 palette's `fuzzyMatch`, and the collapsed-group storage helpers.
 
+### Graph and timeline options
+
+- `DependencyGraph` `layout`: a `GraphLayout` the host computed with
+  `layoutGraph` from the same `nodes`, `edges` and options. It is used as is, so
+  a server render can lay the graph out once and the client (a phone included)
+  never runs dagre; `direction` and `cluster` are then ignored. `layoutGraph` is
+  pure and carries no `'use client'`, so it runs on a server.
+- `DependencyGraph` `focusId`: the node the graph is about (one issue's chain,
+  say). It gets a 2px ink rule inside its box and lights nothing, unlike
+  `selectedId`; its accessible name ends with `focusLabel` (default "focus"),
+  and Tab lands on it until a node is focused or selected. On the first paint
+  the frame (never the page) scrolls so the focus, else the selected node, sits
+  in its middle. The legend draws the mark as `node-focus`.
+- `DependencyGraph` `coveredRight`: the width of a panel fixed along the
+  window's right edge that is open over the graph (pass `SLIDE_OVER_WIDTH` while
+  a `SlideOver` the page opened on arrival is open, and nothing once it closes).
+  The frame then keeps right padding for the part the panel covers, so the first
+  paint brings the focus or selection into the part the panel leaves uncovered,
+  even in a drawing narrower than the frame: centred there, or scrolled only as
+  far as it takes to show the whole box when that is less, so what it waits on
+  (to its left) stays in view. When the panel would leave less than 240px of the
+  frame (a phone's full-width sheet) nothing moves.
+- **Cap what you draw.** One layout costs about 0.45 s at 200 nodes and 300
+  edges (dagre network-simplex; edges dominate) and grows fast past that. Decide
+  a limit in the host and offer a narrower graph instead of drawing a bigger
+  one, or part of one.
+- `TimelineGroup.link` (`TimelineGroupLink`: `label`, `href`, optional
+  `ariaLabel`): a quiet mono link with a group's "N projects", rendered through
+  the host `<Link>`: in the chart's group row it sits under the count, in one
+  right-aligned column, so the group name keeps its width; in the phone card's
+  group head it follows the count, and the name ellipsizes before it gives way.
+  Pass `ariaLabel` when several groups share the label ("Dependency graph of
+  Payments platform").
+
 ### Edit controls
 
 Every edit control is controlled and saves through one contract: `onChange` /

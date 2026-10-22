@@ -11,10 +11,12 @@ import {
   GraphLegend,
   MermaidSource,
   NavTabs,
+  Notice,
   PropertyList,
   Register,
   RegisterCell,
   RegisterRow,
+  SLIDE_OVER_WIDTH,
   SlideOver,
   StatusMark,
   upstreamChain,
@@ -24,11 +26,11 @@ import {
 import { ExternalLink } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
 
-import {
-  type GraphNodeDetail,
-  type GraphPageModel,
-  type IsolatedList,
-  levelTabs,
+import type {
+  GraphNodeDetail,
+  GraphPageModel,
+  GraphTooLarge,
+  IsolatedList,
 } from '../../../lib/adapters/graph';
 import {
   type IssueDrawerParts,
@@ -39,12 +41,17 @@ import {
 import css from './page.module.css';
 
 /* The graph's client island: level tabs (route links) in the graph's
-   toolbar, the legend, the pan/zoom DependencyGraph, Copy Mermaid, and the
-   slide-over for the selected node. A milestone node shows what it is,
-   its links, what it waits on and what it holds up (the same upstream
-   chain the graph lights); an issue node opens the issue itself (§8.5,
+   toolbar, or in the block bar when nothing is drawn, the legend, the
+   pan/zoom DependencyGraph laid out by the server (a chain's issue ruled
+   as its focus), Copy Mermaid, the "no blocking relations" register, the
+   too-large state, and the slide-over for the selected node. An
+   initiative, project or milestone node shows what it is, its drill-down
+   links, what it waits on and what it holds up (the same upstream chain
+   the graph lights); an issue node opens the issue itself (§8.5,
    ?issue=<key>, rendered by the server), in the same panel, and stays the
-   canvas's selection while it is open. */
+   canvas's selection while it is open. The page remounts this island per
+   scope and ?node= (model.pageKey), so the arrival selection is just the
+   initial state. */
 export default function GraphScreen({
   model,
   issueDrawer,
@@ -53,9 +60,20 @@ export default function GraphScreen({
   issueDrawer: IssueDrawerServer;
 }) {
   const { toast } = useToast();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(
+    model.initialSelectedId
+  );
   const issue = useIssueDrawerState(issueDrawer);
   const issueParts = useIssueDrawerParts(issue);
+  // The panel the page opened on arrival (?node=, or ?issue=) covers the
+  // canvas's right: until it first closes the graph keeps room beside it,
+  // so the box the visit is about is not hidden under its own panel.
+  const [arrivalPanel, setArrivalPanel] = useState(
+    () => model.initialSelectedId !== null || issue.requested !== null
+  );
+  if (arrivalPanel && selectedId === null && issue.requested === null) {
+    setArrivalPanel(false);
+  }
   const issueNodeId = useMemo(() => {
     const wanted = issue.requested?.toUpperCase();
     if (wanted === undefined) return null;
@@ -67,11 +85,13 @@ export default function GraphScreen({
       )?.id ?? null
     );
   }, [issue.requested, model.details]);
-  const selected =
-    selectedId === null ? null : (model.details[selectedId] ?? null);
-  const tabs = levelTabs(model, selected);
+  const drawn = model.nodes.length > 0;
+  const tabs =
+    model.tabs.length > 0 ? (
+      <NavTabs label="Graph level" size="sm" items={model.tabs} />
+    ) : null;
 
-  // Issue nodes open the issue's slide-over; milestone nodes the panel.
+  // Issue nodes open the issue's slide-over; the other kinds the panel.
   const select = (id: string) => {
     const detail = model.details[id];
     if (detail?.kind === 'issue' && detail.issueKey !== null) {
@@ -87,21 +107,31 @@ export default function GraphScreen({
   return (
     <div className={css.body}>
       <section className={css.collapse} aria-label={model.heading}>
-        <BlockBar
-          index="01"
-          title={model.level === 'milestone' ? 'Milestones' : 'Issues'}
-          meta={model.meta}
-        />
-        {model.nodes.length > 0 ? <GraphLegend items={model.legend} /> : null}
-        <DependencyGraph
-          nodes={model.nodes}
-          edges={model.edges}
-          selectedId={issue.requested === null ? selectedId : issueNodeId}
-          onSelect={select}
-          ariaSummary={model.ariaSummary}
-          emptyMessage={model.emptyMessage}
-          toolbar={<NavTabs label="Graph level" size="sm" items={tabs} />}
-        />
+        {/* DependencyGraph renders only its empty message without nodes
+            (no toolbar), so the level tabs move to the block bar then:
+            they are the way to another level exactly when this one shows
+            nothing. */}
+        <BlockBar index="01" title={model.blockTitle} meta={model.meta}>
+          {drawn ? null : tabs}
+        </BlockBar>
+        {drawn ? <GraphLegend items={model.legend} /> : null}
+        {model.tooLarge !== null ? (
+          <TooLargeBlock tooLarge={model.tooLarge} />
+        ) : (
+          <DependencyGraph
+            nodes={model.nodes}
+            edges={model.edges}
+            layout={model.layout ?? undefined}
+            selectedId={issue.requested === null ? selectedId : issueNodeId}
+            focusId={model.focusId}
+            focusLabel="the issue this chain is about"
+            coveredRight={arrivalPanel ? SLIDE_OVER_WIDTH : undefined}
+            onSelect={select}
+            ariaSummary={model.ariaSummary}
+            emptyMessage={model.emptyMessage}
+            toolbar={drawn ? tabs : null}
+          />
+        )}
         {/* Keyed by scope: moving between levels keeps this island
             mounted, and a long list must start collapsed at each scope. */}
         {model.isolated !== null ? (
@@ -111,7 +141,7 @@ export default function GraphScreen({
             onOpenIssue={issue.open}
           />
         ) : null}
-        {model.nodes.length > 0 ? (
+        {drawn && model.mermaid !== null ? (
           <MermaidSource
             source={model.mermaid}
             onCopy={(ok) =>
@@ -186,7 +216,7 @@ function IsolatedRegister({
           header={[
             { id: 'name', label: list.nameLabel },
             { id: 'context', label: list.contextLabel },
-            { id: 'due', label: 'Due' },
+            { id: 'due', label: list.dueLabel },
           ]}
           stackWithin={700}
         >
@@ -208,7 +238,11 @@ function IsolatedRegister({
               <RegisterRow key={row.id} {...target} tone={row.tone}>
                 <RegisterCell label={list.nameLabel} variant="name">
                   <span className={css.neighbour}>
-                    <StatusMark status={row.status} label={row.statusLabel} />
+                    <StatusMark
+                      status={row.status}
+                      label={row.statusLabel}
+                      muted={row.statusMuted}
+                    />
                     <span className={css.neighbourName}>
                       {row.key !== null ? (
                         <span className={css.isolatedKey}>{row.key}</span>
@@ -220,14 +254,83 @@ function IsolatedRegister({
                 <RegisterCell label={list.contextLabel} tone={row.contextTone}>
                   {row.context}
                 </RegisterCell>
-                <RegisterCell label="Due" variant="mono" tone={row.dueTone}>
+                <RegisterCell
+                  label={list.dueLabel}
+                  variant="mono"
+                  tone={row.dueTone}
+                >
                   {row.due}
                 </RegisterCell>
               </RegisterRow>
             );
           })}
         </Register>
+        {list.cutLine !== null ? (
+          <p className={css.cutLine}>{list.cutLine}</p>
+        ) : null}
       </div>
+    </section>
+  );
+}
+
+/* Past the draw limits: one hairline notice saying how many boxes and
+   arrows the graph would need and that it draws at most 200 and 300 (a
+   size limit, not a risk, so it keeps the accent for risk), then the
+   narrower graphs to open instead (each row a route link), or, inside a
+   milestone or a chain, the most connected issues, each opening its own
+   chain. It stands where the canvas would. */
+function TooLargeBlock({ tooLarge }: { tooLarge: GraphTooLarge }) {
+  return (
+    <section className={css.isolated} aria-label="Too many to draw">
+      <Notice label="Too large" tone="default">
+        {tooLarge.message}
+      </Notice>
+      {tooLarge.rows.length > 0 ? (
+        <>
+          <div className={css.isolatedBar}>
+            <p className={css.isolatedText}>
+              <span className={css.isolatedTitle}>
+                {tooLarge.title}
+                {tooLarge.note !== null ? '.' : ''}
+              </span>
+              {tooLarge.note !== null ? (
+                <>
+                  {' '}
+                  <span className={css.isolatedNote}>{tooLarge.note}</span>
+                </>
+              ) : null}
+            </p>
+          </div>
+          <Register
+            label={tooLarge.title}
+            columns="minmax(0, 1.6fr) minmax(0, 0.7fr) minmax(0, 0.5fr)"
+            header={[
+              { id: 'name', label: 'Name' },
+              { id: 'kind', label: 'Kind' },
+              { id: 'count', label: 'On edges' },
+            ]}
+            stackWithin={700}
+          >
+            {tooLarge.rows.map((row) => (
+              <RegisterRow
+                key={row.id}
+                href={row.href}
+                rowLabel={`${row.label}: ${row.count} on edges`}
+              >
+                <RegisterCell label="Name" variant="name">
+                  {row.label}
+                </RegisterCell>
+                <RegisterCell label="Kind" variant="mono">
+                  {row.kind}
+                </RegisterCell>
+                <RegisterCell label="On edges" variant="mono">
+                  {row.count}
+                </RegisterCell>
+              </RegisterRow>
+            ))}
+          </Register>
+        </>
+      ) : null}
     </section>
   );
 }
@@ -282,6 +385,13 @@ function NeighbourRows({
   );
 }
 
+const DETAILS_LABEL: Record<GraphNodeDetail['kind'], string> = {
+  initiative: 'Initiative details',
+  project: 'Project details',
+  milestone: 'Milestone details',
+  issue: 'Issue details',
+};
+
 function PanelBody({
   detail,
   waitsOn,
@@ -299,9 +409,7 @@ function PanelBody({
         <AlertStrip label="Overdue">{detail.alert}</AlertStrip>
       ) : null}
       <PropertyList
-        label={
-          detail.kind === 'milestone' ? 'Milestone details' : 'Issue details'
-        }
+        label={DETAILS_LABEL[detail.kind]}
         items={[
           {
             label: 'Status',

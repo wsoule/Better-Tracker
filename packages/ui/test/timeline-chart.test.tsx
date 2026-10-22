@@ -6,6 +6,8 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   TimelineChart,
@@ -200,6 +202,108 @@ describe('bars', () => {
     const link = chart.getByRole('link', { name: 'Atlas migration' });
     expect(link.getAttribute('href')).toBe('/timeline?project=p-atlas');
     expect(link.hasAttribute('data-host-link')).toBe(true);
+  });
+});
+
+describe('group links', () => {
+  function HostLink({ children, ...rest }: UiLinkProps) {
+    return (
+      <a {...rest} data-host-link="">
+        {children}
+      </a>
+    );
+  }
+
+  const LINKED: TimelineGroup[] = GROUPS.map((group) => ({
+    ...group,
+    link: {
+      label: 'Graph',
+      href: `/graph?initiative=${group.id}`,
+      ariaLabel: `Dependency graph of ${group.label}`,
+    },
+  }));
+
+  function renderLinked(groups: TimelineGroup[]) {
+    const utils = render(
+      <UiLinkProvider link={HostLink}>
+        <TimelineChart
+          today="2026-10-21"
+          windowStart="2026-09-21"
+          windowEnd="2027-01-17"
+          zoom="weeks"
+          groups={groups}
+          onOpenBar={() => {}}
+        />
+      </UiLinkProvider>
+    );
+    return {
+      ...utils,
+      chart: within(utils.getByRole('region', { name: /^Timeline/ })),
+      card: within(utils.getByRole('region', { name: 'Payments platform' })),
+    };
+  }
+
+  test('render through the host Link in the chart and in the phone cards', () => {
+    const { chart, card } = renderLinked(LINKED);
+    for (const view of [chart, card]) {
+      const link = view.getByRole('link', {
+        name: 'Dependency graph of Payments platform',
+      });
+      expect(link.getAttribute('href')).toBe('/graph?initiative=ini-payments');
+      expect(link.hasAttribute('data-host-link')).toBe(true);
+      expect(link.textContent).toBe('Graph');
+      // The heading stays the group's name: the link and count sit beside it.
+      expect(
+        view.getByRole('heading', { level: 3, name: 'Payments platform' })
+      ).toBeTruthy();
+    }
+  });
+
+  test('in the chart the link sits under the count, beside the name', () => {
+    const { chart } = renderLinked(LINKED);
+    const link = chart.getByRole('link', {
+      name: 'Dependency graph of Payments platform',
+    });
+    // One column holds the count and the link; the name is outside it, so
+    // the link costs the name no width.
+    const meta = link.parentElement;
+    expect(meta?.firstElementChild?.textContent).toMatch(/^\d+ projects?$/);
+    expect(meta?.lastElementChild).toBe(link);
+    expect(meta?.querySelector('h3')).toBeNull();
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'timeline',
+        'timeline-chart.module.css'
+      ),
+      'utf8'
+    );
+    const rule = /\.groupMeta \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toContain('flex-direction: column;');
+  });
+
+  test('the label names the link when there is no ariaLabel', () => {
+    const plain = GROUPS.map((group) => ({
+      ...group,
+      link: { label: 'Graph', href: `/graph?initiative=${group.id}` },
+    }));
+    const { chart, card } = renderLinked(plain);
+    expect(chart.getByRole('link', { name: 'Graph' })).toBeTruthy();
+    expect(card.getByRole('link', { name: 'Graph' })).toBeTruthy();
+  });
+
+  test('no link is drawn when the group has none', () => {
+    const { chart, card } = renderLinked(GROUPS);
+    for (const view of [chart, card]) {
+      expect(view.getAllByRole('link').map((link) => link.textContent)).toEqual(
+        ['Atlas migration']
+      );
+      expect(
+        view.getByRole('heading', { level: 3, name: 'Payments platform' })
+      ).toBeTruthy();
+    }
   });
 });
 

@@ -1,17 +1,26 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  assessWorkspace,
+  buildDependencyGraph,
   buildDigests,
   buildTimelineView,
   buildWeekView,
+  homeInitiativeIds,
   planAllocation,
   planWarnings,
+  resolveGraphScope,
   scopeSeesProject,
   viewerScope,
   visibleDigest,
   visibleSnapshot,
 } from '../src/index';
-import type { WorkspaceData } from '../src/index';
+import type {
+  DependencyGraph,
+  GraphScope,
+  Snapshot,
+  WorkspaceData,
+} from '../src/index';
 import {
   day,
   evaluate,
@@ -262,5 +271,83 @@ describe('digests follow visibility', () => {
     expect(
       scopeSeesProject(viewerScope(evaluated.snapshot, 'wyat'), orion)
     ).toBe(true);
+  });
+});
+
+describe('graphs follow visibility', () => {
+  // The viewer's snapshot, as the engine builds every read from it.
+  function seenBy(userId: string): Snapshot {
+    const { snapshot } = evaluate(scenario());
+    return visibleSnapshot(snapshot, viewerScope(snapshot, userId));
+  }
+
+  // The graph of `scope` as `userId` may see it (assessed over what they see).
+  function graphFor(userId: string, scope: GraphScope): DependencyGraph {
+    const seen = seenBy(userId);
+    const { ctx } = evaluate(scenario());
+    return buildDependencyGraph(seen, ctx, assessWorkspace(seen, ctx), scope);
+  }
+
+  test('a guest: every project is in no initiative', () => {
+    expect([...homeInitiativeIds(seenBy('cleo')).entries()]).toEqual([
+      ['orion', null],
+    ]);
+    // Orion is in init-1 for a member.
+    expect(homeInitiativeIds(seenBy('wyat')).get('orion')).toBe('init-1');
+  });
+
+  test('a guest asking for initiatives gets the workspace, whatever the id', () => {
+    const seen = seenBy('cleo');
+    for (const initiativeId of ['init-1', 'init-unknown', 'none']) {
+      expect(
+        resolveGraphScope(seen, { level: 'project', initiativeId })
+      ).toEqual({
+        ok: true,
+        scope: { level: 'project' },
+        fallback: {
+          reason: 'no_initiatives',
+          requested: { level: 'project', initiativeId },
+        },
+      });
+    }
+    expect(graphFor('cleo', { level: 'initiative' })).toMatchObject({
+      scope: { level: 'project' },
+      fallback: { reason: 'no_initiatives' },
+    });
+  });
+
+  test('a hidden team’s project is never a node, an external or a count', () => {
+    // Sam sees Vault blocking Orion; Wyat sees neither the edge nor Vault.
+    const all = graphFor('sam', { level: 'project' });
+    expect(all.edges.map((e) => [e.from, e.to])).toEqual([['vault', 'orion']]);
+    for (const scope of [
+      { level: 'project' },
+      { level: 'project', initiativeId: 'init-1' },
+      { level: 'initiative' },
+      { level: 'issue', initiativeId: 'init-1' },
+    ] as GraphScope[]) {
+      const seen = graphFor('wyat', scope);
+      expect(JSON.stringify(seen)).not.toContain('vault');
+      expect(JSON.stringify(seen)).not.toContain('sec-1');
+      expect(seen.edges).toEqual([]);
+      expect(seen.unplacedRelations).toBe(0);
+    }
+    expect(
+      graphFor('wyat', { level: 'initiative' }).nodes.map((n) => [
+        n.id,
+        n.sublabel,
+      ])
+    ).toEqual([['init-1', '1 project']]);
+    // Its id is unknown to them, exactly like an id that does not exist.
+    expect(
+      resolveGraphScope(seenBy('wyat'), {
+        level: 'milestone',
+        projectId: 'vault',
+      })
+    ).toEqual({
+      ok: false,
+      problem: 'not_found',
+      message: 'That project is not in the mirror.',
+    });
   });
 });

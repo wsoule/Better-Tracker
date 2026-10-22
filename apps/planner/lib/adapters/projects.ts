@@ -1,4 +1,5 @@
 import {
+  NO_INITIATIVE_ID,
   type ProjectAllocationPlan,
   type ProjectStatusType,
   type TimelineBar,
@@ -13,6 +14,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { dueLabel, plural } from '../format';
+import { graphHref, initiativeGraphHref } from './graph-scope';
 import { assessmentMark, blockedReasonLine } from './status';
 
 // The projects register (architecture §8.4): one row per lane of the
@@ -103,6 +105,9 @@ export interface ProjectGroupModel {
   /** Initiative id, or "none" for "No initiative". */
   id: string;
   name: string;
+  /** The group's dependency graph (initiativeGraphHref): its projects, or
+      the workspace's projects when the viewer has no initiatives. */
+  graphHref: string;
   rows: ProjectRowModel[];
 }
 
@@ -226,7 +231,7 @@ function toRow(
     rowTone: blocked ? 'accent' : lane.active ? 'default' : 'muted',
     tags,
     timelineHref: `/timeline?project=${encodeURIComponent(lane.projectId)}`,
-    graphHref: `/graph?project=${encodeURIComponent(lane.projectId)}`,
+    graphHref: graphHref({ level: 'issue', projectId: lane.projectId }),
     linearUrl: lane.url,
     searchText: [
       lane.name,
@@ -298,13 +303,22 @@ export function buildProjectsPage(input: {
   statusNames: ReadonlyMap<string, string>;
 }): ProjectsPageModel {
   const { timeline, statusNames } = input;
-  const groups: ProjectGroupModel[] = timeline.groups.map((group) => ({
-    id: group.initiativeId ?? 'none',
-    name: group.name,
-    rows: group.lanes.map((lane) =>
-      toRow(lane, group.name, timeline.today, statusNames)
-    ),
-  }));
+  // A guest's mirror has no initiatives (§2.13): every group is then "No
+  // initiative", and its graph link goes to the workspace's projects.
+  const hasInitiatives = timeline.groups.some(
+    (group) => group.initiativeId !== null
+  );
+  const groups: ProjectGroupModel[] = timeline.groups.map((group) => {
+    const id = group.initiativeId ?? NO_INITIATIVE_ID;
+    return {
+      id,
+      name: group.name,
+      graphHref: initiativeGraphHref(id, hasInitiatives),
+      rows: group.lanes.map((lane) =>
+        toRow(lane, group.name, timeline.today, statusNames)
+      ),
+    };
+  });
   const rows = groups.flatMap((group) => group.rows);
   const count = (id: ProjectFilterId) =>
     id === 'all'

@@ -60,11 +60,24 @@ export interface TimelineLane {
   undated: TimelineUndated[];
 }
 
+/** A quiet link after a group's project count (host routes it through Link). */
+export interface TimelineGroupLink {
+  /** Mono wording, e.g. "Graph". */
+  label: string;
+  href: string;
+  /** Fuller accessible name when the label alone is ambiguous across
+   * groups, e.g. "Dependency graph of Payments platform". */
+  ariaLabel?: string;
+}
+
 /** One initiative (or "No initiative") and its projects. */
 export interface TimelineGroup {
   id: string;
   label: string;
   lanes: TimelineLane[];
+  /** Drawn after "N projects" in the chart's group row and the phone
+   * card's group head. */
+  link?: TimelineGroupLink;
 }
 
 /** Milestone-level edge: `to` waits on `from` (bar ids). */

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  findIssue,
   indexWorkspace,
   isOpenState,
   issueStateType,
@@ -128,5 +129,20 @@ describe('indexWorkspace', () => {
     const ghost = issue('g', { stateId: 'missing-state' });
     const snap = indexWorkspace(workspace({ issues: [ghost] }));
     expect(issueStateType(snap, ghost)).toBe('backlog');
+  });
+});
+
+describe('findIssue (moved from the planner)', () => {
+  const snapshot = indexWorkspace(
+    workspace({
+      issues: [issue('iss-24', { identifier: 'ENG-24' }), issue('iss-3')],
+    })
+  );
+
+  test('finds an issue by id, or by identifier in any case', () => {
+    expect(findIssue(snapshot.issues, 'iss-24')?.identifier).toBe('ENG-24');
+    expect(findIssue(snapshot.issues, 'ENG-24')?.id).toBe('iss-24');
+    expect(findIssue(snapshot.issues, 'eng-24')?.id).toBe('iss-24');
+    expect(findIssue(snapshot.issues, 'ENG-999')).toBeUndefined();
   });
 });

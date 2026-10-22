@@ -19,10 +19,19 @@ import {
   STATUS_LABEL,
   unassignedLine,
 } from '../src/index';
-import type { Issue, Milestone, Project } from '../src/index';
+import type {
+  BlockingRelation,
+  DependencyGraph,
+  GraphScope,
+  Initiative,
+  Issue,
+  Milestone,
+  Project,
+} from '../src/index';
 import {
   day,
   evaluate,
+  initiative,
   issue,
   milestone,
   project,
@@ -56,6 +65,12 @@ describe('public API (docs/architecture.md §3)', () => {
     'planWarnings',
     'buildDigests',
     'buildDependencyGraph',
+    'resolveGraphScope',
+    'graphContainer',
+    'graphScopeFor',
+    'homeInitiativeIds',
+    'findIssue',
+    'isRiskNode',
     'toMermaid',
     'buildWeekView',
     'buildTimelineView',
@@ -77,8 +92,15 @@ describe('public API (docs/architecture.md §3)', () => {
     'BLOCK_REASON_LABEL',
     'PRIORITY_LABEL',
     'ISSUE_FIELD_LABEL',
+    'GRAPH_LEVELS_WITHIN',
+    'DEFAULT_GRAPH_LEVEL',
   ])('exports constant %s', (name) => {
     expect(typeof (core as Record<string, unknown>)[name]).toBe('object');
+  });
+
+  test('exports the graph constants', () => {
+    expect(core.NO_INITIATIVE_ID).toBe('none');
+    expect(core.CHAIN_MAX_NODES).toBe(150);
   });
 });
 
@@ -164,8 +186,13 @@ describe('scale', () => {
     const projects: Project[] = [];
     const milestones: Milestone[] = [];
     const issues: Issue[] = [];
+    const initiatives: Initiative[] = Array.from({ length: 10 }, (_, i) =>
+      initiative(`init-${i}`, { sortOrder: i })
+    );
     for (let p = 0; p < 200; p++) {
-      projects.push(project(`p${p}`, { sortOrder: p }));
+      projects.push(
+        project(`p${p}`, { sortOrder: p, initiativeIds: [`init-${p % 10}`] })
+      );
       for (let m = 0; m < 10; m++) {
         const id = `p${p}-m${m}`;
         milestones.push(
@@ -193,6 +220,7 @@ describe('scale', () => {
     const evaluated = evaluate(
       workspace({
         users: [user('lead'), user('wyat')],
+        initiatives,
         projects,
         milestones,
         issues,
@@ -215,12 +243,21 @@ describe('scale', () => {
       notices: warnings.notices,
       appUrl: 'https://x.test',
     });
-    const graph = buildDependencyGraph(
-      evaluated.snapshot,
-      evaluated.ctx,
-      evaluated.assessments,
-      { level: 'milestone' }
-    );
+    const graphOf = (scope: GraphScope): DependencyGraph =>
+      buildDependencyGraph(
+        evaluated.snapshot,
+        evaluated.ctx,
+        evaluated.assessments,
+        scope
+      );
+    const graph = graphOf({ level: 'milestone' });
+    // Every workspace level, and one initiative's issue level.
+    const levels = [
+      graphOf({ level: 'initiative' }),
+      graphOf({ level: 'project' }),
+      graphOf({ level: 'issue' }),
+      graphOf({ level: 'issue', initiativeId: 'init-0' }),
+    ];
     buildTimelineView({ ...evaluated, allocationPlan });
     buildWeekView({ ...evaluated, userId: 'lead', recentAllocations: [] });
     const elapsed = performance.now() - started;
@@ -229,7 +266,92 @@ describe('scale', () => {
     expect(allocationPlan.projects).toHaveLength(200);
     expect(digests.length).toBeGreaterThan(0);
     expect(graph.nodes.length).toBeGreaterThan(0);
+    for (const level of levels) expect(level.nodes.length).toBeGreaterThan(0);
     // Generous bound; on a laptop this runs in well under a second.
+    expect(elapsed).toBeLessThan(4000);
+  });
+
+  // The 50k fixture closes every fourth issue, so its blocks chain breaks
+  // at each closed issue: no aggregate edges, and short chains. This one is
+  // all open: one blocks chain through 20,000 issues in 400 milestones of
+  // 40 projects (10 initiatives), plus a relation from each project into
+  // the project two further on.
+  test('a 20k-issue open chain: the chain cap and aggregate edges, quickly', () => {
+    const projects: Project[] = [];
+    const milestones: Milestone[] = [];
+    const issues: Issue[] = [];
+    const initiatives: Initiative[] = Array.from({ length: 10 }, (_, i) =>
+      initiative(`init-${i}`, { sortOrder: i })
+    );
+    for (let p = 0; p < 40; p++) {
+      projects.push(
+        project(`p${p}`, { sortOrder: p, initiativeIds: [`init-${p % 10}`] })
+      );
+      for (let m = 0; m < 10; m++) {
+        const id = `p${p}-m${m}`;
+        milestones.push(
+          milestone(id, `p${p}`, { targetDate: day(m * 3 + 1), sortOrder: m })
+        );
+        for (let i = 0; i < 50; i++) {
+          issues.push(
+            issue(`${id}-i${i}`, {
+              identifier: `ENG-${issues.length + 1}`,
+              projectId: `p${p}`,
+              milestoneId: id,
+              assigneeId: i % 7 === 0 ? null : 'lead',
+              stateId: STATE.started,
+            })
+          );
+        }
+      }
+    }
+    const relations: BlockingRelation[] = issues.slice(1).map((blocked, i) => ({
+      id: `r${i}`,
+      blockerId: issues[i]?.id ?? '',
+      blockedId: blocked.id,
+    }));
+    for (let p = 0; p + 2 < 40; p++) {
+      relations.push({
+        id: `x${p}`,
+        blockerId: `p${p}-m5-i3`,
+        blockedId: `p${p + 2}-m2-i7`,
+      });
+    }
+    const started = performance.now();
+    const evaluated = evaluate(
+      workspace({
+        users: [user('lead')],
+        initiatives,
+        projects,
+        milestones,
+        issues,
+        relations,
+      })
+    );
+    const graphOf = (scope: GraphScope): DependencyGraph =>
+      buildDependencyGraph(
+        evaluated.snapshot,
+        evaluated.ctx,
+        evaluated.assessments,
+        scope
+      );
+    const chain = graphOf({ level: 'issue', issueId: 'ENG-10000' });
+    const projectLevel = graphOf({ level: 'project' });
+    const initiativeLevel = graphOf({ level: 'initiative' });
+    const elapsed = performance.now() - started;
+
+    expect(chain.nodes).toHaveLength(150);
+    expect(chain.nodes[0]?.id).toBe('p19-m9-i49');
+    // The walk is uncapped: every issue before and after the focus (the
+    // cross relations only shorten paths).
+    expect(chain.chain).toEqual({
+      focusId: 'p19-m9-i49',
+      upstream: 9999,
+      downstream: 10000,
+      hidden: 19850,
+    });
+    expect(projectLevel.edges.length).toBeGreaterThan(39);
+    expect(initiativeLevel.edges.length).toBeGreaterThan(0);
     expect(elapsed).toBeLessThan(4000);
   });
 });

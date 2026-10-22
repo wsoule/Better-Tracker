@@ -352,6 +352,14 @@ export interface Engine {
     viewer?: Actor
   ): Promise<WeekView>;
   getTimelineView(workspaceId: string, viewer?: Actor): Promise<TimelineView>;
+  /**
+   * A dependency graph for a scope per §2.10: a level inside the
+   * workspace, an initiative, a project, a milestone or one issue's chain
+   * (by id or identifier). EngineInputError `invalid` or `not_found` per
+   * core's resolveGraphScope, over the viewer's mirror (a hidden id is
+   * `not_found`, like an unknown one); `fallback` is set when the viewer's
+   * mirror has no initiatives (a guest) and the scope named some.
+   */
   getGraph(
     workspaceId: string,
     scope: GraphScope,

@@ -417,6 +417,12 @@ div.node {
   color: var(--accent);
 }
 
+/* An overdue box outside the scope keeps its dashes: drawn in the paper
+   colour on the flood, where an accent dash would vanish. */
+.node.overdueNode.external {
+  border-color: var(--on-accent);
+}
+
 /* In a cycle: a dashed accent outline drawn just outside the box, so it
    survives the focus ring and the hover flood. */
 .cycle::before {
@@ -424,6 +430,19 @@ div.node {
   position: absolute;
   inset: -5px;
   border: 1px dashed var(--accent);
+  pointer-events: none;
+}
+
+/* The node the graph is about (focusId): a 2px ink rule drawn 2px inside
+   the box, a drawing's double frame. It reads apart from the accent tone
+   and the lit chain's 2px border, sits inside the cycle outline and the
+   focus ring, and follows the local --foreground swaps (selected, overdue,
+   hover), so it never disappears into a flood. */
+.focus::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border: 2px solid var(--foreground);
   pointer-events: none;
 }
 

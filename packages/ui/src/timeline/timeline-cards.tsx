@@ -90,13 +90,22 @@ function TimelineCardsImpl({
           className={styles.group}
           aria-label={group.label}
         >
-          <h3 className={styles.groupHead}>
-            {group.label}
+          <header className={styles.groupHead}>
+            <h3 className={styles.groupLabel}>{group.label}</h3>
             <span className={styles.groupCount}>
               {group.lanes.length}{' '}
               {group.lanes.length === 1 ? 'project' : 'projects'}
             </span>
-          </h3>
+            {group.link !== undefined ? (
+              <Link
+                href={group.link.href}
+                className={styles.groupLink}
+                aria-label={group.link.ariaLabel}
+              >
+                {group.link.label}
+              </Link>
+            ) : null}
+          </header>
           {group.lanes.map((lane) => {
             const bars = sorted.get(lane.id) ?? [];
             // An inactive lane is drawn in greys: no accent mark, receipts
