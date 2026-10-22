@@ -468,6 +468,16 @@ interface GraphFacts {
   risky: (issue: Issue) => boolean;
   /** Open issues on a blocking cycle among open issues. */
   cycleIssues: ReadonlySet<string>;
+  /**
+   * An open issue's distinct open blockers (its own id when it blocks
+   * itself). A missing entry means none: the issue is ready (or closed).
+   */
+  openBlockers: ReadonlyMap<string, ReadonlySet<string>>;
+  /**
+   * Per open blocker b: how many open issues other than b have b as their
+   * only open blocker (what finishing b alone would free).
+   */
+  soleBlockerOf: ReadonlyMap<string, number>;
   /** A mirrored project's first initiative, NO_INITIATIVE_ID when none. */
   homeOf: (projectId: string) => string;
   activeProject: (project: Project) => boolean;
@@ -518,6 +528,39 @@ function openCycleIssues(
   return members;
 }
 
+/**
+ * Who still holds each open issue up (§2.10 "Readiness"): one pass over the
+ * open issues and their blockers gives every open issue's set of distinct
+ * open blockers (a self-loop keeps its own id; closed blockers no longer
+ * count) and, per blocker, how many open issues other than itself it alone
+ * blocks. O(issues + relations).
+ */
+function openBlockerFacts(
+  snapshot: Snapshot,
+  isOpen: (issue: Issue) => boolean
+): Pick<GraphFacts, 'openBlockers' | 'soleBlockerOf'> {
+  const openBlockers = new Map<string, Set<string>>();
+  const soleBlockerOf = new Map<string, number>();
+  for (const issue of snapshot.issues.values()) {
+    if (!isOpen(issue)) continue;
+    let blockers: Set<string> | undefined;
+    for (const blockerId of snapshot.blockersOf.get(issue.id) ?? []) {
+      const blocker = snapshot.issues.get(blockerId);
+      if (blocker === undefined || !isOpen(blocker)) continue;
+      blockers ??= new Set();
+      blockers.add(blockerId);
+    }
+    if (blockers === undefined) continue;
+    openBlockers.set(issue.id, blockers);
+    if (blockers.size !== 1) continue;
+    const [only] = blockers;
+    if (only !== undefined && only !== issue.id) {
+      soleBlockerOf.set(only, (soleBlockerOf.get(only) ?? 0) + 1);
+    }
+  }
+  return { openBlockers, soleBlockerOf };
+}
+
 // Computes the facts shared by every level once per graph build.
 function graphFacts(
   snapshot: Snapshot,
@@ -550,6 +593,7 @@ function graphFacts(
       waitsOnUnassigned.has(issue.id) ||
       waitsOnOverdue.has(issue.id),
     cycleIssues: openCycleIssues(snapshot, isOpen),
+    ...openBlockerFacts(snapshot, isOpen),
     homeOf: (projectId) => home.get(projectId) ?? NO_INITIATIVE_ID,
     activeProject,
     active: (issue) => {
@@ -607,7 +651,8 @@ function issueUnder(
 }
 
 // An issue as an issue-level node: today's fields plus its first
-// initiative, its project's activity and whether it sits on a cycle.
+// initiative, its project's activity, whether it sits on a cycle and its
+// readiness (open blockers anywhere in the viewer's mirror).
 function issueNode(
   snapshot: Snapshot,
   facts: GraphFacts,
@@ -622,6 +667,9 @@ function issueNode(
     issue.assigneeId === null
       ? 'Unassigned'
       : (assignee?.name ?? 'Unknown user');
+  const open = facts.isOpen(issue);
+  // Only open issues have an entry, so a closed one reads 0 here.
+  const blockedBy = facts.openBlockers.get(issue.id)?.size ?? 0;
   return {
     id: issue.id,
     kind: 'issue',
@@ -634,7 +682,7 @@ function issueNode(
     ownerId: issue.assigneeId,
     external,
     active: facts.active(issue),
-    open: facts.isOpen(issue),
+    open,
     unassigned: facts.isUnassigned(issue),
     overdue: facts.isOverdue(issue),
     inCycle: false,
@@ -642,6 +690,12 @@ function issueNode(
     waitsOnUnassigned: facts.waitsOnUnassigned.has(issue.id),
     waitsOnOverdue: facts.waitsOnOverdue.has(issue.id),
     status: issueStateType(snapshot, issue),
+    readiness: !open ? 'done' : blockedBy > 0 ? 'blocked' : 'ready',
+    blockedBy,
+    // Only open blockers are counted, so a closed issue frees nothing.
+    unblocks: facts.soleBlockerOf.get(issue.id) ?? 0,
+    openIssues: open ? 1 : 0,
+    readyIssues: open && blockedBy === 0 ? 1 : 0,
   };
 }
 
@@ -658,6 +712,7 @@ function issueEdge(
     from: blocker.id,
     to: blocked.id,
     resolved: !facts.isOpen(blocker),
+    blocking: facts.isOpen(blocker) && facts.isOpen(blocked),
     crossProject: blocker.projectId !== blocked.projectId,
     crossInitiative:
       fromHome !== null && toHome !== null && fromHome !== toHome,
@@ -830,6 +885,53 @@ const NO_UNIT_FACTS: UnitFacts = {
   holdsCycle: false,
 };
 
+// The readiness fields of a graph node (§2.10 "Readiness").
+type NodeReadiness = Pick<
+  GraphNode,
+  'readiness' | 'blockedBy' | 'unblocks' | 'openIssues' | 'readyIssues'
+>;
+
+// Who holds a unit's open issues up, folded over all of them (kept apart
+// from UnitFacts so the sets are never shared through NO_UNIT_FACTS).
+interface UnitFlow {
+  /** Its open issues with no open blocker anywhere in the mirror. */
+  ready: number;
+  /** The other units holding an open blocker of one of its open issues. */
+  blockers: Set<string>;
+  /** Open blockers of its open issues that count toward no unit. */
+  unplaced: Set<string>;
+}
+
+/**
+ * The readiness of every unit from its folded flow (§2.10 "Readiness"):
+ * one O(units) pass counts, per unit u, the units whose only blocker
+ * (units and unplaced blockers alike) is u, so `unblocks` is exact. A unit
+ * with no open issue is done; one with a blocker unit or an unplaced
+ * blocker waits; otherwise it is clear, even with blocked issues inside.
+ */
+function unitReadiness(
+  flows: ReadonlyMap<string, UnitFlow>
+): (unit: string, open: number) => NodeReadiness {
+  const unblocks = new Map<string, number>();
+  for (const flow of flows.values()) {
+    if (flow.blockers.size !== 1 || flow.unplaced.size > 0) continue;
+    const [only] = flow.blockers;
+    if (only !== undefined) unblocks.set(only, (unblocks.get(only) ?? 0) + 1);
+  }
+  return (unit, open) => {
+    const flow = flows.get(unit);
+    const blockedBy =
+      flow === undefined ? 0 : flow.blockers.size + flow.unplaced.size;
+    return {
+      readiness: open === 0 ? 'done' : blockedBy > 0 ? 'blocked' : 'ready',
+      blockedBy,
+      unblocks: unblocks.get(unit) ?? 0,
+      openIssues: open,
+      readyIssues: flow?.ready ?? 0,
+    };
+  };
+}
+
 // Status severity for an initiative's roll-up, most severe first.
 const STATUS_SEVERITY: readonly MilestoneStatus[] = [
   'overdue',
@@ -934,8 +1036,11 @@ function aggregateGraph(
   const unitUnder = unitUnderMapper(snapshot, facts, level, container);
   const inWorkspace = container.kind === 'workspace';
 
-  // Node facts of every unit, and the units listed without an edge.
+  // Node facts and readiness flow of every unit (over all of its open
+  // issues, with no container filter), and the units listed without an
+  // edge.
   const unitFacts = new Map<string, UnitFacts>();
+  const flows = new Map<string, UnitFlow>();
   const listed = new Set<string>();
   for (const issue of snapshot.issues.values()) {
     if (!facts.isOpen(issue)) continue;
@@ -949,6 +1054,21 @@ function aggregateGraph(
     current.waitsOnOverdue ||= facts.waitsOnOverdue.has(issue.id);
     current.holdsCycle ||= facts.cycleIssues.has(issue.id);
     unitFacts.set(unit, current);
+    let flow = flows.get(unit);
+    if (flow === undefined) {
+      flow = { ready: 0, blockers: new Set(), unplaced: new Set() };
+      flows.set(unit, flow);
+    }
+    const blockers = facts.openBlockers.get(issue.id);
+    if (blockers === undefined) flow.ready += 1;
+    for (const blockerId of blockers ?? []) {
+      const blocker = snapshot.issues.get(blockerId);
+      if (blocker === undefined) continue;
+      // A blocker in the same unit is the unit's own business.
+      const from = unitOf(blocker);
+      if (from === null) flow.unplaced.add(blockerId);
+      else if (from !== unit) flow.blockers.add(from);
+    }
     if (under(issue) && (!inWorkspace || facts.active(issue))) {
       listed.add(unit);
     }
@@ -998,18 +1118,27 @@ function aggregateGraph(
     unitIds.add(to);
   }
   const describe = describeUnit(snapshot, assessments, facts, level);
+  const readinessOf = unitReadiness(flows);
   const nodes = containerOrder(
     [...unitIds],
     (unit) => !unitUnder(unit),
     unitComparator(snapshot, ctx, assessments, level)
-  ).map((unit) =>
-    describe(unit, unitFacts.get(unit) ?? NO_UNIT_FACTS, !unitUnder(unit))
-  );
+  ).map((unit) => {
+    const folded = unitFacts.get(unit) ?? NO_UNIT_FACTS;
+    return describe(
+      unit,
+      folded,
+      readinessOf(unit, folded.open),
+      !unitUnder(unit)
+    );
+  });
   const edgeFacts = describeAggregateEdge(snapshot, facts, level);
   const edges: GraphEdge[] = [...summaries.values()].map((summary) => ({
     from: summary.from,
     to: summary.to,
     resolved: false,
+    // Only open→open relations are summarised.
+    blocking: true,
     ...edgeFacts(summary.from, summary.to),
     inCycle: false,
     onRiskChain: summary.onRiskChain,
@@ -1084,15 +1213,21 @@ function projectStatus(
 /**
  * The node describer of one aggregate level (§2.10 node table): labels,
  * owner, activity and status from the mirror; open, unassigned, overdue,
- * waits and holdsCycle from the unit's folded open issues. The milestone
- * describer keeps its assessment-based fields.
+ * waits and holdsCycle from the unit's folded open issues; the readiness
+ * fields as unitReadiness gives them. The milestone describer keeps its
+ * assessment-based fields.
  */
 function describeUnit(
   snapshot: Snapshot,
   assessments: ReadonlyMap<string, MilestoneAssessment>,
   facts: GraphFacts,
   level: AggregateLevel
-): (unit: string, folded: UnitFacts, external: boolean) => GraphNode {
+): (
+  unit: string,
+  folded: UnitFacts,
+  readiness: NodeReadiness,
+  external: boolean
+) => GraphNode {
   // Projects per first initiative, for the initiative level's counts.
   const projectsByHome = new Map<string, Project[]>();
   if (level === 'initiative') {
@@ -1103,7 +1238,11 @@ function describeUnit(
       else list.push(project);
     }
   }
-  const common = (folded: UnitFacts, external: boolean) => ({
+  const common = (
+    folded: UnitFacts,
+    readiness: NodeReadiness,
+    external: boolean
+  ) => ({
     external,
     open: folded.open > 0,
     unassigned: folded.unassigned,
@@ -1112,10 +1251,11 @@ function describeUnit(
     holdsCycle: folded.holdsCycle,
     waitsOnUnassigned: folded.waitsOnUnassigned,
     waitsOnOverdue: folded.waitsOnOverdue,
+    ...readiness,
   });
   switch (level) {
     case 'milestone':
-      return (unit, folded, external) => {
+      return (unit, folded, readiness, external) => {
         const milestone = snapshot.milestones.get(unit);
         const projectId = milestone?.projectId ?? null;
         const project =
@@ -1132,7 +1272,7 @@ function describeUnit(
           milestoneId: unit,
           ownerId: project?.leadId ?? null,
           active: project !== undefined && facts.activeProject(project),
-          ...common(folded, external),
+          ...common(folded, readiness, external),
           open: (assessment?.progress.open ?? 0) > 0,
           unassigned: (assessment?.progress.openUnassigned ?? 0) > 0,
           overdue: assessment?.status === 'overdue',
@@ -1140,7 +1280,7 @@ function describeUnit(
         };
       };
     case 'project':
-      return (unit, folded, external) => {
+      return (unit, folded, readiness, external) => {
         const project = snapshot.projects.get(unit);
         const leadId = project?.leadId ?? null;
         return {
@@ -1157,12 +1297,12 @@ function describeUnit(
           milestoneId: null,
           ownerId: leadId,
           active: project !== undefined && facts.activeProject(project),
-          ...common(folded, external),
+          ...common(folded, readiness, external),
           status: projectStatus(snapshot, assessments, unit),
         };
       };
     case 'initiative':
-      return (unit, folded, external) => {
+      return (unit, folded, readiness, external) => {
         const projects = projectsByHome.get(unit) ?? [];
         const active = projects.filter((p) => facts.activeProject(p));
         const statuses = new Set(
@@ -1181,7 +1321,7 @@ function describeUnit(
           milestoneId: null,
           ownerId: null,
           active: active.length > 0,
-          ...common(folded, external),
+          ...common(folded, readiness, external),
           status:
             STATUS_SEVERITY.find((status) => statuses.has(status)) ?? 'empty',
         };

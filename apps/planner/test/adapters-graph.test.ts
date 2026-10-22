@@ -115,6 +115,11 @@ function node(overrides: Partial<GraphNode> = {}): GraphNode {
     waitsOnUnassigned: false,
     waitsOnOverdue: false,
     status: 'started',
+    readiness: 'ready',
+    blockedBy: 0,
+    unblocks: 0,
+    openIssues: 1,
+    readyIssues: 1,
     ...overrides,
   };
 }
@@ -124,6 +129,7 @@ function edge(overrides: Partial<GraphEdge> = {}): GraphEdge {
     from: 'a',
     to: 'b',
     resolved: false,
+    blocking: true,
     crossProject: false,
     crossInitiative: false,
     crossOwner: false,
@@ -176,7 +182,10 @@ describe('edgeKind', () => {
     [{ crossProject: true }, 'cross'],
     [{ crossProject: true, onRiskChain: true }, 'risk'],
     [{ onRiskChain: true, inCycle: true }, 'cycle'],
-    [{ inCycle: true, resolved: true, onRiskChain: true }, 'resolved'],
+    [
+      { inCycle: true, resolved: true, blocking: false, onRiskChain: true },
+      'resolved',
+    ],
   ] as const)('%j → %s', (flags, kind) => {
     expect(edgeKind(edge(flags))).toBe(kind);
   });

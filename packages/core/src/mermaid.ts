@@ -59,6 +59,43 @@ export function isRiskNode(node: GraphNode): boolean {
 }
 
 /**
+ * The chip word of a node's readiness (§2.10 "Readiness"): '' when done
+ * (its state shows that); an issue 'Ready' or 'Blocked by N'; above the
+ * issue level 'Clear', 'None ready' (clear, but every open issue in it
+ * waits on another inside) or 'Waiting on N'.
+ */
+export function readinessLabel(node: GraphNode): string {
+  if (node.readiness === 'done') return '';
+  if (node.kind === 'issue') {
+    return node.readiness === 'blocked'
+      ? `Blocked by ${node.blockedBy}`
+      : 'Ready';
+  }
+  if (node.readiness === 'blocked') return `Waiting on ${node.blockedBy}`;
+  return node.readyIssues === 0 ? 'None ready' : 'Clear';
+}
+
+/**
+ * The status highlight's class (§2.10 "Readiness"), shared by the
+ * planner's tones and the Mermaid export: quiet (done, or inactive work:
+ * §2.8, never loud), stuck (an issue on an open cycle; a box none of whose
+ * open issues is ready, with a cycle inside, whether it waits or not),
+ * blocked, ready. Mirror-wide: it never reads `inCycle`, which depends on
+ * what is drawn, so a box reads the same in every graph that draws it.
+ */
+export function readinessClass(
+  node: GraphNode
+): 'ready' | 'blocked' | 'stuck' | 'quiet' {
+  if (node.readiness === 'done' || !node.active) return 'quiet';
+  const stuck =
+    node.kind === 'issue'
+      ? node.readiness === 'blocked' && node.holdsCycle
+      : node.readyIssues === 0 && node.holdsCycle;
+  if (stuck) return 'stuck';
+  return node.readiness === 'blocked' ? 'blocked' : 'ready';
+}
+
+/**
  * Renders the graph as `flowchart LR`. Node ids are positional (`n0`, `n1`,
  * …) so they never depend on Linear ids; labels are quoted and escaped;
  * open edges use `-->`, resolved ones `-.->`, and edges summarising more

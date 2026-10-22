@@ -314,10 +314,11 @@ initiative), one project, one milestone, or one issue's blocking **chain**.
   overdue (the issue's milestone is overdue) issues; `waitsOnUnassigned` /
   `waitsOnOverdue` (transitively over open blockers, `waitingIssues`); `risky` =
   unassigned or overdue or waits on either; the open issues on a blocking cycle
-  among open issues (one Tarjan pass); each project's first initiative
-  (`homeInitiativeIds`, the timeline's rule, §2.11; `none` when it has none);
-  project activity (§2.8; an issue with no mirrored project counts as active).
-  O(issues + relations), no per-node scans.
+  among open issues (one Tarjan pass); each open issue's distinct open blockers
+  and, per blocker, how many open issues it alone blocks (readiness, below);
+  each project's first initiative (`homeInitiativeIds`, the timeline's rule,
+  §2.11; `none` when it has none); project activity (§2.8; an issue with no
+  mirrored project counts as active). O(issues + relations), no per-node scans.
 - **Membership and units.** An issue is under the workspace always; under
   initiative X when its mirrored project's first initiative is X (an issue with
   no project is in no initiative); under a project or milestone by its ids.
@@ -340,6 +341,46 @@ initiative), one project, one milestone, or one issue's blocking **chain**.
   externals cannot exist). At the workspace milestone level this is exactly the
   earlier rule (active projects' milestones with open issues, plus edge ends);
   goldens in `graph.test.ts` prove the output unchanged.
+- **Readiness** (owner request 2026-10-22, "graph highlights"): every node says
+  whether its work can start. The facts are mirror-wide like risk: built over
+  the viewer's whole snapshot, never just the drawn nodes, and before the
+  container and activity filters, so a node reads the same in every graph that
+  draws it, externals included. A **blocking relation** is a `blocks` relation
+  whose two ends are open. Relations to issues the mirror does not hold never
+  count (`indexWorkspace` and `visibleSnapshot` drop them first), so an issue
+  can read ready while Linear shows a blocker. **Issue:** `readiness` is `done`
+  when completed or canceled, `blocked` when it has an open blocker, otherwise
+  `ready` (dependency-ready: nothing open blocks it, Triage and Backlog
+  included); `blockedBy` = its distinct open blockers (a self-loop counts: an
+  issue blocking itself is blocked by 1); `unblocks` = the open issues other
+  than itself whose only open blocker it is (exact inside cycles: in A ⇄ B, A
+  unblocks B; 0 when done); `openIssues` / `readyIssues` are 1/1 ready, 1/0
+  blocked, 0/0 done. **Above the issue level**, for a unit u: `blockerUnits(u)`
+  = the units other than u of the open blockers of u's open issues, and
+  `unplaced(u)` = those open blockers with no unit at this level (blockers
+  inside u are u's own business); `blockedBy` = |blockerUnits| + |unplaced|;
+  `readiness` is `done` when no open issue counts toward u, `blocked`
+  ("waiting") when `blockedBy > 0`, otherwise `ready` ("clear", which may still
+  hold blocked issues); `unblocks` = the units v whose blockerUnits is exactly
+  {u} with no unplaced blocker (so it is exact: finishing u alone clears them);
+  `openIssues` = the unit's open issues and `readyIssues` = those with no open
+  blocker anywhere in the mirror. `blockedBy` and `unblocks` may exceed what is
+  drawn (a chain's side blockers, an external's own blockers, units no graph
+  edge reaches). Cost: one pass over the open issues and their blockers
+  (`GraphFacts.openBlockers`, `soleBlockerOf`), a fold inside the aggregate
+  loop's existing pass and one O(units) pass: O(issues + relations).
+  **Classifiers** (`mermaid.ts`, next to `isRiskNode`): `readinessLabel(node)`
+  is the chip word ('' when done; "Ready", "Blocked by N"; above the issue level
+  "Clear", "None ready" (clear, with `readyIssues` 0) or "Waiting on N").
+  `readinessClass(node)` is the one status class the planner's tones and the
+  Mermaid export share: `quiet` (done, or not `active`: §2.8, never loud),
+  `stuck` (an issue that is blocked and `holdsCycle`; a box with
+  `readyIssues === 0 && holdsCycle`, waiting or clear), `blocked`, `ready`. It
+  never reads `inCycle`, which depends on the drawn edges, so a box whose arrows
+  merely form a cycle stays `blocked` with its own cycle marks, and finishing an
+  outside blocker never turns a box from waiting to stuck. A clear box with none
+  ready is only possible behind a cycle inside (every open issue waits on
+  another inside), so it is always stuck.
 - **Node fields** (`GraphNode`): `id` (initiative id or `none`, project,
   milestone or issue id), `kind` (the level), `label` (name; "No initiative"),
   `sublabel` (issue "ENG-12 · Ana"; milestone its project; project its lead,
@@ -357,15 +398,20 @@ initiative), one project, one milestone, or one issue's blocking **chain**.
   self-loop); `status`: issue its state type; milestone its assessment; project
   its next milestone's (§2.6) status, `empty` without one; initiative the most
   severe (overdue, at_risk, unscheduled, empty, on_track, complete) of its
-  active projects' statuses, of all its projects when none is active. Milestone
-  nodes keep their assessment-based `open`, `unassigned` and `overdue`. Chains
-  add `distance` and `hiddenNeighbours` (below).
+  active projects' statuses, of all its projects when none is active;
+  `readiness`, `blockedBy`, `unblocks`, `openIssues`, `readyIssues` (Readiness,
+  above; a milestone's `openIssues` is its folded open issues, not its
+  assessment). Milestone nodes keep their assessment-based `open`, `unassigned`
+  and `overdue`. Chains add `distance` and `hiddenNeighbours` (below).
 - **Edge fields** (`GraphEdge`): `resolved` (issue level: the blocker is
-  closed), `crossProject` (always at the project and initiative levels),
-  `crossInitiative` (both ends have a project and their first initiatives
-  differ; always at the initiative level; never for a guest, whose projects have
-  none), `crossOwner` (assignees; leads at the milestone and project levels;
-  never at the initiative level), `inCycle`, `onRiskChain`, `weight`.
+  closed), `blocking` (both ends open: the blocker still holds the waiting end
+  up; false when the blocker or the waiting issue is closed; always true above
+  the issue level, whose edges count open→open relations only), `crossProject`
+  (always at the project and initiative levels), `crossInitiative` (both ends
+  have a project and their first initiatives differ; always at the initiative
+  level; never for a guest, whose projects have none), `crossOwner` (assignees;
+  leads at the milestone and project levels; never at the initiative level),
+  `inCycle`, `onRiskChain`, `weight`.
 - **Order.** Nodes under the container first, then externals, each group sorted
   together (listed units and unlisted in-container edge ends alike): initiatives
   by `compareInitiatives` with `none` last, projects in `orderProjects` order,
@@ -401,6 +447,9 @@ initiative), one project, one milestone, or one issue's blocking **chain**.
   counts (`unplacedRelations`, `unrelatedIssues`, "N projects") or risk inputs;
   nothing hidden is counted. Risk follows the viewer's mirror too: a member may
   see an edge off the risk chain although a hidden team's blocker is unassigned.
+  Readiness follows the viewer's mirror too: a member may see an issue ready
+  although a hidden team's issue blocks it, and a hidden issue is never counted
+  in `blockedBy`, `unblocks`, `openIssues` or `readyIssues`.
 - **`DependencyGraph`** =
   `{ scope (resolved), nodes, edges, cycles (node ids in walk order), fallback, unplacedRelations, unrelatedIssues, chain }`.
 - `toMermaid(graph)` emits `flowchart LR` with stable sanitized ids (`n0`, `n1`,
@@ -640,6 +689,10 @@ export function resolveGraphScope(
 ): GraphScopeResolution;
 export function toMermaid(graph: DependencyGraph): string;
 export function isRiskNode(node: GraphNode): boolean;
+export function readinessLabel(node: GraphNode): string; // "Ready", "Waiting on 2", …
+export function readinessClass(
+  node: GraphNode
+): 'ready' | 'blocked' | 'stuck' | 'quiet';
 // views.ts
 export function buildWeekView(input: {
   snapshot: Snapshot;
@@ -706,7 +759,10 @@ export const ISSUE_FIELD_LABEL: Record<IssuePatchField, string>; // "Status", "D
 ```
 
 Graph types (`types.ts`, §2.10): `GraphLevel`, `GraphScope`, `GraphContainer`,
-`GraphFallback`, `GraphChain`, `GraphNode`, `GraphEdge`, `DependencyGraph`.
+`GraphFallback`, `GraphChain`, `GraphNode`, `GraphEdge`, `DependencyGraph`,
+`GraphReadiness` (`'ready' | 'blocked' | 'done'`) and `GraphHighlight`
+(`'status' | 'risk' | 'critical'`, the highlight a graph is drawn or exported
+with).
 
 Issue page types (`types.ts`): `IssueDetail`, `IssueRelationRow`,
 `IssueDetailProject`, `IssueDetailMilestone`, `IssueDetailTiming`,

@@ -9,6 +9,7 @@ import {
   homeInitiativeIds,
   planAllocation,
   planWarnings,
+  readinessLabel,
   resolveGraphScope,
   scopeSeesProject,
   viewerScope,
@@ -349,5 +350,47 @@ describe('graphs follow visibility', () => {
       problem: 'not_found',
       message: 'That project is not in the mirror.',
     });
+  });
+
+  test('readiness counts only blockers the viewer can see', () => {
+    // SEC-1 (Vault, Security) blocks ENG-1 (Orion). Wyat cannot see SEC-1,
+    // so for him ENG-1 and Orion are free to start; Sam sees the wait.
+    const nodeIn = (graph: DependencyGraph, id: string) =>
+      graph.nodes.find((n) => n.id === id);
+    const orionIssues: GraphScope = { level: 'issue', projectId: 'orion' };
+    expect(nodeIn(graphFor('wyat', orionIssues), 'eng-1')).toMatchObject({
+      readiness: 'ready',
+      blockedBy: 0,
+    });
+    expect(nodeIn(graphFor('sam', orionIssues), 'eng-1')).toMatchObject({
+      readiness: 'blocked',
+      blockedBy: 1,
+    });
+    const wyatOrion = nodeIn(graphFor('wyat', { level: 'project' }), 'orion');
+    expect(wyatOrion).toMatchObject({
+      readiness: 'ready',
+      blockedBy: 0,
+      openIssues: 1,
+      readyIssues: 1,
+    });
+    expect(wyatOrion === undefined ? null : readinessLabel(wyatOrion)).toBe(
+      'Clear'
+    );
+    const samProjects = graphFor('sam', { level: 'project' });
+    expect(nodeIn(samProjects, 'orion')).toMatchObject({
+      readiness: 'blocked',
+      blockedBy: 1,
+    });
+    expect(nodeIn(samProjects, 'vault')?.unblocks).toBe(1);
+    for (const scope of [
+      orionIssues,
+      { level: 'issue', issueId: 'eng-1' },
+      { level: 'milestone' },
+      { level: 'project' },
+    ] as GraphScope[]) {
+      const text = JSON.stringify(graphFor('wyat', scope));
+      expect(text).not.toContain('vault');
+      expect(text).not.toContain('sec-1');
+    }
   });
 });

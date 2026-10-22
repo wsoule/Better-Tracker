@@ -543,6 +543,12 @@ export interface GraphFallback {
   requested: GraphScope;
 }
 
+/** Where a graph node stands in the blocking flow (§2.10 "Readiness"). */
+export type GraphReadiness = 'ready' | 'blocked' | 'done';
+
+/** The highlight a graph is drawn or exported with (§2.10, planner ?highlight=). */
+export type GraphHighlight = 'status' | 'risk' | 'critical';
+
 /** One issue's chain, summarised (chain scopes only). */
 export interface GraphChain {
   focusId: string;
@@ -603,6 +609,32 @@ export interface GraphNode {
   waitsOnOverdue: boolean;
   status: MilestoneStatus | WorkflowStateType;
   /**
+   * Issue: done when completed or canceled; blocked when open with an open
+   * blocker in the viewer's mirror; ready otherwise. Above the issue level:
+   * done when no open issue counts toward the unit; blocked ("waiting") when
+   * one of its open issues has an open blocker that counts toward another
+   * unit of this level or toward none; ready ("clear") otherwise (it may
+   * still hold blocked issues of its own). Mirror-wide, like the risk facts.
+   */
+  readiness: GraphReadiness;
+  /**
+   * Issue: its distinct open blockers (a self-loop counts). Above: the
+   * other units holding an open blocker of its open issues, plus the open
+   * blockers with no unit at this level. 0 unless blocked. May exceed the
+   * drawn in-edges.
+   */
+  blockedBy: number;
+  /**
+   * What finishing it alone would free. Issue: the open issues (not itself)
+   * whose only open blocker it is. Above: the units whose only blocker
+   * (units and unplaced alike) it is. 0 when done.
+   */
+  unblocks: number;
+  /** Open issues counting toward the node (an issue: 1 when open). */
+  openIssues: number;
+  /** Of those, the ones with no open blocker anywhere in the mirror. */
+  readyIssues: number;
+  /**
    * Chain graphs only: signed hops from the focus (0 = the focus, negative
    * = upstream).
    */
@@ -621,6 +653,13 @@ export interface GraphEdge {
   to: string;
   /** Blocker is already completed/canceled (issue level only). */
   resolved: boolean;
+  /**
+   * Both ends are open: the blocker still holds the waiting end up. Always
+   * true above the issue level (aggregate edges count open→open relations
+   * only). False when the blocker is closed (`resolved`) or the waiting
+   * issue is closed.
+   */
+  blocking: boolean;
   /**
    * The ends are in different projects (always true at the project and
    * initiative levels).

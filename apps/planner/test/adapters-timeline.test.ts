@@ -148,6 +148,7 @@ function edge(overrides: Partial<GraphEdge> = {}): GraphEdge {
     from: 'ms-a',
     to: 'ms-b',
     resolved: false,
+    blocking: true,
     crossProject: true,
     crossInitiative: false,
     crossOwner: true,
