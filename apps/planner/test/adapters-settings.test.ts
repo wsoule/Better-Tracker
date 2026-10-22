@@ -16,15 +16,12 @@ import {
   formStatusText,
   type Installation,
   isDigestPreviewModel,
-  lockedPmIds,
   modesSavedMessage,
   noticeTone,
   type NotificationRecord,
   notificationRows,
   parseScheduleForm,
   parseSettingsSection,
-  peopleRows,
-  readOnlyNote,
   RESET_OUTCOME,
   sameIds,
   scheduleFieldError,
@@ -36,6 +33,9 @@ import {
   settingsHref,
   statusRows,
   toggleId,
+  watcherRows,
+  watchersHint,
+  watchersSavedMessage,
 } from '../lib/adapters/settings';
 
 function user(id: string, name: string, extra: Partial<User> = {}): User {
@@ -63,8 +63,7 @@ const USER_MAP = new Map(USERS.map((u) => [u.id, u]));
 function settings(overrides: Partial<WorkspaceSettings> = {}) {
   return {
     ...defaultSettings('org-1', 'UTC'),
-    pmUserIds: ['u-ana', 'u-hugo'],
-    watcherUserIds: ['u-ana'],
+    watcherUserIds: ['u-ana', 'u-hugo'],
     ...overrides,
   };
 }
@@ -76,33 +75,38 @@ describe('sections', () => {
     expect(parseSettingsSection({ section: ['audit', 'x'] }).id).toBe('audit');
   });
 
+  test('People became Watchers; old ?section=people links still open it', () => {
+    expect(parseSettingsSection({ section: 'watchers' }).id).toBe('watchers');
+    expect(parseSettingsSection({ section: 'people' }).id).toBe('watchers');
+    expect(settingsHref('watchers')).toBe('/settings?section=watchers');
+  });
+
+  // Owner decision 2026-10-22: no PM role. No section describes a role or
+  // a read-only mode; every one is editable by everyone signed in.
+  test('no section copy names a PM role', () => {
+    for (const tab of sectionTabs('modes')) {
+      const section = parseSettingsSection({ section: tab.id });
+      expect(`${section.label} ${section.description}`).not.toMatch(
+        /\bPMs?\b|read only/i
+      );
+    }
+  });
+
   test('tabs mark the current section; Modes lives at /settings', () => {
-    const tabs = sectionTabs('people');
+    const tabs = sectionTabs('watchers');
     expect(tabs.map((t) => t.label)).toEqual([
       'Modes',
-      'People',
+      'Watchers',
       'Schedule',
       'Status',
       'Notifications',
       'Audit',
     ]);
     expect(tabs.filter((t) => t.current === true).map((t) => t.id)).toEqual([
-      'people',
+      'watchers',
     ]);
     expect(settingsHref('modes')).toBe('/settings');
     expect(settingsHref('audit')).toBe('/settings?section=audit');
-  });
-
-  test('read-only note names the active PMs', () => {
-    expect(readOnlyNote(settings(), USER_MAP)).toBe(
-      'Only PMs can change settings. Ask Ana Moreno if something here should change.'
-    );
-    expect(
-      readOnlyNote(settings({ pmUserIds: ['u-ana', 'u-ben'] }), USER_MAP)
-    ).toContain('Ask Ana Moreno or Ben Carter if');
-    expect(readOnlyNote(settings({ pmUserIds: [] }), USER_MAP)).toContain(
-      'Ask a PM'
-    );
   });
 
   test('modes toast names both modes', () => {
@@ -112,9 +116,9 @@ describe('sections', () => {
   });
 });
 
-describe('people', () => {
-  test('active people plus deactivated list members, never apps, by name', () => {
-    const rows = peopleRows(USERS, settings());
+describe('watchers', () => {
+  test('active people plus deactivated watchers, never apps, by name', () => {
+    const rows = watcherRows(USERS, settings());
     expect(rows.map((r) => r.name)).toEqual([
       'Ana Moreno',
       'Ben Carter',
@@ -125,12 +129,23 @@ describe('people', () => {
     );
   });
 
-  test('the last active PM is locked on', () => {
-    const rows = peopleRows(USERS, settings());
-    // Hugo is a PM but deactivated, so Ana is the only active one.
-    expect([...lockedPmIds(['u-ana', 'u-hugo'], rows)]).toEqual(['u-ana']);
-    expect(lockedPmIds(['u-ana', 'u-ben'], rows).size).toBe(0);
-    expect(lockedPmIds([], rows).size).toBe(0);
+  test('the list may be empty: then only leads are warned', () => {
+    // No locked box and no "last one" rule: every row can be unchecked.
+    const rows = watcherRows(USERS, settings({ watcherUserIds: [] }));
+    expect(rows.map((r) => r.name)).toEqual(['Ana Moreno', 'Ben Carter']);
+    expect(watchersSavedMessage(0)).toBe(
+      'Saved: no watchers. Only each project’s lead is warned now.'
+    );
+    expect(watchersSavedMessage(2)).toBe('Saved: 2 watchers.');
+    expect(watchersHint(0)).toBe(
+      'No watchers: only each project’s lead hears about its milestones at risk.'
+    );
+    expect(watchersHint(1)).toBe(
+      '1 watcher hears about every milestone at risk, besides each project’s lead.'
+    );
+    expect(watchersHint(3)).toBe(
+      '3 watchers hear about every milestone at risk, besides each project’s lead.'
+    );
   });
 
   test('list helpers', () => {
@@ -259,11 +274,14 @@ describe('saving a section', () => {
     expect(
       scheduleFieldError({
         code: 'invalid',
-        message: 'At least one active PM must remain.',
+        message: 'watcherUserIds names someone not in the mirror: u-x.',
       })
     ).toBeNull();
     expect(
-      scheduleFieldError({ code: 'not_pm', message: 'timezone is yours' })
+      scheduleFieldError({
+        code: 'not_signed_in',
+        message: 'timezone is yours',
+      })
     ).toBeNull();
     expect(
       scheduleFieldError({ code: 'invalid', message: 'timezones: nope' })
@@ -559,7 +577,7 @@ describe('audit', () => {
     };
   }
 
-  test('PM edits read as "before → after"', () => {
+  test('milestone and lead edits read as "before → after"', () => {
     const rows = auditRows(
       [
         audit({
@@ -709,7 +727,7 @@ describe('audit', () => {
     const after = {
       ...before,
       allocationMode: 'live',
-      pmUserIds: ['u-ana', 'u-ben'],
+      watcherUserIds: [],
       tuning: {
         ...before.tuning,
         stallDays: 9,
@@ -718,7 +736,7 @@ describe('audit', () => {
     };
     expect(settingsChanges(before, after, USER_MAP)).toEqual([
       'Allocation: Dry run → Live',
-      'PMs: Ana Moreno, Hugo Laurent → Ana Moreno, Ben Carter',
+      'Watchers: Ana Moreno, Hugo Laurent → nobody',
       'Stalled after: 7 → 9',
       'Active project statuses: planned, started → started',
     ]);
@@ -726,5 +744,20 @@ describe('audit', () => {
       'Saved without changes',
     ]);
     expect(settingsChanges('x', null, USER_MAP)).toEqual(['Settings changed']);
+  });
+
+  test('entries saved before the PM list was retired keep reading as saved', () => {
+    // Audit entries are kept as written (owner decision 2026-10-22).
+    const before = { ...settings(), pmUserIds: ['u-ana', 'u-hugo'] };
+    const after = { ...before, pmUserIds: ['u-ana', 'u-ben'] };
+    expect(settingsChanges(before, after, USER_MAP)).toEqual([
+      'PM list (retired): Ana Moreno, Hugo Laurent → Ana Moreno, Ben Carter',
+    ]);
+    // The first save after the decision drops the field: that is not
+    // everyone being removed from a list, so it is not reported.
+    const { pmUserIds: _dropped, ...withoutList } = before;
+    expect(settingsChanges(before, withoutList, USER_MAP)).toEqual([
+      'Saved without changes',
+    ]);
   });
 });

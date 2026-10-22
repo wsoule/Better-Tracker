@@ -61,7 +61,7 @@ function render(): string {
             },
           ]}
           settings={{ href: '/settings' }}
-          user={{ name: 'Pat Lee', badge: 'PM' }}
+          user={{ name: 'Pat Lee', badge: 'DEMO' }}
           signOut={{ action: '/api/auth/logout', method: 'post' }}
           themeStorageKey="theme"
           storageKey="sidebar"

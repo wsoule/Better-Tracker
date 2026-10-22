@@ -1,9 +1,10 @@
 // Sign-in, install and sessions (§7 "auth", §4.1 OAuth).
 //
 // - signin asks for `read`; grant_write upgrades anyone signed in to
-//   `read,write` so their Linear edits are attributed to them (PM edits,
-//   and since the owner decision of 2026-10-21 everyone's issue edits);
-//   install is the admin's actor=app grant (`read,write`, prompt=consent).
+//   `read,write` so their Linear edits (milestone dates, project leads,
+//   issue edits) are attributed to them; install is the admin's actor=app
+//   grant (`read,write`, prompt=consent). There are no roles (owner
+//   decision 2026-10-22): an Actor is just the session and its scopes.
 // - Sessions are cookie tokens whose SHA-256 is stored with the person's
 //   own Linear tokens (encrypted). Objects handed back to callers (Actor,
 //   SignInResult, Installation) carry redacted tokens so a page can never
@@ -14,7 +15,7 @@
 //   hold more than 10 for one app, so abandoned tokens must not pile up.
 //   cleanup() does the same for sessions that expired (cleanup.ts).
 
-import { defaultSettings, type User } from '@better-tracker/core';
+import type { User } from '@better-tracker/core';
 import {
   buildAuthorizeUrl,
   createLinearGateway,
@@ -35,7 +36,7 @@ import type {
 } from '@better-tracker/store';
 
 import { needsRefresh } from './providers';
-import { type EngineRuntime, readSettings } from './runtime';
+import type { EngineRuntime } from './runtime';
 import {
   type Actor,
   EngineAuthError,
@@ -249,54 +250,15 @@ export async function finishSignIn(
   };
 }
 
-// Makes sure the installer is a PM. Brand-new settings get only the
-// installer; the first full sync adds the bootstrap email lists.
-async function ensureInstallerIsPm(
-  rt: EngineRuntime,
-  workspaceId: string,
-  installerId: string
-): Promise<void> {
-  const { settings, stored } = await readSettings(rt, workspaceId);
-  if (!stored) {
-    await rt.store.saveSettings({
-      ...defaultSettings(workspaceId, rt.config.defaultTimezone),
-      pmUserIds: [installerId],
-    });
-    return;
-  }
-  if (!settings.pmUserIds.includes(installerId)) {
-    await rt.store.saveSettings({
-      ...settings,
-      pmUserIds: [...settings.pmUserIds, installerId],
-    });
-  }
-}
-
-// Whether at least one configured PM is still an active person in the
-// mirror. When none is (every PM left or was deactivated in Linear), nobody
-// could change settings any more, so a reinstall is the way back in.
-async function hasActivePm(
-  rt: EngineRuntime,
-  workspaceId: string
-): Promise<boolean> {
-  const [{ settings }, view] = await Promise.all([
-    readSettings(rt, workspaceId),
-    rt.mirror.current(workspaceId),
-  ]);
-  if (view === null) return settings.pmUserIds.length > 0;
-  return settings.pmUserIds.some((id) => {
-    const user = view.snapshot.users.get(id);
-    return user !== undefined && user.active && !user.app;
-  });
-}
-
 /**
  * Completes the admin's actor=app install for the actor's workspace. The
- * token must act as an app user of that same workspace. Reinstalling over
- * an active installation requires a PM, unless no active PM is left (the
- * lockout recovery: only a Linear admin can produce an actor=app grant).
- * The first full sync is left to the caller (the web route schedules it
- * after responding).
+ * token must act as an app user of that same workspace. Anyone signed in
+ * may install or reinstall (there is no PM role since the owner decision
+ * of 2026-10-22); only a Linear admin can produce an actor=app grant, which
+ * is what keeps this to admins. Settings are not touched here: the first
+ * full sync bootstraps the watchers (WATCHER_EMAILS, else this installer)
+ * and a reinstall keeps the saved ones. The first full sync is left to the
+ * caller (the web route schedules it after responding).
  */
 export async function finishInstall(
   rt: EngineRuntime,
@@ -311,17 +273,6 @@ export async function finishInstall(
     userId: actor.session.userId,
   });
   const existing = await rt.store.getInstallation(workspaceId);
-  if (
-    existing !== null &&
-    existing.revokedAt === null &&
-    !actor.isPm &&
-    (await hasActivePm(rt, workspaceId))
-  ) {
-    throw new EngineAuthError(
-      'not_pm',
-      'The app is already installed; only a PM can reinstall it.'
-    );
-  }
 
   const { tokens, identity } = await exchangeAndIdentify(rt, oauth, input, log);
   if (!identity.user.app || identity.workspace.id !== workspaceId) {
@@ -351,7 +302,6 @@ export async function finishInstall(
     updatedAt: now,
   };
   await rt.store.saveInstallation(installation);
-  await ensureInstallerIsPm(rt, workspaceId, actor.session.userId);
   rt.mirror.forget(workspaceId);
   log.info('installed', {
     appUserId: identity.user.id,
@@ -403,8 +353,8 @@ export async function devSignIn(
  * session (null), while a transient refresh failure keeps the person signed
  * in for reads and is retried on their next Linear edit. A person the
  * mirror shows as deactivated in Linear is signed out the same way, since
- * sign-in refuses them too: otherwise a removed PM could keep running live
- * allocation and changing settings until the session expired.
+ * sign-in refuses them too: otherwise someone who left could keep running
+ * live allocation and changing settings until the session expired.
  */
 export async function authenticate(
   rt: EngineRuntime,
@@ -443,10 +393,8 @@ export async function authenticate(
     }
   }
 
-  const { settings } = await readSettings(rt, session.workspaceId);
   return {
     session: publicSession(session),
-    isPm: settings.pmUserIds.includes(session.userId),
     canWriteLinear: fixture || session.tokens.scopes.includes('write'),
   };
 }

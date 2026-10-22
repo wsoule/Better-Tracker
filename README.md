@@ -5,11 +5,11 @@ A planning layer over Linear that **does the allocation and the noticing**:
 - **My week**: every person sees their open issues grouped by milestone and
   sorted by due date, with issues the tool just assigned to them marked "new —
   given to you because you lead <project>".
-- **Timeline** for PMs: one lane per project, grouped by initiative, with
-  milestone bars you can drag to change the date in Linear. Each milestone shows
-  its rubric status (target date, "done means…", project lead, at least one
-  issue). Banners list projects with no lead, milestones with no date, and
-  issues with no milestone.
+- **Timeline** for everyone (there is no PM role): one lane per project, grouped
+  by initiative, with milestone bars you can drag to change the date in Linear.
+  Each milestone shows its rubric status (target date, "done means…", project
+  lead, at least one issue). Banners list projects with no lead, milestones with
+  no date, and issues with no milestone.
 - **Dependency graph**: which milestones and issues block which, mermaid-style.
   It highlights chains that end in an unassigned or overdue issue, blockers in
   other projects, and cycles. "Copy Mermaid" exports the graph.
@@ -43,7 +43,7 @@ cd apps/planner && LINEAR_FIXTURE=1 ./node_modules/.bin/next dev
 ## Layout
 
 ```
-apps/planner    Next.js app (pages, OAuth, webhooks, PM edits)
+apps/planner    Next.js app (pages, OAuth, webhooks, edits)
 apps/worker     scheduled jobs CLI (tick = resync + daily allocation/warnings)
 packages/core   pure domain rules and view models (heavily tested)
 packages/linear Linear GraphQL gateway, OAuth, webhook verification, demo workspace

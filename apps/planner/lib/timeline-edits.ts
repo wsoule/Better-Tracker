@@ -10,7 +10,7 @@ import { z } from 'zod';
 
 import { errorResponse, jsonError, readJson } from './http';
 
-// The timeline's PM edits as route handlers (architecture §8.1):
+// The timeline's milestone and lead edits as route handlers (§8.1):
 // PATCH /api/milestones/[id] { targetDate?, weight?, doneMeans? } and
 // PATCH /api/projects/[id] { leadId }. The app/api route files only pass
 // their params and requireApiActor in; the handlers live here so tests can
@@ -18,9 +18,12 @@ import { errorResponse, jsonError, readJson } from './http';
 // may export nothing but its HTTP methods).
 //
 // Order: resolve the actor (CSRF guard + signed in) → validate the JSON
-// body with zod → call the engine, which enforces isPm / canWriteLinear
-// and re-validates everything → 200 { ok: true }, or the engine's error
-// mapped by errorResponse. A malformed body never reaches the engine.
+// body with zod → call the engine, which requires canWriteLinear for the
+// two Linear writes (the target date and the lead, made with the person's
+// own token) and re-validates everything → 200 { ok: true }, or the
+// engine's error mapped by errorResponse. There is no role check (owner
+// decision 2026-10-22): weight and "done means…" need only a session. A
+// malformed body never reaches the engine.
 
 /** What requireApiActor gives a route: the engine and actor, or a Response. */
 export type ApiActorResolver<E> = (
@@ -115,12 +118,18 @@ export async function patchMilestone<E extends MilestoneEditEngine>(
       await engine.setMilestoneDoneMeans(actor, id, body.doneMeans);
     }
   } catch (error) {
-    return errorResponse(error);
+    // A needs_write_scope answer's grant link comes back to this milestone.
+    return errorResponse(error, {
+      returnTo: `/timeline?milestone=${encodeURIComponent(id)}`,
+    });
   }
   return Response.json({ ok: true });
 }
 
-/** Applies a project PATCH: sets or clears the lead in Linear (as the PM). */
+/**
+ * Applies a project PATCH: sets or clears the lead in Linear, with the
+ * signed-in person's own token (the engine requires the write grant).
+ */
 export async function patchProject<E extends ProjectEditEngine>(
   request: Request,
   rawId: string,
@@ -138,7 +147,9 @@ export async function patchProject<E extends ProjectEditEngine>(
   try {
     await engine.setProjectLead(actor, id, body.leadId);
   } catch (error) {
-    return errorResponse(error);
+    return errorResponse(error, {
+      returnTo: `/timeline?project=${encodeURIComponent(id)}`,
+    });
   }
   return Response.json({ ok: true });
 }

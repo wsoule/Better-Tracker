@@ -7,9 +7,9 @@ import { errorResponse } from '../lib/http';
 // Stand-ins for errors thrown by another bundle's copy of the engine: same
 // name and code, different class.
 class ForeignAuthError extends Error {
-  readonly code = 'not_pm';
+  readonly code = 'wrong_workspace';
   constructor() {
-    super('Only PMs can do that.');
+    super('You are signed in to a different Linear workspace.');
     this.name = 'EngineAuthError';
   }
 }
@@ -33,7 +33,7 @@ describe('engine error checks across bundle copies', () => {
   });
 
   test('recognise another copy by name and code', () => {
-    expect(engineAuthCode(new ForeignAuthError())).toBe('not_pm');
+    expect(engineAuthCode(new ForeignAuthError())).toBe('wrong_workspace');
     expect(engineInputCode(new ForeignInputError())).toBe('not_found');
     expect(engineAuthCode(new ForeignInputError())).toBeNull();
     expect(engineAuthCode(new Error('plain'))).toBeNull();
@@ -44,7 +44,10 @@ describe('engine error checks across bundle copies', () => {
     const forbidden = errorResponse(new ForeignAuthError());
     expect(forbidden.status).toBe(403);
     expect(await forbidden.json()).toEqual({
-      error: { code: 'not_pm', message: 'Only PMs can do that.' },
+      error: {
+        code: 'wrong_workspace',
+        message: 'You are signed in to a different Linear workspace.',
+      },
     });
     expect(errorResponse(new ForeignInputError()).status).toBe(404);
     expect(

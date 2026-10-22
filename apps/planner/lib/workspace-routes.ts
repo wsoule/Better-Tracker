@@ -6,7 +6,7 @@ import { digestPreview } from './adapters/settings';
 import { errorResponse, jsonError, readJson } from './http';
 import type { ApiActorResolver } from './timeline-edits';
 
-// The PM-only operations of /runs and /settings as route handlers
+// The workspace-wide operations of /runs and /settings as route handlers
 // (architecture §8.1): POST /api/runs { mode }, POST /api/sync,
 // POST /api/warnings/preview and PATCH /api/settings. The app/api route
 // files only pass requireApiActor in; the handlers live here so tests can
@@ -14,8 +14,11 @@ import type { ApiActorResolver } from './timeline-edits';
 //
 // Order in every handler: resolve the actor (CSRF guard + signed in) →
 // validate the JSON body with zod (a malformed body never reaches the
-// engine: 400) → refuse non-PMs (403 not_pm; the engine checks again
-// where it can) → call the engine, mapping its errors with errorResponse.
+// engine: 400) → call the engine, mapping its errors with errorResponse.
+// There is no role check: any signed-in person of the workspace may call
+// all four (owner decision 2026-10-22). None of them writes to Linear with
+// the person's token, so none needs the write grant; the engine audits
+// every settings change.
 
 /** POST /api/runs body. */
 export const runRequestSchema = z.strictObject({
@@ -40,12 +43,12 @@ const days = z
 /**
  * PATCH /api/settings body: any subset of the settings, at least one
  * field. Shapes and ranges are checked here; the engine applies the rules
- * that need the mirror (people must exist, at least one active PM must
- * remain, the timezone must be a real IANA zone).
+ * that need the mirror (watchers must be mirrored people, not the app
+ * user; the timezone must be a real IANA zone). The watcher list may be
+ * empty. The retired `pmUserIds` is an unknown key, so it is a 400.
  */
 export const settingsPatchSchema = z
   .strictObject({
-    pmUserIds: userIds.optional(),
     watcherUserIds: userIds.optional(),
     allocationMode: z
       .enum(['dry_run', 'live'], { message: 'must be dry_run or live' })
@@ -97,10 +100,6 @@ function definedOnly<T extends object>(value: T): Partial<T> {
   ) as Partial<T>;
 }
 
-function notPm(what: string): Response {
-  return jsonError(403, 'not_pm', `Only PMs can ${what}.`);
-}
-
 /** What startRun needs: runs, and the saved allocation mode (the live gate). */
 export type RunEngine = Pick<Engine, 'runAllocation'> & {
   load(
@@ -109,10 +108,12 @@ export type RunEngine = Pick<Engine, 'runAllocation'> & {
 };
 
 /**
- * POST /api/runs { mode }: a manual allocation run as the signed-in PM.
- * A live run is refused (409 live_runs_off) while the workspace's
- * allocation mode is dry run: switching it to live in Settings is the
- * gate (§7.4: dry run first, live once a PM says so). 201 { run }.
+ * POST /api/runs { mode }: a manual allocation run started by the
+ * signed-in person (recorded as a manual run). A live run is refused
+ * (409 live_runs_off) while the workspace's allocation mode is dry run:
+ * switching it to live in Settings → Modes is the gate (§7.4: dry run
+ * until someone switches it live; anyone signed in may, and the switch is
+ * audited). 201 { run }.
  */
 export async function startRun<E extends RunEngine>(
   request: Request,
@@ -123,7 +124,6 @@ export async function startRun<E extends RunEngine>(
   const body = await readJson(request, runRequestSchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
-  if (!actor.isPm) return notPm('run allocation');
   const workspaceId = actor.session.workspaceId;
   try {
     if (body.mode === 'live') {
@@ -132,7 +132,7 @@ export async function startRun<E extends RunEngine>(
         return jsonError(
           409,
           'live_runs_off',
-          'Live runs are off: allocation is in dry run. A PM can switch it to live in Settings → Modes.'
+          'Live runs are off: allocation is in dry run. Switch it to live in Settings → Modes first.'
         );
       }
     }
@@ -150,7 +150,7 @@ export async function startRun<E extends RunEngine>(
 
 export type SyncEngine = Pick<Engine, 'fullSync'>;
 
-/** POST /api/sync {}: a full resync from Linear (PMs). 200 { sync }. */
+/** POST /api/sync {}: a full resync from Linear. 200 { sync }. */
 export async function resync<E extends SyncEngine>(
   request: Request,
   resolve: ApiActorResolver<E>
@@ -160,7 +160,6 @@ export async function resync<E extends SyncEngine>(
   const body = await readJson(request, emptyBodySchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
-  if (!actor.isPm) return notPm('resync from Linear');
   try {
     const sync = await engine.fullSync(actor.session.workspaceId);
     return Response.json({ sync });
@@ -173,7 +172,7 @@ export type PreviewEngine = Pick<Engine, 'runWarnings'>;
 
 /**
  * POST /api/warnings/preview {}: today's digests, built but not recorded
- * or sent (PMs). 200 { preview } in the shape the Status section renders.
+ * or sent. 200 { preview } in the shape the Status section renders.
  */
 export async function previewWarnings<E extends PreviewEngine>(
   request: Request,
@@ -184,7 +183,6 @@ export async function previewWarnings<E extends PreviewEngine>(
   const body = await readJson(request, emptyBodySchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
-  if (!actor.isPm) return notPm('preview the digests');
   try {
     const result = await engine.runWarnings({
       workspaceId: actor.session.workspaceId,
@@ -198,7 +196,7 @@ export async function previewWarnings<E extends PreviewEngine>(
 
 export type SettingsEngine = Pick<Engine, 'updateSettings'>;
 
-/** PATCH /api/settings: a validated partial settings patch (PMs). 200 { settings }. */
+/** PATCH /api/settings: a validated partial settings patch. 200 { settings }. */
 export async function patchSettings<E extends SettingsEngine>(
   request: Request,
   resolve: ApiActorResolver<E>
@@ -208,7 +206,6 @@ export async function patchSettings<E extends SettingsEngine>(
   const body = await readJson(request, settingsPatchSchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
-  if (!actor.isPm) return notPm('change settings');
   const patch = definedOnly({
     ...body,
     tuning: body.tuning === undefined ? undefined : definedOnly(body.tuning),

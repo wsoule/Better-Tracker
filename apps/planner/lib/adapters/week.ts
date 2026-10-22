@@ -95,7 +95,7 @@ interface WeekCopy {
 export interface WeekPageInput {
   week: WeekView;
   timeline: TimelineView;
-  /** The signed-in person (may differ from week.userId for a PM). */
+  /** The signed-in person (differs from week.userId on someone else's week). */
   viewerId: string;
   /** Workspace-local hour 0–23, for the greeting. */
   hour: number;
@@ -137,17 +137,16 @@ export function localHour(instant: string, timeZone: string): number {
 }
 
 /**
- * Whose week to show. Only PMs may look at someone else's (`?user=<id>`),
- * and only at a person the mirror knows; anything else shows the viewer's
- * own week, so a stale or hand-typed id never errors.
+ * Whose week to show. Anyone signed in may look at anyone's (`?user=<id>`;
+ * owner decision 2026-10-22: no roles), but only at a person the mirror
+ * knows; anything else shows the viewer's own week, so a stale or
+ * hand-typed id never errors.
  */
 export function resolveWeekUserId(input: {
   requested: string | string[] | undefined;
   viewerId: string;
-  isPm: boolean;
   knownUserIds: ReadonlySet<string>;
 }): string {
-  if (!input.isPm) return input.viewerId;
   const raw = Array.isArray(input.requested)
     ? input.requested[0]
     : input.requested;
@@ -156,9 +155,10 @@ export function resolveWeekUserId(input: {
 }
 
 /**
- * Options for the PM's person picker: people (never app users), active
- * ones by name, then deactivated ones marked so (a PM may still need to see
- * what a deactivated lead holds). The viewer is marked "(you)".
+ * Options for the "Showing" person picker everyone gets: people (never app
+ * users), active ones by name, then deactivated ones marked so (someone may
+ * still need to see what a deactivated lead holds). The viewer is marked
+ * "(you)".
  */
 export function weekPeopleOptions(
   users: readonly User[],
@@ -440,9 +440,10 @@ function toTaskGroup(
 
 /**
  * The "No milestone" section's groups: one per project (PROJECT › Issues
- * without a milestone, linking to that project's lane, where the PM attaches
- * or cancels them; a completed or canceled project has no lane, so its
- * group has no link), in the order the rows come, then issues with no
+ * without a milestone, linking to that project's lane, where anyone can
+ * attach them to a milestone or cancel them; a completed or canceled
+ * project has no lane, so its group has no link), in the order the rows
+ * come, then issues with no
  * project at all. The project lives in the group heading, as it does for
  * milestone groups, so the table needs no project column.
  */

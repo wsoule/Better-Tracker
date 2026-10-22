@@ -3,8 +3,8 @@
 This is the build spec for the tool described in
 `docs/design/2026-10-21-milestone-planner-design.md` (the "design doc"; section
 numbers like §6.5 refer to it). Linear stays the source of truth. This tool does
-the **allocation** and the **noticing**, and gives two audiences a screen each:
-_My week_ for everyone, the _timeline_ for PMs.
+the **allocation** and the **noticing**, and gives every signed-in person two
+screens: _My week_ and the editable _timeline_.
 
 Working product name: **Milestone Planner** (configurable via `APP_NAME`; the
 repo and package scope are `better-tracker`).
@@ -16,18 +16,34 @@ add comments, always with their own Linear token. The only automatic write stays
 allocation. The contracts are in §2.12, §3, §4, §5, §7.2 and §8.5 (the issue
 page and slide-over as built).
 
+**Owner decision 2026-10-22** (design doc §12): there is no PM role. Every
+signed-in person can do everything a PM could: change a milestone's target date,
+a project's lead, a milestone's weight and "done means…", every workspace
+setting (modes, people, schedule, tuning), start a dry run or (while allocation
+is live) a live run, resync, preview digests, and view anyone's My week. What
+stays: **watchers** (`settings.watcherUserIds`, bootstrapped from
+`WATCHER_EMAILS`, else the installer; the list may be empty); edits written to
+Linear (milestone date, project lead, issue edits) still need the person's own
+write grant (`actor.canWriteLinear`), planner-only edits need only a session;
+the **audit log** records who changed what; allocation stays the only automatic
+write and stays in dry run until someone switches it live in Settings → Modes
+(audited). `WorkspaceSettings.pmUserIds`, `Actor.isPm`, `PM_EMAILS` and the
+`not_pm` error code are gone; old stored settings are read without the PM list
+(§5) and a deploy that still sets `PM_EMAILS` logs one warning at boot (§7.1).
+The contracts are in §2.9, §5, §7, §7.1, §8 and §10.
+
 ## 1. Layout
 
 ```
 apps/
-  planner/   Next.js 16 app: pages, route handlers (OAuth, webhooks, PM edits)
+  planner/   Next.js 16 app: pages, route handlers (OAuth, webhooks, edits)
   worker/    CLI for scheduled jobs (daily run, periodic resync, migrations)
 packages/
   core/      pure domain logic + shared types (no I/O, no dependencies)
   linear/    Linear GraphQL gateway, OAuth, webhook verification, fixture workspace
   store/     Postgres persistence (pg in production, PGlite locally/tests)
   notify/    digest delivery: Slack DMs, outbox
-  engine/    orchestration: sync, allocation, warnings, PM edits, read models
+  engine/    orchestration: sync, allocation, warnings, edits, read models
   logger/    structured JSON logger
 docs/
   architecture.md   this file
@@ -205,7 +221,9 @@ later slips again is re-announced.
 
 Recipients: milestone notices → project lead (if active) + watchers;
 `allocation_blocked` → watchers + lead (if any). Deduplicated, inactive users
-dropped.
+dropped. Watchers are `settings.watcherUserIds`, the only people the settings
+name (owner decision 2026-10-22: there is no PM list); it may be empty, and then
+only leads are told.
 
 Digests (§6.8): one per recipient per day, items sorted overdue → at_risk →
 invalid_due_soon → allocation_blocked, then by milestone display order. Each
@@ -629,9 +647,9 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   the admin picks at install — document this in setup.
 - Per-user sign-in uses the default actor (user) with `read`; anyone signed in
   may upgrade to `read,write` (`grant_write`) so their edits are attributed to
-  them in Linear: a PM's date/lead edits and, since the owner decision of
-  2026-10-21, everyone's issue edits and comments. Scopes are sent
-  comma-separated.
+  them in Linear: milestone dates and project leads (anyone's since the owner
+  decision of 2026-10-22; a PM's before) and, since the owner decision of
+  2026-10-21, issue edits and comments. Scopes are sent comma-separated.
 
 **Webhooks** (configured on the OAuth app: URL + resource types; delivered for
 every workspace that installs it, routed by `organizationId`)
@@ -697,8 +715,12 @@ Tables (all keyed by `workspace_id`):
   clears it).
 - `sessions` — `token_hash` (SHA-256 of the cookie token), user, the user's
   Linear tokens (encrypted), expiry.
-- `settings` — `data jsonb` (WorkspaceSettings).
-- `milestone_meta` — weight, done_means, updated_by/at. PM edits go through
+- `settings` — `data jsonb` (WorkspaceSettings). The PM list is retired (owner
+  decision 2026-10-22): rows saved earlier still carry `pmUserIds`, which
+  `getSettings` drops when reading and `saveSettings` never writes
+  (`RETIRED_SETTINGS_KEYS` in `store.ts`), so no migration is needed.
+- `milestone_meta` — weight, done_means, updated_by/at. Edits (anyone signed in)
+  go through
   `updateMilestoneMetaField(workspaceId, milestoneId, 'weight' | 'doneMeans', value, updatedBy, at)`,
   which inserts the row or updates **only that column** plus
   `updated_by`/`updated_at` (`INSERT … ON CONFLICT DO UPDATE SET <column>, …`)
@@ -726,8 +748,13 @@ Tables (all keyed by `workspace_id`):
   unfinished claim, so a holder that was taken over never touches the new
   holder's. A finished claim is never taken over. The engine's daily lease is 45
   minutes (§7).
-- `audit_log` — PM edits and (owner decision 2026-10-21) a person's issue edits
-  with before/after: one entry per changed field, actions `issue.title`,
+- `audit_log` — who changed what, kept for good: milestone and project edits
+  (`milestone.target_date`, `milestone.weight`, `milestone.done_means`,
+  `project.lead`) and `settings.update` (open to everyone since the owner
+  decision of 2026-10-22, so this is how everyone sees who switched a mode or
+  changed the watchers; entries written before it may carry `pmUserIds` and
+  still read), and (owner decision 2026-10-21) a person's issue edits with
+  before/after: one entry per changed field, actions `issue.title`,
   `issue.description`, `issue.state`, `issue.assignee`, `issue.priority`,
   `issue.project`, `issue.milestone`, `issue.due_date`, `issue.estimate`,
   `issue.labels`, `issue.comment`, `issue.blocker_added`,
@@ -806,9 +833,12 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   each workspace's timezone with it on every tick.
 - **fullSync**: app gateway `fetchWorkspace()` → refine `lastStateChangeAt` via
   `fetchLastStateChanges` for open issues in milestones whose target date is
-  within `warnLeadDays + stallDays` ahead or already past → bootstrap PMs and
-  watchers from `bootstrap*Emails` + installer if settings are empty →
-  `replaceMirror`.
+  within `warnLeadDays + stallDays` ahead or already past → bootstrap the
+  watchers when the workspace has no settings yet (or, on its first sync, saved
+  settings with no watchers): `WATCHER_EMAILS` matches, else the installer
+  (`bootstrapWatchers`; app users never, unmatched emails logged at warn) →
+  `replaceMirror`. Later syncs never touch saved settings, so an emptied watcher
+  list stays empty.
 - **handleWebhook**: `recordWebhookDelivery` (duplicate → `'duplicate'`), then
   by `type`: `Issue` → `fetchIssue` + `fetchIssueRelations` (replace every
   relation touching that issue) and, when the issue's milestone is not mirrored
@@ -855,20 +885,30 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   (`EngineInputError('invalid')` otherwise), so a decision made just before
   local midnight claims and warns for that day instead of claiming the next one
   hours early. Warnings run for that day.
-- **PM edits**: require `actor.isPm` (else `not_pm`). Linear writes
-  (`setMilestoneTargetDate`, `setProjectLead`) also require
-  `actor.canWriteLinear` (else `needs_write_scope`) and go through
-  `linear.forSession(actor.session)` so Linear attributes them to the human.
-  Each edit patches the mirror and appends an audit entry. Weight and done-means
-  are tool-owned writes.
+- **Milestone, project and settings edits** (`milestone-edits.ts`,
+  `settings.ts`): open to every signed-in person of the workspace (owner
+  decision 2026-10-22: there is no PM role and no `not_pm` code). Linear writes
+  (`setMilestoneTargetDate`, `setProjectLead`) require `actor.canWriteLinear`
+  (else `needs_write_scope`) and go through `linear.forSession(actor.session)`
+  so Linear attributes them to the human. Weight, done-means and
+  `updateSettings` are tool-owned writes and need only the session. Each edit
+  patches the mirror (or settings) and appends an audit entry under the person's
+  id.
+- **runAllocation** from a person (`trigger: 'manual'`): anyone signed in to
+  that workspace (else `wrong_workspace`), either mode; the live writes go out
+  as the app, so no write grant is needed. The web route keeps live runs off
+  until someone switches allocation live (§8.1).
 - **auth**: `startOAuth(intent)` creates state + PKCE pair. Scopes: `signin` →
-  `read`; `grant_write` → `read,write` (for anyone signed in, not only PMs:
-  owner decision 2026-10-21); `install` → `read,write` with `actor=app`.
+  `read`; `grant_write` → `read,write` (for anyone signed in: owner decisions
+  2026-10-21 and 2026-10-22); `install` → `read,write` with `actor=app`.
   `finishSignIn` exchanges the code, asks `whoAmI`, creates a session
   (`sessionDays`). `finishInstall` exchanges with the app actor, checks the
-  workspace matches the actor's, saves the installation, makes the installer a
-  PM, and triggers `fullSync`. `authenticate` refreshes the session's Linear
-  token when needed (under `withSessionLock`) and computes `isPm` from settings.
+  workspace matches the actor's and saves the installation (anyone signed in may
+  install or reinstall: only a Linear admin can grant `actor=app`); it writes no
+  settings, and the web route then schedules the first `fullSync`, which
+  bootstraps the watchers. `authenticate` refreshes the session's Linear token
+  when needed (under `withSessionLock`) and returns
+  `Actor { session, canWriteLinear }` (no role).
 
 ### 7.1 Engine exports and boot
 
@@ -883,15 +923,24 @@ worker derives its timeout cap from, and every type in `src/types.ts` (including
 `IssueDetailResult` and `IssueUpdateResult`, §7.2). Issue page helpers
 (additive): `ISSUE_HISTORY_LIMIT` (20), `normalizeIssuePatch`,
 `normalizeCommentBody`, `textSummary` (a text's `{ length }` for the audit log)
-and `engineErrorFromLinear`.
+and `engineErrorFromLinear`. `DONE_MEANS_MAX_LENGTH`, `WEIGHT_MIN` and
+`WEIGHT_MAX` come from `milestone-edits.ts` (was `pm-edits.ts`).
 
 `createEngineFromEnv`:
+
+- Retired variables (`RETIRED_ENV_VARIABLES` in `config.ts`): `PM_EMAILS` seeded
+  the PM list, which the owner decision of 2026-10-22 retired. It is neither
+  read nor validated (a malformed old value never blocks a boot); when a deploy
+  still sets it, boot logs exactly one warning saying it is unused and to set
+  `WATCHER_EMAILS` instead.
 
 - `LINEAR_FIXTURE=1` (demo mode): in-memory PGlite unless `PGLITE_DIR` is set;
   ephemeral random `TOKEN_ENCRYPTION_KEY` if unset; `APP_URL` defaults to
   `http://localhost:3000`; `oauth: null`. Seeds the fixture workspace
-  (`createFixtureStore(today)`), a fake installation, settings (PMs and watchers
-  = the fixture PMs, `dry_run`, `preview`), milestone meta from
+  (`createFixtureStore(today)`), a fake installation (installed by
+  `FIXTURE_INSTALLER_USER_ID`, Ana), settings (watchers =
+  `FIXTURE_WATCHER_USER_IDS`, Ana and Ben; `dry_run`, `preview`; no PM flags:
+  every demo person may edit everything), milestone meta from
   `FIXTURE_MILESTONE_META`, then `fullSync`. `devSignIn` creates sessions with
   scopes `read,write`. Webhooks are ignored. The `LinearProvider` serves
   `createFixtureGateway` (app actor or the session's user).
@@ -908,7 +957,7 @@ and `engineErrorFromLinear`.
   `EngineAuthError('not_installed')` (workspace) or
   `EngineAuthError('not_signed_in')` (session), logged at error. Every
   `not_installed` the engine raises, from the provider (sync, webhooks) or from
-  its own installation check (allocation, PM edits, settings), uses one of two
+  its own installation check (allocation, edits, settings), uses one of two
   messages naming `APP_NAME` (`NOT_INSTALLED_MESSAGE` in `runtime.ts`; boot
   passes `appName` to the provider): "… is not installed in this Linear
   workspace yet." (no row) and "… lost its access to this Linear workspace …; an
@@ -925,9 +974,10 @@ and `engineErrorFromLinear`.
 Validation done by the engine (never trust the client): dates via
 `isValidIsoDate`; lead must be an active, non-app mirrored user or null; weight
 an integer in [-1000, 1000] or null; done-means trimmed, single line, ≤ 280
-chars, empty → null; settings: at least one PM (no lockout), valid IANA
-timezone, tuning integers within sane ranges (1–90 days), known modes; user ids
-must exist in the mirror; issue edits as listed in §7.2.
+chars, empty → null; settings: no `pmUserIds` key (refused with "pmUserIds is no
+longer a setting…"), watchers may be an empty list, valid IANA timezone, tuning
+integers within sane ranges (1–90 days), known modes; user ids must exist in the
+mirror; issue edits as listed in §7.2.
 
 Engine decisions made while building it (binding for callers):
 
@@ -958,19 +1008,23 @@ Engine decisions made while building it (binding for callers):
   today's digest, so that announcement goes out the next day.
 - People the mirror shows as deactivated in Linear (or app users) are signed out
   by `authenticate` (session deleted), as sign-in refuses them too.
-- PM edits and `updateSettings` require an active installation (`not_installed`
-  otherwise). Weight and "done means…" edits write only their own column
-  (`updateMilestoneMetaField`), so edits of the two fields of one milestone from
-  different web instances both stick. They still run one at a time per milestone
-  within a process, so each audit entry's `before` is the value the previous
-  edit left (across instances `before` is best effort).
+- Milestone/project edits and `updateSettings` require an active installation
+  (`not_installed` otherwise). Weight and "done means…" edits write only their
+  own column (`updateMilestoneMetaField`), so edits of the two fields of one
+  milestone from different web instances both stick. They still run one at a
+  time per milestone within a process, so each audit entry's `before` is the
+  value the previous edit left (across instances `before` is best effort).
+  `updateSettings` likewise runs one save at a time per workspace within a
+  process: the settings are one stored document, so without the queue two people
+  saving different Settings sections at once would each write back what they
+  read and one change would be lost (its audit entry reading as a revert).
 - **A dead installation grant is recorded as `revokedAt`**, not as a separate
   auth-error field: every consumer already reads `revokedAt` as "reinstall
-  needed" (`listWorkspaceIds`, `requireInstallation`, sign-in's `needsInstall`,
-  `finishInstall`'s lockout rule) and a reinstall clears it, so no migration or
-  second flag is needed. `revokedAt` therefore means "the app has no working
-  Linear grant", whether Linear revoked it or a refresh was rejected; the
-  rejection is in the error logs.
+  needed" (`listWorkspaceIds`, `requireInstallation`, sign-in's `needsInstall`)
+  and a reinstall clears it, so no migration or second flag is needed.
+  `revokedAt` therefore means "the app has no working Linear grant", whether
+  Linear revoked it or a refresh was rejected; the rejection is in the error
+  logs.
 - `handleWebhook` treats a blank `deliveryId` as none (no dedupe), and the
   public `runAllocation` always syncs first (only `runDaily` reuses its sync).
 - `runDaily` syncs once: its allocation run reuses that sync.
@@ -986,7 +1040,7 @@ Engine decisions made while building it (binding for callers):
   `TICK_TIMEOUT_MINUTES` at lease − stale − 1 = 14, so a dead tick started its
   allocation run at most 14 minutes after its claim, and that run is stale by
   claim + 44, before the claim can be taken over (claim + 45). A daily run that
-  does find an allocation run in progress (a manual `allocate` or a PM's run
+  does find an allocation run in progress (a manual `allocate` or someone's run
   from the web app, still going or killed, that started less than
   `ALLOCATION_RUN_STALE_MINUTES` ago) fails with `conflict`, gives the day back,
   and a later tick runs the job. Killed during warnings: memory was not saved
@@ -1004,11 +1058,12 @@ Engine decisions made while building it (binding for callers):
   after a successful assignment leaves the entry `applied` with an error and the
   run `partial`. Stale reasons: `not_found`, `closed`, `now_assigned`,
   `moved_milestone`, `now_triage`.
-- `finishInstall` saves only the installer as PM; the first full sync (mirror
-  version 0) merges `PM_EMAILS`/`WATCHER_EMAILS` in. Reinstalling over an active
-  installation needs a PM, unless no configured PM is still an active person in
-  the mirror (lockout recovery: only a Linear admin can grant `actor=app`, and
-  the reinstaller becomes a PM).
+- `finishInstall` saves no settings; the first full sync (mirror version 0)
+  bootstraps the watchers from `WATCHER_EMAILS`, else the installer. Anyone
+  signed in may reinstall over an active installation (there is no PM to
+  require, and only a Linear admin can grant `actor=app`); a reinstall keeps the
+  saved settings. There is no lockout to recover from: nobody needs a role to
+  change settings, and settings can no longer name the people who may.
 - `authenticate` drops a session whose refresh hits `invalid_grant`; a transient
   refresh failure keeps the person signed in.
 - Webhook processing errors resolve as `'processed'` with the error recorded on
@@ -1031,8 +1086,8 @@ Engine decisions made while building it (binding for callers):
 ### 7.2 Issue page (owner decision 2026-10-21)
 
 Additive `Engine` methods. Reads need only a session; writes need
-`actor.canWriteLinear` (else `EngineAuthError('needs_write_scope')`) and are
-**never** `isPm`-gated.
+`actor.canWriteLinear` (else `EngineAuthError('needs_write_scope')`) and nothing
+else (there is no role to check since the owner decision of 2026-10-22).
 
 - **getIssueDetail(actor, issueId) → IssueDetailResult**
   `{ detail, extra, extraError, extraSource, labels, estimateScale, estimateOptions, allocationHistory, canEdit }`:
@@ -1112,36 +1167,36 @@ nothing is imported from it.
 
 ### 8.1 Routes
 
-| route                            | who                        | what                                                                                                                                                                       |
-| -------------------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                              | all                        | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                                                                                    |
-| `/week`                          | signed in                  | My week (the landing screen); PMs may pass `?user=<id>`; `?issue=<key>` opens the issue slide-over (§8.5)                                                                  |
-| `/timeline`                      | signed in                  | Gantt timeline; `?milestone=<id>` opens the drawer (with `&issue=<key>`, one of its issues in its place, §8.5), `?project=<id>` focuses a lane; edit controls only for PMs |
-| `/projects`                      | signed in                  | projects register: next milestone, status, progress, lead, allocation state                                                                                                |
-| `/graph`                         | signed in                  | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level; `?issue=<key>` opens an issue node's slide-over (§8.5)                    |
-| `/runs`, `/runs/[id]`            | signed in                  | allocation run log; PMs get "Preview (dry run)" and "Run now"                                                                                                              |
-| `/settings`                      | PMs (read-only for others) | modes, people, schedule, status, digest preview, notifications, audit                                                                                                      |
-| `/setup`                         | signed in                  | install the app into the workspace (admin)                                                                                                                                 |
-| `GET /api/palette`               | signed in                  | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                              |
-| `GET /api/auth/linear?intent=`   | —                          | starts OAuth (sets `mp_oauth` cookie); `install` and `grant_write` need a session; `grant_write` is offered to everyone, not only PMs                                      |
-| `GET /api/auth/linear/callback`  | —                          | finishes OAuth                                                                                                                                                             |
-| `POST /api/auth/logout`          | —                          | ends session                                                                                                                                                               |
-| `POST /api/auth/demo`            | fixture mode only          | demo sign-in                                                                                                                                                               |
-| `POST /api/webhooks/linear`      | Linear                     | verify, ack 200, process in `after()`                                                                                                                                      |
-| `PATCH /api/milestones/[id]`     | PM                         | `{ targetDate?, weight?, doneMeans? }`                                                                                                                                     |
-| `PATCH /api/projects/[id]`       | PM                         | `{ leadId }`                                                                                                                                                               |
-| `/issues/[id]`                   | signed in                  | the issue page (§8.5), by identifier (`/issues/ENG-24`) or id; edit controls for anyone with Linear write access                                                           |
-| `GET /api/issues/[id]`           | signed in                  | `{ result: IssueDetailResult }` by id or identifier, private, never cached (the pages render the issue on the server)                                                      |
-| `GET /api/issues/search?q=`      | signed in                  | the relation picker's mirror search (`&near=<issue id>` ranks that issue's milestone and project first) → `{ results }`, at most 20, private                               |
-| `PATCH /api/issues/[id]`         | write access               | `[id]` is the issue id (not the identifier, unlike the GET); an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                        |
-| `POST /api/issues/[id]/comments` | write access               | `{ body }` → 201 `{ comment }`                                                                                                                                             |
-| `POST /api/issues/[id]/blockers` | write access               | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                               |
-| `DELETE /api/relations/[id]`     | write access               | removes a blocks relation (no body) → 204                                                                                                                                  |
-| `POST /api/runs`                 | PM                         | `{ mode: 'dry_run' \| 'live' }`                                                                                                                                            |
-| `POST /api/sync`                 | PM                         | full resync                                                                                                                                                                |
-| `POST /api/warnings/preview`     | PM                         | digests without sending                                                                                                                                                    |
-| `PATCH /api/settings`            | PM                         | settings patch                                                                                                                                                             |
-| `GET /api/health`                | —                          | `{ ok, db }` for Railway healthchecks                                                                                                                                      |
+| route                            | who               | what                                                                                                                                                                                                                |
+| -------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/`                              | all               | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                                                                                                                             |
+| `/week`                          | signed in         | My week (the landing screen); anyone may pass `?user=<id>` to see a person's week; `?issue=<key>` opens the issue slide-over (§8.5)                                                                                 |
+| `/timeline`                      | signed in         | Gantt timeline; `?milestone=<id>` opens the drawer (with `&issue=<key>`, one of its issues in its place, §8.5), `?project=<id>` focuses a lane; edit controls for everyone (date and lead need Linear write access) |
+| `/projects`                      | signed in         | projects register: next milestone, status, progress, lead, allocation state                                                                                                                                         |
+| `/graph`                         | signed in         | dependency graph; default milestone level; `?milestone=<id>` or `?project=<id>` for issue level; `?issue=<key>` opens an issue node's slide-over (§8.5)                                                             |
+| `/runs`, `/runs/[id]`            | signed in         | allocation run log; everyone gets "Preview (dry run)" and, while allocation is live, "Run now"                                                                                                                      |
+| `/settings`                      | signed in         | modes, watchers, schedule, status, digest preview, notifications, audit; editable by everyone                                                                                                                       |
+| `/setup`                         | signed in         | install the app into the workspace (admin)                                                                                                                                                                          |
+| `GET /api/palette`               | signed in         | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                                                                       |
+| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets `mp_oauth` cookie); `install` and `grant_write` need a session; `grant_write` is offered to everyone                                                                                             |
+| `GET /api/auth/linear/callback`  | —                 | finishes OAuth                                                                                                                                                                                                      |
+| `POST /api/auth/logout`          | —                 | ends session                                                                                                                                                                                                        |
+| `POST /api/auth/demo`            | fixture mode only | demo sign-in                                                                                                                                                                                                        |
+| `POST /api/webhooks/linear`      | Linear            | verify, ack 200, process in `after()`                                                                                                                                                                               |
+| `PATCH /api/milestones/[id]`     | signed in         | `{ targetDate?, weight?, doneMeans? }`; `targetDate` needs Linear write access                                                                                                                                      |
+| `PATCH /api/projects/[id]`       | write access      | `{ leadId }`                                                                                                                                                                                                        |
+| `/issues/[id]`                   | signed in         | the issue page (§8.5), by identifier (`/issues/ENG-24`) or id; edit controls for anyone with Linear write access                                                                                                    |
+| `GET /api/issues/[id]`           | signed in         | `{ result: IssueDetailResult }` by id or identifier, private, never cached (the pages render the issue on the server)                                                                                               |
+| `GET /api/issues/search?q=`      | signed in         | the relation picker's mirror search (`&near=<issue id>` ranks that issue's milestone and project first) → `{ results }`, at most 20, private                                                                        |
+| `PATCH /api/issues/[id]`         | write access      | `[id]` is the issue id (not the identifier, unlike the GET); an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                                                                 |
+| `POST /api/issues/[id]/comments` | write access      | `{ body }` → 201 `{ comment }`                                                                                                                                                                                      |
+| `POST /api/issues/[id]/blockers` | write access      | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                                                                        |
+| `DELETE /api/relations/[id]`     | write access      | removes a blocks relation (no body) → 204                                                                                                                                                                           |
+| `POST /api/runs`                 | signed in         | `{ mode: 'dry_run' \| 'live' }`                                                                                                                                                                                     |
+| `POST /api/sync`                 | signed in         | full resync                                                                                                                                                                                                         |
+| `POST /api/warnings/preview`     | signed in         | digests without sending                                                                                                                                                                                             |
+| `PATCH /api/settings`            | signed in         | settings patch (audited)                                                                                                                                                                                            |
+| `GET /api/health`                | —                 | `{ ok, db }` for Railway healthchecks                                                                                                                                                                               |
 
 Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
 `APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
@@ -1194,7 +1249,14 @@ Auth and frame details (decided while building `apps/planner`; binding):
   (the engine cannot start or read the session: database unreachable,
   configuration incomplete), which `(app)/error.tsx` does not wrap: the
   signed-out bar, the error digest and a retry. `/setup` offers no reinstall in
-  demo mode (there is no OAuth there).
+  demo mode (there is no OAuth there); elsewhere anyone signed in may start a
+  reinstall (Linear's consent screen is what limits it to admins), and its
+  install steps say the installer becomes the first watcher unless the
+  deployment's `WATCHER_EMAILS` names someone.
+- The fixture-mode picker on `/` lists the demo people by name (Person, Email,
+  Sign in), with no role column, badge or ordering by role, and says that
+  everyone can make every edit. `?auth_error=not_pm` is no longer a known code
+  (it reads as an unfinished sign-in).
 - Engine errors are recognised by `name` + `code` as well as by class
   (`lib/engine-errors.ts`): the process-wide engine cached on `globalThis` may
   come from another route bundle's copy of the package, where `instanceof`
@@ -1204,28 +1266,38 @@ Run log, sync and settings routes (decided while building `apps/planner`;
 binding):
 
 - `POST /api/runs`, `POST /api/sync`, `POST /api/warnings/preview` and
-  `PATCH /api/settings` share one order (`lib/pm-routes.ts`): CSRF guard and
-  session (`requireApiActor`) → strict zod body (unknown keys, a bad `mode`, a
-  tuning value outside 1–90 or not whole, an empty patch or an empty `tuning`
-  object: 400 before the engine, so a no-op never writes an audit entry; sync
-  and preview take `{}`) → `actor.isPm` (else 403 `not_pm`; the engine's
-  `fullSync` and `runWarnings` have no actor, so this check is the only one for
-  those two) → the engine, errors mapped by `errorResponse`.
+  `PATCH /api/settings` share one order (`lib/workspace-routes.ts`, renamed from
+  `pm-routes.ts`): CSRF guard and session (`requireApiActor`) → strict zod body
+  (unknown keys, a bad `mode`, a tuning value outside 1–90 or not whole, an
+  empty patch or an empty `tuning` object: 400 before the engine, so a no-op
+  never writes an audit entry; sync and preview take `{}`; `pmUserIds` is an
+  unknown key) → the engine, errors mapped by `errorResponse`. There is no role
+  check: any signed-in person of the workspace may call all four (owner decision
+  2026-10-22), and nobody is ever answered `not_pm`.
 - **A live run is gated by the saved mode**: `POST /api/runs { mode: 'live' }`
   answers 409 `live_runs_off` while `settings.allocationMode` is `dry_run`
-  (§7.4: dry run until a PM switches it live in Settings → Modes). Only the web
-  route is gated; the worker's `allocate --live` is an operator command.
+  (§7.4: dry run until someone switches it live in Settings → Modes, which
+  anyone signed in may do; the switch is a `settings.update` audit entry). Only
+  the web route is gated; the worker's `allocate --live` is an operator command.
   Answers: `/api/runs` 201 `{ run }` (the finished run; the run takes as long as
   its sync), `/api/sync` 200 `{ sync }` (a `SyncResult`, `ok: false` carries the
   error), `/api/warnings/preview` 200 `{ preview }` (the digests mapped for
   display with app-relative `/timeline?…` links; nothing recorded or sent),
   `/api/settings` 200 `{ settings }`. A partial `tuning` is passed through; the
   engine merges it over the saved tuning.
-- `/settings?section=modes|people|schedule|status|notifications|audit` (default
-  Modes) shows one section beside the sub-nav; each section's form PATCHes only
-  its own fields. People lists active non-app people plus deactivated people
-  still on a list; the last active PM's box is locked on. Slack status is not
-  shown: the engine exposes no "Slack configured" flag.
+- `/settings?section=modes|watchers|schedule|status|notifications|audit`
+  (default Modes; the old `?section=people` opens Watchers) shows one section
+  beside the sub-nav; each section's form PATCHes only its own fields. Every
+  section is editable by everyone signed in; there is no read-only mode and no
+  PM copy, and each block bar's meta says what the section does ("Audited" for
+  Modes, Watchers and Schedule) rather than who may use it. Watchers (the
+  section that was People) lists active non-app people plus deactivated people
+  still watching, with one Watcher box each (no PM column, no locked box: the
+  watcher list may be emptied, and then only leads are warned; the hint and the
+  save toast say so). The Audit section reads entries saved before 2026-10-22 as
+  they were saved: a change to the retired PM list reads "PM list (retired): … →
+  …", and the save that dropped the field is not reported as a change. Slack
+  status is not shown: the engine exposes no "Slack configured" flag.
 - A settings save moves keyboard focus to the form's status line (a
   `tabIndex=-1` live region beside Save and Reset) before Save and the fields
   disable, and the line then says "Saved" or "Not saved: <why>"; Reset focuses
@@ -1309,7 +1381,8 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   this-week issues, Timeline, Projects, Graph, Runs), a `PROJECTS` section
   listing active projects with the status mark of each project's next milestone
   (click → `/timeline?project=<id>`), and a footer with Settings, the signed-in
-  user (PM chip), theme toggle and sign out. Active nav item = ink fill; hover =
+  user (no role chip: there are no roles since the owner decision of
+  2026-10-22), theme toggle and sign out. Active nav item = ink fill; hover =
   accent flood. A 46px **topbar** (paper, bottom hairline): mono breadcrumb on
   the left (`TIMELINE › ATLAS MIGRATION`), and on the right the "Search or jump
   to… CTRL K" palette trigger. `[` collapses the sidebar to an icon rail (choice
@@ -1319,12 +1392,14 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   / More) like Gr8r's phone layout; pages become single column.
 - **Command palette** (Ctrl/⌘ K, or the topbar trigger): centered 640px panel,
   1px ink border, 2px accent top rule, scrim from `--ink`; sections
-  _Suggestions_ (PM: "Preview allocation (dry run)", "Resync from Linear";
-  everyone: "Switch theme"), _Jump to_ (projects, milestones, the user's open
-  issues by identifier — fetched from `/api/palette` on first open), and
-  _Navigation_ with two-key shortcuts (G W My week, G T Timeline, G P Projects,
-  G G Graph, G R Runs, G S Settings). ↑/↓ move, ↵ selects, Tab cycles sections,
-  Esc closes; fuzzy match on label + identifier. `?` opens a shortcuts sheet.
+  _Suggestions_ (`PALETTE_SUGGESTIONS` in `lib/adapters/shell.ts`, the same for
+  everyone, hinted by what they do, never by a role: "Preview allocation (dry
+  run)", "Resync from Linear", "Switch theme"), _Jump to_ (projects, milestones,
+  the user's open issues by identifier — fetched from `/api/palette` on first
+  open), and _Navigation_ with two-key shortcuts (G W My week, G T Timeline, G P
+  Projects, G G Graph, G R Runs, G S Settings). ↑/↓ move, ↵ selects, Tab cycles
+  sections, Esc closes; fuzzy match on label + identifier. `?` opens a shortcuts
+  sheet.
 - **Toasts**: bottom-right stack, 1px ink border (2px accent for errors), mono
   label + one sentence, auto-dismiss after 4 s, `aria-live="polite"`; used after
   saves, runs and copies.
@@ -1376,8 +1451,8 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   "Upcoming deadlines"): milestones the user leads or has issues in, grouped
   Overdue / Today / Tomorrow / This week (up to 6 days out); and "Needs
   attention" for projects the user leads that are blocked (reason) or have
-  unassigned next-milestone issues. PMs get a person picker (`?user=<id>`,
-  honoured on the server for PMs only and only for people in the mirror).
+  unassigned next-milestone issues. Everyone gets a person picker (`?user=<id>`,
+  honoured on the server for anyone signed in, only for people in the mirror).
 - **Timeline** (Gr8r Timeline in the Matrix drawing style): banners first (no
   lead / no date / unplanned / blocked, each a count that expands to a list), as
   one compact block: a 1px hairline frame with a single 2px accent rule on its
@@ -1401,11 +1476,12 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   on track ink border; complete ink fill; rubric-invalid hatched with "MISSING:
   …"), a `NEXT` tag on each lane's next milestone, `↑2` for a weight override.
   With Dependencies on, milestone-level edges are drawn as 1px curved connectors
-  between bars (accent when on a risk chain), like Gr8r's dependency arrows. PMs
-  drag a bar's right edge to re-date (snaps to days, date tooltip, Esc cancels,
-  PATCH on drop, optimistic with rollback + toast); keyboard: focus the handle,
-  ←/→ ±1 day, ↵ commit. Clicking a bar opens the slide-over drawer. Below 900px:
-  per-project cards. Built while wiring it (binding):
+  between bars (accent when on a risk chain), like Gr8r's dependency arrows.
+  Anyone with Linear write access drags a bar's right edge to re-date (snaps to
+  days, date tooltip, Esc cancels, PATCH on drop, optimistic with rollback +
+  toast); keyboard: focus the handle, ←/→ ±1 day, ↵ commit. Clicking a bar opens
+  the slide-over drawer. Below 900px: per-project cards. Built while wiring it
+  (binding):
   - The toolbar state is mirrored to the URL in place (`?q=`, `?initiative=`,
     `?active=1`, `?risk=1`, `?zoom=months`, `?deps=1`; Dependencies start off,
     Weeks is the default zoom), and every link the page builds (lane names,
@@ -1417,11 +1493,17 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     `useSearchParams`, skips the query strings it wrote itself, and keeps a
     half-typed search when a URL means the state already shown.
   - Re-dating and the lead are Linear writes: handles and those drawer fields
-    only for PMs with Linear write access (a read-only PM sees a one-line notice
-    linking `/api/auth/linear?intent=grant_write&returnTo=/timeline`). Weight
-    and "done means…" need only `isPm`. Complete milestones have no drag handle.
-    Every open milestone failing the rubric carries its "Missing: …" line,
-    overdue and at-risk ones included (their marks stay).
+    for everyone with Linear write access (anyone without it sees a one-line
+    "Linear read only" notice above the chart with "Allow edits in Linear",
+    linking `/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline`, and the
+    drawer's note under its properties links the same upgrade back to that
+    milestone). Weight and "done means…" are editable by everyone signed in
+    (owner decision 2026-10-22: no PM role); the timeline's permissions are only
+    `{ canWriteLinear }`, and the drawer model carries `canEditLinear` and that
+    `grantWriteHref`, never a role or a "can edit meta" flag. Complete
+    milestones have no drag handle. Every open milestone failing the rubric
+    carries its "Missing: …" line, overdue and at-risk ones included (their
+    marks stay).
   - The drawer opens on click with a skeleton and fills when the server answers
     `?milestone=`; an id the mirror lacks closes it and shows a "Not found"
     notice. A lane focused by `?project=` is scrolled into the page too (chart
@@ -1450,7 +1532,12 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     (`YYYY-MM-DD` or null), `weight` (integer or null), `doneMeans` (string or
     null), no other keys; it applies the date first, then weight, then "done
     means…", stopping at the first engine error. Malformed bodies are 400s
-    before the engine is called.
+    before the engine is called. Neither PATCH route checks a role; the engine
+    asks for Linear write scope for the date and the lead only, and its
+    `needs_write_scope` answer carries a grant link back to
+    `/timeline?milestone=<id>` (or `?project=<id>` for the lead), which the
+    drawer's and the drag's "Not saved" toast offers as "Allow edits"
+    (`notSavedToast` in `lib/api-client.ts`).
 - **Projects** (Gr8r Projects page, register form): one row per non-completed
   project grouped by initiative: name + initiative, Linear status (mono chip),
   next milestone (name, due, status mark), next-milestone progress bar
@@ -1473,9 +1560,13 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   with no blocking relation are listed under the canvas, not drawn (§8.1).
 - **Runs**: register of runs (mode chip DRY RUN / LIVE, trigger, counts); detail
   lists assigned / would assign / failed / stale / skipped / blocked grouped by
-  project with reasons.
+  project with reasons. Everyone signed in gets "Preview (dry run)" above the
+  log and, while allocation is live, "Run now" behind a second click; in dry run
+  the note says anyone can switch allocation live in Settings → Modes and that
+  the switch is audited. There is no read-only notice and no list of who may
+  run. An issue's activity names a hand-started run "Manual run".
 - **Settings** (Gr8r settings layout): a left sub-nav of sections (Modes,
-  People, Schedule, Status, Notifications, Audit) beside the section content;
+  Watchers, Schedule, Status, Notifications, Audit) beside the section content;
   rows per setting; mode switches use the Matrix switch idiom (13px square glyph
   that fills accent).
 
@@ -1548,10 +1639,10 @@ LINEAR" strip at the top of the content column.
     blockers), and a remove button per relation row. Without it the values are
     read-only and one notice under the properties, "Allow edits in Linear",
     links `/api/auth/linear?intent=grant_write&returnTo=<the current URL>`,
-    offered to **everyone**, not only PMs (PM-only controls elsewhere keep their
-    `isPm` check; the timeline's own read-only notice stays a PM's). The server
-    decides: the routes check the write scope and the engine enforces it and
-    validates again.
+    offered to **everyone** (as is the timeline's own notice for date and lead;
+    since the owner decision of 2026-10-22 no control anywhere checks a role).
+    The server decides: the routes check the write scope and the engine enforces
+    it and validates again.
 - **Saves.** Each control saves optimistically (the ui save contract: pending,
   kept, or rolled back with "Not saved · <reason>" beside it); a failure is also
   toasted ("Not saved", the route's sentence, and "Allow edits" when the answer
@@ -1568,19 +1659,20 @@ LINEAR" strip at the top of the content column.
   label's colour as a small swatch beside its name (hex values only; anything
   else is a hollow square). It is the one place a colour from data is drawn;
   everything else stays in the planner's marks (§8.2).
-- **Routes** (`lib/issue-routes.ts`): the PM routes' order — CSRF guard and
-  session (`requireApiActor`) → strict zod body with only the documented keys
-  (an empty patch, an unknown key, a blank title or comment, a priority outside
-  0–4, an estimate that is negative or not whole, a malformed date: 400 before
-  the engine) → Linear write scope (403 `needs_write_scope`, the body's
-  `error.grantWriteHref` returning to `/issues/<id>`) → engine → `errorResponse`
-  (`linear_forbidden` 403; `rate_limited` 429 with `error.retryAt` and
-  `Retry-After` when Linear said when; the engine's own `needs_write_scope` also
-  carries the link). `DELETE /api/relations/[id]` reads no body.
-  `GET /api/issues/search?q=&near=` (q ≤ 200 characters) matches identifiers
-  (exact, prefix, then containing, so "24" finds ENG-24) and then every word of
-  the title, accent-folded; open issues first, then the `near` issue's milestone
-  and project; at most 20; an empty q lists open issues by that nearness.
+- **Routes** (`lib/issue-routes.ts`): the run/settings routes' order — CSRF
+  guard and session (`requireApiActor`) → strict zod body with only the
+  documented keys (an empty patch, an unknown key, a blank title or comment, a
+  priority outside 0–4, an estimate that is negative or not whole, a malformed
+  date: 400 before the engine) → Linear write scope (403 `needs_write_scope`,
+  the body's `error.grantWriteHref` returning to `/issues/<id>`) → engine →
+  `errorResponse` (`linear_forbidden` 403; `rate_limited` 429 with
+  `error.retryAt` and `Retry-After` when Linear said when; the engine's own
+  `needs_write_scope` also carries the link). `DELETE /api/relations/[id]` reads
+  no body. `GET /api/issues/search?q=&near=` (q ≤ 200 characters) matches
+  identifiers (exact, prefix, then containing, so "24" finds ENG-24) and then
+  every word of the title, accent-folded; open issues first, then the `near`
+  issue's milestone and project; at most 20; an empty q lists open issues by
+  that nearness.
 - **Audit.** Settings → Audit words each edit as "ENG-24 · assignee" with "Ana
   Moreno → Dev Patel" (descriptions and comments as their length only, "Added a
   comment (42 characters)", never their words, since the audit is open to
@@ -1671,7 +1763,7 @@ Worker decisions made while building it (binding):
 | `LINEAR_WEBHOOK_SECRET`                     | planner         | webhook signing secret                                            |
 | `SLACK_BOT_TOKEN`                           | worker, planner | optional; without it digests stay in the outbox                   |
 | `DEFAULT_TIMEZONE`                          | all             | IANA zone for new workspaces (default `UTC`)                      |
-| `PM_EMAILS`, `WATCHER_EMAILS`               | engine          | comma-separated bootstrap lists                                   |
+| `WATCHER_EMAILS`                            | engine          | comma-separated emails of the first watchers (else the installer) |
 | `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed                                 |
 | `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
 | `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)    |
@@ -1682,6 +1774,10 @@ Worker decisions made while building it (binding):
 
 `packages/engine` exports `loadEngineConfigFromEnv(env)` and
 `createEngineFromEnv(env)` so the planner and worker build identical engines.
+
+`PM_EMAILS` is retired (owner decision 2026-10-22: there is no PM role). It is
+not read; a deploy that still sets it boots normally and logs one warning
+("PM_EMAILS is no longer used…"). Remove it and set `WATCHER_EMAILS`.
 
 ## 11. Testing
 
@@ -1705,12 +1801,24 @@ Worker decisions made while building it (binding):
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe
-  across days, overdue repeat, PM permission errors; the issue page: a non-PM
-  member with write scope edits with their own token, one without write scope is
-  refused before Linear is called, every validation, mirror refresh and audit,
-  Linear error mapping, live-read failure and app-token fallback.
-- planner: unit tests for cookie signing/origin checks; Playwright smoke in
-  fixture mode (screens render, drag updates a date).
+  across days, overdue repeat; no roles (owner decision 2026-10-22): a member
+  makes every milestone, lead and settings edit and starts dry and live runs,
+  nobody is answered `not_pm`, Linear writes still need write scope, watchers
+  can be emptied, old settings with `pmUserIds` read without it, `PM_EMAILS`
+  logs one warning, two people saving different settings at once both stick; the
+  issue page: a member with write scope edits with their own token, one without
+  write scope is refused before Linear is called, every validation, mirror
+  refresh and audit, Linear error mapping, live-read failure and app-token
+  fallback.
+- planner: unit tests for cookie signing/origin checks; the adapters; the route
+  handlers with a fake actor resolver, and end to end on the demo engine
+  (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),
+  so a member (Chloe, never a PM) resyncs, previews digests, starts dry runs,
+  switches allocation live and starts a live run, empties and refills the
+  watchers, re-dates a milestone, sets its weight and "done means…" and sets a
+  project lead, each audited under her name, while cross-origin and signed-out
+  requests are still refused first and the retired `pmUserIds` is a 400;
+  Playwright smoke in fixture mode (screens render, drag updates a date).
 
 ## 12. Verified external facts
 

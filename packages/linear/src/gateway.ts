@@ -42,11 +42,11 @@ export interface LinearIdentity {
  * the engine can run against the real API, the in-memory fixture workspace
  * (demo mode), or test doubles.
  *
- * Writes are the ones the design allows (§8, and the owner decision of
- * 2026-10-21): allocation's issue assignee + state and comment, a PM's
- * milestone target date and project lead, and a signed-in person's own
- * issue edits (fields, comments, blocking relations), which the engine
- * always sends with that person's token.
+ * Writes are the ones the design allows (§8, and the owner decisions of
+ * 2026-10-21 and 2026-10-22): allocation's issue assignee + state and
+ * comment, and a signed-in person's milestone target dates, project leads
+ * and own issue edits (fields, comments, blocking relations), which the
+ * engine always sends with that person's token.
  */
 export interface LinearGateway {
   whoAmI(): Promise<LinearIdentity>;

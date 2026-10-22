@@ -2,7 +2,7 @@
   "name": "@better-tracker/planner",
   "version": "0.0.0",
   "private": true,
-  "description": "Milestone Planner web app: My week, PM timeline, dependency graph, run log, settings, Linear OAuth and webhooks.",
+  "description": "Milestone Planner web app: My week, milestone timeline, dependency graph, run log, settings, Linear OAuth and webhooks.",
   "type": "module",
   "dependencies": {
     "@better-tracker/core": "workspace:*",

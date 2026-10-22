@@ -97,7 +97,6 @@ export const TEST_CONFIG: EngineConfig = {
   appName: 'Milestone Planner',
   appUrl: 'https://planner.example',
   defaultTimezone: 'UTC',
-  bootstrapPmEmails: [],
   bootstrapWatcherEmails: [],
   oauth: null,
   sessionDays: 30,

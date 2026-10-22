@@ -36,6 +36,42 @@ export const PALETTE_SECTION_ORDER: string[] = [
   PALETTE_SECTIONS.navigation,
 ];
 
+/** What a palette suggestion does when chosen (PlannerShell wires each). */
+export type PaletteSuggestionAction = 'dry-run' | 'resync' | 'theme';
+
+export interface PaletteSuggestion {
+  id: string;
+  label: string;
+  hint: string;
+  action: PaletteSuggestionAction;
+}
+
+/**
+ * The palette's Suggestions, the same for everyone signed in: there are
+ * no roles (owner decision 2026-10-22), so the dry run and the resync are
+ * offered to every person, as the routes behind them accept every person.
+ */
+export const PALETTE_SUGGESTIONS: readonly PaletteSuggestion[] = [
+  {
+    id: 'suggest-dry-run',
+    label: 'Preview allocation (dry run)',
+    hint: 'Assigns nothing',
+    action: 'dry-run',
+  },
+  {
+    id: 'suggest-resync',
+    label: 'Resync from Linear',
+    hint: 'Full sync',
+    action: 'resync',
+  },
+  {
+    id: 'suggest-theme',
+    label: 'Switch theme',
+    hint: 'Light / dark',
+    action: 'theme',
+  },
+];
+
 export type NavTargetId =
   | 'week'
   | 'timeline'
@@ -193,7 +229,6 @@ export interface ShellFrame {
   appName: string;
   workspaceName: string | null;
   userName: string;
-  isPm: boolean;
   /** Null when the week view could not be read (not installed, error). */
   weekCount: number | null;
   weekCountLabel: string | null;
@@ -206,7 +241,6 @@ export interface ShellFrameInput {
   appName: string;
   workspaceName: string | null;
   userName: string;
-  isPm: boolean;
   /** The app has a working Linear installation for this workspace. */
   installed: boolean;
   timeline: TimelineView | null;
@@ -229,7 +263,6 @@ export function buildShellFrame(input: ShellFrameInput): ShellFrame {
     appName: input.appName,
     workspaceName: input.workspaceName,
     userName: input.userName,
-    isPm: input.isPm,
     weekCount: count?.count ?? null,
     weekCountLabel: count?.label ?? null,
     projects,

@@ -24,8 +24,8 @@ export default function SignedOutGalleryPage() {
             </h1>
             <p className={styles.signInLead}>
               Sign in with the Linear account you use at Northwind. The planner
-              reads your issues and milestones; it never edits them without a
-              PM&apos;s say-so.
+              reads your issues and milestones; the edits you make here go to
+              Linear as you.
             </p>
             <Link href="/ui-gallery/shell" className="buttonPrimary">
               Sign in with Linear

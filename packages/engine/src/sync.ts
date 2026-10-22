@@ -19,7 +19,7 @@ import type { LinearGateway } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 
 import { type EngineRuntime, errorMessage, readSettings } from './runtime';
-import { bootstrapPeople } from './settings';
+import { bootstrapWatchers } from './settings';
 import type { SyncResult } from './types';
 
 /**
@@ -87,9 +87,11 @@ async function refineLastStateChanges(
 }
 
 // Settings for a workspace being configured: brand-new settings when none
-// are saved; on the very first sync after an install (which saved only the
-// installer as PM) the bootstrap email lists are merged in. Returns null
-// when nothing needs saving.
+// are saved, with the watchers bootstrapped from WATCHER_EMAILS (else the
+// installer); on the very first sync over settings saved earlier (an
+// install made before the owner decision of 2026-10-22 saved the installer
+// as PM) an empty watcher list is filled the same way. Returns null when
+// nothing needs saving.
 function bootstrapSettings(input: {
   rt: EngineRuntime;
   workspaceId: string;
@@ -105,22 +107,17 @@ function bootstrapSettings(input: {
   const base: WorkspaceSettings = input.stored
     ? current
     : defaultSettings(input.workspaceId, rt.config.defaultTimezone);
-  const people = bootstrapPeople({
+  const watcherUserIds = bootstrapWatchers({
     data: input.data,
     installerId: input.installerId,
-    pmEmails: rt.config.bootstrapPmEmails,
     watcherEmails: rt.config.bootstrapWatcherEmails,
-    existing: input.stored
-      ? { pmUserIds: current.pmUserIds, watcherUserIds: current.watcherUserIds }
-      : null,
+    existing: input.stored ? current.watcherUserIds : null,
     log: input.log,
   });
-  const next: WorkspaceSettings = { ...base, ...people };
   const changed =
     !input.stored ||
-    people.pmUserIds.join(',') !== current.pmUserIds.join(',') ||
-    people.watcherUserIds.join(',') !== current.watcherUserIds.join(',');
-  return changed ? next : null;
+    watcherUserIds.join(',') !== current.watcherUserIds.join(',');
+  return changed ? { ...base, watcherUserIds } : null;
 }
 
 /**
@@ -173,7 +170,6 @@ export async function fullSync(
     if (bootstrap !== null) {
       await rt.store.saveSettings(bootstrap);
       log.info('bootstrapped workspace settings', {
-        pms: bootstrap.pmUserIds.length,
         watchers: bootstrap.watcherUserIds.length,
       });
     }

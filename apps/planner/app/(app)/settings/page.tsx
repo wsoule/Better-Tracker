@@ -3,7 +3,6 @@ import {
   Chip,
   EmptyState,
   NavTabs,
-  Notice,
   Register,
   RegisterCell,
   RegisterRow,
@@ -15,12 +14,11 @@ import {
   auditRows,
   notificationRows,
   parseSettingsSection,
-  peopleRows,
-  readOnlyNote,
   scheduleForm,
   sectionTabs,
   type SettingsSectionId,
   statusRows,
+  watcherRows,
 } from '../../../lib/adapters/settings';
 import {
   type InstalledContext,
@@ -30,9 +28,9 @@ import {
 import { PageCrumb } from '../components/page-crumb';
 import ModesForm from './modes-form';
 import css from './page.module.css';
-import PeopleForm from './people-form';
 import ScheduleForm from './schedule-form';
 import StatusActions from './status-actions';
+import WatchersForm from './watchers-form';
 
 export const metadata: Metadata = { title: 'Settings' };
 
@@ -43,10 +41,11 @@ type Loaded = Awaited<ReturnType<InstalledContext['engine']['load']>>;
 
 /* /settings (architecture §8.4 "Settings", Gr8r's settings layout): a
    section sub-nav beside the section's registers, ?section= choosing
-   Modes (default), People, Schedule, Status, Notifications or Audit.
-   Everyone can read; PMs get the forms, each saving only its own fields
-   through PATCH /api/settings, which (with the engine) enforces the same
-   rules again. */
+   Modes (default), Watchers (the old ?section=people still opens it),
+   Schedule, Status, Notifications or Audit. Every section is editable by
+   everyone signed in (owner decision 2026-10-22: no roles), each form
+   saving only its own fields through PATCH /api/settings, which (with the
+   engine) validates them again and writes an audit entry. */
 export default async function SettingsPage({
   searchParams,
 }: {
@@ -55,19 +54,17 @@ export default async function SettingsPage({
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
   const context = await requireInstalledActor();
-  const { engine, actor, workspaceId } = context;
+  const { engine, workspaceId } = context;
   const section = parseSettingsSection(params);
   const loaded = await orSetup(engine.load(workspaceId));
-  const canEdit = actor.isPm;
 
   return (
     <>
       <header className={css.head}>
         <h1 className={css.title}>Settings</h1>
         <p className={css.receipts}>
-          {canEdit
-            ? 'How this workspace allocates and warns. Each section saves on its own.'
-            : 'How this workspace allocates and warns. Read only: PMs change these.'}
+          How this workspace allocates and warns. Each section saves on its own,
+          and every change is in the audit log.
         </p>
       </header>
       <div className={css.layout}>
@@ -78,19 +75,14 @@ export default async function SettingsPage({
           className={css.subnav}
         />
         <div className={css.content}>
-          {!canEdit ? (
-            <Notice label="Read only" tone="default">
-              {readOnlyNote(loaded.settings, loaded.snapshot.users)}
-            </Notice>
-          ) : null}
           <section className={css.collapse} aria-label={section.label}>
             <BlockBar
               index={sectionIndex(section.id)}
               title={section.label}
-              meta={canEdit ? 'PM' : 'Read only'}
+              meta={SECTION_META[section.id]}
             />
             <p className={css.sectionText}>{section.description}</p>
-            {await renderSection(section.id, context, loaded, canEdit)}
+            {await renderSection(section.id, context, loaded)}
           </section>
         </div>
       </div>
@@ -99,10 +91,21 @@ export default async function SettingsPage({
   );
 }
 
+/* The block bar's meta: what a section's saves do, or what it lists.
+   Every section is editable by everyone signed in; none names a role. */
+const SECTION_META: Record<SettingsSectionId, string> = {
+  modes: 'Audited',
+  watchers: 'Audited',
+  schedule: 'Audited',
+  status: 'Sync · preview',
+  notifications: `Newest ${LIST_LIMIT}`,
+  audit: `Newest ${LIST_LIMIT}`,
+};
+
 function sectionIndex(id: SettingsSectionId): string {
   const order: SettingsSectionId[] = [
     'modes',
-    'people',
+    'watchers',
     'schedule',
     'status',
     'notifications',
@@ -114,8 +117,7 @@ function sectionIndex(id: SettingsSectionId): string {
 async function renderSection(
   id: SettingsSectionId,
   context: InstalledContext,
-  loaded: Loaded,
-  canEdit: boolean
+  loaded: Loaded
 ): Promise<ReactNode> {
   const { engine, workspaceId, installation } = context;
   const { settings, snapshot } = loaded;
@@ -128,22 +130,17 @@ async function renderSection(
             allocationMode: settings.allocationMode,
             warningsMode: settings.warningsMode,
           }}
-          canEdit={canEdit}
         />
       );
-    case 'people':
+    case 'watchers':
       return (
-        <PeopleForm
-          rows={peopleRows(snapshot.data.users, settings)}
-          pmUserIds={settings.pmUserIds}
+        <WatchersForm
+          rows={watcherRows(snapshot.data.users, settings)}
           watcherUserIds={settings.watcherUserIds}
-          canEdit={canEdit}
         />
       );
     case 'schedule':
-      return (
-        <ScheduleForm initial={scheduleForm(settings)} canEdit={canEdit} />
-      );
+      return <ScheduleForm initial={scheduleForm(settings)} />;
     case 'status': {
       const rows = statusRows({
         installation,
@@ -171,7 +168,7 @@ async function renderSection(
               </RegisterRow>
             ))}
           </Register>
-          {canEdit ? <StatusActions /> : null}
+          <StatusActions />
         </>
       );
     }
@@ -237,8 +234,8 @@ async function renderSection(
       if (rows.length === 0) {
         return (
           <EmptyState>
-            No PM edits yet. Re-dated milestones, leads, weights, “done means…”
-            and settings changes appear here.
+            No edits yet. Re-dated milestones, leads, weights, “done means…”,
+            issue edits and settings changes appear here, with who made them.
           </EmptyState>
         );
       }

@@ -32,6 +32,17 @@ export const DEFAULT_DAILY_LEASE_MINUTES = 45;
 export const OAUTH_CALLBACK_PATH = '/api/auth/linear/callback';
 
 const MAX_SESSION_DAYS = 365;
+
+/**
+ * Variables earlier versions read that no longer do anything, each with the
+ * sentence logged when a deploy still sets one. PM_EMAILS seeded the PM
+ * list, which the owner decision of 2026-10-22 retired (there is no PM
+ * role; everyone signed in can edit).
+ */
+export const RETIRED_ENV_VARIABLES: Readonly<Record<string, string>> = {
+  PM_EMAILS:
+    'PM_EMAILS is no longer used: there is no PM role, and everyone signed in can edit. Set WATCHER_EMAILS for who is warned about at-risk milestones, and remove PM_EMAILS.',
+};
 const LOG_LEVELS: readonly string[] = ['debug', 'info', 'warn', 'error'];
 
 // A variable's value with surrounding whitespace removed; empty means unset.
@@ -98,6 +109,17 @@ function parseEmails(
 }
 
 /**
+ * The retired variables (RETIRED_ENV_VARIABLES) this environment still
+ * sets to a non-blank value, in a stable order, so boot can log one
+ * warning for each instead of silently ignoring them.
+ */
+export function retiredEnvVariables(env: EngineEnv): string[] {
+  return Object.keys(RETIRED_ENV_VARIABLES).filter(
+    (name) => read(env, name) !== null
+  );
+}
+
+/**
  * Builds the EngineConfig from the environment and validates every variable
  * the engine reads. Demo mode (`LINEAR_FIXTURE=1`) needs nothing: APP_URL
  * defaults to http://localhost:3000 and OAuth is off. Otherwise APP_URL,
@@ -161,11 +183,8 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
     );
   }
 
-  const bootstrapPmEmails = parseEmails(
-    'PM_EMAILS',
-    read(env, 'PM_EMAILS'),
-    problems
-  );
+  // PM_EMAILS is retired (retiredEnvVariables); it is neither read nor
+  // validated, so an old value can never block a boot.
   const bootstrapWatcherEmails = parseEmails(
     'WATCHER_EMAILS',
     read(env, 'WATCHER_EMAILS'),
@@ -217,7 +236,6 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
     appName,
     appUrl,
     defaultTimezone,
-    bootstrapPmEmails,
     bootstrapWatcherEmails,
     oauth:
       fixture || clientId === null || clientSecret === null

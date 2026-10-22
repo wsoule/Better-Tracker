@@ -85,11 +85,11 @@ describe('Checkbox', () => {
   test('is a native checkbox named by its label, toggled by the label', () => {
     const onChange = mock((_: boolean) => {});
     const { getByRole, getByText } = render(
-      <Checkbox label="PM" onChange={onChange} />
+      <Checkbox label="Watcher" onChange={onChange} />
     );
-    const box = getByRole('checkbox', { name: 'PM' }) as HTMLInputElement;
+    const box = getByRole('checkbox', { name: 'Watcher' }) as HTMLInputElement;
     expect(box.checked).toBe(false);
-    fireEvent.click(getByText('PM'));
+    fireEvent.click(getByText('Watcher'));
     expect(onChange).toHaveBeenCalledWith(true);
     expect(box.checked).toBe(true);
   });
@@ -111,15 +111,15 @@ describe('Checkbox', () => {
     const onChange = mock((_: boolean) => {});
     const { getByRole } = render(
       <Checkbox
-        label="PM"
-        aria-label="Ana Moreno: PM"
+        label="Watcher"
+        aria-label="Ana Moreno: Watcher"
         checked
         disabled
         hideLabel
         onChange={onChange}
       />
     );
-    const box = getByRole('checkbox', { name: 'Ana Moreno: PM' });
+    const box = getByRole('checkbox', { name: 'Ana Moreno: Watcher' });
     expect((box as HTMLInputElement).disabled).toBe(true);
     fireEvent.click(box);
     expect(onChange).not.toHaveBeenCalled();

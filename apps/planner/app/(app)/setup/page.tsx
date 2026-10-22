@@ -57,8 +57,8 @@ export default async function SetupPage() {
     );
     const facts = installationFacts(installation, installerName, timeZone);
     // Demo mode has no OAuth: the install link would only bounce home.
+    // Anyone signed in may reinstall (no roles); Linear asks for an admin.
     const demo = engine.mode === 'fixture';
-    const canReinstall = actor.isPm && !demo;
     return (
       <div className="page">
         <header className={styles.head}>
@@ -87,22 +87,21 @@ export default async function SetupPage() {
               <Button href="/timeline" variant="primary">
                 Open the timeline
               </Button>
-              {canReinstall ? (
+              {demo ? null : (
                 <Button href={INSTALL_HREF}>Reinstall to change teams</Button>
-              ) : null}
+              )}
             </div>
-            {canReinstall ? (
-              <p className={styles.note}>
-                Reinstalling asks Linear for the app&apos;s grant again, so a
-                workspace admin can change which teams the planner sees.
-              </p>
-            ) : null}
             {demo ? (
               <p className={styles.note}>
                 Demo mode installs its fictional workspace when the server
                 starts; there is no Linear app to reinstall.
               </p>
-            ) : null}
+            ) : (
+              <p className={styles.note}>
+                Reinstalling asks Linear for the app&apos;s grant again, so a
+                workspace admin can change which teams the planner sees.
+              </p>
+            )}
           </div>
         </section>
         <PageCrumb label={installation.workspaceName} />

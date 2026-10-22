@@ -86,7 +86,6 @@ describe('defaultSettings', () => {
   test('starts safe: dry run, preview, default tuning', () => {
     expect(core.defaultSettings('ws-1', 'America/Chicago')).toEqual({
       workspaceId: 'ws-1',
-      pmUserIds: [],
       watcherUserIds: [],
       allocationMode: 'dry_run',
       warningsMode: 'preview',

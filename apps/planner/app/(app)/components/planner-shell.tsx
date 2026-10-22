@@ -33,7 +33,9 @@ import {
   type NavTargetId,
   PALETTE_SECTION_ORDER,
   PALETTE_SECTIONS,
+  PALETTE_SUGGESTIONS,
   paletteItemsFromIndex,
+  type PaletteSuggestionAction,
   runIdFrom,
   type ShellFrame,
   SIDEBAR_STORAGE_KEY,
@@ -49,6 +51,12 @@ const NAV_ICONS: Record<NavTargetId, ShellIcon> = {
   graph: Network,
   runs: History,
   settings: SlidersHorizontal,
+};
+
+const SUGGESTION_ICONS: Record<PaletteSuggestionAction, ShellIcon> = {
+  'dry-run': Play,
+  resync: RefreshCw,
+  theme: Contrast,
 };
 
 /** Destinations on the phone tab bar; "More" (the drawer) is appended. */
@@ -87,8 +95,9 @@ interface PlannerShellProps {
 /**
  * The signed-in frame: AppShell fed with the server-built ShellFrame, plus
  * what only the browser knows (the current URL for nav state and the
- * breadcrumb) and the command palette with its actions. PM-only commands
- * are hidden from everyone else; the routes enforce the same rule.
+ * breadcrumb) and the command palette with its actions. Every command is
+ * offered to everyone signed in (there are no roles); the routes behind
+ * them only require a session.
  */
 export default function PlannerShell(props: PlannerShellProps) {
   return (
@@ -143,35 +152,19 @@ function PaletteFrame({
   }, [router, toast]);
 
   const items = useMemo<PaletteItem[]>(() => {
-    const suggestions: PaletteItem[] = [];
-    if (frame.isPm) {
-      suggestions.push(
-        {
-          id: 'suggest-dry-run',
-          label: 'Preview allocation (dry run)',
-          hint: 'PM · assigns nothing',
-          section: PALETTE_SECTIONS.suggestions,
-          icon: Play,
-          onSelect: () => void previewAllocation(),
-        },
-        {
-          id: 'suggest-resync',
-          label: 'Resync from Linear',
-          hint: 'PM',
-          section: PALETTE_SECTIONS.suggestions,
-          icon: RefreshCw,
-          onSelect: () => void resync(),
-        }
-      );
-    }
-    suggestions.push({
-      id: 'suggest-theme',
-      label: 'Switch theme',
-      hint: 'Light / dark',
+    const run: Record<PaletteSuggestionAction, () => void> = {
+      'dry-run': () => void previewAllocation(),
+      resync: () => void resync(),
+      theme: () => switchTheme(themeStorageKey),
+    };
+    const suggestions = PALETTE_SUGGESTIONS.map((suggestion): PaletteItem => ({
+      id: suggestion.id,
+      label: suggestion.label,
+      hint: suggestion.hint,
       section: PALETTE_SECTIONS.suggestions,
-      icon: Contrast,
-      onSelect: () => switchTheme(themeStorageKey),
-    });
+      icon: SUGGESTION_ICONS[suggestion.action],
+      onSelect: run[suggestion.action],
+    }));
     const navigation = NAV_TARGETS.map((target): PaletteItem => ({
       id: `nav-${target.id}`,
       label: `Go to ${target.label}`,
@@ -181,7 +174,7 @@ function PaletteFrame({
       icon: NAV_ICONS[target.id],
     }));
     return [...suggestions, ...navigation];
-  }, [frame.isPm, previewAllocation, resync, themeStorageKey]);
+  }, [previewAllocation, resync, themeStorageKey]);
 
   const loadItems = useCallback(async () => {
     const body = await getJson('/api/palette');
@@ -279,7 +272,6 @@ function Frame({
       }}
       user={{
         name: frame.userName,
-        badge: frame.isPm ? 'PM' : undefined,
       }}
       signOut={{ action: '/api/auth/logout', method: 'post' }}
       themeStorageKey={themeStorageKey}

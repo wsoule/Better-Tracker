@@ -1,10 +1,10 @@
 // The LinearGateway backed by Linear's GraphQL API. It pages every root
 // connection, maps nodes into core types (map.ts), refines "last state
 // change" from issue history in aliased batches, and performs the writes
-// the design allows (allocation, PM edits, and since the owner decision of
-// 2026-10-21 a person's own issue edits). Transport, retries and error
-// mapping live in client.ts; dropping relations whose ends are not
-// mirrored is core's job.
+// the design allows (allocation, and a signed-in person's milestone date,
+// project lead and, since the owner decision of 2026-10-21, issue edits).
+// Transport, retries and error mapping live in client.ts; dropping
+// relations whose ends are not mirrored is core's job.
 
 import type {
   BlockingRelation,

@@ -1,7 +1,7 @@
 // The issue page (owner decision 2026-10-21) end to end over the fixture
 // gateway and PGlite: getIssueDetail's mirror view and live extras, and a
 // person's own edits (fields, comments, blocking relations), which need
-// write scope but never PM rights, are validated before Linear is called,
+// write scope and nothing else, are validated before Linear is called,
 // go out with the person's token, patch the mirror at once and are audited.
 
 import { LinearApiError, type LinearGateway } from '@better-tracker/linear';
@@ -116,19 +116,19 @@ describe('getIssueDetail', () => {
   });
 
   test('lists the allocation history of the issue, newest first', async () => {
-    const pm = await actorFor(h, 'user-ana');
+    const ana = await actorFor(h, 'user-ana');
     await h.engine.runAllocation({
       workspaceId: WORKSPACE_ID,
       mode: 'dry_run',
       trigger: 'manual',
-      actor: pm,
+      actor: ana,
     });
     h.clock.advanceDays(1);
     await h.engine.runAllocation({
       workspaceId: WORKSPACE_ID,
       mode: 'dry_run',
       trigger: 'manual',
-      actor: pm,
+      actor: ana,
     });
     const page = await h.engine.getIssueDetail(member, 'iss-eng-12');
     expect(
@@ -291,9 +291,9 @@ describe('issue edits: who may edit', () => {
     await h.close();
   });
 
-  test('a member (not a PM) with write scope edits with their own token', async () => {
+  test('a member with write scope edits with their own token', async () => {
     const member = await actorFor(h, 'user-dev');
-    expect(member.isPm).toBe(false);
+    expect(member).not.toHaveProperty('isPm');
     expect(member.canWriteLinear).toBe(true);
     const before = (await h.store.getSyncState(WORKSPACE_ID))?.version ?? 0;
     const result = await h.engine.updateIssue(member, 'iss-eng-23', {

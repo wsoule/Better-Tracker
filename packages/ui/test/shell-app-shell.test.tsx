@@ -52,7 +52,7 @@ const PROPS: AppShellProps = {
     },
   ],
   settings: { href: '/settings' },
-  user: { name: 'Pat Lee', badge: 'PM' },
+  user: { name: 'Pat Lee', badge: 'DEMO' },
   signOut: { action: '/api/auth/logout', method: 'post' },
   crumbs: [
     { label: 'Timeline', href: '/timeline' },

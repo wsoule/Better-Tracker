@@ -12,37 +12,41 @@ import {
 import { beforeEach, describe, expect, test } from 'bun:test';
 
 import type { AllocationRun } from '../lib/adapters/runs';
+import type { ApiActorResolver } from '../lib/timeline-edits';
 import {
   patchSettings,
   previewWarnings,
   resync,
   startRun,
-} from '../lib/pm-routes';
-import type { ApiActorResolver } from '../lib/timeline-edits';
+} from '../lib/workspace-routes';
 
-// The PM routes' handlers against a stubbed engine and a fake actor
-// resolver (the real one is requireApiActor: CSRF guard + session). Each
-// test checks the status and body the client islands rely on, and that a
-// refused request never reaches the engine.
+// The workspace routes' handlers (runs, sync, digest preview, settings)
+// against a stubbed engine and a fake actor resolver (the real one is
+// requireApiActor: CSRF guard + session). Each test checks the status and
+// body the client islands rely on, and that a refused request never
+// reaches the engine.
+//
+// Owner decision 2026-10-22: there is no PM role. The actor here is a
+// member (Chloe, who was never a PM), and none of these four routes writes
+// to Linear with her token, so even a read-only Linear grant may call them.
 
-function actor(isPm: boolean): Actor {
+function actor(canWriteLinear: boolean): Actor {
   return {
     session: {
       id: 'sess-1',
       workspaceId: 'org-1',
-      userId: isPm ? 'u-ana' : 'u-chloe',
-      userName: isPm ? 'Ana Moreno' : 'Chloe Diaz',
+      userId: 'u-chloe',
+      userName: 'Chloe Diaz',
       tokens: {
         accessToken: '',
         refreshToken: null,
         expiresAt: null,
-        scopes: ['read', 'write'],
+        scopes: canWriteLinear ? ['read', 'write'] : ['read'],
       },
       createdAt: '2026-10-01T00:00:00.000Z',
       expiresAt: '2026-11-01T00:00:00.000Z',
     },
-    isPm,
-    canWriteLinear: true,
+    canWriteLinear,
   };
 }
 
@@ -158,9 +162,13 @@ function engine() {
 
 type Stub = ReturnType<typeof engine>;
 
-/** A resolver as requireApiActor would answer for this actor. */
-function as(isPm: boolean): ApiActorResolver<Stub> {
-  return () => Promise.resolve({ engine: engine(), actor: actor(isPm) });
+/**
+ * A resolver as requireApiActor would answer for a signed-in member; by
+ * default with a read-only Linear grant, which these routes never need.
+ */
+function member(canWriteLinear = false): ApiActorResolver<Stub> {
+  return () =>
+    Promise.resolve({ engine: engine(), actor: actor(canWriteLinear) });
 }
 
 const signedOut: ApiActorResolver<Stub> = () =>
@@ -202,7 +210,7 @@ beforeEach(() => {
 describe('POST /api/runs', () => {
   test('a bad mode is a 400 and never reaches the engine', async () => {
     const { status, body } = await read(
-      await startRun(json('POST', { mode: 'fast' }), as(true))
+      await startRun(json('POST', { mode: 'fast' }), member())
     );
     expect(status).toBe(400);
     expect(errorCode(body)).toBe('invalid');
@@ -210,42 +218,39 @@ describe('POST /api/runs', () => {
   });
 
   test('malformed JSON and extra keys are 400s', async () => {
-    expect((await startRun(json('POST', '{nope'), as(true))).status).toBe(400);
+    expect((await startRun(json('POST', '{nope'), member())).status).toBe(400);
     expect(
-      (await startRun(json('POST', { mode: 'dry_run', force: true }), as(true)))
+      (await startRun(json('POST', { mode: 'dry_run', force: true }), member()))
         .status
     ).toBe(400);
   });
 
-  test('non-PMs get 403 not_pm', async () => {
+  test('a member starts a dry run: 201 { run }, manual trigger', async () => {
     const { status, body } = await read(
-      await startRun(json('POST', { mode: 'dry_run' }), as(false))
-    );
-    expect(status).toBe(403);
-    expect(errorCode(body)).toBe('not_pm');
-    expect(calls.runs).toEqual([]);
-  });
-
-  test('a dry run as a PM is 201 { run }, manual trigger', async () => {
-    const { status, body } = await read(
-      await startRun(json('POST', { mode: 'dry_run' }), as(true))
+      await startRun(json('POST', { mode: 'dry_run' }), member())
     );
     expect(status).toBe(201);
     expect((body.run as { id: string }).id).toBe('run-9');
     expect(calls.runs).toEqual([{ mode: 'dry_run', trigger: 'manual' }]);
   });
 
-  test('a live run is refused while allocation is in dry run', async () => {
+  test('a live run is refused while allocation is in dry run, never not_pm', async () => {
     const { status, body } = await read(
-      await startRun(json('POST', { mode: 'live' }), as(true))
+      await startRun(json('POST', { mode: 'live' }), member())
     );
     expect(status).toBe(409);
     expect(errorCode(body)).toBe('live_runs_off');
+    expect((body.error as { message: string }).message).not.toMatch(/\bPM/);
     expect(calls.runs).toEqual([]);
+  });
+
+  test('a member starts a live run once allocation is live: 201', async () => {
     allocationMode = 'live';
-    expect(
-      (await startRun(json('POST', { mode: 'live' }), as(true))).status
-    ).toBe(201);
+    const { status, body } = await read(
+      await startRun(json('POST', { mode: 'live' }), member())
+    );
+    expect(status).toBe(201);
+    expect((body.run as { mode: string }).mode).toBe('live');
     expect(calls.runs).toEqual([{ mode: 'live', trigger: 'manual' }]);
   });
 
@@ -255,7 +260,7 @@ describe('POST /api/runs', () => {
       'An allocation run is already in progress.'
     );
     const { status, body } = await read(
-      await startRun(json('POST', { mode: 'dry_run' }), as(true))
+      await startRun(json('POST', { mode: 'dry_run' }), member())
     );
     expect(status).toBe(409);
     expect(errorCode(body)).toBe('conflict');
@@ -269,18 +274,9 @@ describe('POST /api/runs', () => {
 });
 
 describe('POST /api/sync', () => {
-  test('non-PMs get 403 and nothing syncs', async () => {
+  test('a member resyncs their own workspace: 200 { sync }', async () => {
     const { status, body } = await read(
-      await resync(json('POST', {}), as(false))
-    );
-    expect(status).toBe(403);
-    expect(errorCode(body)).toBe('not_pm');
-    expect(calls.syncs).toEqual([]);
-  });
-
-  test('a PM resyncs their own workspace: 200 { sync }', async () => {
-    const { status, body } = await read(
-      await resync(json('POST', {}), as(true))
+      await resync(json('POST', {}), member())
     );
     expect(status).toBe(200);
     expect((body.sync as { ok: boolean }).ok).toBe(true);
@@ -288,25 +284,18 @@ describe('POST /api/sync', () => {
   });
 
   test('options are refused; a lost installation is 403', async () => {
-    expect((await resync(json('POST', { full: 1 }), as(true))).status).toBe(
+    expect((await resync(json('POST', { full: 1 }), member())).status).toBe(
       400
     );
     failWith = new EngineAuthError('not_installed', 'Install the app first.');
-    expect((await resync(json('POST', {}), as(true))).status).toBe(403);
+    expect((await resync(json('POST', {}), member())).status).toBe(403);
   });
 });
 
 describe('POST /api/warnings/preview', () => {
-  test('non-PMs get 403', async () => {
-    expect((await previewWarnings(json('POST', {}), as(false))).status).toBe(
-      403
-    );
-    expect(calls.previews).toEqual([]);
-  });
-
-  test('a PM gets the digests mapped for inline display, nothing recorded', async () => {
+  test('a member gets the digests mapped for inline display, nothing recorded', async () => {
     const { status, body } = await read(
-      await previewWarnings(json('POST', {}), as(true))
+      await previewWarnings(json('POST', {}), member())
     );
     expect(status).toBe(200);
     expect(calls.previews).toEqual([
@@ -329,13 +318,19 @@ describe('POST /api/warnings/preview', () => {
 });
 
 describe('PATCH /api/settings', () => {
-  test('non-PMs get 403 and nothing is saved', async () => {
-    const { status, body } = await read(
-      await patchSettings(json('PATCH', { timezone: 'UTC' }), as(false))
+  test.each([
+    [{ timezone: 'UTC' }, 'the timezone'],
+    [{ allocationMode: 'live' }, 'allocation mode (switching it live)'],
+    [{ warningsMode: 'live' }, 'warnings mode'],
+    [{ watcherUserIds: ['u-ana', 'u-ben'] }, 'the watchers'],
+    [{ watcherUserIds: [] }, 'no watchers at all'],
+    [{ tuning: { warnLeadDays: 10 } }, 'a tuning value'],
+  ])('a member changes %j (%s): 200', async (patch) => {
+    const { status } = await read(
+      await patchSettings(json('PATCH', patch), member())
     );
-    expect(status).toBe(403);
-    expect(errorCode(body)).toBe('not_pm');
-    expect(calls.patches).toEqual([]);
+    expect(status).toBe(200);
+    expect(calls.patches).toEqual([patch]);
   });
 
   test.each([
@@ -347,9 +342,10 @@ describe('PATCH /api/settings', () => {
     [{ tuning: { activeProjectStatuses: [] } }, 'no active statuses'],
     [{ tuning: { bogus: 3 } }, 'an unknown tuning key'],
     [{ tuning: {} }, 'a tuning object with nothing in it'],
-    [{ pmUserIds: 'u-ana' }, 'people that are not a list'],
+    [{ watcherUserIds: 'u-ana' }, 'people that are not a list'],
+    [{ pmUserIds: ['u-ana'] }, 'the retired PM list'],
   ])('%j (%s) is a 400 before the engine', async (patch) => {
-    const response = await patchSettings(json('PATCH', patch), as(true));
+    const response = await patchSettings(json('PATCH', patch), member());
     expect(response.status).toBe(400);
     expect(calls.patches).toEqual([]);
   });
@@ -358,7 +354,7 @@ describe('PATCH /api/settings', () => {
     const { status, body } = await read(
       await patchSettings(
         json('PATCH', { timezone: ' Europe/Oslo ', tuning: { stallDays: 9 } }),
-        as(true)
+        member()
       )
     );
     expect(status).toBe(200);
@@ -370,17 +366,17 @@ describe('PATCH /api/settings', () => {
     );
   });
 
-  test('the engine’s own refusals (lockout, bad zone) are 400s', async () => {
+  test('the engine’s own refusals (bad zone) are 400s', async () => {
     failWith = new EngineInputError(
       'invalid',
-      'At least one active PM must remain, or nobody could change settings.'
+      'timezone must be an IANA timezone such as Europe/Oslo.'
     );
     const { status, body } = await read(
-      await patchSettings(json('PATCH', { pmUserIds: [] }), as(true))
+      await patchSettings(json('PATCH', { timezone: 'Mars/Olympus' }), member())
     );
     expect(status).toBe(400);
     expect((body.error as { message: string }).message).toContain(
-      'At least one active PM'
+      'IANA timezone'
     );
   });
 });

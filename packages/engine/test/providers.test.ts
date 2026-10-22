@@ -291,7 +291,7 @@ describe('real provider: installation tokens', () => {
 });
 
 describe('not installed: one message for every path', () => {
-  // Sync goes through the provider; allocation (and PM edits) check the
+  // Sync goes through the provider; allocation (and edits) check the
   // installation first. Both must tell the person the same thing.
   async function messages(): Promise<{ sync: string; allocate: string }> {
     const named = createLinearProvider({

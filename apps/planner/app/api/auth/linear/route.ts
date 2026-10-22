@@ -21,10 +21,11 @@ import { signValue } from '../../../../lib/signed-cookie';
  * into the signed, 10-minute mp_oauth cookie and the browser is sent to
  * Linear's authorize page. Installing the app and granting write access
  * need someone signed in already. Write access (grant_write) is offered to
- * every signed-in person, PM or not (owner decision 2026-10-21: everyone
- * edits issues with their own token); the "Allow edits in Linear" links
- * pass the page to come back to as returnTo. Demo mode has no OAuth and
- * goes home (demo sessions can already write).
+ * every signed-in person (owner decisions 2026-10-21 and 2026-10-22:
+ * everyone edits with their own token, and there are no roles); the
+ * "Allow edits in Linear" links pass the page to come back to as
+ * returnTo. Demo mode has no OAuth and goes home (demo sessions can
+ * already write).
  */
 export async function GET(request: Request): Promise<Response> {
   const engine = await getEngine();

@@ -37,7 +37,7 @@ import {
   visibleDependencies,
   withLaneHrefs,
 } from '../../../lib/adapters/timeline';
-import { sendJson } from '../../../lib/api-client';
+import { notSavedToast, sendJson } from '../../../lib/api-client';
 import { formatDate, plural } from '../../../lib/format';
 import {
   type IssueDrawerServer,
@@ -215,7 +215,7 @@ export default function TimelineScreen({
         { targetDate: newEnd }
       );
       if (!result.ok) {
-        toast({ kind: 'error', label: 'Not saved', message: result.message });
+        toast(notSavedToast(result, (href) => window.location.assign(href)));
         throw new Error(result.message);
       }
       toast({
@@ -271,16 +271,18 @@ export default function TimelineScreen({
           )}
           {model.needsWriteGrant ? (
             <Notice
-              label="Read only"
+              label="Linear read only"
               tone="default"
               action={
+                // A plain anchor: the OAuth start must never be prefetched.
                 <Button size="sm" href={GRANT_WRITE_HREF}>
-                  Allow edits
+                  Allow edits in Linear
                 </Button>
               }
             >
-              You are a PM, but the planner can only read Linear for you. Allow
-              edits to re-date milestones, set project leads and edit issues.
+              The planner can only read Linear for you. Allow edits to re-date
+              milestones, set project leads and edit issues as you; weight and
+              “done means…” are yours to change already.
             </Notice>
           ) : null}
           <TimelineBanners banners={model.banners} hrefFor={hrefFor} />

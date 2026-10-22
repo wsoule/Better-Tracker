@@ -220,11 +220,12 @@ describe('live mode', () => {
     await goLive(h);
     await h.engine.runWarnings({ workspaceId: WORKSPACE_ID });
 
-    // Later the same day a PM pulls Juniper's milestone in: it becomes at
-    // risk, but Ana and Ben already had today's digest.
-    const pm = await actorFor(h, 'user-ana');
+    // Later the same day Chloe (anyone may re-date) pulls Juniper's
+    // milestone in: it becomes at risk, but Ana and Ben already had
+    // today's digest.
+    const chloe = await actorFor(h, 'user-chloe');
     await h.engine.setMilestoneTargetDate(
-      pm,
+      chloe,
       'ms-juniper-1',
       addDays(h.clock.today(), 3)
     );
@@ -475,15 +476,15 @@ describe('notices that nobody received are not forgotten', () => {
     harness = await createDemoHarness();
     const h = harness;
     await goLive(h);
-    const pm = await actorFor(h, 'user-ana');
+    const chloe = await actorFor(h, 'user-chloe');
     // No watchers, and Delta has no lead: its blocked notice reaches nobody.
-    await h.engine.updateSettings(pm, { watcherUserIds: [] });
+    await h.engine.updateSettings(chloe, { watcherUserIds: [] });
     const dayOne = await h.engine.runWarnings({ workspaceId: WORKSPACE_ID });
     expect(noticeKeys(dayOne.digests)).not.toContain(
       'allocation_blocked:proj-delta'
     );
 
-    await h.engine.updateSettings(pm, { watcherUserIds: ['user-ana'] });
+    await h.engine.updateSettings(chloe, { watcherUserIds: ['user-ana'] });
     h.clock.advanceDays(1);
     const dayTwo = await h.engine.runWarnings({ workspaceId: WORKSPACE_ID });
     const ana = dayTwo.digests.find((d) => d.recipientId === 'user-ana');

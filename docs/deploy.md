@@ -40,10 +40,10 @@ workspace that installs it (arch §4.1).
    and assignments show up in Linear as coming from this app user.
 3. **Callback URL**: `<APP_URL>/api/auth/linear/callback`, exactly. The
    `redirect_uri` must match a registered URL character for character (research:
-   Linear OAuth 2.0, Q1). Sign-in, the PM write grant and the install all use
-   this one callback (arch §7.1). To also run the app locally against real
-   Linear, add `http://localhost:3000/api/auth/linear/callback` if the form
-   accepts more than one URL.
+   Linear OAuth 2.0, Q1). Sign-in, the write grant and the install all use this
+   one callback (arch §7.1). To also run the app locally against real Linear,
+   add `http://localhost:3000/api/auth/linear/callback` if the form accepts more
+   than one URL.
 4. **Webhooks**: enable them and set
    - URL: `<APP_URL>/api/webhooks/linear`
    - Resource types: **Issue, Project, Initiative, User**, plus
@@ -75,8 +75,9 @@ Nothing else needs configuring on the Linear side. The app requests its scopes
 when it sends people to Linear (arch §7 auth):
 
 - Sign-in uses `read`.
-- A PM who edits dates or leads grants `read,write` once, so Linear credits
-  those edits to that person.
+- Anyone who edits issues, milestone dates or project leads grants `read,write`
+  once, so Linear credits those edits to that person. There is no PM role:
+  everyone signed in can edit everything (design §12, 2026-10-22).
 - The install uses `read,write` with `actor=app`. An `actor=app` install cannot
   request `admin`.
 
@@ -298,16 +299,17 @@ PR environments (research: Railway deployment, "Variable reference syntax").
 | `LINEAR_CLIENT_SECRET`    |  ✓  |   ✓    | sealed, from step 1                                                                                                                                                                                                                                                                                      |
 | `LINEAR_WEBHOOK_SECRET`   |  ✓  |        | sealed, from step 1                                                                                                                                                                                                                                                                                      |
 | `SLACK_BOT_TOKEN`         |  ✓  |   ✓    | sealed. `xoxb-…` from step 2.                                                                                                                                                                                                                                                                            |
-| `DEFAULT_TIMEZONE`        |  ✓  |   ✓    | IANA zone for new workspaces, e.g. `America/Chicago` (default `UTC`). PMs can change it later in Settings.                                                                                                                                                                                               |
-| `PM_EMAILS`               |  ✓  |   ✓    | comma-separated. Merged into Settings on the first full sync after the install.                                                                                                                                                                                                                          |
-| `WATCHER_EMAILS`          |  ✓  |   ✓    | comma-separated. Watchers get every warning (design §5: the project owner plus the configured watchers).                                                                                                                                                                                                 |
+| `DEFAULT_TIMEZONE`        |  ✓  |   ✓    | IANA zone for new workspaces, e.g. `America/Chicago` (default `UTC`). Anyone can change it later in Settings.                                                                                                                                                                                            |
+| `WATCHER_EMAILS`          |  ✓  |   ✓    | comma-separated. The first watchers, saved on the first full sync after the install; if none match, the installer is the first watcher. Watchers get every warning (design §5: the project owner plus the configured watchers).                                                                          |
 | `DAILY_RUN_AT`            |     |   ✓    | `HH:MM` in each workspace's timezone (default `08:00`)                                                                                                                                                                                                                                                   |
 | `PORT`                    |  ✓  |        | `3000`                                                                                                                                                                                                                                                                                                   |
 | `RAILWAY_DOCKERFILE_PATH` |  ✓  |   ✓    | `deploy/Dockerfile` (a Railway build setting, not read by the app)                                                                                                                                                                                                                                       |
 
 Optional: `APP_NAME`, `LOG_LEVEL` (`debug` / `info` / `warn` / `error`),
 `SESSION_DAYS` (default 30) and `TICK_TIMEOUT_MINUTES` (default 10, at most 14).
-**Never set `LINEAR_FIXTURE` in production**: it switches to the fictional demo
+`PM_EMAILS` is no longer used (there is no PM role, design §12): remove it. A
+service that still has it boots normally and logs one warning saying so. **Never
+set `LINEAR_FIXTURE` in production**: it switches to the fictional demo
 workspace. `PGLITE_DIR` is not used when `DATABASE_URL` is set.
 
 **Migrations run on boot.** Each service applies pending migrations when it
@@ -330,8 +332,9 @@ safely. There is no build-time or pre-deploy migration step.
 2. **Install**: the app sends a signed-in user to `/setup` while the workspace
    has no installation. Start the install there. Linear asks the admin which
    **teams** the app may access. Pick every team whose projects the planner
-   should manage, because it sees nothing else. The installer becomes the first
-   PM.
+   should manage, because it sees nothing else. There is no PM step: everyone
+   signed in can edit everything (design §12, 2026-10-22). If `WATCHER_EMAILS`
+   matches nobody, the installer becomes the first watcher.
 3. **Confirm the first sync**. The install triggers a full sync, and Settings →
    Status shows when the last full sync ran and whether it worked. Within 15
    minutes the worker's first tick logs a line such as
@@ -339,11 +342,11 @@ safely. There is no build-time or pre-deploy migration step.
    run it right away, trigger the cron job off-schedule with `railway cron run`
    (add `--yes` outside a terminal) (research: Railway deployment, "Cron: how
    cronSchedule works…").
-4. **Settings → People and Schedule**:
-   - Check the PMs (`PM_EMAILS` was merged in at the first sync, and at least
-     one PM is required).
+4. **Settings → Watchers and Schedule** (Watchers was called People):
    - Set the watchers: the people warned about every at-risk milestone, besides
-     the project lead (design §5).
+     the project lead (design §5). `WATCHER_EMAILS` (else the installer) filled
+     the list at the first sync; it may be emptied, and then only leads are
+     warned.
    - Set the workspace **timezone**. It decides "today", the days left and when
      the daily job is due.
 5. **Runs → Preview (dry run)**: review what allocation would assign, skip and
@@ -352,14 +355,15 @@ safely. There is no build-time or pre-deploy migration step.
 6. **Settings → digest preview**: check what each person would receive. People
    whose Slack email differs from their Linear email are reported as
    undeliverable once warnings are live.
-7. **Go live.** A PM switches **allocation** and **warnings** to live in
-   Settings. Allocation stays a dry run until a PM switches it (design §7.4).
-   The scheduled daily job runs once per local day, so if today's already ran
-   (as a dry run), the first scheduled live allocation is tomorrow's; a PM can
-   start one now with **Runs → Run now**. When warnings go live, the warning
-   memory resets, so the first live run announces everything that is notable at
-   that moment. A preview digest already recorded today still counts as today's
-   digest, so that first live announcement goes out the next day (arch §7.1).
+7. **Go live.** Anyone signed in switches **allocation** and **warnings** to
+   live in Settings → Modes (the switch is in Settings → Audit). Allocation
+   stays a dry run until someone switches it (design §7.4). The scheduled daily
+   job runs once per local day, so if today's already ran (as a dry run), the
+   first scheduled live allocation is tomorrow's; anyone can start one now with
+   **Runs → Run now**. When warnings go live, the warning memory resets, so the
+   first live run announces everything that is notable at that moment. A preview
+   digest already recorded today still counts as today's digest, so that first
+   live announcement goes out the next day (arch §7.1).
 
 ## 5. Operations
 
@@ -440,7 +444,7 @@ offers one: **verify this in your workspace**.
 - If another allocation run is in progress when the daily job starts, the job
   fails with `An allocation run is already in progress` (exit 1), gives the day
   back, and a later tick runs it. That run can be an `allocate` run by hand (or
-  a PM's run from the web app) that is still going, or one that was killed or
+  someone's run from the web app) that is still going, or one that was killed or
   timed out: a run counts as in progress until 30 minutes after it started.
 - What the re-run does: issues the dead tick already assigned are skipped as
   already assigned (never assigned or commented twice; a comment it had not
@@ -484,7 +488,7 @@ died simply signs in again.
 **Backups.** Back up the Railway Postgres database with whatever your Railway
 plan provides, or with `pg_dump` over a temporary public TCP proxy. With libpq,
 `sslmode=require` works against its self-signed certificate. The database holds
-what Linear does not: settings, PMs and watchers, weights, "done means…" text,
+what Linear does not: settings (watchers included), weights, "done means…" text,
 the allocation run log, warning memory and the audit log. The Linear mirror
 rebuilds itself on the next sync. A restored backup holds refresh tokens that
 have since rotated and died. After a restore, expect an admin to reinstall and
@@ -509,8 +513,8 @@ says what the planner does in the meantime.
   the next 15-minute resync.
 - **Can one OAuth app be used with `actor=app` and `actor=user` together?** It
   is very likely but not documented. To test: install as an admin, then sign in
-  as a non-admin member and as a PM who grants write. Confirm all three work,
-  and that allocation still runs as the app afterwards.
+  as a non-admin member, and as a member who grants write. Confirm all three
+  work, and that allocation still runs as the app afterwards.
 - **Is `webhookTimestamp` regenerated on retries?** If Linear re-sent the
   original timestamp, every retry would be rejected as stale by the 60-second
   check. To test: make one delivery fail (a non-200 answer), then log the

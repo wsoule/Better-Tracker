@@ -175,8 +175,8 @@ export async function readSettings(
 
 /**
  * The two not_installed messages, shared by every path that finds them
- * (requireInstallation for allocation, PM edits and settings; the real
- * Linear provider for sync and webhooks), so a person sees the same words
+ * (requireInstallation for allocation, edits and settings; the real Linear
+ * provider for sync and webhooks), so a person sees the same words
  * whichever action ran into it. `lostAccess` covers a revoked
  * installation and a grant Linear rejects, which both need a reinstall.
  */

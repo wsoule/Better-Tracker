@@ -190,10 +190,8 @@ export function runRow(
 export interface RunsPageModel {
   rows: RunRowModel[];
   receipts: string;
-  /** settings.allocationMode is live: PMs may start a live run. */
+  /** settings.allocationMode is live: anyone signed in may start a live run. */
   liveRunsOn: boolean;
-  /** People who can start a run, for the copy non-PMs see. */
-  pmNames: string[];
 }
 
 export function buildRunsPage(input: {
@@ -201,7 +199,6 @@ export function buildRunsPage(input: {
   snapshot: Snapshot;
   timeZone: string;
   allocationMode: AllocationMode;
-  pmUserIds: readonly string[];
 }): RunsPageModel {
   const rows = input.runs.map((run) =>
     runRow(run, input.snapshot, input.timeZone)
@@ -218,10 +215,6 @@ export function buildRunsPage(input: {
     rows,
     receipts: `${mode} ${count}`,
     liveRunsOn,
-    pmNames: input.pmUserIds
-      .map((id) => input.snapshot.users.get(id))
-      .filter((user) => user !== undefined && user.active && !user.app)
-      .map((user) => user?.name ?? ''),
   };
 }
 

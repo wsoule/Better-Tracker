@@ -83,11 +83,11 @@ export const INSTALL_STEPS: readonly {
   {
     key: '03',
     title: 'Its own user',
-    body: 'The app gets its own Linear user. Allocation comments come from that user; a PM’s date and lead edits are made as the PM.',
+    body: 'The app gets its own Linear user. Allocation comments come from that user; the date, lead and issue edits people make are made as each of them.',
   },
   {
     key: '04',
     title: 'First sync',
-    body: 'The first full sync starts right after the install, and the timeline opens. The installer becomes a PM.',
+    body: 'The first full sync starts right after the install, and the timeline opens. Unless the deployment already names watchers, the installer becomes the first one: warned about every at-risk milestone, which anyone can change in Settings.',
   },
 ];

@@ -2,10 +2,12 @@ import { requireApiActor } from '../../../../lib/http';
 import { patchMilestone } from '../../../../lib/timeline-edits';
 
 /**
- * PATCH /api/milestones/[id] { targetDate?, weight?, doneMeans? } (PMs):
- * re-dates the milestone in Linear as the signed-in PM and sets the
- * planner's own weight override and "done means…". Same-origin JSON only;
- * the engine checks isPm and Linear write scope. 200 { ok: true }.
+ * PATCH /api/milestones/[id] { targetDate?, weight?, doneMeans? } (anyone
+ * signed in): re-dates the milestone in Linear with the signed-in person's
+ * own token and sets the planner's own weight override and "done means…".
+ * Same-origin JSON only; the engine requires Linear write scope for the
+ * date only (weight and "done means…" need just the session).
+ * 200 { ok: true }.
  */
 export async function PATCH(
   request: Request,

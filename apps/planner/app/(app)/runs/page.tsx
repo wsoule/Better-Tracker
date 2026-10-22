@@ -38,11 +38,12 @@ const HEADER = [
 ];
 
 /* /runs (architecture §8.4 "Runs", §7 runAllocation): the allocation run
-   log, newest first, for everyone. PMs also get "Preview (dry run)" and,
-   only while Settings says allocation is live, "Run now"; the route
-   enforces both rules. Each row opens the run's detail. */
+   log, newest first, with "Preview (dry run)" and, only while Settings
+   says allocation is live, "Run now" for everyone signed in (owner
+   decision 2026-10-22: no roles); the route enforces the live gate too.
+   Each row opens the run's detail. */
 export default async function RunsPage() {
-  const { engine, actor, workspaceId } = await requireInstalledActor();
+  const { engine, workspaceId } = await requireInstalledActor();
   const [runs, loaded] = await orSetup(
     Promise.all([
       engine.listRuns(workspaceId, RUN_LIMIT),
@@ -54,7 +55,6 @@ export default async function RunsPage() {
     snapshot: loaded.snapshot,
     timeZone: loaded.settings.timezone,
     allocationMode: loaded.settings.allocationMode,
-    pmUserIds: loaded.settings.pmUserIds,
   });
 
   return (
@@ -64,11 +64,7 @@ export default async function RunsPage() {
         <p className={css.receipts}>{page.receipts}</p>
       </header>
       <div className={css.body}>
-        <RunActions
-          isPm={actor.isPm}
-          liveRunsOn={page.liveRunsOn}
-          pmNames={page.pmNames}
-        />
+        <RunActions liveRunsOn={page.liveRunsOn} />
         <section className={css.collapse} aria-label="Allocation runs">
           <BlockBar
             index="01"
@@ -78,7 +74,7 @@ export default async function RunsPage() {
           {page.rows.length === 0 ? (
             <EmptyState>
               No allocation runs yet. Runs appear here after the scheduled daily
-              run, or when a PM starts one.
+              run, or when someone starts one with Preview (dry run).
             </EmptyState>
           ) : (
             <Register

@@ -34,10 +34,11 @@ export const metadata: Metadata = { title: 'My week' };
 
 /* /week (architecture §8.4 "My week"): the signed-in person's open issues
    grouped by milestone, with deadlines and the projects they lead that need
-   attention. PMs may pass ?user=<id> to see someone else's week; the id is
-   checked here, never trusted from the client, and ignored for everyone
-   else. ?issue=<key> opens that issue in the slide-over (§8.5). All data
-   comes from the engine; lib/adapters/week.ts and issue.ts map it. */
+   attention. Anyone signed in may pass ?user=<id> to see a person's week
+   (no roles since the owner decision of 2026-10-22); the id is checked
+   against the mirror here, never trusted from the client. ?issue=<key>
+   opens that issue in the slide-over (§8.5). All data comes from the
+   engine; lib/adapters/week.ts and issue.ts map it. */
 export default async function WeekPage({
   searchParams,
 }: {
@@ -55,12 +56,11 @@ export default async function WeekPage({
   const userId = resolveWeekUserId({
     requested: params.user,
     viewerId,
-    isPm: actor.isPm,
     knownUserIds,
   });
 
   // ?issue= opens the issue slide-over; every row links there, keeping
-  // the rest of the URL (a PM's ?user=).
+  // the rest of the URL (a ?user= for someone else's week).
   const issueKey = parseIssueParam(params);
   const base = withIssueParam(currentHref('/week', params), null);
   const [week, timeline, drawer] = await orSetup(
@@ -92,14 +92,12 @@ export default async function WeekPage({
           <h1 className={css.title}>{page.heading}</h1>
           <p className={css.receipts}>{page.receipts}</p>
         </div>
-        {actor.isPm ? (
-          <WeekUserPicker
-            key={userId}
-            options={weekPeopleOptions(users, viewerId)}
-            value={userId}
-            viewerId={viewerId}
-          />
-        ) : null}
+        <WeekUserPicker
+          key={userId}
+          options={weekPeopleOptions(users, viewerId)}
+          value={userId}
+          viewerId={viewerId}
+        />
       </header>
 
       <div className={css.body}>

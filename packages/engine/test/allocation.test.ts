@@ -80,13 +80,13 @@ describe('dry run', () => {
     harness = await createDemoHarness({ wrap: recordWrites(writes) });
     const h = harness;
     const before = structuredClone(h.fixture.data);
-    const pm = await actorFor(h, 'user-ana');
+    const ana = await actorFor(h, 'user-ana');
 
     const run = await h.engine.runAllocation({
       workspaceId: WORKSPACE_ID,
       mode: 'dry_run',
       trigger: 'manual',
-      actor: pm,
+      actor: ana,
     });
     expect(run.status).toBe('succeeded');
     expect(run.mode).toBe('dry_run');
@@ -174,7 +174,7 @@ describe('dry run', () => {
     expect(fetches).toBe(1);
   });
 
-  test('the schedule may dry-run; non-PMs may not', async () => {
+  test('the schedule and any signed-in member may run both modes', async () => {
     harness = await createDemoHarness();
     const h = harness;
     const scheduled = await h.engine.runAllocation({
@@ -186,19 +186,33 @@ describe('dry run', () => {
     expect(scheduled.status).toBe('succeeded');
     expect(scheduled.startedByUserId).toBeNull();
 
+    // There is no PM role (owner decision 2026-10-22): Chloe, who was
+    // never on the old PM list, starts a dry run and then a live run.
     const member = await actorFor(h, 'user-chloe');
-    for (const mode of ['dry_run', 'live'] as const) {
-      expect(
-        await rejection(
-          h.engine.runAllocation({
-            workspaceId: WORKSPACE_ID,
-            mode,
-            trigger: 'manual',
-            actor: member,
-          })
-        )
-      ).toMatchObject({ name: 'EngineAuthError', code: 'not_pm' });
-    }
+    const dry = await h.engine.runAllocation({
+      workspaceId: WORKSPACE_ID,
+      mode: 'dry_run',
+      trigger: 'manual',
+      actor: member,
+    });
+    expect(dry).toMatchObject({
+      status: 'succeeded',
+      mode: 'dry_run',
+      startedByUserId: 'user-chloe',
+    });
+    expect(dry.summary?.wouldAssign).toBe(5);
+    const live = await h.engine.runAllocation({
+      workspaceId: WORKSPACE_ID,
+      mode: 'live',
+      trigger: 'manual',
+      actor: member,
+    });
+    expect(live).toMatchObject({
+      status: 'succeeded',
+      mode: 'live',
+      startedByUserId: 'user-chloe',
+    });
+    expect(live.summary?.assigned).toBe(5);
     expect(
       await rejection(
         h.engine.runAllocation({
@@ -209,8 +223,8 @@ describe('dry run', () => {
         })
       )
     ).toBeInstanceOf(EngineInputError);
-    // Refusals never start a run.
-    expect(await h.engine.listRuns(WORKSPACE_ID, 10)).toHaveLength(1);
+    // The refusal never started a run.
+    expect(await h.engine.listRuns(WORKSPACE_ID, 10)).toHaveLength(3);
   });
 });
 
@@ -328,7 +342,7 @@ describe('live run', () => {
     expect(h.fixture.comments).toHaveLength(5);
   });
 
-  test('a PM can start a live run', async () => {
+  test('anyone signed in can start a live run', async () => {
     harness = await createDemoHarness();
     const h = harness;
     const run = await h.engine.runAllocation({
@@ -516,14 +530,14 @@ describe('live run', () => {
   test('a run for another workspace or without an installation is refused', async () => {
     harness = await createDemoHarness();
     const h = harness;
-    const pm = await actorFor(h, 'user-ana');
+    const ana = await actorFor(h, 'user-ana');
     expect(
       await rejection(
         h.engine.runAllocation({
           workspaceId: 'org-other',
           mode: 'dry_run',
           trigger: 'manual',
-          actor: pm,
+          actor: ana,
         })
       )
     ).toMatchObject({ code: 'wrong_workspace' });

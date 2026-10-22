@@ -163,10 +163,11 @@ describe('finishSignIn', () => {
     expect(result.session.tokens.expiresAt).toBe(TOKEN_EXPIRY);
 
     const actor = await engine.authenticate(result.sessionToken);
-    expect(actor?.isPm).toBe(false);
+    // No roles: an actor is the session and whether it may write Linear.
+    expect(actor).not.toHaveProperty('isPm');
     expect(actor?.canWriteLinear).toBe(false);
     expect(actor?.session.tokens.accessToken).toBe('');
-    // The real tokens are stored (encrypted) for PM edits.
+    // The real tokens are stored (encrypted) for the person's own edits.
     const stored = await store.getSession(
       result.sessionToken,
       clock.now().toISOString()
@@ -244,7 +245,7 @@ describe('finishInstall', () => {
     ]);
   });
 
-  test('saves the installation and makes the installer a PM', async () => {
+  test('saves the installation; anyone signed in may reinstall', async () => {
     const { token, actor } = await signIn(PAT);
     fake.addCode('code-install', ACME_APP, 'read,write');
     const installation = await engine.finishInstall({
@@ -269,11 +270,14 @@ describe('finishInstall', () => {
       ''
     );
 
-    expect((await store.getSettings('org-acme'))?.pmUserIds).toEqual(['u-pat']);
-    expect((await engine.authenticate(token))?.isPm).toBe(true);
+    // Installing makes nobody special: settings are left to the first
+    // full sync, which makes the installer the first watcher unless
+    // WATCHER_EMAILS names someone (sync.test.ts).
+    expect(await store.getSettings('org-acme')).toBeNull();
+    expect(await engine.authenticate(token)).not.toBeNull();
     expect(await engine.listWorkspaceIds()).toEqual(['org-acme']);
 
-    // Sam signs in afterwards: no install needed, not a PM.
+    // Sam signs in afterwards: no install needed.
     fake.addCode('code-sam', SAM, 'read');
     const sam = await engine.finishSignIn({
       code: 'code-sam',
@@ -282,19 +286,48 @@ describe('finishInstall', () => {
     });
     expect(sam.needsInstall).toBe(false);
     const samActor = await engine.authenticate(sam.sessionToken);
-    expect(samActor?.isPm).toBe(false);
 
-    // Reinstalling over an active installation needs a PM.
+    // There is no PM role (owner decision 2026-10-22): Sam may reinstall
+    // over the active installation. Only a Linear admin can grant
+    // actor=app, which is what keeps installs to admins.
     fake.addCode('code-reinstall', ACME_APP, 'read,write');
-    expect(
-      await rejection(
-        engine.finishInstall({
-          code: 'code-reinstall',
-          codeVerifier: 'v',
-          actor: samActor as Actor,
-        })
-      )
-    ).toMatchObject({ code: 'not_pm' });
+    const reinstalled = await engine.finishInstall({
+      code: 'code-reinstall',
+      codeVerifier: 'v',
+      actor: samActor as Actor,
+    });
+    expect(reinstalled).toMatchObject({
+      workspaceId: 'org-acme',
+      installedByUserId: 'u-sam',
+      revokedAt: null,
+      createdAt: installation.createdAt,
+    });
+    expect(await store.getSettings('org-acme')).toBeNull();
+  });
+
+  test('a reinstall keeps the saved settings, watchers included', async () => {
+    const pat = await signIn(PAT);
+    fake.addCode('code-install', ACME_APP, 'read,write');
+    await engine.finishInstall({
+      code: 'code-install',
+      codeVerifier: 'v',
+      actor: pat.actor,
+    });
+    const saved = {
+      ...(await engine.getSettings('org-acme')),
+      watcherUserIds: ['u-pat'],
+      allocationMode: 'live' as const,
+    };
+    await store.saveSettings(saved);
+
+    const sam = await signIn(SAM);
+    fake.addCode('code-reinstall', ACME_APP, 'read,write');
+    await engine.finishInstall({
+      code: 'code-reinstall',
+      codeVerifier: 'v',
+      actor: sam.actor,
+    });
+    expect(await store.getSettings('org-acme')).toEqual(saved);
   });
 });
 
@@ -399,8 +432,7 @@ describe('authenticate', () => {
   });
 });
 
-// Review regressions: people Linear deactivated lose access, and losing
-// every PM that way is recoverable by an admin reinstall.
+// Review regressions: people Linear deactivated lose access.
 describe('deactivated people', () => {
   // A mirror of Acme with the given people (enough for auth decisions).
   async function mirrorPeople(users: FakeIdentity['user'][]): Promise<void> {
@@ -425,11 +457,13 @@ describe('deactivated people', () => {
     await engine.finishInstall({ code, codeVerifier: 'v', actor });
   }
 
-  test('a PM deactivated in Linear is signed out', async () => {
+  test('a person deactivated in Linear is signed out', async () => {
     const pat = await signIn(PAT, 'grant_write');
     await install(pat.actor, 'code-install');
     await mirrorPeople([PAT.user, SAM.user, ACME_APP.user]);
-    expect((await engine.authenticate(pat.token))?.isPm).toBe(true);
+    expect((await engine.authenticate(pat.token))?.session.userId).toBe(
+      'u-pat'
+    );
 
     await mirrorPeople([{ ...PAT.user, active: false }, SAM.user]);
     expect(await engine.authenticate(pat.token)).toBeNull();
@@ -437,35 +471,5 @@ describe('deactivated people', () => {
     expect(await store.getSession(pat.token, clock.now().toISOString())).toBe(
       null
     );
-  });
-
-  test('with no active PM left, an admin may reinstall and becomes PM', async () => {
-    const pat = await signIn(PAT);
-    await install(pat.actor, 'code-install');
-    const sam = await signIn(SAM);
-    await mirrorPeople([PAT.user, SAM.user, ACME_APP.user]);
-
-    // While Pat is an active PM, Sam may not reinstall.
-    fake.addCode('code-early', ACME_APP, 'read,write');
-    expect(
-      await rejection(
-        engine.finishInstall({
-          code: 'code-early',
-          codeVerifier: 'v',
-          actor: sam.actor,
-        })
-      )
-    ).toMatchObject({ code: 'not_pm' });
-
-    // Pat leaves the company: nobody could change settings any more.
-    await mirrorPeople([{ ...PAT.user, active: false }, SAM.user]);
-    const samNow = await engine.authenticate(sam.token);
-    expect(samNow?.isPm).toBe(false);
-    await install(samNow as Actor, 'code-recover');
-    expect((await store.getSettings('org-acme'))?.pmUserIds).toEqual([
-      'u-pat',
-      'u-sam',
-    ]);
-    expect((await engine.authenticate(sam.token))?.isPm).toBe(true);
   });
 });

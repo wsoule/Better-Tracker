@@ -300,7 +300,7 @@ describe('runDaily after a run that died', () => {
     const settings = (await h.engine.load(WORKSPACE_ID)).settings;
     await h.store.saveSettings({ ...settings, allocationMode: 'live' });
 
-    // The daily tick dies mid-sync. 20 minutes later a PM's live run
+    // The daily tick dies mid-sync. 20 minutes later someone's live run
     // (started from the web app) gets stuck on its first assignment.
     hangSync = true;
     void h.engine.runDaily({ workspaceId: WORKSPACE_ID });
@@ -317,7 +317,7 @@ describe('runDaily after a run that died', () => {
     await assignGate.reached;
     hangAssign = false;
 
-    // The claim is past its lease, but the PM's run is only 26 minutes
+    // The claim is past its lease, but that live run is only 26 minutes
     // old: the run lock still holds, the takeover fails and gives the day
     // back.
     at(h, startMs, LEASE + 1);

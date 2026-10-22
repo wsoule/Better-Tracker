@@ -37,11 +37,10 @@ const ACTOR: Actor = {
     createdAt: '2026-10-01T00:00:00.000Z',
     expiresAt: '2026-11-01T00:00:00.000Z',
   },
-  isPm: true,
   canWriteLinear: false,
 };
 
-/** A signed-in person who is not a PM, with a read-only Linear token. */
+/** A signed-in member (there are no roles), with a read-only Linear token. */
 const MEMBER: Actor = {
   ...ACTOR,
   session: {
@@ -50,7 +49,6 @@ const MEMBER: Actor = {
     userId: 'user-chloe',
     userName: 'Chloe Diaz',
   },
-  isPm: false,
   canWriteLinear: false,
 };
 
@@ -187,7 +185,7 @@ describe('GET /api/auth/linear', () => {
     expect(signedIn.status).toBe(302);
   });
 
-  test('anyone signed in may grant write access, PM or not (owner decision 2026-10-21)', async () => {
+  test('anyone signed in may grant write access (owner decisions 2026-10-21, 2026-10-22)', async () => {
     const returnTo = '/week?issue=ENG-24';
     const response = await start(
       get(

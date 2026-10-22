@@ -53,8 +53,11 @@ export interface EngineConfig {
   appUrl: string;
   /** Timezone for workspaces without a saved setting. */
   defaultTimezone: string;
-  /** Seed PMs/watchers by email the first time a workspace is configured. */
-  bootstrapPmEmails: string[];
+  /**
+   * Seed the watchers by email (`WATCHER_EMAILS`) the first time a
+   * workspace is configured; when none match, the installer becomes the
+   * first watcher.
+   */
   bootstrapWatcherEmails: string[];
   /** Absent in fixture (demo) mode. */
   oauth: OAuthClientConfig | null;
@@ -80,7 +83,7 @@ export interface LinearProvider {
   readonly mode: 'linear' | 'fixture';
   /** Acts as the installed app (allocation writes, sync). */
   forApp(workspaceId: string): Promise<LinearGateway>;
-  /** Acts as the signed-in human (PM edits, a person's issue edits). */
+  /** Acts as the signed-in human (their milestone, lead and issue edits). */
   forSession(session: Session): Promise<LinearGateway>;
 }
 
@@ -101,10 +104,14 @@ export interface EngineDeps {
   fetch?: FetchLike;
 }
 
-/** The signed-in person making a request. */
+/**
+ * The signed-in person making a request. There are no roles: since the
+ * owner decision of 2026-10-22 every signed-in person may make every edit
+ * and start every run. Only edits written to Linear need `canWriteLinear`,
+ * because they go out with the person's own token.
+ */
 export interface Actor {
   session: Session;
-  isPm: boolean;
   /**
    * Granted Linear scopes of the user's token include `write`. Since the
    * owner decision of 2026-10-21 every signed-in person may hold it (the
@@ -229,7 +236,6 @@ export interface SignInResult {
 export class EngineAuthError extends Error {
   readonly code:
     | 'not_signed_in'
-    | 'not_pm'
     | 'needs_write_scope'
     | 'not_installed'
     | 'wrong_workspace'
@@ -365,7 +371,10 @@ export interface Engine {
   }): Promise<DailyResult>;
   listWorkspaceIds(): Promise<string[]>;
 
-  // --- PM edits (engine enforces isPm / canWriteLinear) ----------------------
+  // --- milestone, project and settings edits ----------------------------------
+  // Open to every signed-in person (owner decision 2026-10-22). The Linear
+  // writes (target date, lead) need actor.canWriteLinear; weight, "done
+  // means…" and settings are the planner's own data. Each is audited.
   setMilestoneTargetDate(
     actor: Actor,
     milestoneId: string,
@@ -393,7 +402,7 @@ export interface Engine {
 
   // --- issue page (owner decision 2026-10-21; additive) ---------------------
   // Reads need only a session. Writes need actor.canWriteLinear (any
-  // signed-in person who granted write; never isPm-gated), are validated
+  // signed-in person who granted write), are validated
   // against the mirror (and the team's live labels / estimate scale),
   // go to Linear with the person's own token, patch the mirror at once and
   // append an audit entry per changed field.

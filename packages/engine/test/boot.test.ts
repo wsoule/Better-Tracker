@@ -35,7 +35,6 @@ describe('loadEngineConfigFromEnv', () => {
       appName: 'Milestone Planner',
       appUrl: 'http://localhost:3000',
       defaultTimezone: 'UTC',
-      bootstrapPmEmails: [],
       bootstrapWatcherEmails: [],
       oauth: null,
       sessionDays: 30,
@@ -47,8 +46,8 @@ describe('loadEngineConfigFromEnv', () => {
       ...REAL_ENV,
       APP_NAME: 'Planner',
       DEFAULT_TIMEZONE: 'America/Chicago',
-      PM_EMAILS: ' Wyat@Example.com, shanzer@example.com ,,wyat@example.com',
-      WATCHER_EMAILS: 'ops@example.com',
+      WATCHER_EMAILS:
+        ' Wyat@Example.com, shanzer@example.com ,,wyat@example.com',
       SESSION_DAYS: '14',
     });
     expect(config.appUrl).toBe('https://planner.example.com');
@@ -57,11 +56,10 @@ describe('loadEngineConfigFromEnv', () => {
       clientSecret: 'client-secret',
       redirectUri: 'https://planner.example.com/api/auth/linear/callback',
     });
-    expect(config.bootstrapPmEmails).toEqual([
+    expect(config.bootstrapWatcherEmails).toEqual([
       'wyat@example.com',
       'shanzer@example.com',
     ]);
-    expect(config.bootstrapWatcherEmails).toEqual(['ops@example.com']);
     expect(config.defaultTimezone).toBe('America/Chicago');
     expect(config.sessionDays).toBe(14);
     expect(config.appName).toBe('Planner');
@@ -73,7 +71,7 @@ describe('loadEngineConfigFromEnv', () => {
       loadEngineConfigFromEnv({
         DEFAULT_TIMEZONE: 'Mars/Olympus',
         SESSION_DAYS: 'forever',
-        PM_EMAILS: 'not-an-email',
+        WATCHER_EMAILS: 'not-an-email',
         LOG_LEVEL: 'loud',
       });
     } catch (error) {
@@ -86,11 +84,22 @@ describe('loadEngineConfigFromEnv', () => {
       'LINEAR_CLIENT_SECRET is required',
       'DEFAULT_TIMEZONE is not a known IANA timezone: Mars/Olympus',
       'SESSION_DAYS must be a whole number',
-      'PM_EMAILS has an entry that is not an email: not-an-email',
+      'WATCHER_EMAILS has an entry that is not an email: not-an-email',
       'LOG_LEVEL must be one of',
     ]) {
       expect(message).toContain(part);
     }
+  });
+
+  // The PM list is retired (owner decision 2026-10-22): PM_EMAILS is
+  // neither read nor validated, so an old deploy still boots.
+  test('ignores the retired PM_EMAILS, even malformed', () => {
+    const config = loadEngineConfigFromEnv({
+      ...REAL_ENV,
+      PM_EMAILS: 'wyat@example.com, not-an-email',
+    });
+    expect(config).not.toHaveProperty('bootstrapPmEmails');
+    expect(config.bootstrapWatcherEmails).toEqual([]);
   });
 
   test('rejects malformed values that are present', () => {
@@ -130,8 +139,11 @@ describe('createEngineFromEnv in demo mode', () => {
     expect(loaded.snapshot.milestones.size).toBe(17);
     expect(loaded.mirrorVersion).toBeGreaterThan(0);
     expect(loaded.syncState?.lastFullSyncStatus).toBe('ok');
-    expect(loaded.settings.pmUserIds).toEqual(['user-ana', 'user-ben']);
+    expect(loaded.settings).not.toHaveProperty('pmUserIds');
     expect(loaded.settings.watcherUserIds).toEqual(['user-ana', 'user-ben']);
+    expect(
+      (await engine.getInstallation('org-northwind'))?.installedByUserId
+    ).toBe('user-ana');
     expect(loaded.settings.allocationMode).toBe('dry_run');
     expect(loaded.settings.warningsMode).toBe('preview');
     expect(loaded.assessments.size).toBe(17);
@@ -237,14 +249,10 @@ describe('createEngineFromEnv in demo mode', () => {
     expect(signIn.needsInstall).toBe(false);
     expect(signIn.session.tokens.accessToken).toBe('');
     const actor = await engine.authenticate(signIn.sessionToken);
-    expect(actor?.isPm).toBe(false);
+    // Demo people carry no PM flag: everyone may edit everything.
+    expect(actor).not.toHaveProperty('isPm');
     expect(actor?.canWriteLinear).toBe(true);
     expect(actor?.session.userId).toBe('user-chloe');
-
-    const pm = await engine.authenticate(
-      (await engine.devSignIn('user-ana')).sessionToken
-    );
-    expect(pm?.isPm).toBe(true);
 
     expect(await rejection(engine.devSignIn('user-app'))).toBeInstanceOf(
       EngineInputError
@@ -316,16 +324,16 @@ describe('demo mode over a persisted PGLITE_DIR', () => {
       try {
         expect(await second.authenticate(signIn.sessionToken)).toBeNull();
         const loaded = await second.load('org-northwind');
-        // Settings a PM changed survive; the fixture is re-seeded around today.
+        // Settings someone changed survive; the fixture is re-seeded around today.
         expect(loaded.settings.warningsMode).toBe('live');
         expect(loaded.snapshot.issues.size).toBeGreaterThan(0);
         expect(
           (await second.getInstallation('org-northwind'))?.revokedAt
         ).toBeNull();
         const again = await second.devSignIn('user-ana');
-        expect((await second.authenticate(again.sessionToken))?.isPm).toBe(
-          true
-        );
+        expect(
+          (await second.authenticate(again.sessionToken))?.session.userId
+        ).toBe('user-ana');
       } finally {
         await second.close();
       }
@@ -367,6 +375,40 @@ describe('createEngineFromEnv in real mode', () => {
     } finally {
       await engine.close();
       await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('createEngineFromEnv with the retired PM_EMAILS', () => {
+  // Owner decision 2026-10-22: no PM role. A deploy that still sets
+  // PM_EMAILS boots as before and is told once that the variable is unused.
+  test('boots and logs exactly one warning', async () => {
+    const warning = '"msg":"PM_EMAILS is no longer used';
+    const quiet = recordingLogger();
+    const plain = await createEngineFromEnv(
+      { LINEAR_FIXTURE: '1' },
+      { logger: quiet.logger }
+    );
+    await plain.close();
+    expect(quiet.lines.some((line) => line.includes(warning))).toBe(false);
+
+    const { logger, lines } = recordingLogger();
+    const engine = await createEngineFromEnv(
+      { LINEAR_FIXTURE: '1', PM_EMAILS: 'ana@northwind.example, nope' },
+      { logger }
+    );
+    try {
+      const warnings = lines.filter((line) => line.includes(warning));
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toContain('"level":"warn"');
+      expect(warnings[0]).toContain('"variable":"PM_EMAILS"');
+      expect(warnings[0]).toContain('WATCHER_EMAILS');
+      // Nothing about the demo changed: the fixture's watchers, no PM list.
+      const settings = await engine.getSettings('org-northwind');
+      expect(settings).not.toHaveProperty('pmUserIds');
+      expect(settings.watcherUserIds).toEqual(['user-ana', 'user-ben']);
+    } finally {
+      await engine.close();
     }
   });
 });

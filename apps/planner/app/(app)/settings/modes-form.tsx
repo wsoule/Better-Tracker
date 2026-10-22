@@ -22,17 +22,12 @@ import { useSaveSettings } from './use-save-settings';
 
 /* Settings → Modes: the allocation (dry run / live) and warnings
    (preview / live) switches, each with the plain consequence of its
-   current position. PMs save both together; everyone else sees the
-   switches disabled. */
-export default function ModesForm({
-  initial,
-  canEdit,
-}: {
-  initial: ModesState;
-  canEdit: boolean;
-}) {
+   current position, saved together. Anyone signed in may switch either
+   one (owner decision 2026-10-22: no roles), including allocation going
+   live; the engine records the switch in the audit log. */
+export default function ModesForm({ initial }: { initial: ModesState }) {
   const [state, setState] = useState(initial);
-  // A save (or another PM's) refreshes `initial`: follow it.
+  // A save (or someone else's) refreshes `initial`: follow it.
   const [synced, setSynced] = useState(initial);
   if (
     synced.allocationMode !== initial.allocationMode ||
@@ -53,7 +48,7 @@ export default function ModesForm({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!dirty || !canEdit) return;
+    if (!dirty) return;
     void save({ ...modesPatch(state) }, modesSavedMessage(state));
   }
 
@@ -77,7 +72,7 @@ export default function ModesForm({
               label="Live"
               note={state.allocationMode === 'live' ? undefined : 'dry run'}
               checked={state.allocationMode === 'live'}
-              disabled={!canEdit || saving}
+              disabled={saving}
               onChange={(on) =>
                 setState((s) => ({
                   ...s,
@@ -99,7 +94,7 @@ export default function ModesForm({
               label="Live"
               note={state.warningsMode === 'live' ? undefined : 'preview'}
               checked={state.warningsMode === 'live'}
-              disabled={!canEdit || saving}
+              disabled={saving}
               onChange={(on) =>
                 setState((s) => ({
                   ...s,
@@ -119,16 +114,14 @@ export default function ModesForm({
       {goingLive ? (
         <Notice label="Live warnings">{WARNINGS_GO_LIVE_NOTE}</Notice>
       ) : null}
-      {canEdit ? (
-        <FormBar
-          dirty={dirty}
-          saving={saving}
-          outcome={outcome}
-          statusRef={statusRef}
-          onDiscarded={discarded}
-          onReset={() => setState(initial)}
-        />
-      ) : null}
+      <FormBar
+        dirty={dirty}
+        saving={saving}
+        outcome={outcome}
+        statusRef={statusRef}
+        onDiscarded={discarded}
+        onReset={() => setState(initial)}
+      />
     </form>
   );
 }

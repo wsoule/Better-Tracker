@@ -23,6 +23,7 @@ import {
   isCurrentPath,
   isPaletteIndex,
   laneMark,
+  PALETTE_SUGGESTIONS,
   paletteItemsFromIndex,
   projectSectionItems,
   runIdFrom,
@@ -172,7 +173,6 @@ describe('shell frame', () => {
       appName: 'Milestone Planner',
       workspaceName: null,
       userName: 'Ana Moreno',
-      isPm: true,
       timeline: null,
       week: null,
     };
@@ -364,6 +364,32 @@ describe('palette index (GET /api/palette)', () => {
 });
 
 describe('palette actions', () => {
+  // Owner decision 2026-10-22: no PM role. A member gets the dry run and
+  // the resync too, and no suggestion is labelled with a role.
+  test('every suggestion is offered to everyone, with no role hint', () => {
+    expect(PALETTE_SUGGESTIONS.map((s) => s.action)).toEqual([
+      'dry-run',
+      'resync',
+      'theme',
+    ]);
+    for (const suggestion of PALETTE_SUGGESTIONS) {
+      expect(`${suggestion.label} ${suggestion.hint}`).not.toMatch(/\bPMs?\b/);
+    }
+  });
+
+  test('the frame carries no role flag', () => {
+    const frame = buildShellFrame({
+      appName: 'Milestone Planner',
+      workspaceName: null,
+      userName: 'Chloe Diaz',
+      installed: false,
+      timeline: null,
+      week: null,
+      loadFailed: false,
+    });
+    expect(Object.keys(frame)).not.toContain('isPm');
+  });
+
   test('finds the run id in a POST /api/runs answer', () => {
     expect(runIdFrom({ run: { id: 'run-1' } })).toBe('run-1');
     expect(runIdFrom({ id: 'run-2', status: 'succeeded' })).toBe('run-2');

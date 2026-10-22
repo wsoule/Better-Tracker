@@ -9,7 +9,8 @@ import type { CheckboxProps } from './types';
    and assistive tech, visually hidden) drives a 13px square glyph that
    fills accent with a drawn check when on, beside a mono label. The whole
    line is the <label>, so clicking the text toggles it. Use it for set
-   membership ("who are the PMs"); Switch is for a mode that is on or off. */
+   membership ("who are the watchers"); Switch is for a mode that is on or
+   off. */
 export function Checkbox({
   checked,
   defaultChecked = false,

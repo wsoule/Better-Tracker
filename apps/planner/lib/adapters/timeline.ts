@@ -150,31 +150,43 @@ export function timelineHref(
 
 /* ---- permissions -------------------------------------------------------- */
 
-/** The parts of the engine's Actor the timeline reads. */
+/**
+ * The part of the engine's Actor the timeline reads. There are no roles
+ * (owner decision 2026-10-22): everyone signed in edits weight and "done
+ * means…", and only the Linear writes depend on the person's grant.
+ */
 export interface TimelinePermissions {
-  isPm: boolean;
   canWriteLinear: boolean;
 }
 
-/** Re-dating and setting leads are Linear writes: PM with write scope. */
+/**
+ * Re-dating and setting leads are Linear writes made with the person's own
+ * token, so they need the write grant (anyone signed in can give it).
+ */
 export function canEditLinear(p: TimelinePermissions): boolean {
-  return p.isPm && p.canWriteLinear;
+  return p.canWriteLinear;
 }
 
 /**
- * A PM whose Linear token is read-only: offer the grant_write upgrade on
- * the timeline itself, whose Linear writes (re-dating, leads) are PM-only.
- * Everyone else is offered the same upgrade where they can use it: on an
- * issue they open (the issue page and slide-over, owner decision
- * 2026-10-21), never as a timeline banner about controls they do not get.
+ * A person whose Linear token is read-only: offer the grant_write upgrade
+ * on the timeline itself, so they can re-date milestones and set leads.
+ * Offered to everyone, as on the issue page (owner decision 2026-10-21).
  */
 export function needsWriteGrant(p: TimelinePermissions): boolean {
-  return p.isPm && !p.canWriteLinear;
+  return !p.canWriteLinear;
 }
 
-/** Where a PM upgrades their Linear grant, returning to the timeline. */
-export const GRANT_WRITE_HREF =
-  '/api/auth/linear?intent=grant_write&returnTo=/timeline';
+/**
+ * The grant_write OAuth link coming back to `returnTo` (a relative path,
+ * sanitized again by the OAuth start route). Same shape as lib/http's
+ * grantWriteHref, kept here because this module also runs in the browser.
+ */
+export function timelineGrantWriteHref(returnTo: string): string {
+  return `/api/auth/linear?intent=grant_write&returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+/** Where a person upgrades their Linear grant, returning to the timeline. */
+export const GRANT_WRITE_HREF = timelineGrantWriteHref('/timeline');
 
 /* ---- chart ---------------------------------------------------------------- */
 
@@ -629,8 +641,7 @@ export interface TimelinePageModel {
   banners: TimelineBanner[];
   /** Drag handles and the drawer's date/lead controls. */
   canEditLinear: boolean;
-  /** Weight and "done means…" (tool-owned writes). */
-  canEditMeta: boolean;
+  /** Read-only Linear grant: show the "Allow edits in Linear" notice. */
   needsWriteGrant: boolean;
 }
 
@@ -649,7 +660,6 @@ export function buildTimelinePage(input: {
     dependencies: chartDependencies(graph),
     banners: buildTimelineBanners(view, issues),
     canEditLinear: canEditLinear(permissions),
-    canEditMeta: permissions.isPm,
     needsWriteGrant: needsWriteGrant(permissions),
   };
 }
@@ -749,7 +759,7 @@ export interface MilestoneDrawerModel {
     text: string | null;
     /** "Written in the planner" / "From the Linear description". */
     sourceLabel: string | null;
-    /** The planner's own text (what the PM edits); empty when unset. */
+    /** The planner's own text (what the drawer edits); empty when unset. */
     plannerText: string;
   };
   rubric: ChecklistItem[];
@@ -757,13 +767,17 @@ export interface MilestoneDrawerModel {
   openIssues: number;
   waitsOn: { id: string; label: string }[];
   graphHref: string;
+  /**
+   * Weight and "done means…" are editable by everyone signed in; date and
+   * lead are Linear writes and need the person's write grant.
+   */
   permissions: {
-    /** Date and lead (Linear writes). */
+    /** Date and lead (Linear writes with the person's own token). */
     canEditLinear: boolean;
-    /** Weight and "done means…". */
-    canEditMeta: boolean;
+    /** The grant_write link back to this milestone; null with the grant. */
+    grantWriteHref: string | null;
   };
-  /** Active people who may lead (PMs with write scope only). */
+  /** Active people who may lead (offered only with Linear write access). */
   leadOptions: DrawerOption[];
   limits: DrawerLimits;
 }
@@ -842,19 +856,20 @@ export function nextMilestoneCell(
 export function rubricChecklist(
   detail: MilestoneDetail,
   today: string,
-  canEdit: { linear: boolean; meta: boolean },
+  canEditLinear: boolean,
   leadDeactivated = false
 ): ChecklistItem[] {
   const gaps = new Set(detail.assessment.rubric.gaps);
   const { milestone, assessment } = detail;
+  // "Done means…" is the planner's own field, editable by everyone; the
+  // date and the lead are editable above only with Linear write access.
   const fixHere = {
-    no_target_date: canEdit.linear
+    no_target_date: canEditLinear
       ? 'Set it above, or in Linear.'
       : 'Set it in Linear.',
-    no_done_means: canEdit.meta
-      ? 'Write it above, or start a line of the Linear description with "Done means:".'
-      : 'Start a line of the Linear description with "Done means:".',
-    no_project_lead: canEdit.linear
+    no_done_means:
+      'Write it above, or start a line of the Linear description with "Done means:".',
+    no_project_lead: canEditLinear
       ? 'Set a lead above, or in Linear.'
       : 'Set a lead in Linear.',
     no_issues: 'Add issues to this milestone in Linear.',
@@ -938,7 +953,7 @@ export function buildMilestoneDrawer(input: {
   const { milestone, project, assessment } = detail;
   const mark = assessmentMark(assessment);
   const linear = canEditLinear(permissions);
-  const meta = permissions.isPm;
+  const path = `/timeline?milestone=${encodeURIComponent(milestone.id)}`;
 
   const lines = assessment.reasons.map((reason) => RISK_REASON_LABEL[reason]);
   if (!assessment.rubric.valid && assessment.status !== 'complete') {
@@ -986,7 +1001,7 @@ export function buildMilestoneDrawer(input: {
     breadcrumb: `${project.name} / ${milestone.name}`,
     projectName: project.name,
     linearUrl: project.url,
-    path: `/timeline?milestone=${encodeURIComponent(milestone.id)}`,
+    path,
     overdueText: overdue,
     muted,
     status: {
@@ -1040,7 +1055,7 @@ export function buildMilestoneDrawer(input: {
             : null,
       plannerText: detail.meta?.doneMeans ?? '',
     },
-    rubric: rubricChecklist(detail, today, { linear, meta }, leadDeactivated),
+    rubric: rubricChecklist(detail, today, linear, leadDeactivated),
     issues,
     openIssues: progress.open,
     waitsOn: detail.waitsOn.map((other) => ({
@@ -1048,7 +1063,10 @@ export function buildMilestoneDrawer(input: {
       label: `${other.projectName} › ${other.name}`,
     })),
     graphHref: `/graph?milestone=${encodeURIComponent(milestone.id)}`,
-    permissions: { canEditLinear: linear, canEditMeta: meta },
+    permissions: {
+      canEditLinear: linear,
+      grantWriteHref: linear ? null : timelineGrantWriteHref(path),
+    },
     leadOptions: linear ? leadOptions(users, project.leadId) : [],
     limits,
   };

@@ -1,6 +1,6 @@
 /* My week page furniture around the package components: the greeting
    header, the two-column grid (task table + deadlines/attention), and the
-   PM's person picker. Built only from the shared tokens. */
+   "Showing" person picker. Built only from the shared tokens. */
 
 .head {
   display: flex;

@@ -221,9 +221,12 @@ export interface Tuning {
 
 export interface WorkspaceSettings {
   workspaceId: string;
-  /** Users who may edit dates, weights, leads, "done means…" and settings. */
-  pmUserIds: string[];
-  /** Users told about every at-risk milestone (initially the PMs). */
+  /**
+   * Users told about every at-risk milestone besides its project lead
+   * (§2.9). There is no PM list: since the owner decision of 2026-10-22
+   * every signed-in person may edit dates, weights, leads, "done means…"
+   * and settings, so watchers are the only people the settings name.
+   */
   watcherUserIds: string[];
   allocationMode: AllocationMode;
   warningsMode: WarningsMode;

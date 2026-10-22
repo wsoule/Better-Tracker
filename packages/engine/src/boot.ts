@@ -12,8 +12,9 @@ import {
   createFixtureStore,
   type FetchLike,
   FIXTURE_APP_USER_ID,
+  FIXTURE_INSTALLER_USER_ID,
   FIXTURE_MILESTONE_META,
-  FIXTURE_PM_USER_IDS,
+  FIXTURE_WATCHER_USER_IDS,
   FIXTURE_WORKSPACE,
   type FixtureStore,
 } from '@better-tracker/linear';
@@ -35,6 +36,8 @@ import {
   type EngineEnv,
   isFixtureEnv,
   loadEngineConfigFromEnv,
+  RETIRED_ENV_VARIABLES,
+  retiredEnvVariables,
 } from './config';
 import { createEngine } from './engine';
 import { createFixtureLinearProvider, createLinearProvider } from './providers';
@@ -69,10 +72,11 @@ function read(env: EngineEnv, name: string): string | undefined {
 }
 
 /**
- * Seeds demo mode: the fake installation (acting as FIXTURE_APP_USER_ID),
- * settings (PMs and watchers = the fixture PMs, dry run, preview) and the
- * fixture's "done means…"/weight meta, each only where nothing is saved
- * yet, then a full sync from the fixture workspace.
+ * Seeds demo mode: the fake installation (acting as FIXTURE_APP_USER_ID,
+ * installed by FIXTURE_INSTALLER_USER_ID), settings (watchers = the
+ * fixture's watchers, dry run, preview) and the fixture's "done
+ * means…"/weight meta, each only where nothing is saved yet, then a full
+ * sync from the fixture workspace.
  */
 export async function seedDemoWorkspace(input: {
   engine: Engine;
@@ -91,7 +95,7 @@ export async function seedDemoWorkspace(input: {
     workspaceName: FIXTURE_WORKSPACE.name,
     urlKey: FIXTURE_WORKSPACE.urlKey,
     appUserId: FIXTURE_APP_USER_ID,
-    installedByUserId: FIXTURE_PM_USER_IDS[0] ?? 'user-ana',
+    installedByUserId: FIXTURE_INSTALLER_USER_ID,
     revokedAt: null,
     tokens: {
       accessToken: 'fixture',
@@ -105,8 +109,7 @@ export async function seedDemoWorkspace(input: {
   if ((await store.getSettings(workspaceId)) === null) {
     await store.saveSettings({
       ...defaultSettings(workspaceId, input.defaultTimezone),
-      pmUserIds: [...FIXTURE_PM_USER_IDS],
-      watcherUserIds: [...FIXTURE_PM_USER_IDS],
+      watcherUserIds: [...FIXTURE_WATCHER_USER_IDS],
       allocationMode: 'dry_run',
       warningsMode: 'preview',
     });
@@ -140,6 +143,12 @@ export async function createEngineFromEnv(
   const now = options.now ?? ((): Date => new Date());
   const logger =
     options.logger ?? createLogger({ name: 'engine', level: logLevel(env) });
+  // One warning per retired variable a deploy still sets (PM_EMAILS).
+  for (const variable of retiredEnvVariables(env)) {
+    logger.warn(RETIRED_ENV_VARIABLES[variable] ?? `${variable} is unused`, {
+      variable,
+    });
+  }
 
   const providedKey = read(env, 'TOKEN_ENCRYPTION_KEY');
   // Demo tokens are fake, so an ephemeral key is fine there.

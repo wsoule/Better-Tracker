@@ -5,8 +5,8 @@ import { useId, useState, useTransition } from 'react';
 
 import css from './page.module.css';
 
-/* The PM's "whose week" picker: a native select that navigates to
-   /week?user=<id> (plain /week for the PM's own week). The server decides
+/* The "whose week" picker everyone gets: a native select that navigates
+   to /week?user=<id> (plain /week for the viewer's own). The server decides
    whether the id is honoured; this only changes the URL. Remount it with a
    key of the shown user so it follows navigation. */
 export default function WeekUserPicker({

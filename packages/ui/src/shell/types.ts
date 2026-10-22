@@ -80,7 +80,7 @@ export interface ShellTab {
 
 export interface ShellUser {
   name: string;
-  /** Short role chip beside the name ("PM"). */
+  /** Short chip beside the name ("DEMO"). */
   badge?: string;
   href?: string;
 }

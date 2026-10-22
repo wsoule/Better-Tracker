@@ -1,6 +1,6 @@
 'use client';
 
-import { Button, Link, Notice, useToast } from '@better-tracker/ui';
+import { Button, Link, useToast } from '@better-tracker/ui';
 import { Eye, Play } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -18,36 +18,17 @@ const STARTED: Record<Mode, string> = {
 
 const LABEL: Record<Mode, string> = { dry_run: 'Dry run', live: 'Live run' };
 
-/* The run controls above the log (PMs only; the route enforces it too):
-   "Preview (dry run)" always, "Run now" only while allocation is live —
-   behind a second click, since it writes to Linear. A run answers when it
-   is finished, so the buttons wait, then open the new run. Failures are
-   toasted. Everyone else gets one line saying who can start a run. */
-export default function RunActions({
-  isPm,
-  liveRunsOn,
-  pmNames,
-}: {
-  isPm: boolean;
-  liveRunsOn: boolean;
-  pmNames: string[];
-}) {
+/* The run controls above the log, for everyone signed in (owner decision
+   2026-10-22: no roles): "Preview (dry run)" always, "Run now" only while
+   allocation is live — behind a second click, since it writes to Linear.
+   The route enforces the live gate too. A run answers when it is
+   finished, so the buttons wait, then open the new run. Failures are
+   toasted. */
+export default function RunActions({ liveRunsOn }: { liveRunsOn: boolean }) {
   const router = useRouter();
   const { toast } = useToast();
   const [busy, setBusy] = useState<Mode | null>(null);
   const [confirming, setConfirming] = useState(false);
-
-  if (!isPm) {
-    return (
-      <div className={css.actions}>
-        <Notice label="Read only" tone="default">
-          Only PMs can start a run
-          {pmNames.length > 0 ? ` (${pmNames.join(', ')})` : ''}. The scheduled
-          daily run starts on its own.
-        </Notice>
-      </div>
-    );
-  }
 
   async function start(mode: Mode) {
     setBusy(mode);
@@ -118,12 +99,12 @@ export default function RunActions({
               : null}
           {!liveRunsOn ? (
             <>
-              Run now is off while allocation is in dry run. A PM can switch
+              Run now is off while allocation is in dry run. Anyone can switch
               allocation to live in{' '}
               <Link href="/settings" className="accentLink">
                 Settings → Modes
-              </Link>
-              .
+              </Link>{' '}
+              (the switch is audited).
             </>
           ) : null}
         </p>

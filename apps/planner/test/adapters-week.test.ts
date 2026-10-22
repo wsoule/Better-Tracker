@@ -323,7 +323,7 @@ describe('buildWeekPage header and stats', () => {
     );
   });
 
-  test('a PM looking at someone else gets their name, not a greeting', () => {
+  test('anyone looking at someone else gets their name, not a greeting', () => {
     const other = buildWeekPage({
       week,
       timeline,
@@ -838,24 +838,27 @@ describe('week helpers', () => {
     expect(localHour('2026-10-21T15:30:00.000Z', 'Not/AZone')).toBe(15);
   });
 
-  test('only PMs may look at someone else, and only at a known person', () => {
-    const known = new Set(['user-ana', 'user-ben']);
-    const base = { viewerId: 'user-ana', knownUserIds: known };
-    expect(
-      resolveWeekUserId({ ...base, isPm: true, requested: 'user-ben' })
-    ).toBe('user-ben');
-    expect(
-      resolveWeekUserId({ ...base, isPm: false, requested: 'user-ben' })
-    ).toBe('user-ana');
-    expect(
-      resolveWeekUserId({ ...base, isPm: true, requested: 'user-ghost' })
-    ).toBe('user-ana');
-    expect(
-      resolveWeekUserId({ ...base, isPm: true, requested: ['user-ben', 'x'] })
-    ).toBe('user-ben');
-    expect(
-      resolveWeekUserId({ ...base, isPm: true, requested: undefined })
-    ).toBe('user-ana');
+  // Owner decision 2026-10-22: no PM role. A member (Chloe, never a PM)
+  // may look at anyone's week; only unknown ids fall back to her own.
+  test('anyone may look at someone else, but only at a known person', () => {
+    const known = new Set(['user-ana', 'user-ben', 'user-chloe']);
+    const base = { viewerId: 'user-chloe', knownUserIds: known };
+    expect(resolveWeekUserId({ ...base, requested: 'user-ben' })).toBe(
+      'user-ben'
+    );
+    expect(resolveWeekUserId({ ...base, requested: 'user-ana' })).toBe(
+      'user-ana'
+    );
+    expect(resolveWeekUserId({ ...base, requested: 'user-ghost' })).toBe(
+      'user-chloe'
+    );
+    expect(resolveWeekUserId({ ...base, requested: ['user-ben', 'x'] })).toBe(
+      'user-ben'
+    );
+    expect(resolveWeekUserId({ ...base, requested: undefined })).toBe(
+      'user-chloe'
+    );
+    expect(resolveWeekUserId({ ...base, requested: '' })).toBe('user-chloe');
   });
 
   test('the person picker lists people, deactivated last, never app users', () => {

@@ -45,10 +45,8 @@ const FIELD_ORDER = [
    first field marked. */
 export default function ScheduleForm({
   initial,
-  canEdit,
 }: {
   initial: ScheduleFormState;
-  canEdit: boolean;
 }) {
   const [form, setForm] = useState(initial);
   const [synced, setSynced] = useState(initial);
@@ -61,7 +59,6 @@ export default function ScheduleForm({
     useSaveSettings('Schedule');
   const baseId = useId();
   const dirty = !sameForm(form, initial);
-  const disabled = !canEdit || saving;
   const fieldId = (key: string) =>
     key === 'timezone' ? `${baseId}-tz` : `${baseId}-${key}`;
 
@@ -87,7 +84,7 @@ export default function ScheduleForm({
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    if (!dirty || !canEdit) return;
+    if (!dirty) return;
     const parsed = parseScheduleForm(form);
     if (!parsed.ok) {
       showErrors(parsed.errors);
@@ -137,7 +134,6 @@ export default function ScheduleForm({
                 autoComplete="off"
                 spellCheck={false}
                 value={form.timezone}
-                readOnly={!canEdit}
                 disabled={saving}
                 aria-invalid={errors.timezone !== undefined}
                 aria-describedby={
@@ -177,7 +173,6 @@ export default function ScheduleForm({
                       max={field.max}
                       step={1}
                       value={form.values[field.key]}
-                      readOnly={!canEdit}
                       disabled={saving}
                       aria-invalid={error !== undefined}
                       aria-describedby={
@@ -230,7 +225,7 @@ export default function ScheduleForm({
                     key={option.id}
                     label={option.label}
                     checked={form.statuses.includes(option.id)}
-                    disabled={disabled}
+                    disabled={saving}
                     onChange={(on) =>
                       setForm((f) => ({
                         ...f,
@@ -257,24 +252,22 @@ export default function ScheduleForm({
           </RegisterCell>
         </RegisterRow>
       </Register>
-      {canEdit ? (
-        <FormBar
-          dirty={dirty}
-          saving={saving}
-          outcome={outcome}
-          statusRef={statusRef}
-          onDiscarded={discarded}
-          blocked={
-            errorCount > 0
-              ? `Fix ${errorCount === 1 ? 'the field' : `${errorCount} fields`} marked above`
-              : null
-          }
-          onReset={() => {
-            setForm(initial);
-            setErrors({});
-          }}
-        />
-      ) : null}
+      <FormBar
+        dirty={dirty}
+        saving={saving}
+        outcome={outcome}
+        statusRef={statusRef}
+        onDiscarded={discarded}
+        blocked={
+          errorCount > 0
+            ? `Fix ${errorCount === 1 ? 'the field' : `${errorCount} fields`} marked above`
+            : null
+        }
+        onReset={() => {
+          setForm(initial);
+          setErrors({});
+        }}
+      />
     </form>
   );
 }

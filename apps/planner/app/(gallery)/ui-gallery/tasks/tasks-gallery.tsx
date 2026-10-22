@@ -466,7 +466,7 @@ export default function TasksGallery({
               </Register>
             </section>
             <section aria-label="Settings" className={css.collapse}>
-              <BlockBar index="06" title="Settings · modes" meta="PM only" />
+              <BlockBar index="06" title="Settings · modes" meta="Audited" />
               <Register
                 label="Modes"
                 columns="minmax(0, 1fr) auto"
@@ -521,7 +521,10 @@ export default function TasksGallery({
                   </RegisterCell>
                 </RegisterRow>
                 <RegisterRow tone="muted">
-                  <RegisterCell variant="name" sub="Only a PM can change this">
+                  <RegisterCell
+                    variant="name"
+                    sub="Disabled while a save is in flight"
+                  >
                     Notify on at-risk
                   </RegisterCell>
                   <RegisterCell align="end">
@@ -642,7 +645,7 @@ export default function TasksGallery({
                   />
                   <Switch
                     label="Live mode"
-                    note="PM only"
+                    note="saving…"
                     disabled
                     defaultChecked
                   />

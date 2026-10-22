@@ -11,7 +11,7 @@
 //
 // createFixtureGateway serves the workspace through the LinearGateway
 // interface and applies every write to it, so demo-mode allocation runs,
-// PM edits and people's issue edits "write back". The issue page's extra
+// milestone, lead and issue edits "write back". The issue page's extra
 // fields (descriptions, labels, estimates, due dates, comments) live in
 // fixture-details.ts and are kept in the same in-memory store.
 
@@ -64,8 +64,19 @@ export const FIXTURE_WORKSPACE: { id: string; name: string; urlKey: string } = {
 /** The tool's own app user (what actor=app tokens act as). */
 export const FIXTURE_APP_USER_ID = 'user-app';
 
-/** The two people demo mode treats as PMs (and initial watchers). */
-export const FIXTURE_PM_USER_IDS: readonly string[] = ['user-ana', 'user-ben'];
+/**
+ * The two people demo mode starts as watchers: told about every at-risk
+ * milestone besides its lead. Everyone signed in may edit everything (there
+ * is no PM role since the owner decision of 2026-10-22), so nobody else in
+ * the demo is special.
+ */
+export const FIXTURE_WATCHER_USER_IDS: readonly string[] = [
+  'user-ana',
+  'user-ben',
+];
+
+/** Who demo mode's fake installation says installed the app. */
+export const FIXTURE_INSTALLER_USER_ID = 'user-ana';
 
 const BASE_URL = `https://linear.app/${FIXTURE_WORKSPACE.urlKey}`;
 
@@ -1419,6 +1430,13 @@ export interface FixtureStore {
   labels: FixtureLabel[];
   /** Additive: each team's estimate scale, by team id. */
   estimateScales: Record<string, EstimateScale>;
+  /**
+   * Additive: the number in the last `rel-<n>` id createBlockingRelation
+   * handed out. It only grows, so an id is never reused after a delete
+   * (Linear's ids are never reused either): a stale tab removing a
+   * relation it saw earlier can only hit that relation, or none.
+   */
+  lastRelationNumber: number;
 }
 
 /**
@@ -1439,14 +1457,18 @@ function fixtureActorUserId(actor: FixtureActor | string): string {
 /** A fresh store over a fresh workspace; stores never share data. */
 export function createFixtureStore(today: IsoDate): FixtureStore {
   const details = createFixtureIssueDetails(today);
+  const data = createFixtureWorkspace(today);
   return {
-    data: createFixtureWorkspace(today),
+    data,
     comments: [],
     now: () => new Date(),
     seededComments: details.seededComments,
     issueFields: details.issueFields,
     labels: details.labels,
     estimateScales: details.estimateScales,
+    // The seeded relations have named ids; numbering starts after them, so
+    // the first relation a person adds is `rel-<seeded count + 1>`.
+    lastRelationNumber: data.relations.length,
   };
 }
 
@@ -1946,8 +1968,12 @@ export function createFixtureGateway(
         ) {
           throw refused('These issues already have this relation');
         }
-        let n = relations.length + 1;
+        // A monotonic counter, never the smallest free number: reusing a
+        // deleted relation's id would let a stale tab's remove hit a
+        // different relation. The loop only skips an id a test planted.
+        let n = store.lastRelationNumber + 1;
         while (relations.some((r) => r.id === `rel-${n}`)) n += 1;
+        store.lastRelationNumber = n;
         const relation: BlockingRelation = {
           id: `rel-${n}`,
           blockerId: blockerIssueId,

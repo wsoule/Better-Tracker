@@ -19,6 +19,7 @@ import {
   buildTimelinePage,
   chartDependencies,
   DEFAULT_TIMELINE_STATE,
+  GRANT_WRITE_HREF,
   filterTimelineGroups,
   laneSublabel,
   leadOptions,
@@ -43,9 +44,10 @@ import {
 // meaningful; the rest are plausible defaults (Wed Oct 21, 2026).
 
 const TODAY = '2026-10-21';
-const PM = { isPm: true, canWriteLinear: true };
-const PM_READ_ONLY = { isPm: true, canWriteLinear: false };
-const MEMBER = { isPm: false, canWriteLinear: true };
+// There are no roles (owner decision 2026-10-22): the only permission the
+// timeline reads is the person's Linear write grant.
+const WRITER = { canWriteLinear: true };
+const READ_ONLY = { canWriteLinear: false };
 
 function progress(overrides: Partial<Progress> = {}): Progress {
   return {
@@ -208,16 +210,18 @@ describe('chart bars', () => {
     expect(done.missing).toBeUndefined();
   });
 
-  test('the editable flag follows the actor: PM with Linear write access only', () => {
+  test('drag handles follow the Linear write grant, for anyone signed in', () => {
     const v = view([{ id: 'init-1', name: 'Platform', lanes: [lane()] }]);
-    const editable = (p: typeof PM) =>
+    const editable = (p: typeof WRITER) =>
       toChartGroups(v, p)[0]?.lanes[0]?.bars[0]?.editable === true;
-    expect(editable(PM)).toBe(true);
-    expect(editable(PM_READ_ONLY)).toBe(false);
-    expect(editable(MEMBER)).toBe(false);
-    expect(needsWriteGrant(PM_READ_ONLY)).toBe(true);
-    expect(needsWriteGrant(PM)).toBe(false);
-    expect(needsWriteGrant({ isPm: false, canWriteLinear: false })).toBe(false);
+    expect(editable(WRITER)).toBe(true);
+    expect(editable(READ_ONLY)).toBe(false);
+    // Without the grant, everyone (not only a former WRITER) is offered it.
+    expect(needsWriteGrant(READ_ONLY)).toBe(true);
+    expect(needsWriteGrant(WRITER)).toBe(false);
+    expect(GRANT_WRITE_HREF).toBe(
+      '/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline'
+    );
   });
 });
 
@@ -272,7 +276,7 @@ describe('lanes', () => {
           ],
         },
       ]),
-      PM
+      WRITER
     );
     expect(groups.map((g) => g.id)).toEqual(['init-1', 'none']);
     const inactive = groups[1]?.lanes[0];
@@ -330,7 +334,7 @@ describe('dependencies', () => {
           ],
         },
       ]),
-      PM
+      WRITER
     );
     const deps = [
       { from: 'ms-a', to: 'ms-b', onRiskChain: false },
@@ -368,7 +372,7 @@ describe('filters and the URL', () => {
         ],
       },
     ]),
-    PM
+    WRITER
   );
   const ids = (out: ReturnType<typeof filterTimelineGroups>) =>
     out.flatMap((g) => g.lanes.map((l) => l.id));
@@ -690,11 +694,12 @@ describe('banners', () => {
         edges: [],
         cycles: [],
       },
-      permissions: MEMBER,
+      permissions: READ_ONLY,
       issues: new Map(),
     });
     expect(page.canEditLinear).toBe(false);
-    expect(page.canEditMeta).toBe(false);
+    expect(page.needsWriteGrant).toBe(true);
+    expect(page).not.toHaveProperty('canEditMeta');
     expect(page.banners).toEqual([]);
   });
 });
@@ -816,7 +821,7 @@ const ISSUES = new Map([
 
 function drawer(
   d: MilestoneDetail = detail(),
-  permissions: typeof PM = PM
+  permissions: typeof WRITER = WRITER
 ): ReturnType<typeof buildMilestoneDrawer> {
   return buildMilestoneDrawer({
     detail: d,
@@ -888,20 +893,19 @@ describe('milestone drawer', () => {
     expect(second?.open).toBe(false);
   });
 
-  test('edit controls follow permissions; leads are active people only', () => {
+  test('date and lead follow the write grant; leads are active people only', () => {
+    // Weight and "done means…" are not permissions any more: everyone
+    // signed in edits them. A read-only grant gets the link back here.
     expect(drawer().permissions).toEqual({
       canEditLinear: true,
-      canEditMeta: true,
+      grantWriteHref: null,
     });
-    expect(drawer(detail(), PM_READ_ONLY).permissions).toEqual({
+    expect(drawer(detail(), READ_ONLY).permissions).toEqual({
       canEditLinear: false,
-      canEditMeta: true,
+      grantWriteHref:
+        '/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline%3Fmilestone%3Dms-1',
     });
-    expect(drawer(detail(), MEMBER).permissions).toEqual({
-      canEditLinear: false,
-      canEditMeta: false,
-    });
-    expect(drawer(detail(), MEMBER).leadOptions).toEqual([]);
+    expect(drawer(detail(), READ_ONLY).leadOptions).toEqual([]);
     expect(drawer().leadOptions).toEqual([
       { id: 'user-ana', label: 'Ana Moreno' },
       { id: 'user-chloe', label: 'Chloe Diaz' },
@@ -970,13 +974,14 @@ describe('milestone drawer', () => {
           },
         }),
       }),
-      MEMBER
+      READ_ONLY
     ).rubric;
+    // "Done means…" is written in the drawer by anyone, grant or not.
     expect(missing.map((i) => [i.met, i.note])).toEqual([
       [false, 'Missing a target date. Set it in Linear.'],
       [
         false,
-        'Missing "done means…". Start a line of the Linear description with "Done means:".',
+        'Missing "done means…". Write it above, or start a line of the Linear description with "Done means:".',
       ],
       [false, 'Project has no lead. Set a lead in Linear.'],
       [false, 'No issues yet. Add issues to this milestone in Linear.'],
@@ -1005,7 +1010,7 @@ describe('milestone drawer', () => {
       buildMilestoneDrawer({
         detail: d,
         today: TODAY,
-        permissions: PM,
+        permissions: WRITER,
         users: USERS,
         issues: ISSUES,
         limits: LIMITS,
@@ -1127,7 +1132,7 @@ describe('milestone drawer', () => {
     const m = buildMilestoneDrawer({
       detail: detail(),
       today: TODAY,
-      permissions: PM,
+      permissions: WRITER,
       users: USERS,
       issues: ISSUES,
       limits: LIMITS,

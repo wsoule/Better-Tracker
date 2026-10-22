@@ -1,7 +1,9 @@
-// Workspace settings: the first-time bootstrap of PMs and watchers, and the
-// validation of a PM's settings patch (architecture §7.1: "never trust the
-// client"). Settings decide who may edit and who is warned, so every user id
-// must be a real, mirrored person and at least one active PM must remain.
+// Workspace settings: the first-time bootstrap of the watchers, and the
+// validation of a settings patch (architecture §7.1: "never trust the
+// client"). Any signed-in person may change settings (owner decision
+// 2026-10-22: there is no PM role); every change is audited. Settings decide
+// who is warned, so every user id must be a real, mirrored person. The
+// watcher list may be empty (then only project leads are warned).
 
 import {
   isValidTimeZone,
@@ -15,7 +17,6 @@ import {
 } from '@better-tracker/core';
 import type { Logger } from '@better-tracker/logger';
 
-import { requirePm } from './permissions';
 import {
   readSettings,
   requireInstallation,
@@ -23,32 +24,25 @@ import {
 } from './runtime';
 import { type Actor, EngineInputError } from './types';
 
-/** People chosen when a workspace is configured for the first time. */
-export interface BootstrapPeople {
-  pmUserIds: string[];
-  watcherUserIds: string[];
-}
-
 // Unique ids in first-seen order.
 function unique(ids: readonly string[]): string[] {
   return [...new Set(ids)];
 }
 
 /**
- * Bootstrap PMs and watchers (architecture §7): PMs are the existing PMs,
- * the installer and every person whose email is in `pmEmails`; watchers
- * keep any existing list, else the people in `watcherEmails`, else the PMs.
- * App users are never PMs or watchers, and only mirrored people count.
- * Emails that match nobody are logged at warn (missing inputs are loud).
+ * Bootstrap the watchers (architecture §7): any existing list is kept, else
+ * the people whose email is in `watcherEmails` (WATCHER_EMAILS), else the
+ * installer, so a fresh workspace always warns somebody besides the leads.
+ * App users are never watchers, and only mirrored people count. Emails
+ * that match nobody are logged at warn (missing inputs are loud).
  */
-export function bootstrapPeople(input: {
+export function bootstrapWatchers(input: {
   data: WorkspaceData;
   installerId: string | null;
-  pmEmails: readonly string[];
   watcherEmails: readonly string[];
-  existing: BootstrapPeople | null;
+  existing: readonly string[] | null;
   log: Logger;
-}): BootstrapPeople {
+}): string[] {
   const people = new Map<string, User>();
   const byEmail = new Map<string, User>();
   for (const user of input.data.users) {
@@ -58,38 +52,26 @@ export function bootstrapPeople(input: {
       byEmail.set(user.email.trim().toLowerCase(), user);
     }
   }
-  const lookup = (emails: readonly string[], variable: string): string[] => {
-    const ids: string[] = [];
-    for (const email of emails) {
-      const user = byEmail.get(email.toLowerCase());
-      if (user === undefined) {
-        input.log.warn('bootstrap email matches no active Linear user', {
-          variable,
-          email,
-        });
-      } else {
-        ids.push(user.id);
-      }
-    }
-    return ids;
-  };
 
-  const pmUserIds = unique([
-    ...(input.existing?.pmUserIds ?? []),
-    ...(input.installerId === null ? [] : [input.installerId]),
-    ...lookup(input.pmEmails, 'PM_EMAILS'),
-  ]).filter((id) => people.has(id));
-  const existingWatchers = (input.existing?.watcherUserIds ?? []).filter((id) =>
-    people.has(id)
-  );
-  const emailWatchers = lookup(input.watcherEmails, 'WATCHER_EMAILS');
-  const watcherUserIds =
-    existingWatchers.length > 0
-      ? existingWatchers
-      : emailWatchers.length > 0
-        ? unique(emailWatchers)
-        : [...pmUserIds];
-  return { pmUserIds, watcherUserIds };
+  const existing = unique(input.existing ?? []).filter((id) => people.has(id));
+  if (existing.length > 0) return existing;
+  const fromEmails: string[] = [];
+  for (const email of input.watcherEmails) {
+    const user = byEmail.get(email.toLowerCase());
+    if (user === undefined) {
+      input.log.warn('bootstrap email matches no active Linear user', {
+        variable: 'WATCHER_EMAILS',
+        email,
+      });
+    } else if (!fromEmails.includes(user.id)) {
+      fromEmails.push(user.id);
+    }
+  }
+  if (fromEmails.length > 0) return fromEmails;
+  if (input.installerId !== null && people.has(input.installerId)) {
+    return [input.installerId];
+  }
+  return [];
 }
 
 // --- validation ---------------------------------------------------------------
@@ -118,7 +100,6 @@ const TUNING_BOUNDS: Record<
 };
 
 const SETTINGS_KEYS: readonly string[] = [
-  'pmUserIds',
   'watcherUserIds',
   'allocationMode',
   'warningsMode',
@@ -206,9 +187,10 @@ function validateTuning(value: unknown, current: Tuning): Tuning {
 
 /**
  * Applies a settings patch to `current` after validating every field:
- * unknown keys are rejected; people must be mirrored non-app users with at
- * least one active PM left (no lockout); modes must be known; the timezone
- * must be a real IANA zone; tuning integers stay within their ranges.
+ * unknown keys are rejected (the retired PM list included, with a sentence
+ * saying so); watchers must be mirrored non-app users, and the list may be
+ * empty; modes must be known; the timezone must be a real IANA zone;
+ * tuning integers stay within their ranges.
  */
 export function applySettingsPatch(
   current: WorkspaceSettings,
@@ -218,7 +200,6 @@ export function applySettingsPatch(
   if (!isRecord(patch)) throw invalid('Settings patch must be an object.');
   const next: WorkspaceSettings = {
     ...current,
-    pmUserIds: [...current.pmUserIds],
     watcherUserIds: [...current.watcherUserIds],
     tuning: {
       ...current.tuning,
@@ -226,12 +207,14 @@ export function applySettingsPatch(
     },
   };
   for (const key of Object.keys(patch)) {
+    if (key === 'pmUserIds') {
+      throw invalid(
+        'pmUserIds is no longer a setting: there is no PM role, and everyone signed in can edit.'
+      );
+    }
     if (!SETTINGS_KEYS.includes(key)) {
       throw invalid(`${key} is not a setting that can be changed.`);
     }
-  }
-  if ('pmUserIds' in patch) {
-    next.pmUserIds = validatePeople(patch['pmUserIds'], 'pmUserIds', snapshot);
   }
   if ('watcherUserIds' in patch) {
     next.watcherUserIds = validatePeople(
@@ -264,14 +247,6 @@ export function applySettingsPatch(
   if ('tuning' in patch) {
     next.tuning = validateTuning(patch['tuning'], current.tuning);
   }
-  const activePms = next.pmUserIds.filter(
-    (id) => snapshot.users.get(id)?.active === true
-  );
-  if (activePms.length === 0) {
-    throw invalid(
-      'At least one active PM must remain, or nobody could change settings.'
-    );
-  }
   return next;
 }
 
@@ -294,16 +269,25 @@ export function forgetWarningMemory(
 }
 
 /**
- * updateSettings (§7): PM only, validated against the mirror, saved, and
- * audited with the full before/after settings. Switching warnings from
- * preview to live forgets the warning memory (see forgetWarningMemory).
+ * updateSettings (§7): any signed-in person of the workspace, validated
+ * against the mirror, saved, and audited with the full before/after
+ * settings (the audit is how everyone sees who changed a mode). Switching
+ * warnings from preview to live forgets the warning memory (see
+ * forgetWarningMemory).
+ *
+ * Saves of one workspace's settings run one at a time in this process.
+ * Each Settings section saves only its own fields, but the store keeps the
+ * settings as one document; with everyone able to edit (owner decision
+ * 2026-10-22), two people saving different sections at once is ordinary,
+ * and without the queue the later save would put back the earlier one's
+ * fields as it read them (a lost change, and an audit entry that reads as
+ * a revert).
  */
 export async function updateSettings(
   rt: EngineRuntime,
   actor: Actor,
   patch: unknown
 ): Promise<WorkspaceSettings> {
-  requirePm(actor);
   const workspaceId = actor.session.workspaceId;
   await requireInstallation(rt, workspaceId);
   const view = await rt.mirror.current(workspaceId);
@@ -313,8 +297,23 @@ export async function updateSettings(
       'The workspace has not been synced from Linear yet.'
     );
   }
+  return rt.serialize(`settings\u0000${workspaceId}`, () =>
+    saveSettingsPatch(rt, actor, patch, view.snapshot)
+  );
+}
+
+// Reads the saved settings (the audit's "before"), applies the validated
+// patch, saves, and appends the audit entry. Runs inside updateSettings'
+// per-workspace queue, so "before" is always what the previous save left.
+async function saveSettingsPatch(
+  rt: EngineRuntime,
+  actor: Actor,
+  patch: unknown,
+  snapshot: Snapshot
+): Promise<WorkspaceSettings> {
+  const workspaceId = actor.session.workspaceId;
   const { settings: before } = await readSettings(rt, workspaceId);
-  const after = applySettingsPatch(before, patch, view.snapshot);
+  const after = applySettingsPatch(before, patch, snapshot);
   await rt.store.saveSettings(after);
   if (before.warningsMode === 'preview' && after.warningsMode === 'live') {
     const memory = await rt.store.listWarningMemory(workspaceId);

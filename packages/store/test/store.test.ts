@@ -47,7 +47,6 @@ function entry(overrides: Partial<NewRunEntry>): NewRunEntry {
 function settings(workspaceId: string): WorkspaceSettings {
   return {
     workspaceId,
-    pmUserIds: ['u-ana'],
     watcherUserIds: ['u-ana', 'u-watcher'],
     allocationMode: 'dry_run',
     warningsMode: 'preview',
@@ -474,10 +473,36 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         const live: WorkspaceSettings = {
           ...settings(ws),
           allocationMode: 'live',
-          pmUserIds: [],
+          watcherUserIds: [],
         };
         await store.saveSettings(live);
         expect(await store.getSettings(ws)).toEqual(live);
+      });
+
+      // The PM list was retired (owner decision 2026-10-22): rows saved
+      // before it still carry pmUserIds, which reads ignore and writes
+      // drop.
+      test('settings saved with the retired PM list read without it', async () => {
+        const ws = newWorkspaceId();
+        const old = { ...settings(ws), pmUserIds: ['u-ana', 'u-ben'] };
+        await sql.query(
+          `INSERT INTO settings (workspace_id, data, updated_at)
+           VALUES ($1, $2::text::jsonb, $3::timestamptz)`,
+          [ws, JSON.stringify(old), '2026-10-21T08:00:00.000Z']
+        );
+        const read = await store.getSettings(ws);
+        expect(read).toEqual(settings(ws));
+        expect(read !== null && 'pmUserIds' in read).toBe(false);
+
+        // Saving what an older caller spread from such a row stores no PM
+        // list either.
+        await store.saveSettings(old);
+        const raw = await sql.query<{ data: Record<string, unknown> }>(
+          'SELECT data FROM settings WHERE workspace_id = $1',
+          [ws]
+        );
+        expect(raw[0]?.data).not.toHaveProperty('pmUserIds');
+        expect(raw[0]?.data['watcherUserIds']).toEqual(['u-ana', 'u-watcher']);
       });
 
       test('milestone meta upsert and list', async () => {

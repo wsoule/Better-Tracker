@@ -92,7 +92,8 @@ describe('getSettings', () => {
     const settings = await engine.getSettings(WORKSPACE_ID);
     expect(settings.workspaceId).toBe(WORKSPACE_ID);
     expect(settings.timezone).toBe('America/Chicago');
-    expect(settings.pmUserIds).toEqual([]);
+    expect(settings.watcherUserIds).toEqual([]);
+    expect(settings).not.toHaveProperty('pmUserIds');
     expect(fetches).toBe(0);
     expect(await bare.getSyncState(WORKSPACE_ID)).toBeNull();
   });

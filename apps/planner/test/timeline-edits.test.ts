@@ -18,12 +18,17 @@ import {
 // and a recording engine: validation must answer 400 before any engine
 // call, valid bodies reach the engine with the right arguments, and engine
 // errors map to their HTTP statuses.
+//
+// Owner decision 2026-10-22: there is no PM role. The actor is a member
+// (Chloe, never a PM); the routes pass every signed-in person to the
+// engine, which asks for Linear write scope only for the date and the lead.
 
 const ACTOR = {
-  session: { userId: 'user-ana', workspaceId: 'org-1' },
-  isPm: true,
+  session: { userId: 'user-chloe', workspaceId: 'org-1' },
   canWriteLinear: true,
 } as unknown as Actor;
+
+const READ_ONLY = { ...ACTOR, canWriteLinear: false } as Actor;
 
 type Call = [method: string, ...args: unknown[]];
 
@@ -51,8 +56,8 @@ function recordingEngine(failWith?: Error): {
   };
 }
 
-function resolver<E>(engine: E): ApiActorResolver<E> {
-  return () => Promise.resolve({ engine, actor: ACTOR });
+function resolver<E>(engine: E, actor: Actor = ACTOR): ApiActorResolver<E> {
+  return () => Promise.resolve({ engine, actor });
 }
 
 function patch(url: string, body: unknown): Request {
@@ -167,11 +172,6 @@ describe('PATCH /api/milestones/[id]', () => {
   test('engine errors map to HTTP statuses', async () => {
     const cases: [Error, number, string][] = [
       [
-        new EngineAuthError('not_pm', 'Only PMs can change milestones.'),
-        403,
-        'not_pm',
-      ],
-      [
         new EngineAuthError('needs_write_scope', 'Allow edits first.'),
         403,
         'needs_write_scope',
@@ -197,6 +197,41 @@ describe('PATCH /api/milestones/[id]', () => {
       expect(response.status).toBe(status);
       expect((await errorOf(response)).code).toBe(code);
     }
+  });
+
+  test('a re-date without write scope: 403 with the grant link back here', async () => {
+    const { engine } = recordingEngine(
+      new EngineAuthError('needs_write_scope', 'Allow edits first.')
+    );
+    const response = await patchMilestone(
+      patch('/api/milestones/ms-1', { targetDate: '2026-11-02' }),
+      'ms-1',
+      resolver(engine, READ_ONLY)
+    );
+    expect(response.status).toBe(403);
+    const body = (await response.json()) as {
+      error: { code: string; grantWriteHref: string };
+    };
+    expect(body.error.code).toBe('needs_write_scope');
+    expect(body.error.grantWriteHref).toBe(
+      '/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline%3Fmilestone%3Dms-1'
+    );
+  });
+
+  test('a member with a read-only grant still reaches the engine', async () => {
+    // Weight and "done means…" are planner-only: the route never asks for
+    // the write grant itself; the engine decides per field.
+    const { engine, calls } = recordingEngine();
+    const response = await patchMilestone(
+      patch('/api/milestones/ms-1', { weight: 1, doneMeans: 'Shipped.' }),
+      'ms-1',
+      resolver(engine, READ_ONLY)
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([
+      ['setMilestoneWeight', 'ms-1', 1],
+      ['setMilestoneDoneMeans', 'ms-1', 'Shipped.'],
+    ]);
   });
 
   test('a blank id is a 404', async () => {
@@ -246,15 +281,25 @@ describe('PATCH /api/projects/[id]', () => {
     ]);
   });
 
-  test('a non-PM is refused by the engine with a 403', async () => {
+  // The route passes every signed-in person through; the engine still
+  // asks for write scope, since the lead is written to Linear as them.
+  test('a lead change without write scope is refused by the engine with a 403', async () => {
     const { engine } = recordingEngine(
-      new EngineAuthError('not_pm', 'Only PMs can change project leads.')
+      new EngineAuthError('needs_write_scope', 'Allow edits first.')
     );
     const response = await patchProject(
       patch('/api/projects/proj-1', { leadId: null }),
       'proj-1',
-      resolver(engine)
+      resolver(engine, READ_ONLY)
     );
     expect(response.status).toBe(403);
+    const body = (await response.json()) as {
+      error: { code: string; grantWriteHref: string };
+    };
+    expect(body.error.code).toBe('needs_write_scope');
+    // The grant link is offered to everyone and comes back to the lane.
+    expect(body.error.grantWriteHref).toBe(
+      '/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline%3Fproject%3Dproj-1'
+    );
   });
 });

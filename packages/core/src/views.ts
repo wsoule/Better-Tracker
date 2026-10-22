@@ -1,4 +1,4 @@
-// View models for the three screens (§2.11): My week, the PM timeline, and
+// View models for the three screens (§2.11): My week, the timeline, and
 // the milestone drawer. Plain data, ready to serialize to the client.
 
 import { addDays, DAY_MS, elapsedMs, isValidIsoDate } from './dates';
@@ -230,7 +230,7 @@ function toBar(
 }
 
 /**
- * The PM timeline (§7.2): a window from `timelineDaysBack` before today to
+ * The timeline (§7.2): a window from `timelineDaysBack` before today to
  * `timelineDaysAhead` after, lanes for projects that are not completed or
  * canceled grouped by initiative ("No initiative" last), one bar per
  * milestone, and the banners that make missing inputs loud. Banners list

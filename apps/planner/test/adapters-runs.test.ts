@@ -277,24 +277,25 @@ describe('runs register', () => {
     expect(running.took).toBeNull();
   });
 
-  test('page copy follows the allocation mode; PM names skip the inactive', () => {
+  // Owner decision 2026-10-22: no PM role. The page model names nobody
+  // who "can" run: everyone signed in gets the controls, and only the
+  // saved allocation mode decides whether Run now is offered.
+  test('page copy follows the allocation mode; nobody is singled out', () => {
     const dry = buildRunsPage({
       runs: [],
       snapshot,
       timeZone: TZ,
       allocationMode: 'dry_run',
-      pmUserIds: ['u-ana', 'u-hugo'],
     });
     expect(dry.liveRunsOn).toBe(false);
     expect(dry.receipts).toContain('Allocation is in dry run');
     expect(dry.receipts).toContain('No runs logged yet.');
-    expect(dry.pmNames).toEqual(['Ana Moreno']);
+    expect(Object.keys(dry).sort()).toEqual(['liveRunsOn', 'receipts', 'rows']);
     const live = buildRunsPage({
       runs: [run()],
       snapshot,
       timeZone: TZ,
       allocationMode: 'live',
-      pmUserIds: ['u-ana'],
     });
     expect(live.liveRunsOn).toBe(true);
     expect(live.receipts).toContain('1 run logged');

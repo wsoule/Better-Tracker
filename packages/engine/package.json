@@ -2,7 +2,7 @@
   "name": "@better-tracker/engine",
   "version": "0.0.0",
   "private": true,
-  "description": "Orchestration: sync, allocation runs, warnings, PM edits, and read models for the UI and worker.",
+  "description": "Orchestration: sync, allocation runs, warnings, milestone and issue edits, and read models for the UI and worker.",
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.js",

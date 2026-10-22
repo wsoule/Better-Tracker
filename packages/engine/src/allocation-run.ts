@@ -79,8 +79,11 @@ export interface AllocationRunInput {
   syncFirst?: boolean;
 }
 
-// Who may start which run: the schedule (actor null) may run both modes;
-// a person must be a PM of that workspace for either mode.
+// Who may start which run: the schedule (actor null) and any signed-in
+// person of that workspace may run both modes (there is no PM role since
+// the owner decision of 2026-10-22). Live writes go out as the app, so a
+// person's run needs no Linear write scope; the web route keeps live runs
+// off until someone switches allocation live in Settings → Modes.
 function authorize(input: AllocationRunInput): void {
   if (input.mode !== 'dry_run' && input.mode !== 'live') {
     throw new EngineInputError('invalid', 'mode must be dry_run or live.');
@@ -98,9 +101,6 @@ function authorize(input: AllocationRunInput): void {
       'wrong_workspace',
       'You are signed in to a different Linear workspace.'
     );
-  }
-  if (!actor.isPm) {
-    throw new EngineAuthError('not_pm', 'Only PMs can run allocation.');
   }
 }
 

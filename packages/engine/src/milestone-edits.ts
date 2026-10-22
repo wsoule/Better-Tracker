@@ -1,8 +1,11 @@
-// PM edits (§7, §7.1). Linear writes (milestone target date, project lead)
-// go through the signed-in PM's own token so Linear attributes them to the
-// person; tool-owned writes (weight, "done means…") go to milestone meta.
-// Every edit is validated against the mirror, patches the mirror with what
-// Linear returned, and appends an audit entry with before/after.
+// Milestone and project edits (§7, §7.1), open to every signed-in person
+// since the owner decision of 2026-10-22 (there is no PM role). Linear
+// writes (milestone target date, project lead) go through the person's own
+// token, so they need write scope and Linear attributes them to the person;
+// tool-owned writes (weight, "done means…") go to milestone meta and need
+// only a session. Every edit is validated against the mirror, patches the
+// mirror with what Linear returned, and appends an audit entry with
+// before/after (the audit log is how everyone sees who changed what).
 
 import {
   type IsoDate,
@@ -12,7 +15,7 @@ import {
   type Snapshot,
 } from '@better-tracker/core';
 
-import { requirePm, requireWriteScope } from './permissions';
+import { requireWriteScope } from './permissions';
 import { type EngineRuntime, requireInstallation } from './runtime';
 import { type Actor, EngineInputError } from './types';
 
@@ -125,14 +128,13 @@ export function normalizeWeight(weight: unknown): number | null {
   return weight === 0 ? 0 : weight;
 }
 
-/** Moves a milestone's target date in Linear (as the PM). */
+/** Moves a milestone's target date in Linear (as the signed-in person). */
 export async function setMilestoneTargetDate(
   rt: EngineRuntime,
   actor: Actor,
   milestoneId: string,
   targetDate: IsoDate | null
 ): Promise<void> {
-  requirePm(actor);
   requireWriteScope(actor);
   if (
     targetDate !== null &&
@@ -171,14 +173,13 @@ export async function setMilestoneTargetDate(
   });
 }
 
-/** Sets or clears a project's lead in Linear (as the PM). */
+/** Sets or clears a project's lead in Linear (as the signed-in person). */
 export async function setProjectLead(
   rt: EngineRuntime,
   actor: Actor,
   projectId: string,
   leadId: string | null
 ): Promise<void> {
-  requirePm(actor);
   requireWriteScope(actor);
   const workspaceId = actor.session.workspaceId;
   const snapshot = await snapshotFor(rt, actor);
@@ -288,7 +289,6 @@ export async function setMilestoneWeight(
   milestoneId: string,
   weight: number | null
 ): Promise<void> {
-  requirePm(actor);
   await updateMeta(rt, actor, milestoneId, {
     field: 'weight',
     value: normalizeWeight(weight),
@@ -302,7 +302,6 @@ export async function setMilestoneDoneMeans(
   milestoneId: string,
   text: string | null
 ): Promise<void> {
-  requirePm(actor);
   await updateMeta(rt, actor, milestoneId, {
     field: 'doneMeans',
     value: normalizeDoneMeans(text),

@@ -323,6 +323,40 @@ describe('fixture relations and comments', () => {
     });
   });
 
+  // A stale tab still shows a relation that was deleted elsewhere. If the
+  // next relation reused its id, that tab's remove would delete the new,
+  // unrelated relation; ids come from a counter that only grows instead.
+  test('relation ids are never reused after a delete', async () => {
+    const { dev, store } = setup();
+    const first = await dev.createBlockingRelation('iss-eng-60', 'iss-eng-62');
+    const second = await dev.createBlockingRelation('iss-eng-60', 'iss-eng-61');
+    expect([first.id, second.id]).toEqual([
+      `rel-${store.data.relations.length - 1}`,
+      `rel-${store.data.relations.length}`,
+    ]);
+    await dev.deleteRelation(first.id);
+    await dev.deleteRelation(second.id);
+
+    const third = await dev.createBlockingRelation('iss-eng-61', 'iss-eng-62');
+    expect([first.id, second.id]).not.toContain(third.id);
+    expect(third.id).toBe(`rel-${store.lastRelationNumber}`);
+    expect(store.lastRelationNumber).toBe(
+      Number(second.id.slice('rel-'.length)) + 1
+    );
+    // The stale tab's remove of the first relation hits nothing.
+    expect(await caught(dev.deleteRelation(first.id))).toMatchObject({
+      kind: 'not_found',
+    });
+    expect(store.data.relations.map((r) => r.id)).toContain(third.id);
+
+    // A store's counter is its own: a fresh store starts after its seeded
+    // relations again.
+    const fresh = setup();
+    expect(fresh.store.lastRelationNumber).toBe(
+      fresh.store.data.relations.length
+    );
+  });
+
   test("a person's comment joins the discussion, newest last", async () => {
     const { app, ana } = setup();
     const { id } = await ana.createComment('iss-eng-12', 'On it today.');

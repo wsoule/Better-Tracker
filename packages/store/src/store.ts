@@ -365,6 +365,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Settings keys earlier versions saved that no longer exist. `pmUserIds`
+ * was the PM list, retired by the owner decision of 2026-10-22 (there is
+ * no PM role any more): settings saved before it still carry the key, so
+ * reads drop it and writes never store it again.
+ */
+const RETIRED_SETTINGS_KEYS: readonly string[] = ['pmUserIds'];
+
+// The settings jsonb without the retired keys, so old rows read as the
+// current WorkspaceSettings shape and a saved row never keeps them.
+function withoutRetiredSettings(
+  data: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...data };
+  for (const key of RETIRED_SETTINGS_KEYS) delete out[key];
+  return out;
+}
+
 // A UTF-16 surrogate half without its partner (e.g. an emoji cut in two).
 // It has no UTF-8 form, so Postgres cannot store it.
 const LONE_SURROGATE =
@@ -921,16 +939,22 @@ class SqlStore implements Store {
     if (!isRecord(data)) {
       return null;
     }
-    return { ...(data as unknown as WorkspaceSettings), workspaceId };
+    return {
+      ...(withoutRetiredSettings(data) as unknown as WorkspaceSettings),
+      workspaceId,
+    };
   }
 
   async saveSettings(settings: WorkspaceSettings): Promise<void> {
+    // A caller may hand back an object spread from an old row; the retired
+    // keys are never written again.
+    const data = withoutRetiredSettings({ ...settings });
     await this.write(
       `INSERT INTO settings (workspace_id, data, updated_at)
        VALUES ($1, $2::text::jsonb, $3::timestamptz)
        ON CONFLICT (workspace_id) DO UPDATE SET
          data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
-      [settings.workspaceId, jsonParam(settings), this.nowIso()]
+      [settings.workspaceId, jsonParam(data), this.nowIso()]
     );
   }
 

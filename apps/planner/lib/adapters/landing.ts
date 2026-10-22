@@ -18,14 +18,12 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
     'Sign in first; installing the app and granting write access need a signed-in person.',
   not_signed_in:
     'This Linear account cannot sign in: it is deactivated, or it is an app user rather than a person.',
-  not_pm:
-    'The app is already installed, and only a PM can reinstall it. Ask a PM, or open Setup to see who installed it.',
   wrong_workspace:
     'That install was for a different Linear workspace than the one you signed in with, or it did not grant app access. Start the install again from Setup.',
   not_installed:
     'The app is not installed in this workspace yet. A workspace admin installs it from Setup.',
   needs_write_scope:
-    'Your Linear sign-in only allows reading. Sign in again and grant write access to edit dates and leads.',
+    'Your Linear sign-in only allows reading. Sign in again and grant write access to edit dates, leads and issues.',
   fixture_only: 'Demo sign-in only works on a demo server.',
   invalid: 'Linear sent back a sign-in the planner could not use. Start again.',
   not_found: 'That demo person does not exist.',
@@ -71,21 +69,17 @@ export interface DemoUserRow {
   id: string;
   name: string;
   email: string | null;
-  isPm: boolean;
   /** The button's words: "Sign in as Ana". */
   action: string;
 }
 
 /**
- * Demo people for the picker: PMs first (they see the edit controls), then
- * everyone else, each by name. The engine already dropped app users and
+ * Demo people for the picker, by name. Nobody is set apart: there are no
+ * roles (owner decision 2026-10-22), so every demo person sees the same
+ * screens and edit controls. The engine already dropped app users and
  * deactivated people.
  */
-export function demoUserRows(
-  users: readonly User[],
-  pmUserIds: readonly string[]
-): DemoUserRow[] {
-  const pms = new Set(pmUserIds);
+export function demoUserRows(users: readonly User[]): DemoUserRow[] {
   return users
     .map((user) => {
       // First name from the full name: Linear's displayName is a handle.
@@ -94,13 +88,10 @@ export function demoUserRows(
         id: user.id,
         name: user.name,
         email: user.email,
-        isPm: pms.has(user.id),
         action: `Sign in as ${first}`,
       };
     })
-    .sort((a, b) =>
-      a.isPm === b.isPm ? a.name.localeCompare(b.name, 'en') : a.isPm ? -1 : 1
-    );
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'));
 }
 
 export interface LandingFeature {
@@ -119,7 +110,7 @@ export const LANDING_FEATURES: readonly LandingFeature[] = [
   {
     key: '02',
     title: 'Timeline',
-    body: 'Every active project’s milestones on one date axis, with progress and risk. PMs drag a bar’s end to move that milestone’s target date in Linear.',
+    body: 'Every active project’s milestones on one date axis, with progress and risk. Anyone signed in drags a bar’s end to move that milestone’s target date in Linear, as themselves.',
   },
   {
     key: '03',

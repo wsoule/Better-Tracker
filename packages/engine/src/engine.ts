@@ -28,7 +28,7 @@ import {
   setMilestoneTargetDate,
   setMilestoneWeight,
   setProjectLead,
-} from './pm-edits';
+} from './milestone-edits';
 import { createRuntime, readSettings } from './runtime';
 import { updateSettings } from './settings';
 import { fullSync } from './sync';

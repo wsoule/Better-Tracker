@@ -27,13 +27,14 @@ import css from './page.module.css';
 /** The status line's resting words. */
 const PREVIEW_NOTE = 'The preview records and sends nothing.';
 
-/* Settings → Status, PM controls: "Resync now" (POST /api/sync, then the
-   page re-reads the sync time) and "Preview today's digests" (POST
-   /api/warnings/preview: built, never recorded or sent), rendered inline
-   below as one block per recipient. Failures are toasted. Each button
-   disables while it works, so keyboard focus first moves to the status
-   line beside them (tabIndex=-1, a live region saying what is happening
-   and how it went); a finished preview takes focus to its heading. */
+/* Settings → Status, for everyone signed in: "Resync now" (POST
+   /api/sync, then the page re-reads the sync time) and "Preview today's
+   digests" (POST /api/warnings/preview: built, never recorded or sent),
+   rendered inline below as one block per recipient. Failures are
+   toasted. Each button disables while it works, so keyboard focus first
+   moves to the status line beside them (tabIndex=-1, a live region saying
+   what is happening and how it went); a finished preview takes focus to
+   its heading. */
 export default function StatusActions() {
   const router = useRouter();
   const { toast } = useToast();

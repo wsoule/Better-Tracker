@@ -48,10 +48,12 @@ async function loadDetail(
    missing-input banners above. ?milestone=<id> opens the drawer,
    ?project=<id> focuses a lane, ?issue=<key> shows one of its issues in
    the same panel (§8.5); filters, zoom and dependencies live in the URL
-   too. Everyone sees it; only PMs get edit controls (drag handles with
-   Linear write access, the drawer's fields), and the PATCH routes enforce
-   the same rules. All data comes from the engine; lib/adapters/timeline.ts
-   maps it. */
+   too. Everyone signed in sees and edits it (owner decision 2026-10-22:
+   no roles): weight and "done means…" for everyone, the drag handles and
+   the drawer's date and lead with Linear write access (the person's own
+   token; without it, an "Allow edits in Linear" notice). The PATCH routes
+   and the engine enforce the same rules. All data comes from the engine;
+   lib/adapters/timeline.ts maps it. */
 export default async function TimelinePage({
   searchParams,
 }: {
@@ -62,10 +64,7 @@ export default async function TimelinePage({
   const { engine, actor, workspaceId } = await requireInstalledActor();
   const state = parseTimelineState(params);
   const selection = parseTimelineSelection(params);
-  const permissions = {
-    isPm: actor.isPm,
-    canWriteLinear: actor.canWriteLinear,
-  };
+  const permissions = { canWriteLinear: actor.canWriteLinear };
 
   const [view, graph, loaded, detail, issueDrawer] = await orSetup(
     Promise.all([

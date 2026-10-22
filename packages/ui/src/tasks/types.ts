@@ -110,7 +110,7 @@ export interface CheckboxProps {
   /** Keep the label for assistive tech only (a register column names it). */
   hideLabel?: boolean;
   /** Overrides the accessible name; keep the visible label inside it
-      ("Ana Moreno: PM"). */
+      ("Ana Moreno: Watcher"). */
   'aria-label'?: string;
 }
 

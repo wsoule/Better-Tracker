@@ -471,6 +471,19 @@
   color: var(--muted);
 }
 
+/* The drawer's grant_write link: the accent marks the one action here. */
+.editLink {
+  font-weight: 500;
+  color: var(--accent);
+  border-bottom: 1px solid currentcolor;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .editLink:hover {
+    color: var(--accent-hover);
+  }
+}
+
 .drawerEmpty {
   margin-top: 0;
 }

@@ -1,6 +1,6 @@
 // A person's own issue edits (owner decision 2026-10-21): fields, comments
 // and blocking relations. Every write needs actor.canWriteLinear (any
-// signed-in person who granted write; never PM-gated), is validated before
+// signed-in person who granted write), is validated before
 // Linear is called (the mirror, plus the team's live labels and estimate
 // scale), goes to Linear with that person's token so Linear's permissions
 // apply and its history credits them, patches the mirror at once (the
@@ -39,8 +39,8 @@ import {
   isLinearApiError,
   linearWrite,
 } from './linear-errors';
+import { characterCount, snapshotFor } from './milestone-edits';
 import { requireWriteScope } from './permissions';
-import { characterCount, snapshotFor } from './pm-edits';
 import { type EngineRuntime } from './runtime';
 import { type Actor, EngineInputError, type IssueUpdateResult } from './types';
 import { keepsLooseIssue, relationRefsTouching } from './webhooks';

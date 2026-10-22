@@ -30,7 +30,7 @@ import type {
   DrawerIssue,
   MilestoneDrawerModel,
 } from '../../../lib/adapters/timeline';
-import { sendJson } from '../../../lib/api-client';
+import { notSavedToast, sendJson } from '../../../lib/api-client';
 import { formatDate } from '../../../lib/format';
 import type { IssueDrawerParts } from '../components/issue-drawer';
 import css from './page.module.css';
@@ -92,7 +92,7 @@ function useSave(): {
       const result = await sendJson('PATCH', url, body);
       setBusy(null);
       if (!result.ok) {
-        toast({ kind: 'error', label: 'Not saved', message: result.message });
+        toast(notSavedToast(result, (href) => window.location.assign(href)));
         return false;
       }
       toast({ kind: 'info', label: 'Saved', message: success });
@@ -106,7 +106,8 @@ function useSave(): {
 
 /* The milestone slide-over (architecture §8.3): PROJECT / MILESTONE crumb
    with Open in Linear and Copy link, the overdue strip, the property list
-   (PM edit controls by permission), the rubric checklist, the issues with
+   (weight and "done means…" editable by everyone, date and lead with
+   Linear write access), the rubric checklist, the issues with
    their blockers, and what the milestone waits on. While the server loads
    a newly clicked milestone the panel is already open with a skeleton. */
 export default function MilestoneDrawer({
@@ -320,7 +321,7 @@ function DrawerBody({
     {
       id: 'weight',
       label: 'Weight',
-      value: permissions.canEditMeta ? (
+      value: (
         <WeightField
           key={String(model.weight.value)}
           model={model}
@@ -336,8 +337,6 @@ function DrawerBody({
             )
           }
         />
-      ) : (
-        <span className={css.mono}>{model.weight.label}</span>
       ),
     },
     {
@@ -362,7 +361,7 @@ function DrawerBody({
     {
       id: 'done',
       label: 'Done means…',
-      value: permissions.canEditMeta ? (
+      value: (
         <DoneMeansField
           key={model.doneMeans.plannerText}
           model={model}
@@ -378,8 +377,6 @@ function DrawerBody({
             )
           }
         />
-      ) : (
-        <DoneMeansText model={model} />
       ),
     },
   ];
@@ -408,13 +405,22 @@ function DrawerBody({
       )}
 
       <PropertyList label="Milestone details" items={items} />
-      {permissions.canEditLinear || permissions.canEditMeta ? (
+      {permissions.grantWriteHref === null ? (
         <p className={css.editNote}>
-          {permissions.canEditLinear
-            ? 'Due date and lead changes are written to Linear as you. Weight and "done means…" are kept in the planner.'
-            : 'Weight and "done means…" are kept in the planner. Due date and lead need Linear write access.'}
+          Due date and lead changes are written to Linear as you. Weight and
+          “done means…” are kept in the planner.
         </p>
-      ) : null}
+      ) : (
+        <p className={css.editNote}>
+          Weight and “done means…” are kept in the planner. Due date and lead
+          are written to Linear as you, so they need Linear write access:{' '}
+          {/* A plain anchor: the OAuth start must never be prefetched. */}
+          <a className={css.editLink} href={permissions.grantWriteHref}>
+            Allow edits in Linear
+          </a>
+          .
+        </p>
+      )}
 
       <h3 className={css.subhead}>Checklist</h3>
       <Checklist label="Milestone rubric" items={model.rubric} />
@@ -563,20 +569,6 @@ function LeadText({ model }: { model: MilestoneDrawerModel }) {
       <span>{model.lead.name}</span>
       {model.lead.note === null ? null : (
         <span className={css.accentNote}>{model.lead.note}</span>
-      )}
-    </span>
-  );
-}
-
-function DoneMeansText({ model }: { model: MilestoneDrawerModel }) {
-  if (model.doneMeans.text === null) {
-    return <span className={css.accentMono}>Not written yet</span>;
-  }
-  return (
-    <span className={css.stack}>
-      <span>{model.doneMeans.text}</span>
-      {model.doneMeans.sourceLabel === null ? null : (
-        <span className={css.note}>{model.doneMeans.sourceLabel}</span>
       )}
     </span>
   );

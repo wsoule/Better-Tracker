@@ -47,7 +47,7 @@ export interface Session {
   workspaceId: string;
   userId: string;
   userName: string;
-  /** The signed-in user's own Linear token, for PM edits attributed to them. */
+  /** The person's own Linear token, so their edits are attributed to them. */
   tokens: StoredTokens;
   createdAt: IsoDateTime;
   expiresAt: IsoDateTime;

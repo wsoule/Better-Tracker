@@ -174,7 +174,7 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
       nav={nav}
       sections={sections}
       settings={{ href: '/settings' }}
-      user={{ name: 'Pat Lee', badge: 'PM', href: '/week?user=pat' }}
+      user={{ name: 'Pat Lee', badge: 'DEMO', href: '/week?user=pat' }}
       signOut={{ action: '/api/auth/logout', method: 'post' }}
       themeStorageKey={themeStorageKey}
       crumbs={crumbs}
@@ -415,7 +415,7 @@ export default function ShellGallery({
       {
         id: 's-dry',
         label: 'Preview allocation (dry run)',
-        hint: 'PM',
+        hint: 'Assigns nothing',
         section: 'Suggestions',
         icon: icons.dryRun,
         onSelect: () => undefined,
@@ -423,7 +423,7 @@ export default function ShellGallery({
       {
         id: 's-sync',
         label: 'Resync from Linear',
-        hint: 'PM',
+        hint: 'Full sync',
         section: 'Suggestions',
         icon: icons.resync,
         onSelect: () => undefined,
@@ -461,7 +461,7 @@ export default function ShellGallery({
   );
 }
 
-/* The provider's navigate() and the PM suggestions report through toasts
+/* The provider's navigate() and the suggestions report through toasts
    here, since the gallery has no other pages to go to. */
 function PaletteWithToasts({
   items,

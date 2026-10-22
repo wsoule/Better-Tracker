@@ -26,9 +26,10 @@ import {
 
 // /settings (architecture §8.4 "Settings", §7.1 validation): the section
 // sub-nav, each section's rows, and the bodies its form PATCHes. Everyone
-// reads; PMs edit, one form per section, each sending only that
-// section's fields to PATCH /api/settings (the engine re-validates all of
-// it). Also the inline digest preview (POST /api/warnings/preview) and the
+// signed in reads and edits every section (owner decision 2026-10-22: no
+// roles), one form per section, each sending only that section's fields
+// to PATCH /api/settings (the engine re-validates all of it and audits
+// the save). Also the inline digest preview (POST /api/warnings/preview) and the
 // audit log's "before → after" wording. Pure functions over engine data.
 
 export type Installation = NonNullable<
@@ -46,7 +47,7 @@ export type SyncState = Awaited<ReturnType<Engine['load']>>['syncState'];
 
 export type SettingsSectionId =
   | 'modes'
-  | 'people'
+  | 'watchers'
   | 'schedule'
   | 'status'
   | 'notifications'
@@ -67,10 +68,10 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
       'Whether allocation writes to Linear and whether warnings are sent.',
   },
   {
-    id: 'people',
-    label: 'People',
+    id: 'watchers',
+    label: 'Watchers',
     description:
-      'Who may edit (PMs) and who hears about every at-risk milestone (watchers).',
+      'Who hears about every at-risk milestone besides its project’s lead; anyone signed in can change the list, and it may be empty.',
   },
   {
     id: 'schedule',
@@ -93,7 +94,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     id: 'audit',
     label: 'Audit',
     description:
-      "Recent edits made in the planner, newest first, with what changed: PM edits and everyone's issue edits.",
+      'Recent edits made in the planner, newest first: who changed which milestone, lead, issue or setting, and how.',
   },
 ];
 
@@ -101,15 +102,22 @@ export function settingsHref(section: SettingsSectionId): string {
   return section === 'modes' ? '/settings' : `/settings?section=${section}`;
 }
 
-/** ?section=… → a known section; anything else is Modes. */
+/** Old section ids that still open their successor (bookmarks, links). */
+const SECTION_ALIASES: Readonly<Record<string, SettingsSectionId>> = {
+  // People (PMs and watchers) became Watchers on 2026-10-22.
+  people: 'watchers',
+};
+
+/** ?section=… → a known section (or its alias); anything else is Modes. */
 export function parseSettingsSection(
   params: Record<string, string | string[] | undefined>
 ): SettingsSection {
   const raw = Array.isArray(params.section)
     ? params.section[0]
     : params.section;
+  const id = (raw === undefined ? undefined : SECTION_ALIASES[raw]) ?? raw;
   return (
-    SETTINGS_SECTIONS.find((section) => section.id === raw) ??
+    SETTINGS_SECTIONS.find((section) => section.id === id) ??
     SETTINGS_SECTIONS[0]
   );
 }
@@ -132,20 +140,6 @@ function namesOf(users: ReadonlyMap<string, User>, ids: readonly string[]) {
   return ids.length === 0
     ? 'nobody'
     : ids.map((id) => nameOf(users, id)).join(', ');
-}
-
-/** The read-only note non-PMs see at the top of every section. */
-export function readOnlyNote(
-  settings: Pick<WorkspaceSettings, 'pmUserIds'>,
-  users: ReadonlyMap<string, User>
-): string {
-  const pms = settings.pmUserIds.filter((id) => users.get(id)?.active === true);
-  const names = pms.map((id) => nameOf(users, id));
-  const who =
-    names.length <= 1
-      ? (names[0] ?? 'a PM')
-      : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
-  return `Only PMs can change settings. Ask ${who} if something here should change.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +191,7 @@ export function modesSavedMessage(state: ModesState): string {
 }
 
 // ---------------------------------------------------------------------------
-// People
+// Watchers
 // ---------------------------------------------------------------------------
 
 export interface PersonRow {
@@ -205,20 +199,20 @@ export interface PersonRow {
   name: string;
   email: string | null;
   active: boolean;
-  /** Deactivated in Linear but still on a list. */
+  /** Deactivated in Linear but still a watcher. */
   note: string | null;
 }
 
 /**
- * The people register: every active person in the mirror (app users are
- * never people), plus anyone deactivated who is still a PM or watcher, so
- * a PM can see and remove them. Sorted by name.
+ * The Watchers register: every active person in the mirror (app users are
+ * never people), plus anyone deactivated who is still a watcher, so they
+ * can be seen and removed. Sorted by name.
  */
-export function peopleRows(
+export function watcherRows(
   users: readonly User[],
-  settings: Pick<WorkspaceSettings, 'pmUserIds' | 'watcherUserIds'>
+  settings: Pick<WorkspaceSettings, 'watcherUserIds'>
 ): PersonRow[] {
-  const listed = new Set([...settings.pmUserIds, ...settings.watcherUserIds]);
+  const listed = new Set(settings.watcherUserIds);
   return users
     .filter((user) => !user.app && (user.active || listed.has(user.id)))
     .map((user) => ({
@@ -232,20 +226,6 @@ export function peopleRows(
       const byName = a.name.localeCompare(b.name);
       return byName !== 0 ? byName : a.id.localeCompare(b.id);
     });
-}
-
-/**
- * PM boxes that may not be unchecked: when exactly one active person is
- * still a PM, removing them would lock everyone out of settings (the
- * engine refuses that too).
- */
-export function lockedPmIds(
-  pmIds: readonly string[],
-  rows: readonly PersonRow[]
-): Set<string> {
-  const active = new Set(rows.filter((r) => r.active).map((r) => r.id));
-  const activePms = pmIds.filter((id) => active.has(id));
-  return new Set(activePms.length === 1 ? activePms : []);
 }
 
 /** Toggles `id` in a list, keeping the list's order (new ids at the end). */
@@ -265,8 +245,18 @@ export function sameIds(a: readonly string[], b: readonly string[]): boolean {
   return b.every((id) => set.has(id));
 }
 
-export function peopleSavedMessage(pmCount: number, watcherCount: number) {
-  return `Saved: ${plural(pmCount, 'PM')} and ${plural(watcherCount, 'watcher')}.`;
+/** The toast after a Watchers save; an empty list says who is warned then. */
+export function watchersSavedMessage(watcherCount: number) {
+  return watcherCount === 0
+    ? 'Saved: no watchers. Only each project’s lead is warned now.'
+    : `Saved: ${plural(watcherCount, 'watcher')}.`;
+}
+
+/** The line under the Watchers register, for the list as it stands. */
+export function watchersHint(watcherCount: number): string {
+  return watcherCount === 0
+    ? 'No watchers: only each project’s lead hears about its milestones at risk.'
+    : `${plural(watcherCount, 'watcher')} ${watcherCount === 1 ? 'hears' : 'hear'} about every milestone at risk, besides each project’s lead.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -832,7 +822,11 @@ const TUNING_LABEL: Record<string, string> = {
 /**
  * The changed fields of a settings.update audit entry (whole settings
  * before and after), one plain line each: "Allocation: Dry run → Live",
- * "PMs: Ana Moreno, Ben Carter → Ana Moreno".
+ * "Watchers: Ana Moreno, Ben Carter → Ana Moreno". Entries saved before
+ * the owner decision of 2026-10-22 may also carry the retired PM list;
+ * they keep reading as they were saved ("PM list (retired): …"), but only
+ * when both sides hold it, so the save that dropped the field does not
+ * read as everyone being removed.
  */
 export function settingsChanges(
   before: unknown,
@@ -856,9 +850,10 @@ export function settingsChanges(
     );
   }
   for (const [key, label] of [
-    ['pmUserIds', 'PMs'],
+    ['pmUserIds', 'PM list (retired)'],
     ['watcherUserIds', 'Watchers'],
   ] as const) {
+    if (key === 'pmUserIds' && !(key in before && key in after)) continue;
     const a = stringList(before[key]);
     const b = stringList(after[key]);
     if (!sameIds(a, b)) {

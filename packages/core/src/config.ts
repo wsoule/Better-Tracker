@@ -27,7 +27,6 @@ export function defaultSettings(
 ): WorkspaceSettings {
   return {
     workspaceId,
-    pmUserIds: [],
     watcherUserIds: [],
     allocationMode: 'dry_run',
     warningsMode: 'preview',

@@ -143,7 +143,6 @@ export async function loadShellFrame(
     appName: engine.config.appName,
     workspaceName: installation?.workspaceName ?? null,
     userName: actor.session.userName,
-    isPm: actor.isPm,
     installed,
     timeline,
     week,

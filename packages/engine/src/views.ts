@@ -73,7 +73,7 @@ export async function getWeekView(
   });
 }
 
-/** The PM timeline (§7.2 of the design). */
+/** The timeline (§7.2 of the design). */
 export async function getTimelineView(
   rt: EngineRuntime,
   workspaceId: string

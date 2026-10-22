@@ -17,7 +17,8 @@ import {
   createFixtureWorkspace,
   FIXTURE_APP_USER_ID,
   FIXTURE_MILESTONE_META,
-  FIXTURE_PM_USER_IDS,
+  FIXTURE_INSTALLER_USER_ID,
+  FIXTURE_WATCHER_USER_IDS,
   FIXTURE_WORKSPACE,
 } from '../src/fixture';
 import { LinearApiError } from '../src/gateway';
@@ -132,7 +133,7 @@ function isBehindPace(m: Milestone): boolean {
 }
 
 describe('fixture workspace: people, teams, states, initiatives', () => {
-  test('~8 people incl. two active PMs, one deactivated user and the app user', () => {
+  test('~8 people incl. two active watchers, one deactivated user and the app user', () => {
     const humans = data.users.filter((u) => !u.app);
     expect(humans.length).toBeGreaterThanOrEqual(8);
     expect(data.users.filter((u) => u.app).map((u) => u.id)).toEqual([
@@ -140,11 +141,13 @@ describe('fixture workspace: people, teams, states, initiatives', () => {
     ]);
     expect(userById.get(FIXTURE_APP_USER_ID)?.email).toBeNull();
     expect(humans.filter((u) => !u.active)).toHaveLength(1);
-    expect(FIXTURE_PM_USER_IDS).toHaveLength(2);
-    for (const id of FIXTURE_PM_USER_IDS) {
+    expect(FIXTURE_WATCHER_USER_IDS).toHaveLength(2);
+    for (const id of FIXTURE_WATCHER_USER_IDS) {
       expect(userById.get(id)?.active).toBe(true);
       expect(userById.get(id)?.email).toContain('@northwind.example');
     }
+    expect(userById.get(FIXTURE_INSTALLER_USER_ID)?.active).toBe(true);
+    expect(userById.get(FIXTURE_INSTALLER_USER_ID)?.app).toBe(false);
   });
 
   test('two teams (ENG, OPS), each with the full workflow and a Duplicate state', () => {
@@ -393,9 +396,11 @@ describe('fixture workspace: relations', () => {
 });
 
 describe('fixture workspace: My week content', () => {
-  test('both PMs have open issues across several milestones plus one with no milestone', () => {
-    for (const pm of FIXTURE_PM_USER_IDS) {
-      const open = data.issues.filter((i) => i.assigneeId === pm && isOpen(i));
+  test('both watchers have open issues across several milestones plus one with no milestone', () => {
+    for (const watcher of FIXTURE_WATCHER_USER_IDS) {
+      const open = data.issues.filter(
+        (i) => i.assigneeId === watcher && isOpen(i)
+      );
       const milestones = new Set(
         open.map((i) => i.milestoneId).filter((id) => id !== null)
       );

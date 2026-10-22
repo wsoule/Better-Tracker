@@ -27,7 +27,7 @@ import type { ApiActorResolver } from '../lib/timeline-edits';
 // The issue routes' handlers with a fake actor resolver (requireApiActor's
 // place) and a recording engine: malformed input answers 400 before any
 // engine call, a person without Linear write scope gets 403 with the
-// grant_write link (whether PM or not), cross-origin writes are refused,
+// grant_write link (there are no roles), cross-origin writes are refused,
 // valid bodies reach the engine as typed, and engine errors map to their
 // HTTP statuses (linear_forbidden 403, rate_limited 429).
 
@@ -37,7 +37,6 @@ const snapshot = indexWorkspace(createFixtureWorkspace('2026-10-21'));
 function actor(over: Partial<Actor> = {}): Actor {
   return {
     session: { userId: 'user-chloe', workspaceId: 'org-1' },
-    isPm: false,
     canWriteLinear: true,
     ...over,
   } as unknown as Actor;
@@ -193,13 +192,18 @@ describe('PATCH /api/issues/[id]', () => {
     ]);
   });
 
-  test('anyone with write scope may edit; PM or not does not matter', async () => {
-    for (const isPm of [false, true]) {
+  test('anyone with write scope may edit; there is no role check', async () => {
+    for (const userId of ['user-chloe', 'user-ana']) {
       const { engine, calls } = recordingEngine();
       const response = await patchIssue(
         send('PATCH', '/api/issues/iss-eng-24', { priority: 2 }),
         'iss-eng-24',
-        resolver(engine, actor({ isPm }))
+        resolver(
+          engine,
+          actor({
+            session: { userId, workspaceId: 'org-1' } as Actor['session'],
+          })
+        )
       );
       expect(response.status).toBe(200);
       expect(calls).toHaveLength(1);
@@ -211,7 +215,7 @@ describe('PATCH /api/issues/[id]', () => {
     const response = await patchIssue(
       send('PATCH', '/api/issues/iss-eng-24', { priority: 2 }),
       'iss-eng-24',
-      resolver(engine, actor({ canWriteLinear: false, isPm: true }))
+      resolver(engine, actor({ canWriteLinear: false }))
     );
     expect(response.status).toBe(403);
     const error = await errorOf(response);

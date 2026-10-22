@@ -23,12 +23,12 @@ import {
 
 // One harness for the file: each test edits different entities.
 let h: DemoHarness;
-let pm: Actor;
+let ana: Actor;
 let member: Actor;
 
 beforeAll(async () => {
   h = await createDemoHarness();
-  pm = await actorFor(h, 'user-ana');
+  ana = await actorFor(h, 'user-ana');
   member = await actorFor(h, 'user-chloe');
 });
 afterAll(async () => {
@@ -39,64 +39,96 @@ function readOnly(actor: Actor): Actor {
   return { ...actor, canWriteLinear: false };
 }
 
+async function caughtError(promise: Promise<unknown>): Promise<unknown> {
+  try {
+    await promise;
+  } catch (error) {
+    return error;
+  }
+  return null;
+}
+
 async function rejectsWith(
   promise: Promise<unknown>,
   type: typeof EngineAuthError | typeof EngineInputError,
   code: string
 ): Promise<void> {
-  let caught: unknown = null;
-  try {
-    await promise;
-  } catch (error) {
-    caught = error;
-  }
+  const caught = await caughtError(promise);
   expect(caught).toBeInstanceOf(type);
   expect((caught as { code: string }).code).toBe(code);
 }
 
 describe('permissions', () => {
-  test('non-PMs cannot edit anything', async () => {
-    const date = addDays(h.clock.today(), 10);
-    await rejectsWith(
-      h.engine.setMilestoneTargetDate(member, 'ms-juniper-2', date),
-      EngineAuthError,
-      'not_pm'
-    );
-    await rejectsWith(
-      h.engine.setProjectLead(member, 'proj-delta', 'user-chloe'),
-      EngineAuthError,
-      'not_pm'
-    );
-    await rejectsWith(
-      h.engine.setMilestoneWeight(member, 'ms-juniper-2', 3),
-      EngineAuthError,
-      'not_pm'
-    );
-    await rejectsWith(
-      h.engine.setMilestoneDoneMeans(member, 'ms-juniper-2', 'x'),
-      EngineAuthError,
-      'not_pm'
-    );
-    await rejectsWith(
-      h.engine.updateSettings(member, { warningsMode: 'live' }),
-      EngineAuthError,
-      'not_pm'
-    );
+  // Owner decision 2026-10-22: there is no PM role. Chloe was never on the
+  // old PM list, yet every formerly PM-only edit goes through for her, each
+  // audited under her name; nobody is ever refused with not_pm.
+  test('a member makes every milestone, lead and settings edit', async () => {
+    const own = await createDemoHarness();
+    try {
+      const chloe = await actorFor(own, 'user-chloe');
+      expect(chloe).not.toHaveProperty('isPm');
+      const date = addDays(own.clock.today(), 12);
+      await own.engine.setMilestoneTargetDate(chloe, 'ms-juniper-2', date);
+      await own.engine.setProjectLead(chloe, 'proj-delta', 'user-femi');
+      await own.engine.setMilestoneWeight(chloe, 'ms-juniper-2', 3);
+      await own.engine.setMilestoneDoneMeans(
+        chloe,
+        'ms-harbor-1',
+        'Beta customers call every v3 endpoint.'
+      );
+      const saved = await own.engine.updateSettings(chloe, {
+        allocationMode: 'live',
+        warningsMode: 'live',
+        watcherUserIds: ['user-chloe'],
+        timezone: 'Europe/Oslo',
+        tuning: { warnLeadDays: 5 } as never,
+      });
+      expect(saved).toMatchObject({
+        allocationMode: 'live',
+        warningsMode: 'live',
+        watcherUserIds: ['user-chloe'],
+        timezone: 'Europe/Oslo',
+      });
+      expect(saved.tuning.warnLeadDays).toBe(5);
+
+      const loaded = await own.engine.load(WORKSPACE_ID);
+      expect(loaded.snapshot.milestones.get('ms-juniper-2')?.targetDate).toBe(
+        date
+      );
+      expect(loaded.snapshot.projects.get('proj-delta')?.leadId).toBe(
+        'user-femi'
+      );
+      expect(loaded.settings.allocationMode).toBe('live');
+      const audit = await own.engine.listAudit(WORKSPACE_ID, 10);
+      expect(audit.map((entry) => entry.action).sort()).toEqual([
+        'milestone.done_means',
+        'milestone.target_date',
+        'milestone.weight',
+        'project.lead',
+        'settings.update',
+      ]);
+      expect(new Set(audit.map((entry) => entry.actorUserId))).toEqual(
+        new Set(['user-chloe'])
+      );
+    } finally {
+      await own.close();
+    }
   });
 
   test('Linear edits need the write scope; tool-owned edits do not', async () => {
     const date = addDays(h.clock.today(), 10);
     await rejectsWith(
-      h.engine.setMilestoneTargetDate(readOnly(pm), 'ms-juniper-2', date),
+      h.engine.setMilestoneTargetDate(readOnly(member), 'ms-juniper-2', date),
       EngineAuthError,
       'needs_write_scope'
     );
     await rejectsWith(
-      h.engine.setProjectLead(readOnly(pm), 'proj-delta', 'user-chloe'),
+      h.engine.setProjectLead(readOnly(member), 'proj-delta', 'user-chloe'),
       EngineAuthError,
       'needs_write_scope'
     );
-    await h.engine.setMilestoneWeight(readOnly(pm), 'ms-beacon-2', 2);
+    // Planner-only edits need nothing beyond a session.
+    await h.engine.setMilestoneWeight(readOnly(member), 'ms-beacon-2', 2);
     const meta = (await h.store.listMilestoneMeta(WORKSPACE_ID)).find(
       (m) => m.milestoneId === 'ms-beacon-2'
     );
@@ -106,14 +138,18 @@ describe('permissions', () => {
     expect(
       h.fixture.data.milestones.find((m) => m.id === 'ms-juniper-2')?.targetDate
     ).toBe(addDays(h.clock.today(), 35));
+    const settings = await h.engine.updateSettings(readOnly(member), {
+      timezone: 'UTC',
+    });
+    expect(settings.timezone).toBe('UTC');
   });
 });
 
 describe('milestone target date', () => {
-  test('writes to Linear as the PM, patches the mirror and audits', async () => {
+  test('writes to Linear as the person, patches the mirror and audits', async () => {
     const before = addDays(h.clock.today(), 35);
     const after = addDays(h.clock.today(), 42);
-    await h.engine.setMilestoneTargetDate(pm, 'ms-juniper-2', after);
+    await h.engine.setMilestoneTargetDate(ana, 'ms-juniper-2', after);
 
     expect(
       h.fixture.data.milestones.find((m) => m.id === 'ms-juniper-2')?.targetDate
@@ -140,7 +176,7 @@ describe('milestone target date', () => {
     });
 
     // Clearing the date works too.
-    await h.engine.setMilestoneTargetDate(pm, 'ms-compass-3', null);
+    await h.engine.setMilestoneTargetDate(ana, 'ms-compass-3', null);
     expect(
       (await h.engine.load(WORKSPACE_ID)).snapshot.milestones.get(
         'ms-compass-3'
@@ -151,13 +187,13 @@ describe('milestone target date', () => {
   test('rejects invalid dates and unknown milestones', async () => {
     for (const bad of ['2026-02-30', '21/10/2026', '', 'tomorrow']) {
       await rejectsWith(
-        h.engine.setMilestoneTargetDate(pm, 'ms-juniper-2', bad),
+        h.engine.setMilestoneTargetDate(ana, 'ms-juniper-2', bad),
         EngineInputError,
         'invalid'
       );
     }
     await rejectsWith(
-      h.engine.setMilestoneTargetDate(pm, 'ms-nope', '2026-12-01'),
+      h.engine.setMilestoneTargetDate(ana, 'ms-nope', '2026-12-01'),
       EngineInputError,
       'not_found'
     );
@@ -168,13 +204,13 @@ describe('project lead', () => {
   test('must be an active person in the workspace', async () => {
     for (const bad of ['user-hugo', 'user-app', 'user-nobody']) {
       await rejectsWith(
-        h.engine.setProjectLead(pm, 'proj-delta', bad),
+        h.engine.setProjectLead(ana, 'proj-delta', bad),
         EngineInputError,
         'invalid'
       );
     }
     await rejectsWith(
-      h.engine.setProjectLead(pm, 'proj-nope', 'user-chloe'),
+      h.engine.setProjectLead(ana, 'proj-nope', 'user-chloe'),
       EngineInputError,
       'not_found'
     );
@@ -184,7 +220,7 @@ describe('project lead', () => {
   });
 
   test('a valid lead is written to Linear and unblocks allocation', async () => {
-    await h.engine.setProjectLead(pm, 'proj-delta', 'user-femi');
+    await h.engine.setProjectLead(ana, 'proj-delta', 'user-femi');
     expect(
       h.fixture.data.projects.find((p) => p.id === 'proj-delta')?.leadId
     ).toBe('user-femi');
@@ -205,7 +241,7 @@ describe('project lead', () => {
       after: 'user-femi',
     });
 
-    await h.engine.setProjectLead(pm, 'proj-delta', null);
+    await h.engine.setProjectLead(ana, 'proj-delta', null);
     expect(
       h.fixture.data.projects.find((p) => p.id === 'proj-delta')?.leadId
     ).toBeNull();
@@ -222,12 +258,12 @@ describe('weight', () => {
       '3' as unknown as number,
     ]) {
       await rejectsWith(
-        h.engine.setMilestoneWeight(pm, 'ms-juniper-2', bad),
+        h.engine.setMilestoneWeight(ana, 'ms-juniper-2', bad),
         EngineInputError,
         'invalid'
       );
     }
-    await h.engine.setMilestoneWeight(pm, 'ms-juniper-2', -1000);
+    await h.engine.setMilestoneWeight(ana, 'ms-juniper-2', -1000);
     expect(
       (await h.engine.load(WORKSPACE_ID)).snapshot.milestones.has(
         'ms-juniper-2'
@@ -238,7 +274,7 @@ describe('weight', () => {
     );
     expect(meta?.weight).toBe(-1000);
     expect(meta?.updatedBy).toBe('user-ana');
-    await h.engine.setMilestoneWeight(pm, 'ms-juniper-2', null);
+    await h.engine.setMilestoneWeight(ana, 'ms-juniper-2', null);
     meta = (await h.store.listMilestoneMeta(WORKSPACE_ID)).find(
       (m) => m.milestoneId === 'ms-juniper-2'
     );
@@ -250,7 +286,7 @@ describe('weight', () => {
       after: null,
     });
     await rejectsWith(
-      h.engine.setMilestoneWeight(pm, 'ms-nope', 1),
+      h.engine.setMilestoneWeight(ana, 'ms-nope', 1),
       EngineInputError,
       'not_found'
     );
@@ -260,7 +296,7 @@ describe('weight', () => {
 describe('done means', () => {
   test('trimmed, one line, at most 280 characters; empty clears it', async () => {
     await h.engine.setMilestoneDoneMeans(
-      pm,
+      ana,
       'ms-harbor-1',
       '   Beta customers call every v3 endpoint.   '
     );
@@ -284,18 +320,18 @@ describe('done means', () => {
     });
 
     await rejectsWith(
-      h.engine.setMilestoneDoneMeans(pm, 'ms-harbor-1', 'line one\nline two'),
+      h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', 'line one\nline two'),
       EngineInputError,
       'invalid'
     );
     await rejectsWith(
-      h.engine.setMilestoneDoneMeans(pm, 'ms-harbor-1', 'x'.repeat(281)),
+      h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', 'x'.repeat(281)),
       EngineInputError,
       'invalid'
     );
-    await h.engine.setMilestoneDoneMeans(pm, 'ms-harbor-1', 'é'.repeat(280));
+    await h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', 'é'.repeat(280));
 
-    await h.engine.setMilestoneDoneMeans(pm, 'ms-harbor-1', '   ');
+    await h.engine.setMilestoneDoneMeans(ana, 'ms-harbor-1', '   ');
     loaded = await h.engine.load(WORKSPACE_ID);
     expect(loaded.assessments.get('ms-harbor-1')?.doneMeans.text).toBeNull();
     expect(
@@ -308,7 +344,7 @@ describe('done means', () => {
 
 describe('updateSettings', () => {
   test('validates, saves and audits', async () => {
-    const saved = await h.engine.updateSettings(pm, {
+    const saved = await h.engine.updateSettings(ana, {
       warningsMode: 'live',
       timezone: 'America/Chicago',
       watcherUserIds: ['user-ana', 'user-grace', 'user-ana'],
@@ -326,23 +362,89 @@ describe('updateSettings', () => {
     expect(entry?.before).toMatchObject({ warningsMode: 'preview' });
     expect(entry?.after).toMatchObject({ warningsMode: 'live' });
 
-    // The PM list drives isPm on the next request.
-    await h.engine.updateSettings(pm, {
-      pmUserIds: ['user-ana', 'user-chloe'],
-    });
-    const chloe = await actorFor(h, 'user-chloe');
-    expect(chloe.isPm).toBe(true);
-    const ben = await actorFor(h, 'user-ben');
-    expect(ben.isPm).toBe(false);
+    // The settings never carry a PM list again.
+    expect(saved).not.toHaveProperty('pmUserIds');
+    expect(entry?.after).not.toHaveProperty('pmUserIds');
   });
 
-  test('rejects lockouts and nonsense', async () => {
+  // No "last PM" rule: the watcher list may be emptied (then only each
+  // project's lead is warned) and filled again.
+  test('watchers can be emptied and refilled', async () => {
+    const own = await createDemoHarness();
+    try {
+      const chloe = await actorFor(own, 'user-chloe');
+      const empty = await own.engine.updateSettings(chloe, {
+        watcherUserIds: [],
+      });
+      expect(empty.watcherUserIds).toEqual([]);
+      expect(
+        (await own.engine.load(WORKSPACE_ID)).settings.watcherUserIds
+      ).toEqual([]);
+      const refilled = await own.engine.updateSettings(chloe, {
+        watcherUserIds: ['user-dev'],
+      });
+      expect(refilled.watcherUserIds).toEqual(['user-dev']);
+    } finally {
+      await own.close();
+    }
+  });
+
+  // Everyone can edit settings now, so two people saving different
+  // sections at the same moment is ordinary. Each save used to read the
+  // settings before the other wrote them and then put back the stale copy:
+  // one person's change vanished and the audit read as a revert.
+  test('two people saving different sections at once both stick', async () => {
+    const own = await createDemoHarness();
+    try {
+      const chloe = await actorFor(own, 'user-chloe');
+      const ben = await actorFor(own, 'user-ben');
+      await Promise.all([
+        own.engine.updateSettings(chloe, { watcherUserIds: ['user-chloe'] }),
+        own.engine.updateSettings(ben, { allocationMode: 'live' }),
+        own.engine.updateSettings(chloe, {
+          tuning: { stallDays: 9 } as never,
+        }),
+      ]);
+      const { settings } = await own.engine.load(WORKSPACE_ID);
+      expect(settings.watcherUserIds).toEqual(['user-chloe']);
+      expect(settings.allocationMode).toBe('live');
+      expect(settings.tuning.stallDays).toBe(9);
+
+      // Each audit entry's "before" is what the previous save left, so the
+      // log reads as three changes in a row, never as a revert.
+      const audit = (await own.engine.listAudit(WORKSPACE_ID, 10)).filter(
+        (entry) => entry.action === 'settings.update'
+      );
+      expect(audit).toHaveLength(3);
+      const [last] = audit;
+      expect(last?.after).toMatchObject({
+        watcherUserIds: ['user-chloe'],
+        allocationMode: 'live',
+        tuning: { stallDays: 9 },
+      });
+      expect(new Set(audit.map((entry) => entry.actorUserId))).toEqual(
+        new Set(['user-chloe', 'user-ben'])
+      );
+    } finally {
+      await own.close();
+    }
+  });
+
+  test('rejects the retired PM list and nonsense', async () => {
+    const retired = await caughtError(
+      h.engine.updateSettings(member, {
+        pmUserIds: ['user-ana'],
+      } as never)
+    );
+    expect(retired).toBeInstanceOf(EngineInputError);
+    expect((retired as EngineInputError).message).toContain(
+      'pmUserIds is no longer a setting'
+    );
     const bad: unknown[] = [
       { pmUserIds: [] },
-      { pmUserIds: ['user-hugo'] },
-      { pmUserIds: ['user-app'] },
-      { pmUserIds: ['user-nobody'] },
       { watcherUserIds: ['user-app'] },
+      { watcherUserIds: ['user-nobody'] },
+      { watcherUserIds: 'user-ana' },
       { timezone: 'Mars/Olympus' },
       { allocationMode: 'yolo' },
       { warningsMode: 'loud' },
@@ -359,7 +461,7 @@ describe('updateSettings', () => {
     const before = (await h.engine.load(WORKSPACE_ID)).settings;
     for (const patch of bad) {
       await rejectsWith(
-        h.engine.updateSettings(pm, patch as never),
+        h.engine.updateSettings(ana, patch as never),
         EngineInputError,
         'invalid'
       );
@@ -370,8 +472,8 @@ describe('updateSettings', () => {
 
 // Review regressions: who writes, whether the app is still installed, and
 // edits of one milestone saved together.
-describe('edits run as the PM, only while installed', () => {
-  test("Linear edits go through the PM's own gateway, never the app", async () => {
+describe('edits run as the person, only while installed', () => {
+  test("Linear edits go through the person's own gateway, never the app", async () => {
     const writes: string[] = [];
     const wrap: GatewayWrapper = (gateway, actor) => {
       const who = actor === 'app' ? 'app' : actor.userId;

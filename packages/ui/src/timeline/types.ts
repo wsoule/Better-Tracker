@@ -31,7 +31,7 @@ export interface TimelineBar {
   tags?: string[];
   /** Missing rubric input, e.g. "MISSING: DONE MEANS". Hatches the bar. */
   missing?: string;
-  /** Shows the right-edge handle that re-dates the milestone (PMs only). */
+  /** Shows the right-edge handle that re-dates the milestone. */
   editable?: boolean;
 }
 

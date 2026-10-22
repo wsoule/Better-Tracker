@@ -1,6 +1,6 @@
 $schema: 'https://moonrepo.dev/schemas/project.json'
 
-# Next.js app: My week, PM timeline, dependency graph, run log, settings,
+# Next.js app: My week, timeline, dependency graph, run log, settings,
 # Linear OAuth and webhooks. Workspace packages resolve through their built
 # dist, so every task that runs Next depends on `^:build`.
 language: 'typescript'

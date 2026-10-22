@@ -28,7 +28,8 @@ audiences a screen that fits how they actually work.
 2. **PM milestone timeline.** A PM can *easily see and edit milestones* and *weight
    things by due dates and priorities* (Wyat's words). Layout: a **timeline**
    (Wyat picked it over an editable table as "good-ish" — the shape is right, the
-   details are open).
+   details are open). *(Since the owner decision of 2026-10-22, §12, there is no
+   PM role: everyone signed in sees and edits it.)*
 3. **Dependency graph.** "Better graphs/visuals for how things rely on others — like
    mermaid" (Wyat's words): see which issues and milestones block which.
 4. **Auto-allocation.** Unassigned issues go to **whoever owns that project**, and an
@@ -74,6 +75,10 @@ audiences a screen that fits how they actually work.
 | PM board layout | Timeline (draggable milestone bars along a date axis) |
 | Dependencies | Must be visualized as a graph, mermaid-style |
 
+*(2026-10-22, §12: there is no PM role any more. The "PM board" is the timeline
+every signed-in person edits; "who is warned" stands, with Wyat and Shanzer as
+configured watchers.)*
+
 ## 6. Builder's calls already made (my calls, not Wyat's — flagged for review)
 
 These are sensible defaults chosen while writing; Wyat has not explicitly agreed to them.
@@ -105,8 +110,12 @@ These are sensible defaults chosen while writing; Wyat has not explicitly agreed
    Linear) plus a red marker in the app. One digest per person per day, not one
    message per issue.
 9. **Users:** everyone in the Linear workspace can see "My week" and the timeline;
-   only designated PMs (initially Wyat and Shanzer) can edit dates, weights and
-   owners. PM list is a setting, not hard-coded.
+   ~~only designated PMs (initially Wyat and Shanzer) can edit dates, weights and
+   owners. PM list is a setting, not hard-coded.~~
+   **Superseded 2026-10-22 by an owner decision** (§12): there is no PM role and
+   no PM list; every signed-in person can edit dates, weights, owners, "done
+   means…" and settings. The watcher list (initially Wyat and Shanzer) stays a
+   setting, not hard-coded.
 10. **Sign-in: "Sign in with Linear" (OAuth).** Your Linear identity is who "My week"
     is for, and it's the only thing a future customer would need — keeps productizing
     open. No portal accounts.
@@ -134,6 +143,10 @@ milestone appear in a final "No milestone" section. Newly auto-allocated issues 
 marked "new — given to you because you lead <project>."
 
 ### 7.2 PM timeline
+*(Superseded in part 2026-10-22, §12: "PMs can" below now reads "everyone signed
+in can"; the two Linear writes need that person's one-time write grant. The
+original text is kept.)*
+
 Horizontal date axis (default: 2 weeks back → 10 weeks ahead). One lane per project
 (grouped by initiative, ordered by priority); each milestone is a bar ending at its due
 date, showing owner, progress and risk color. PMs can:
@@ -153,6 +166,9 @@ project/owner; cycles. Reachable from the timeline (click a milestone → "what 
 wait on?").
 
 ### 7.4 Auto-allocation (scheduled)
+*(2026-10-22, §12: "on demand by a PM" now means on demand by anyone signed in,
+and anyone can switch it live in Settings, audited; it still starts in dry run.)*
+
 Runs daily (and on demand by a PM). For each valid "next milestone" whose project has a
 lead: every open, unassigned, non-Triage issue in it is assigned to the lead and moved to
 Todo, with a Linear comment: "Assigned by Milestone Planner: you lead <project> and this
@@ -178,10 +194,12 @@ the timeline. Also notify when a milestone has a date inside 7 days but fails th
   token. The automatic writes are unchanged.)*
 - **Owned by this tool (not in Linear):** milestone weight override, "done means…" text
   if Linear's milestone description is not used for it, PM list, warning history,
-  allocation run log.
+  allocation run log. *(2026-10-22, §12: the PM list is gone; the watcher list
+  and the audit log of who changed what are owned here instead.)*
 - **Freshness:** Linear webhooks for changes + a periodic full resync to heal drift.
 - Linear access via an OAuth app installed on the workspace (allows acting as the app
-  for automation and as the signed-in user for PM edits).
+  for automation and as the signed-in user for PM edits — since 2026-10-22, §12,
+  for everyone's edits).
 
 ## 9. Constraints
 
@@ -192,7 +210,7 @@ the timeline. Also notify when a milestone has a date inside 7 days but fails th
 - **Deploy:** its own Railway service and subdomain; independent release cadence.
 - **Productization-friendly:** keep the Linear workspace id as a parameter, not a
   constant; no Waggoner-specific names in core logic (Wyat/Shanzer are configured
-  PMs/watchers, not code).
+  PMs/watchers, not code; since 2026-10-22, §12, watchers only).
 - **Safety:** auto-allocation must be idempotent, logged, reversible (the comment and run
   log say what changed), and start in dry-run.
 
@@ -229,7 +247,8 @@ these)" list; the original text above is kept for the record.
 - The planner's only **automatic** write stays allocation: assignee + state and one
   comment per allocated issue (§7.4).
 - PM-only edits are unchanged: milestone target date, project lead, weight
-  override and "done means…".
+  override and "done means…". *(Superseded 2026-10-22, below: there are no
+  PM-only edits any more.)*
 - Linear stays the source of truth: every edit goes to Linear first and the
   planner's copy follows.
 - Where (as built): each issue has a page in the planner and opens in a
@@ -237,3 +256,37 @@ these)" list; the original text above is kept for the record.
   dependency graph; My week's rows and the command palette now open the
   issue there instead of in Linear (§7.1 said "each opening in Linear"),
   and Linear stays one click away from every one of them.
+
+### 2026-10-22 — no PM role
+
+Decided by the product owner, in their words: "Don't do any PM distinction. All
+devs are basically PMs now." It supersedes the PM list in §6.9, the "PMs can" of
+§7.2, "on demand by a PM" in §7.4 and the "PM-only edits are unchanged" bullet of
+the 2026-10-21 decision above; the original text is kept for the record and
+marked where it stood. Wherever this document still says "PM" as a role, read
+"anyone signed in".
+
+- **There is no PM role.** Every signed-in person can do everything a PM could:
+  change a milestone's target date, a project's lead, a milestone's weight
+  override and "done means…", every workspace setting (modes, people, schedule,
+  tuning), start a dry run or (when allocation is live) a live run, resync from
+  Linear, preview the digests, and view anyone's My week. Nobody is refused for
+  not being a PM, and the PM list, its "last PM cannot be unchecked" rule and
+  the `PM_EMAILS` bootstrap are gone.
+- **Watchers stay.** The people warned about every at-risk milestone besides its
+  lead (§5 "who is warned": Wyat and Shanzer, as configured watchers) are a
+  setting. They are first set from `WATCHER_EMAILS`; if that names nobody, the
+  person who installed the app becomes the first watcher (before, the installer
+  became the first PM and the watchers defaulted to the PMs). The list may be
+  emptied; then only each project's lead is warned.
+- **Linear writes stay the person's own.** An edit that writes to Linear
+  (milestone date, project lead, issue edits) is made with the editor's own
+  token, so it still needs their one-time "grant write access", now offered to
+  everyone. Planner-only edits (weight, "done means…", settings, runs, resync,
+  digest preview) need only a signed-in session.
+- **The audit log matters more.** With everyone able to change everything, every
+  edit and every settings change keeps its audit entry (who, what, before and
+  after), and Settings → Audit stays open to everyone signed in.
+- **Allocation is unchanged.** It stays the only automatic write, and it stays
+  in dry run until someone switches it live in Settings → Modes; anyone may now
+  make that switch, and the switch is audited.

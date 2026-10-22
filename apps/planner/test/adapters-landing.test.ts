@@ -51,18 +51,30 @@ describe('landing', () => {
     );
   });
 
-  test('demo people: PMs first, then by name, with a first-name action', () => {
-    const rows = demoUserRows(
-      [
-        user('u-cy', 'Cy Diaz'),
-        user('u-ben', 'Ben Carter'),
-        user('u-al', 'Al Ng'),
-      ],
-      ['u-ben']
+  // Owner decision 2026-10-22: no PM role, so the demo picker lists
+  // people plainly, by name, with no badge or role column.
+  test('demo people: by name, with a first-name action and no role', () => {
+    const rows = demoUserRows([
+      user('u-cy', 'Cy Diaz'),
+      user('u-ben', 'Ben Carter'),
+      user('u-al', 'Al Ng'),
+    ]);
+    expect(rows.map((r) => r.id)).toEqual(['u-al', 'u-ben', 'u-cy']);
+    expect(rows[1]).toEqual({
+      id: 'u-ben',
+      name: 'Ben Carter',
+      email: 'u-ben@example.com',
+      action: 'Sign in as Ben',
+    });
+  });
+
+  test('no copy names a PM role, and not_pm is not a known code', () => {
+    for (const feature of LANDING_FEATURES) {
+      expect(feature.body).not.toMatch(/\bPMs?\b/);
+    }
+    expect(authErrorMessage('not_pm')).toBe(
+      'Sign-in did not finish (not_pm). Start again.'
     );
-    expect(rows.map((r) => r.id)).toEqual(['u-ben', 'u-al', 'u-cy']);
-    expect(rows[0]).toMatchObject({ isPm: true, action: 'Sign in as Ben' });
-    expect(rows[1]?.isPm).toBe(false);
   });
 
   test('first search param wins', () => {

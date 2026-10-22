@@ -30,7 +30,7 @@ import { type ApiActorResolver, parseEntityId } from './timeline-edits';
 // and a recording engine. Order in every write: resolve the actor (CSRF
 // guard + signed in) → strict zod body (unknown keys, wrong types, an empty
 // patch: 400 before the engine) → Linear write scope (403
-// needs_write_scope with the grant_write link; never isPm) → the engine,
+// needs_write_scope with the grant_write link; no role check) → the engine,
 // which validates again against the mirror and Linear → errorResponse
 // (linear_forbidden 403, rate_limited 429).
 

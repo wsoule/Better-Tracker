@@ -3,6 +3,8 @@
 // (the routes' CSRF guard accepts it because the browser sends a matching
 // Origin), and a result the caller can show in a toast without parsing.
 
+import type { ToastInput } from '@better-tracker/ui';
+
 export type ApiResult<T> =
   | { ok: true; status: number; data: T }
   | {
@@ -132,4 +134,28 @@ export async function getJson(
     throw new Error(errorFromBody(response.status, data).message);
   }
   return data;
+}
+
+/**
+ * The "Not saved" toast for a refused save. A needs_write_scope answer
+ * carries the grant_write link, offered to everyone (there are no roles),
+ * so the toast gets an "Allow edits" action and stays up long enough to
+ * use it; `navigate` is how the action follows the link (a full page load
+ * in the browser, since the OAuth start must never be prefetched).
+ */
+export function notSavedToast(
+  result: Extract<ApiResult<unknown>, { ok: false }>,
+  navigate: (href: string) => void
+): ToastInput {
+  const grant = result.grantWriteHref;
+  if (grant === undefined) {
+    return { kind: 'error', label: 'Not saved', message: result.message };
+  }
+  return {
+    kind: 'error',
+    label: 'Not saved',
+    message: result.message,
+    action: { label: 'Allow edits', onClick: () => navigate(grant) },
+    duration: 10_000,
+  };
 }

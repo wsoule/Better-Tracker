@@ -756,7 +756,7 @@ function commentModel(
 
 const TRIGGER_LABEL: Record<IssueHistoryEntry['runTrigger'], string> = {
   schedule: 'Daily run',
-  manual: 'Run by a PM',
+  manual: 'Manual run',
 };
 
 const STALE_TEXT: Record<string, string> = {

@@ -2,7 +2,6 @@ import type { Engine } from '@better-tracker/engine';
 import {
   BlockBar,
   Button,
-  Chip,
   Notice,
   Register,
   RegisterCell,
@@ -25,7 +24,7 @@ import styles from './page.module.css';
 
 export const metadata = { title: 'Sign in' };
 
-/** The demo workspace's people, PMs (from its settings) and name. */
+/** The demo workspace's people and name. */
 async function loadDemo(
   engine: Engine
 ): Promise<{ rows: DemoUserRow[]; workspaceName: string }> {
@@ -33,18 +32,11 @@ async function loadDemo(
     engine.listDemoUsers(),
     engine.listWorkspaceIds(),
   ]);
+  const rows = demoUserRows(users);
   const workspaceId = workspaceIds[0];
-  if (workspaceId === undefined) {
-    return { rows: demoUserRows(users, []), workspaceName: 'the demo' };
-  }
-  const [loaded, installation] = await Promise.all([
-    engine.load(workspaceId),
-    engine.getInstallation(workspaceId),
-  ]);
-  return {
-    rows: demoUserRows(users, loaded.settings.pmUserIds),
-    workspaceName: installation?.workspaceName ?? 'the demo',
-  };
+  if (workspaceId === undefined) return { rows, workspaceName: 'the demo' };
+  const installation = await engine.getInstallation(workspaceId);
+  return { rows, workspaceName: installation?.workspaceName ?? 'the demo' };
 }
 
 /* "/": signed in → My week. Signed out → the sign-in block (or, in demo
@@ -120,10 +112,10 @@ export default async function HomePage({
           {demo !== null ? (
             <p className={styles.lead}>
               This server runs on a fictional workspace, {demo.workspaceName},
-              so nothing here touches a real Linear account. Pick a person to
-              sign in as. PMs can re-date milestones, set project leads and run
-              allocation; everyone else sees the same screens without the edit
-              controls.
+              so nothing here touches a real Linear account. Pick anyone to sign
+              in as: everyone can re-date milestones, set project leads, edit
+              issues, change settings and run allocation, and every edit is in
+              the audit log under that person’s name.
             </p>
           ) : (
             <>
@@ -131,8 +123,8 @@ export default async function HomePage({
                 Sign in with the Linear account you use at work. The planner
                 reads issues, projects and milestones from Linear. It writes
                 back only an issue&apos;s assignee and state when it allocates,
-                a comment saying why, and the milestone dates and project leads
-                a PM changes.
+                a comment saying why, and the edits you make yourself (milestone
+                dates, project leads, issues), always as you.
               </p>
               <div className={styles.actions}>
                 <Button href="/api/auth/linear?intent=signin" variant="primary">
@@ -145,32 +137,24 @@ export default async function HomePage({
         {demo !== null ? (
           <Register
             label="Demo people"
-            columns="minmax(0, 1.3fr) 96px minmax(0, 1fr) 190px"
+            columns="minmax(0, 1.3fr) minmax(0, 1fr) 190px"
             header={[
               { id: 'name', label: 'Person' },
-              { id: 'role', label: 'Role' },
               { id: 'email', label: 'Email' },
               { id: 'action', label: 'Sign in', align: 'end' },
             ]}
-            stackedColumns="88px minmax(0, 1fr)"
+            stackedColumns="minmax(0, 1fr) auto"
           >
             {demo.rows.map((row) => (
               <RegisterRow key={row.id}>
                 <RegisterCell variant="name">{row.name}</RegisterCell>
-                <RegisterCell label="Role" variant="mono">
-                  {row.isPm ? <Chip tone="inverse">PM</Chip> : 'Member'}
-                </RegisterCell>
                 <RegisterCell label="Email" tone="muted">
                   {row.email ?? 'No email'}
                 </RegisterCell>
                 <RegisterCell align="end">
                   <form method="post" action="/api/auth/demo">
                     <input type="hidden" name="userId" value={row.id} />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant={row.isPm ? 'primary' : 'secondary'}
-                    >
+                    <Button type="submit" size="sm" variant="secondary">
                       {row.action}
                     </Button>
                   </form>

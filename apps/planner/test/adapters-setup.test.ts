@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  INSTALL_STEPS,
   installationFacts,
   type SetupInstallation,
   setupState,
@@ -44,5 +45,15 @@ describe('setup', () => {
     );
     expect(facts.map((f) => f.label)).toContain('Last reinstalled');
     expect(facts[1]?.value).toBe('A workspace admin');
+  });
+
+  // Owner decision 2026-10-22: no PM role. The installer becomes the first
+  // watcher (unless WATCHER_EMAILS names someone), never "a PM".
+  test('install steps make the installer the first watcher, not a PM', () => {
+    const copy = INSTALL_STEPS.map((step) => step.body).join(' ');
+    expect(copy).not.toMatch(/\bPMs?\b/);
+    expect(INSTALL_STEPS[3]?.body).toContain(
+      'the installer becomes the first one'
+    );
   });
 });

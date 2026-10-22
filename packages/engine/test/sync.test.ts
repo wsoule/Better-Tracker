@@ -179,51 +179,68 @@ describe('fullSync', () => {
     );
   });
 
-  test('bootstraps PMs and watchers from the installer and email lists', async () => {
+  test('bootstraps the watchers from WATCHER_EMAILS', async () => {
     const s = await setup({
       config: {
-        bootstrapPmEmails: [
-          'BEN@northwind.example',
+        bootstrapWatcherEmails: [
+          'GRACE@northwind.example',
           'app@northwind.example',
           'ghost@x.example',
+          'grace@northwind.example',
         ],
-        bootstrapWatcherEmails: ['grace@northwind.example'],
       },
     });
     const app = s.fixture.data.users.find((u) => u.id === FIXTURE_APP_USER_ID);
     if (app !== undefined) app.email = 'app@northwind.example';
     await s.engine.fullSync(WORKSPACE_ID);
     const settings = await s.store.getSettings(WORKSPACE_ID);
-    expect(settings?.pmUserIds).toEqual(['user-chloe', 'user-ben']);
+    // The app user is never a watcher; the installer is not added when
+    // the emails named someone.
     expect(settings?.watcherUserIds).toEqual(['user-grace']);
+    expect(settings).not.toHaveProperty('pmUserIds');
     expect(settings?.timezone).toBe('UTC');
     expect(settings?.allocationMode).toBe('dry_run');
     expect(s.logs.some((l) => l.includes('ghost@x.example'))).toBe(true);
 
-    // Later syncs never touch configured settings.
+    // Later syncs never touch configured settings, an emptied watcher
+    // list included (there is no "last PM" rule to refill it).
     await s.store.saveSettings({
       ...(settings ?? defaultSettings(WORKSPACE_ID, 'UTC')),
-      pmUserIds: ['user-ana'],
+      watcherUserIds: [],
     });
     await s.engine.fullSync(WORKSPACE_ID);
-    expect((await s.store.getSettings(WORKSPACE_ID))?.pmUserIds).toEqual([
-      'user-ana',
-    ]);
+    expect((await s.store.getSettings(WORKSPACE_ID))?.watcherUserIds).toEqual(
+      []
+    );
   });
 
-  test('watchers default to the PMs; the first sync completes an install-time bootstrap', async () => {
+  test('with no WATCHER_EMAILS match, the installer is the first watcher', async () => {
+    for (const emails of [[], ['ghost@x.example']]) {
+      const s = await setup({ config: { bootstrapWatcherEmails: emails } });
+      await s.engine.fullSync(WORKSPACE_ID);
+      expect((await s.store.getSettings(WORKSPACE_ID))?.watcherUserIds).toEqual(
+        ['user-chloe']
+      );
+      await open?.close();
+      open = null;
+    }
+  });
+
+  test('the first sync completes settings an older install saved', async () => {
     const s = await setup({
-      config: { bootstrapPmEmails: ['dev@northwind.example'] },
+      config: { bootstrapWatcherEmails: ['dev@northwind.example'] },
     });
-    // finishInstall saved just the installer as PM.
+    // Before the owner decision of 2026-10-22, finishInstall saved the
+    // installer as the only PM and no watchers (the store drops the
+    // retired key; store.test.ts reads a raw old row).
     await s.store.saveSettings({
       ...defaultSettings(WORKSPACE_ID, 'UTC'),
       pmUserIds: ['user-chloe'],
-    });
+    } as ReturnType<typeof defaultSettings>);
     await s.engine.fullSync(WORKSPACE_ID);
     const settings = await s.store.getSettings(WORKSPACE_ID);
-    expect(settings?.pmUserIds).toEqual(['user-chloe', 'user-dev']);
-    expect(settings?.watcherUserIds).toEqual(['user-chloe', 'user-dev']);
+    expect(settings?.watcherUserIds).toEqual(['user-dev']);
+    expect(settings).not.toHaveProperty('pmUserIds');
   });
 
   test('records a failure, rethrows it, and keeps the old mirror', async () => {
