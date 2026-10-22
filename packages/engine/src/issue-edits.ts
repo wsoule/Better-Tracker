@@ -1,6 +1,7 @@
 // A person's own issue edits (owner decision 2026-10-21): fields, comments
-// and blocking relations. Every write needs actor.canWriteLinear (any
-// signed-in person who granted write), is validated before
+// and blocking relations. A read-only person (a Linear guest) is refused
+// first, in engine.ts. Every write needs actor.canWriteLinear (any
+// signed-in person but a guest who granted write), is validated before
 // Linear is called (the mirror, plus the team's live labels and estimate
 // scale), goes to Linear with that person's token so Linear's permissions
 // apply and its history credits them, patches the mirror at once (the

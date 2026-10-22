@@ -71,7 +71,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
     id: 'watchers',
     label: 'Watchers',
     description:
-      'Who hears about every at-risk milestone besides its project’s lead; anyone signed in can change the list, and it may be empty.',
+      'Who hears about every at-risk milestone besides its project’s lead; anyone signed in but a Linear guest can change the list, and it may be empty.',
   },
   {
     id: 'schedule',
@@ -362,6 +362,71 @@ export function scheduleForm(settings: WorkspaceSettings): ScheduleForm {
     values,
     statuses: [...settings.tuning.activeProjectStatuses],
   };
+}
+
+// ---------------------------------------------------------------------------
+// Read only (owner decision 2026-10-22, "Guests limited to read only")
+// ---------------------------------------------------------------------------
+
+/** One setting as plain text, for a Linear guest's read-only sections. */
+export interface ReadOnlySettingRow {
+  id: string;
+  label: string;
+  value: string;
+  /** What the setting does (the editable row's help line). */
+  sub: string;
+}
+
+/** Settings → Modes for a Linear guest: each mode and what it does now. */
+export function modesReadOnlyRows(
+  settings: Pick<WorkspaceSettings, 'allocationMode' | 'warningsMode'>
+): ReadOnlySettingRow[] {
+  return [
+    {
+      id: 'allocation',
+      label: 'Allocation',
+      value: settings.allocationMode === 'live' ? 'Live' : 'Dry run',
+      sub: MODE_CONSEQUENCE.allocation[settings.allocationMode],
+    },
+    {
+      id: 'warnings',
+      label: 'Warnings',
+      value: settings.warningsMode === 'live' ? 'Live' : 'Preview',
+      sub: MODE_CONSEQUENCE.warnings[settings.warningsMode],
+    },
+  ];
+}
+
+/**
+ * Settings → Schedule for a Linear guest: the timezone, each tuning number
+ * in days and the active project statuses, with the editable rows' help.
+ */
+export function scheduleReadOnlyRows(
+  settings: Pick<WorkspaceSettings, 'timezone' | 'tuning'>
+): ReadOnlySettingRow[] {
+  const statuses = PROJECT_STATUS_OPTIONS.filter((option) =>
+    settings.tuning.activeProjectStatuses.includes(option.id)
+  ).map((option) => option.label);
+  return [
+    {
+      id: 'timezone',
+      label: 'Timezone',
+      value: settings.timezone,
+      sub: 'Decides what “today” is for due dates, the daily run and digests.',
+    },
+    ...TUNING_FIELDS.map((field) => ({
+      id: field.key,
+      label: field.label,
+      value: plural(settings.tuning[field.key], 'day'),
+      sub: field.help,
+    })),
+    {
+      id: 'statuses',
+      label: 'Active project statuses',
+      value: statuses.length === 0 ? 'None' : statuses.join(', '),
+      sub: 'Projects in these Linear statuses get allocation and warnings; the rest are shown but left alone.',
+    },
+  ];
 }
 
 /**

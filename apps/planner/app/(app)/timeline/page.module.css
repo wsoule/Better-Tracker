@@ -471,6 +471,11 @@
   color: var(--muted);
 }
 
+/* A Linear guest's one read-only notice, where the edit note would be. */
+.readOnlyNote {
+  margin-top: 10px;
+}
+
 /* The drawer's grant_write link: the accent marks the one action here. */
 .editLink {
   font-weight: 500;

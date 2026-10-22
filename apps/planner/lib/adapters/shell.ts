@@ -47,9 +47,11 @@ export interface PaletteSuggestion {
 }
 
 /**
- * The palette's Suggestions, the same for everyone signed in: there are
- * no roles (owner decision 2026-10-22), so the dry run and the resync are
- * offered to every person, as the routes behind them accept every person.
+ * The palette's Suggestions, the same for everyone signed in but a guest:
+ * there are no roles (owner decision 2026-10-22), so the dry run and the
+ * resync are offered to every person the routes behind them accept. A
+ * Linear guest is read-only (owner decision 2026-10-22, "Guests limited to
+ * read only") and gets only the theme switch (paletteSuggestions).
  */
 export const PALETTE_SUGGESTIONS: readonly PaletteSuggestion[] = [
   {
@@ -71,6 +73,25 @@ export const PALETTE_SUGGESTIONS: readonly PaletteSuggestion[] = [
     action: 'theme',
   },
 ];
+
+/** Suggestions that change something (a run, a resync): none for a guest. */
+const ACTION_SUGGESTIONS: ReadonlySet<PaletteSuggestionAction> = new Set([
+  'dry-run',
+  'resync',
+]);
+
+/**
+ * The Suggestions a person is offered: all of them, or for a read-only
+ * person (a Linear guest) only those that change nothing (the theme).
+ */
+export function paletteSuggestions(readOnly: boolean): PaletteSuggestion[] {
+  return PALETTE_SUGGESTIONS.filter(
+    (suggestion) => !readOnly || !ACTION_SUGGESTIONS.has(suggestion.action)
+  );
+}
+
+/** The sidebar's chip beside a guest's name. */
+export const GUEST_BADGE = 'Guest';
 
 export type NavTargetId =
   | 'week'
@@ -229,6 +250,11 @@ export interface ShellFrame {
   appName: string;
   workspaceName: string | null;
   userName: string;
+  /**
+   * The person is a Linear guest, read-only in the planner: the user line
+   * says "Guest" and the palette offers no runs or resyncs.
+   */
+  readOnly: boolean;
   /** Null when the week view could not be read (not installed, error). */
   weekCount: number | null;
   weekCountLabel: string | null;
@@ -241,6 +267,8 @@ export interface ShellFrameInput {
   appName: string;
   workspaceName: string | null;
   userName: string;
+  /** Actor.readOnly: a Linear guest. */
+  readOnly: boolean;
   /** The app has a working Linear installation for this workspace. */
   installed: boolean;
   timeline: TimelineView | null;
@@ -263,6 +291,7 @@ export function buildShellFrame(input: ShellFrameInput): ShellFrame {
     appName: input.appName,
     workspaceName: input.workspaceName,
     userName: input.userName,
+    readOnly: input.readOnly,
     weekCount: count?.count ?? null,
     weekCountLabel: count?.label ?? null,
     projects,

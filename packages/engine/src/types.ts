@@ -107,17 +107,29 @@ export interface EngineDeps {
 /**
  * The signed-in person making a request. There are no roles: since the
  * owner decision of 2026-10-22 every signed-in person may make every edit
- * and start every run. Only edits written to Linear need `canWriteLinear`,
- * because they go out with the person's own token.
+ * and start every run, with one exception that comes from Linear itself:
+ * a Linear guest is read-only (`readOnly`, owner decision 2026-10-22,
+ * "Guests limited to read only"). Only edits written to Linear need
+ * `canWriteLinear`, because they go out with the person's own token.
  */
 export interface Actor {
   session: Session;
   /**
    * Granted Linear scopes of the user's token include `write`. Since the
    * owner decision of 2026-10-21 every signed-in person may hold it (the
-   * grant_write upgrade is offered to everyone) and edit issues with it.
+   * grant_write upgrade is offered to everyone but guests) and edit issues
+   * with it. Always false while `readOnly`.
    */
   canWriteLinear: boolean;
+  /**
+   * The person is a Linear guest per the mirror when they were
+   * authenticated (`User.guest`), or someone the mirror does not know,
+   * who is treated like a guest as per-viewer visibility does (§2.13).
+   * A read-only person may look at what Linear lets them see but change
+   * nothing through the planner: every mutating engine method refuses
+   * them first with EngineAuthError('read_only') (requireWritable).
+   */
+  readOnly: boolean;
 }
 
 /**
@@ -145,6 +157,11 @@ export interface IssueDetailResult {
   allocationHistory: IssueRunEntry[];
   /** The viewer's token may write: show the edit controls. */
   canEdit: boolean;
+  /**
+   * Additive: the viewer is read-only (a Linear guest, Actor.readOnly):
+   * no edit controls and no write grant to offer.
+   */
+  readOnly: boolean;
 }
 
 /** What updateIssue changed. */
@@ -241,7 +258,12 @@ export class EngineAuthError extends Error {
     | 'wrong_workspace'
     | 'fixture_only'
     /** Additive: Linear's own permissions refused the person's edit. */
-    | 'linear_forbidden';
+    | 'linear_forbidden'
+    /**
+     * Additive: the person is a Linear guest (Actor.readOnly), who may
+     * look but change nothing through the planner (403).
+     */
+    | 'read_only';
   constructor(code: EngineAuthError['code'], message: string) {
     super(message);
     this.name = 'EngineAuthError';
@@ -281,7 +303,10 @@ export interface Engine {
     codeVerifier: string;
     intent: 'signin' | 'grant_write';
   }): Promise<SignInResult>;
-  /** Completes the admin's actor=app install for the actor's workspace. */
+  /**
+   * Completes the admin's actor=app install for the actor's workspace. A
+   * read-only actor (a Linear guest) is refused first (read_only).
+   */
   finishInstall(input: {
     code: string;
     codeVerifier: string;
@@ -346,6 +371,10 @@ export interface Engine {
   getInstallation(workspaceId: string): Promise<Installation | null>;
 
   // --- jobs -------------------------------------------------------------------
+  /**
+   * Takes no actor: the web's resync route refuses a read-only person
+   * (requireWritable) before calling it.
+   */
   fullSync(workspaceId: string): Promise<SyncResult>;
   /**
    * A verified webhook (signature and timestamp already checked). Records the
@@ -365,6 +394,10 @@ export interface Engine {
     /** Previous values of updated fields, when Linear sends them. */
     updatedFrom: Record<string, unknown> | null;
   }): Promise<'processed' | 'duplicate' | 'ignored'>;
+  /**
+   * A person's run (`actor` set) refuses a read-only actor (a Linear
+   * guest) first with read_only; the worker's runs pass null.
+   */
   runAllocation(input: {
     workspaceId: string;
     mode: AllocationMode;
@@ -379,7 +412,9 @@ export interface Engine {
     previewOnly?: boolean;
     /**
      * Additive, with previewOnly: the person previewing (§2.13). Each
-     * digest then shows only the items and issues that person may see.
+     * digest then shows only the items and issues that person may see. A
+     * read-only viewer (a Linear guest) is refused with read_only: the
+     * preview is computed from everyone's digests.
      */
     viewer?: Actor;
   }): Promise<WarningRunResult>;
@@ -406,9 +441,11 @@ export interface Engine {
   listRevokedWorkspaceIds(): Promise<string[]>;
 
   // --- milestone, project and settings edits ----------------------------------
-  // Open to every signed-in person (owner decision 2026-10-22). The Linear
-  // writes (target date, lead) need actor.canWriteLinear; weight, "done
-  // means…" and settings are the planner's own data. Each is audited.
+  // Open to every signed-in person (owner decision 2026-10-22) except a
+  // read-only one (a Linear guest), who is refused first with read_only.
+  // The Linear writes (target date, lead) need actor.canWriteLinear;
+  // weight, "done means…" and settings are the planner's own data. Each
+  // is audited.
   setMilestoneTargetDate(
     actor: Actor,
     milestoneId: string,
@@ -435,7 +472,8 @@ export interface Engine {
   ): Promise<WorkspaceSettings>;
 
   // --- issue page (owner decision 2026-10-21; additive) ---------------------
-  // Reads need only a session. Writes need actor.canWriteLinear (any
+  // Reads need only a session. Writes refuse a read-only actor (a Linear
+  // guest) first with read_only, then need actor.canWriteLinear (any
   // signed-in person who granted write), are validated
   // against the mirror (and the team's live labels / estimate scale),
   // go to Linear with the person's own token, patch the mirror at once and

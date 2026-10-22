@@ -38,6 +38,7 @@ const ACTOR: Actor = {
     expiresAt: '2026-11-01T00:00:00.000Z',
   },
   canWriteLinear: false,
+  readOnly: false,
 };
 
 /** A signed-in member (there are no roles), with a read-only Linear token. */
@@ -50,6 +51,22 @@ const MEMBER: Actor = {
     userName: 'Chloe Diaz',
   },
   canWriteLinear: false,
+};
+
+/**
+ * A Linear guest (owner decision 2026-10-22, "Guests limited to read
+ * only"): signed in, read-only, never offered a write grant or an install.
+ */
+const GUEST: Actor = {
+  ...ACTOR,
+  session: {
+    ...ACTOR.session,
+    id: 'sess-guest',
+    userId: 'user-gus',
+    userName: 'Gus Hart',
+  },
+  canWriteLinear: false,
+  readOnly: true,
 };
 
 interface Calls {
@@ -74,7 +91,13 @@ function fakeEngine(): Engine {
     }),
     authenticate: (token: string | undefined) =>
       Promise.resolve(
-        token === 'old-token' ? ACTOR : token === 'member-token' ? MEMBER : null
+        token === 'old-token'
+          ? ACTOR
+          : token === 'member-token'
+            ? MEMBER
+            : token === 'guest-token'
+              ? GUEST
+              : null
       ),
     finishSignIn: (input: Calls['signIn'][number]) => {
       calls.signIn.push(input);
@@ -211,6 +234,24 @@ describe('GET /api/auth/linear', () => {
       { code: 'c-w', codeVerifier: 'cv-grant_write', intent: 'grant_write' },
     ]);
     expect(cookieValue(setCookie(done, 'mp_session'))).toBe('new-token');
+  });
+
+  test('a guest is offered no write grant and no install', async () => {
+    for (const intent of ['install', 'grant_write']) {
+      const response = await start(
+        get(`/api/auth/linear?intent=${intent}&returnTo=%2Ftimeline`, {
+          mp_session: 'guest-token',
+        })
+      );
+      expect(response.status).toBe(303);
+      expect(response.headers.get('location')).toBe('/?auth_error=read_only');
+      expect(setCookie(response, 'mp_oauth')).toBeUndefined();
+    }
+    // Signing in (to read) still works for a guest.
+    const signin = await start(
+      get('/api/auth/linear?intent=signin', { mp_session: 'guest-token' })
+    );
+    expect(signin.status).toBe(302);
   });
 
   test('refuses unknown intents and an unusable SESSION_SECRET', async () => {
@@ -364,6 +405,25 @@ describe('GET /api/auth/linear/callback', () => {
     expect(setCookie(response, 'mp_session')).toBeUndefined();
     await Promise.all(scheduled.map((run) => run()));
     expect(calls.fullSync).toEqual(['org-1']);
+  });
+
+  test("the engine's read_only refusal of a write grant lands on the landing page", async () => {
+    const oauth = await begin('intent=grant_write', {
+      mp_session: 'member-token',
+    });
+    signInError = Object.assign(
+      new Error('Guests in Linear can look but not change anything here.'),
+      { name: 'EngineAuthError', code: 'read_only' }
+    );
+    const response = await callback(
+      get('/api/auth/linear/callback?code=c&state=st-grant_write', {
+        mp_oauth: oauth,
+        mp_session: 'member-token',
+      })
+    );
+    expect(response.headers.get('location')).toBe('/?auth_error=read_only');
+    expect(setCookie(response, 'mp_session')).toBeUndefined();
+    expect(calls.signOut).toEqual([]);
   });
 
   test('an install callback without a session is refused', async () => {

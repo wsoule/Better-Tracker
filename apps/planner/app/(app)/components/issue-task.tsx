@@ -42,6 +42,7 @@ import {
   issueWriteOutcome,
 } from '../../../lib/issue-writes';
 import css from './issue-task.module.css';
+import ReadOnlyNotice from './read-only-notice';
 
 // The issue's task view, shared by /issues/[id] (page layout) and the
 // ?issue= slide-over on My week, the timeline and the graph (architecture
@@ -301,7 +302,8 @@ export function IssueTitleField({
 /**
  * The issue's TaskDetail props: read-only facts for everyone, the edit
  * controls when the person's Linear token may write (else one notice
- * offering the grant_write upgrade). Live fields (description, labels,
+ * offering the grant_write upgrade, or for a Linear guest the read-only
+ * notice, since a guest is never offered it). Live fields (description, labels,
  * estimate, due date) stay read-only when Linear could not be read, since
  * an edit needs their current value.
  */
@@ -476,7 +478,13 @@ export function useIssueTaskProps(
     ...rows.map((row) => row.issueId),
   ];
 
-  const rail = canEdit ? undefined : (
+  // A Linear guest is never offered the write grant: one quiet read-only
+  // notice instead (owner decision 2026-10-22).
+  const rail = canEdit ? undefined : model.readOnly ? (
+    <div className={css.notice}>
+      <ReadOnlyNotice />
+    </div>
+  ) : (
     <div className={css.notice}>
       <Notice
         label="Read only"

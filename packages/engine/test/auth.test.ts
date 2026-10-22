@@ -86,6 +86,28 @@ afterEach(async () => {
   await engine.close();
 });
 
+/**
+ * A mirror of Acme with the given people (enough for auth decisions), as
+ * a landed full sync would leave it: the fake Linear serves no workspace
+ * reads, so a test that needs people placed mirrors them itself.
+ */
+async function mirrorPeople(users: FakeIdentity['user'][]): Promise<void> {
+  await store.replaceMirror(
+    {
+      workspaceId: 'org-acme',
+      users,
+      teams: [],
+      states: [],
+      initiatives: [],
+      projects: [],
+      milestones: [],
+      issues: [],
+      relations: [],
+    },
+    clock.now().toISOString()
+  );
+}
+
 function at(offsetMs: number): string {
   return new Date(clock.now().getTime() + offsetMs).toISOString();
 }
@@ -286,11 +308,14 @@ describe('finishInstall', () => {
       intent: 'signin',
     });
     expect(sam.needsInstall).toBe(false);
-    const samActor = await engine.authenticate(sam.sessionToken);
 
-    // There is no PM role (owner decision 2026-10-22): Sam may reinstall
-    // over the active installation. Only a Linear admin can grant
-    // actor=app, which is what keeps installs to admins.
+    // There is no PM role (owner decision 2026-10-22): once the first
+    // sync has placed him, Sam may reinstall over the active installation.
+    // Only a Linear admin can grant actor=app, which is what keeps
+    // installs to admins.
+    await mirrorPeople([PAT.user, SAM.user, ACME_APP.user]);
+    const samActor = await engine.authenticate(sam.sessionToken);
+    expect(samActor).toMatchObject({ readOnly: false });
     fake.addCode('code-reinstall', ACME_APP, 'read,write');
     const reinstalled = await engine.finishInstall({
       code: 'code-reinstall',
@@ -320,6 +345,7 @@ describe('finishInstall', () => {
       allocationMode: 'live' as const,
     };
     await store.saveSettings(saved);
+    await mirrorPeople([PAT.user, SAM.user, ACME_APP.user]);
 
     const sam = await signIn(SAM);
     fake.addCode('code-reinstall', ACME_APP, 'read,write');
@@ -435,24 +461,6 @@ describe('authenticate', () => {
 
 // Review regressions: people Linear deactivated lose access.
 describe('deactivated people', () => {
-  // A mirror of Acme with the given people (enough for auth decisions).
-  async function mirrorPeople(users: FakeIdentity['user'][]): Promise<void> {
-    await store.replaceMirror(
-      {
-        workspaceId: 'org-acme',
-        users,
-        teams: [],
-        states: [],
-        initiatives: [],
-        projects: [],
-        milestones: [],
-        issues: [],
-        relations: [],
-      },
-      clock.now().toISOString()
-    );
-  }
-
   async function install(actor: Actor, code: string): Promise<void> {
     fake.addCode(code, ACME_APP, 'read,write');
     await engine.finishInstall({ code, codeVerifier: 'v', actor });
@@ -472,5 +480,161 @@ describe('deactivated people', () => {
     expect(await store.getSession(pat.token, clock.now().toISOString())).toBe(
       null
     );
+  });
+});
+
+// Owner decision 2026-10-22, "Guests limited to read only": a Linear guest
+// may sign in and look, but the planner never takes a write grant for one,
+// never lets one install, and their Actor is read-only (canWriteLinear
+// always false), as is anyone an existing mirror does not know.
+describe('guests are read-only', () => {
+  const GUS: FakeIdentity = {
+    user: person('u-gus', 'Gus Hart', { guest: true }),
+    workspace: ACME,
+  };
+
+  async function sessionFor(
+    identity: FakeIdentity,
+    scopes: string[]
+  ): Promise<string> {
+    return (
+      await store.createSession({
+        workspaceId: identity.workspace.id,
+        userId: identity.user.id,
+        userName: identity.user.name,
+        tokens: {
+          accessToken: `user-token-${identity.user.id}`,
+          refreshToken: null,
+          expiresAt: null,
+          scopes,
+        },
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      })
+    ).token;
+  }
+
+  test('a guest signs in to read, but grant_write is refused and revoked', async () => {
+    const { actor } = await signIn(GUS);
+    expect(actor.canWriteLinear).toBe(false);
+
+    fake.addCode('code-gus-write', GUS, 'read,write');
+    const refused = await rejection(
+      engine.finishSignIn({
+        code: 'code-gus-write',
+        codeVerifier: 'v',
+        intent: 'grant_write',
+      })
+    );
+    expect(refused).toBeInstanceOf(EngineAuthError);
+    expect(refused).toMatchObject({ code: 'read_only' });
+    // The write grant Linear issued is revoked, not kept.
+    expect(fake.revoked).toHaveLength(1);
+    expect(fake.revoked[0]?.hint).toBe('refresh_token');
+  });
+
+  test('a plain sign-in that comes back with write scope is no back door', async () => {
+    // A guest who edits the authorize URL of a plain sign-in to ask for
+    // `read,write` gets a write grant from Linear under intent=signin: the
+    // planner keeps no write grant for a guest, whatever the intent.
+    fake.addCode('code-gus-tampered', GUS, 'read,write');
+    const refused = await rejection(
+      engine.finishSignIn({
+        code: 'code-gus-tampered',
+        codeVerifier: 'v',
+        intent: 'signin',
+      })
+    );
+    expect(refused).toMatchObject({
+      name: 'EngineAuthError',
+      code: 'read_only',
+    });
+    expect(fake.revoked).toHaveLength(1);
+    expect(await store.deleteExpiredSessions('9999-01-01T00:00:00.000Z')).toBe(
+      0
+    );
+    // A member's sign-in with write scope is kept as it was.
+    const { actor } = await signIn(PAT, 'grant_write');
+    expect(actor).toMatchObject({ readOnly: false, canWriteLinear: true });
+  });
+
+  test('the mirror decides: a guest there (or someone it does not know) is read-only', async () => {
+    const pat = await sessionFor(PAT, ['read', 'write']);
+    const gus = await sessionFor(GUS, ['read', 'write']);
+    const sam = await sessionFor(SAM, ['read', 'write']);
+    // No mirror yet (nothing installed or synced): nobody can be placed,
+    // and someone must be able to install.
+    expect(await engine.authenticate(pat)).toMatchObject({
+      readOnly: false,
+      canWriteLinear: true,
+    });
+
+    // The mirror flags Gus as a guest and does not know Sam yet.
+    await mirrorPeople([PAT.user, { ...GUS.user, guest: true }]);
+    expect(await engine.authenticate(pat)).toMatchObject({
+      readOnly: false,
+      canWriteLinear: true,
+    });
+    expect(await engine.authenticate(gus)).toMatchObject({
+      readOnly: true,
+      canWriteLinear: false,
+    });
+    expect(await engine.authenticate(sam)).toMatchObject({
+      readOnly: true,
+      canWriteLinear: false,
+    });
+
+    // Linear makes Gus a member: read-write from his next request on.
+    await mirrorPeople([PAT.user, { ...GUS.user, guest: false }, SAM.user]);
+    expect(await engine.authenticate(gus)).toMatchObject({ readOnly: false });
+    expect(await engine.authenticate(sam)).toMatchObject({ readOnly: false });
+
+    // And back: Pat's open tab keeps its session, but Linear made her a
+    // guest, so her next request is read-only and loses the write grant.
+    await mirrorPeople([{ ...PAT.user, guest: true }, GUS.user, SAM.user]);
+    expect(await engine.authenticate(pat)).toMatchObject({
+      readOnly: true,
+      canWriteLinear: false,
+    });
+  });
+
+  test('a write grant is refused when the mirror says guest, too', async () => {
+    const MIRRORED_GUEST: FakeIdentity = {
+      user: person('u-gus', 'Gus Hart'),
+      workspace: ACME,
+    };
+    await mirrorPeople([PAT.user, { ...GUS.user, guest: true }]);
+    fake.addCode('code-gus-write', MIRRORED_GUEST, 'read,write');
+    expect(
+      await rejection(
+        engine.finishSignIn({
+          code: 'code-gus-write',
+          codeVerifier: 'v',
+          intent: 'grant_write',
+        })
+      )
+    ).toMatchObject({ name: 'EngineAuthError', code: 'read_only' });
+    expect(await store.deleteExpiredSessions('9999-01-01T00:00:00.000Z')).toBe(
+      0
+    );
+  });
+
+  test('a guest cannot install: refused before the code is exchanged', async () => {
+    await mirrorPeople([PAT.user, { ...GUS.user, guest: true }]);
+    const gus = await engine.authenticate(
+      await sessionFor(GUS, ['read', 'write'])
+    );
+    if (gus === null) throw new Error('not signed in');
+    fake.addCode('code-install', ACME_APP, 'read,write');
+    expect(
+      await rejection(
+        engine.finishInstall({
+          code: 'code-install',
+          codeVerifier: 'v',
+          actor: gus,
+        })
+      )
+    ).toMatchObject({ name: 'EngineAuthError', code: 'read_only' });
+    expect(fake.graphqlTokens).toEqual([]);
+    expect(await store.getInstallation('org-acme')).toBeNull();
   });
 });

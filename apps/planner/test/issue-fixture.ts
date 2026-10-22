@@ -131,6 +131,7 @@ export function resultFor(
     estimateOptions: estimateOptions(FIBONACCI),
     allocationHistory: [],
     canEdit: true,
+    readOnly: false,
     ...over,
   };
 }

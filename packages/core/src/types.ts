@@ -51,8 +51,10 @@ export interface User {
   /** An app user (e.g. this tool's own actor=app identity), never a person. */
   app: boolean;
   /**
-   * A Linear guest: they see only the teams they are a member of (§2.13).
-   * Absent on mirrors written before 2026-10-22 (read as not a guest).
+   * A Linear guest: they see only the teams they are a member of (§2.13),
+   * and the planner is read-only for them (owner decision 2026-10-22,
+   * "Guests limited to read only"; the engine's Actor.readOnly). Absent on
+   * mirrors written before 2026-10-22 (read as not a guest).
    */
   guest?: boolean;
 }

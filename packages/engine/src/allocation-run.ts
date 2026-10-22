@@ -82,7 +82,8 @@ export interface AllocationRunInput {
 
 // Who may start which run: the schedule (actor null) and any signed-in
 // person of that workspace may run both modes (there is no PM role since
-// the owner decision of 2026-10-22). Live writes go out as the app, so a
+// the owner decision of 2026-10-22), except a read-only one (a Linear
+// guest), whom engine.ts refuses before this runs. Live writes go out as the app, so a
 // person's run needs no Linear write scope; the web route keeps live runs
 // off until someone switches allocation live in Settings → Modes.
 function authorize(input: AllocationRunInput): void {

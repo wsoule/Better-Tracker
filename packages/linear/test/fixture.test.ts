@@ -16,6 +16,7 @@ import {
   createFixtureStore,
   createFixtureWorkspace,
   FIXTURE_APP_USER_ID,
+  FIXTURE_GUEST_USER_ID,
   FIXTURE_MILESTONE_META,
   FIXTURE_INSTALLER_USER_ID,
   FIXTURE_WATCHER_USER_IDS,
@@ -148,6 +149,31 @@ describe('fixture workspace: people, teams, states, initiatives', () => {
     }
     expect(userById.get(FIXTURE_INSTALLER_USER_ID)?.active).toBe(true);
     expect(userById.get(FIXTURE_INSTALLER_USER_ID)?.app).toBe(false);
+  });
+
+  // Owner decision 2026-10-22 ("Guests limited to read only"): the demo has
+  // one Linear guest, in one team, with nothing assigned or led, so the
+  // read-only planner can be tried without changing any other scenario.
+  test('one guest, Gus Hart, a member of Operations only', () => {
+    const guests = data.users.filter((u) => u.guest === true);
+    expect(guests.map((u) => u.id)).toEqual([FIXTURE_GUEST_USER_ID]);
+    expect(guests[0]).toMatchObject({
+      name: 'Gus Hart',
+      active: true,
+      app: false,
+    });
+    expect(
+      data.teams
+        .filter((t) => t.memberIds?.includes(FIXTURE_GUEST_USER_ID) === true)
+        .map((t) => t.key)
+    ).toEqual(['OPS']);
+    expect(FIXTURE_WATCHER_USER_IDS).not.toContain(FIXTURE_GUEST_USER_ID);
+    expect(data.projects.some((p) => p.leadId === FIXTURE_GUEST_USER_ID)).toBe(
+      false
+    );
+    expect(
+      data.issues.some((i) => i.assigneeId === FIXTURE_GUEST_USER_ID)
+    ).toBe(false);
   });
 
   test('two teams (ENG, OPS), each with the full workflow and a Duplicate state', () => {

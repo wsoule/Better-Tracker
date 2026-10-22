@@ -44,10 +44,14 @@ import {
 // meaningful; the rest are plausible defaults (Wed Oct 21, 2026).
 
 const TODAY = '2026-10-21';
-// There are no roles (owner decision 2026-10-22): the only permission the
-// timeline reads is the person's Linear write grant.
-const WRITER = { canWriteLinear: true };
-const READ_ONLY = { canWriteLinear: false };
+// There are no roles (owner decision 2026-10-22): the permissions the
+// timeline reads are the person's Linear write grant and whether Linear
+// makes them a guest (owner decision 2026-10-22, "Guests limited to read
+// only"). READ_ONLY is a member with a read-only Linear grant; GUEST is a
+// Linear guest, who edits nothing and is offered no grant.
+const WRITER = { canWriteLinear: true, readOnly: false };
+const READ_ONLY = { canWriteLinear: false, readOnly: false };
+const GUEST = { canWriteLinear: false, readOnly: true };
 
 function progress(overrides: Partial<Progress> = {}): Progress {
   return {
@@ -219,6 +223,11 @@ describe('chart bars', () => {
     // Without the grant, everyone (not only a former WRITER) is offered it.
     expect(needsWriteGrant(READ_ONLY)).toBe(true);
     expect(needsWriteGrant(WRITER)).toBe(false);
+    // A guest gets no handles and is offered no grant, even if a stale
+    // actor still claimed write scope.
+    expect(editable(GUEST)).toBe(false);
+    expect(editable({ canWriteLinear: true, readOnly: true })).toBe(false);
+    expect(needsWriteGrant(GUEST)).toBe(false);
     expect(GRANT_WRITE_HREF).toBe(
       '/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline'
     );
@@ -699,8 +708,32 @@ describe('banners', () => {
     });
     expect(page.canEditLinear).toBe(false);
     expect(page.needsWriteGrant).toBe(true);
+    expect(page.readOnly).toBe(false);
     expect(page).not.toHaveProperty('canEditMeta');
     expect(page.banners).toEqual([]);
+
+    const guestPage = buildTimelinePage({
+      view: v,
+      graph: {
+        scope: { level: 'milestone' },
+        nodes: [],
+        edges: [],
+        cycles: [],
+      },
+      permissions: GUEST,
+      issues: new Map(),
+    });
+    expect(guestPage).toMatchObject({
+      canEditLinear: false,
+      needsWriteGrant: false,
+      readOnly: true,
+    });
+    expect(
+      guestPage.groups
+        .flatMap((g) => g.lanes)
+        .flatMap((l) => l.bars)
+        .some((bar) => bar.editable === true)
+    ).toBe(false);
   });
 });
 
@@ -899,13 +932,22 @@ describe('milestone drawer', () => {
     expect(drawer().permissions).toEqual({
       canEditLinear: true,
       grantWriteHref: null,
+      readOnly: false,
     });
     expect(drawer(detail(), READ_ONLY).permissions).toEqual({
       canEditLinear: false,
       grantWriteHref:
         '/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline%3Fmilestone%3Dms-1',
+      readOnly: false,
     });
     expect(drawer(detail(), READ_ONLY).leadOptions).toEqual([]);
+    // A Linear guest edits nothing and is never offered the grant.
+    expect(drawer(detail(), GUEST).permissions).toEqual({
+      canEditLinear: false,
+      grantWriteHref: null,
+      readOnly: true,
+    });
+    expect(drawer(detail(), GUEST).leadOptions).toEqual([]);
     expect(drawer().leadOptions).toEqual([
       { id: 'user-ana', label: 'Ana Moreno' },
       { id: 'user-chloe', label: 'Chloe Diaz' },
@@ -955,27 +997,29 @@ describe('milestone drawer', () => {
       ['Project lead', true, 'Chloe Diaz'],
       ['At least one issue', true, '5 issues'],
     ]);
-    const missing = drawer(
-      detail({
-        milestone: { ...detail().milestone, targetDate: null },
-        leadName: null,
-        project: { ...detail().project, leadId: null },
-        assessment: assessment({
-          status: 'empty',
-          daysLeft: null,
-          rubric: {
-            valid: false,
-            gaps: [
-              'no_target_date',
-              'no_done_means',
-              'no_project_lead',
-              'no_issues',
-            ],
-          },
-        }),
+    const empty = detail({
+      milestone: { ...detail().milestone, targetDate: null },
+      leadName: null,
+      project: { ...detail().project, leadId: null },
+      assessment: assessment({
+        status: 'empty',
+        daysLeft: null,
+        rubric: {
+          valid: false,
+          gaps: [
+            'no_target_date',
+            'no_done_means',
+            'no_project_lead',
+            'no_issues',
+          ],
+        },
       }),
-      READ_ONLY
-    ).rubric;
+    });
+    // A Linear guest writes nothing here, so the fix is Linear's alone.
+    expect(drawer(empty, GUEST).rubric[1]?.note).toBe(
+      'Missing "done means…". Start a line of the Linear description with "Done means:".'
+    );
+    const missing = drawer(empty, READ_ONLY).rubric;
     // "Done means…" is written in the drawer by anyone, grant or not.
     expect(missing.map((i) => [i.met, i.note])).toEqual([
       [false, 'Missing a target date. Set it in Linear.'],

@@ -272,7 +272,8 @@ marked where it stood. Wherever this document still says "PM" as a role, read
   tuning), start a dry run or (when allocation is live) a live run, resync from
   Linear, preview the digests, and view anyone's My week. Nobody is refused for
   not being a PM, and the PM list, its "last PM cannot be unchecked" rule and
-  the `PM_EMAILS` bootstrap are gone.
+  the `PM_EMAILS` bootstrap are gone. *(Narrowed the same day for Linear guests, who
+  are read-only: "guests are read-only", below.)*
 - **Watchers stay.** The people warned about every at-risk milestone besides its
   lead (§5 "who is warned": Wyat and Shanzer, as configured watchers) are a
   setting. They are first set from `WATCHER_EMAILS`; if that names nobody, the
@@ -290,3 +291,35 @@ marked where it stood. Wherever this document still says "PM" as a role, read
 - **Allocation is unchanged.** It stays the only automatic write, and it stays
   in dry run until someone switches it live in Settings → Modes; anyone may now
   make that switch, and the switch is audited.
+
+### 2026-10-22 — guests are read-only
+
+Decided by the product owner, in their words: "Guests limited to read only." It
+narrows the "no PM role" decision above (and the 2026-10-21 one) for one kind of
+person; nothing else in them changes.
+
+- **A Linear guest can look but not change anything.** A guest (Linear's own
+  `guest` flag on the user, as the mirror holds it) may sign in and see what
+  Linear lets them see (per-viewer visibility, unchanged: only the teams they
+  belong to, no initiatives), including My week, the timeline, projects, the
+  graph, runs, settings and the issues of their teams in the slide-over and on
+  the issue page. Through the planner they change nothing: no issue edits,
+  comments or blocking relations; no milestone target date, project lead,
+  weight or "done means…"; no settings in any section; no runs, dry or live; no
+  resync; no digest preview (it is computed from everyone's digests); and no
+  write grant (the planner never asks Linear for write access for a guest and
+  never keeps one). Navigation, the command palette's Jump to and navigation,
+  and the theme switch stay.
+- **It is Linear's distinction, not a role.** There is still no PM role and no
+  planner-side list of who may do what: the one permission distinction in the
+  app comes from Linear's guest flag. Someone the planner's copy of Linear does
+  not know yet is treated like a guest until it does, as visibility already
+  treats them.
+- **Enforced on the server.** The engine refuses a guest's change before
+  anything is read or written, and the routes refuse it before the request is
+  looked at; the screens simply offer a guest no edit controls, run buttons or
+  "Allow edits in Linear" links, and say once, quietly, where those would be:
+  "You are a guest in Linear, so this view is read-only." The user line in the
+  sidebar says "Guest".
+- **Demo mode** has one guest, Gus Hart (a member of Operations only), so the
+  read-only planner can be tried; the demo picker labels him Guest.

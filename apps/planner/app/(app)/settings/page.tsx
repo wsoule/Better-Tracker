@@ -12,13 +12,16 @@ import type { ReactNode } from 'react';
 
 import {
   auditRows,
+  modesReadOnlyRows,
   notificationRows,
   parseSettingsSection,
   scheduleForm,
+  scheduleReadOnlyRows,
   sectionTabs,
   type SettingsSectionId,
   statusRows,
   watcherRows,
+  watchersHint,
 } from '../../../lib/adapters/settings';
 import { currentHref } from '../../../lib/issue-load';
 import {
@@ -27,8 +30,10 @@ import {
   requireInstalledActor,
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
+import ReadOnlyNotice from '../components/read-only-notice';
 import ModesForm from './modes-form';
 import css from './page.module.css';
+import { ReadOnlySettings, ReadOnlyWatchers } from './read-only-sections';
 import ScheduleForm from './schedule-form';
 import StatusActions from './status-actions';
 import WatchersForm from './watchers-form';
@@ -46,7 +51,10 @@ type Loaded = Awaited<ReturnType<InstalledContext['engine']['load']>>;
    Schedule, Status, Notifications or Audit. Every section is editable by
    everyone signed in (owner decision 2026-10-22: no roles), each form
    saving only its own fields through PATCH /api/settings, which (with the
-   engine) validates them again and writes an audit entry. */
+   engine) validates them again and writes an audit entry. A Linear guest
+   reads every section but changes none (owner decision 2026-10-22,
+   "Guests limited to read only"): plain values, no Save, no Resync or
+   Preview, and one read-only notice above the section. */
 export default async function SettingsPage({
   searchParams,
 }: {
@@ -58,14 +66,16 @@ export default async function SettingsPage({
   const { engine, actor, workspaceId } = context;
   const section = parseSettingsSection(params);
   const loaded = await orSetup(engine.load(workspaceId, actor));
+  const readOnly = actor.readOnly;
 
   return (
     <>
       <header className={css.head}>
         <h1 className={css.title}>Settings</h1>
         <p className={css.receipts}>
-          How this workspace allocates and warns. Each section saves on its own,
-          and every change is in the audit log.
+          {readOnly
+            ? 'How this workspace allocates and warns, and who changed what.'
+            : 'How this workspace allocates and warns. Each section saves on its own, and every change is in the audit log.'}
         </p>
       </header>
       <div className={css.layout}>
@@ -80,9 +90,18 @@ export default async function SettingsPage({
             <BlockBar
               index={sectionIndex(section.id)}
               title={section.label}
-              meta={SECTION_META[section.id]}
+              meta={
+                readOnly
+                  ? READ_ONLY_SECTION_META[section.id]
+                  : SECTION_META[section.id]
+              }
             />
             <p className={css.sectionText}>{section.description}</p>
+            {readOnly && EDITABLE_SECTIONS.has(section.id) ? (
+              <div className={css.readOnlyNotice}>
+                <ReadOnlyNotice />
+              </div>
+            ) : null}
             {await renderSection(section.id, context, loaded)}
           </section>
         </div>
@@ -102,6 +121,24 @@ const SECTION_META: Record<SettingsSectionId, string> = {
   notifications: `Newest ${LIST_LIMIT}`,
   audit: `Newest ${LIST_LIMIT}`,
 };
+
+/* The meta for a Linear guest: nothing here saves for them. */
+const READ_ONLY_SECTION_META: Record<SettingsSectionId, string> = {
+  ...SECTION_META,
+  modes: 'Read only',
+  watchers: 'Read only',
+  schedule: 'Read only',
+  status: 'Read only',
+};
+
+/* Sections that offer a change (a save, a resync, a preview) to everyone
+   else: a guest sees the read-only notice there. */
+const EDITABLE_SECTIONS: ReadonlySet<SettingsSectionId> = new Set([
+  'modes',
+  'watchers',
+  'schedule',
+  'status',
+]);
 
 function sectionIndex(id: SettingsSectionId): string {
   const order: SettingsSectionId[] = [
@@ -123,8 +160,14 @@ async function renderSection(
   const { engine, workspaceId, installation } = context;
   const { settings, snapshot } = loaded;
   const timeZone = settings.timezone;
+  const readOnly = context.actor.readOnly;
   switch (id) {
     case 'modes':
+      if (readOnly) {
+        return (
+          <ReadOnlySettings label="Modes" rows={modesReadOnlyRows(settings)} />
+        );
+      }
       return (
         <ModesForm
           initial={{
@@ -134,6 +177,15 @@ async function renderSection(
         />
       );
     case 'watchers':
+      if (readOnly) {
+        return (
+          <ReadOnlyWatchers
+            rows={watcherRows(snapshot.data.users, settings)}
+            watcherUserIds={settings.watcherUserIds}
+            hint={watchersHint(settings.watcherUserIds.length)}
+          />
+        );
+      }
       return (
         <WatchersForm
           rows={watcherRows(snapshot.data.users, settings)}
@@ -141,6 +193,14 @@ async function renderSection(
         />
       );
     case 'schedule':
+      if (readOnly) {
+        return (
+          <ReadOnlySettings
+            label="Schedule"
+            rows={scheduleReadOnlyRows(settings)}
+          />
+        );
+      }
       return <ScheduleForm initial={scheduleForm(settings)} />;
     case 'status': {
       const rows = statusRows({
@@ -169,7 +229,8 @@ async function renderSection(
               </RegisterRow>
             ))}
           </Register>
-          <StatusActions />
+          {/* Resync and the digest preview are for members only. */}
+          {readOnly ? null : <StatusActions />}
         </>
       );
     }

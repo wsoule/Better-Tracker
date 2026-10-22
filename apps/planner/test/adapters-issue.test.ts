@@ -403,8 +403,20 @@ describe('buildIssueTaskModel', () => {
   test('without write access the model says so and carries the grant link', () => {
     const model = modelFor('ENG-24', { canEdit: false });
     expect(model.canEdit).toBe(false);
+    expect(model.readOnly).toBe(false);
     expect(model.grantWriteHref).toBe(
       '/api/auth/linear?intent=grant_write&returnTo=%2Fx'
+    );
+  });
+
+  // Owner decision 2026-10-22, "Guests limited to read only": a Linear
+  // guest's view edits nothing, even from a result that still says canEdit.
+  test('a Linear guest gets a read-only model', () => {
+    expect(
+      modelFor('ENG-24', { canEdit: false, readOnly: true })
+    ).toMatchObject({ canEdit: false, readOnly: true });
+    expect(modelFor('ENG-24', { canEdit: true, readOnly: true })).toMatchObject(
+      { canEdit: false, readOnly: true }
     );
   });
 });

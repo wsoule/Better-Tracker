@@ -34,7 +34,7 @@ export interface FakeLinear {
 export function person(
   id: string,
   name: string,
-  options: { app?: boolean; active?: boolean } = {}
+  options: { app?: boolean; active?: boolean; guest?: boolean } = {}
 ): User {
   return {
     id,
@@ -44,6 +44,8 @@ export function person(
     avatarUrl: null,
     active: options.active ?? true,
     app: options.app ?? false,
+    // Only when asked for, so other tests' identities stay as they were.
+    ...(options.guest === undefined ? {} : { guest: options.guest }),
   };
 }
 

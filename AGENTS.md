@@ -19,6 +19,14 @@
   `isPm`-style flags or PM copy. What remains: watchers
   (`settings.watcherUserIds`, `WATCHER_EMAILS`) are who is warned; Linear writes
   need the person's write grant (`actor.canWriteLinear`); every edit is audited.
+- The one exception comes from Linear, not from a planner role: a Linear guest
+  is read-only (owner decision 2026-10-22, "Guests limited to read only", design
+  doc §12). `actor.readOnly` (the mirror's `User.guest`, or a person the mirror
+  does not know) is checked in one place, the engine's `requireWritable`, called
+  first by every mutating engine method and by the routes that start actor-less
+  jobs (resync, digest preview); a guest gets 403 `read_only`, no write grant,
+  and no edit controls. Every new write path must call it; do not add any other
+  permission distinction.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace). Tests never call real Linear or Slack.
 - UI: layout and interaction follow Gr8r Studio (sidebar shell, command palette,

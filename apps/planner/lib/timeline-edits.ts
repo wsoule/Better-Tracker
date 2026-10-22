@@ -8,7 +8,7 @@ import {
 } from '@better-tracker/engine';
 import { z } from 'zod';
 
-import { errorResponse, jsonError, readJson } from './http';
+import { errorResponse, jsonError, readJson, refuseReadOnly } from './http';
 
 // The timeline's milestone and lead edits as route handlers (§8.1):
 // PATCH /api/milestones/[id] { targetDate?, weight?, doneMeans? } and
@@ -17,8 +17,10 @@ import { errorResponse, jsonError, readJson } from './http';
 // run them with a fake actor resolver and a recording engine (a route file
 // may export nothing but its HTTP methods).
 //
-// Order: resolve the actor (CSRF guard + signed in) → validate the JSON
-// body with zod → call the engine, which requires canWriteLinear for the
+// Order: resolve the actor (CSRF guard + signed in) → the read-only check
+// (403 read_only for a Linear guest; owner decision 2026-10-22, "Guests
+// limited to read only") → validate the JSON body with zod → call the
+// engine, which refuses a guest again and requires canWriteLinear for the
 // two Linear writes (the target date and the lead, made with the person's
 // own token) and re-validates everything → 200 { ok: true }, or the
 // engine's error mapped by errorResponse. There is no role check (owner
@@ -100,6 +102,8 @@ export async function patchMilestone<E extends MilestoneEditEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const id = parseEntityId(rawId);
   if (id === null) {
     return jsonError(404, 'not_found', 'That milestone is not in the mirror.');
@@ -137,6 +141,8 @@ export async function patchProject<E extends ProjectEditEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const id = parseEntityId(rawId);
   if (id === null) {
     return jsonError(404, 'not_found', 'That project is not in the mirror.');

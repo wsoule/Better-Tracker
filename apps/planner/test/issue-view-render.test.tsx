@@ -74,6 +74,28 @@ describe('the issue page view', () => {
     expect(html).toContain('Line one');
   });
 
+  // Owner decision 2026-10-22, "Guests limited to read only".
+  test('a Linear guest: read-only values, one notice, no grant link', () => {
+    const model = modelFor('ENG-24', { canEdit: false, readOnly: true });
+    const html = render(<IssuePageView model={model} />);
+    expect(html).toContain(
+      'You are a guest in Linear, so this view is read-only.'
+    );
+    expect(html).not.toContain('Allow edits in Linear');
+    expect(html).not.toContain('intent=grant_write');
+    expect(html).not.toContain('aria-label="Priority:');
+    expect(html).not.toContain('aria-label="Status:');
+    expect(html).not.toContain('aria-label="Assignee:');
+    expect(html).not.toContain('aria-label="Add blocked by"');
+    expect(html).not.toContain('aria-label="Add blocks"');
+    expect(html).not.toContain('aria-label="New comment"');
+    expect(html).not.toContain('<textarea');
+    expect(html).not.toContain('<input');
+    // What Linear shows the guest is still there.
+    expect(html).toContain('Medium');
+    expect(html).toContain('Line one');
+  });
+
   test('when Linear cannot be read, the live fields are not editable', () => {
     const model = modelFor('ENG-24', {
       extra: null,

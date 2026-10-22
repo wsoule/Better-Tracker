@@ -27,14 +27,15 @@ import { type ReactNode, useCallback, useMemo } from 'react';
 
 import {
   crumbsFor,
+  GUEST_BADGE,
   isCurrentPath,
   isPaletteIndex,
   NAV_TARGETS,
   type NavTargetId,
   PALETTE_SECTION_ORDER,
   PALETTE_SECTIONS,
-  PALETTE_SUGGESTIONS,
   paletteItemsFromIndex,
+  paletteSuggestions,
   type PaletteSuggestionAction,
   runIdFrom,
   type ShellFrame,
@@ -96,8 +97,10 @@ interface PlannerShellProps {
  * The signed-in frame: AppShell fed with the server-built ShellFrame, plus
  * what only the browser knows (the current URL for nav state and the
  * breadcrumb) and the command palette with its actions. Every command is
- * offered to everyone signed in (there are no roles); the routes behind
- * them only require a session.
+ * offered to everyone signed in (there are no roles) except a Linear
+ * guest, who is read-only (owner decision 2026-10-22): their palette keeps
+ * navigation, Jump to and the theme switch, and their user line says
+ * "Guest". The routes behind the commands refuse a guest too.
  */
 export default function PlannerShell(props: PlannerShellProps) {
   return (
@@ -157,14 +160,16 @@ function PaletteFrame({
       resync: () => void resync(),
       theme: () => switchTheme(themeStorageKey),
     };
-    const suggestions = PALETTE_SUGGESTIONS.map((suggestion): PaletteItem => ({
-      id: suggestion.id,
-      label: suggestion.label,
-      hint: suggestion.hint,
-      section: PALETTE_SECTIONS.suggestions,
-      icon: SUGGESTION_ICONS[suggestion.action],
-      onSelect: run[suggestion.action],
-    }));
+    const suggestions = paletteSuggestions(frame.readOnly).map(
+      (suggestion): PaletteItem => ({
+        id: suggestion.id,
+        label: suggestion.label,
+        hint: suggestion.hint,
+        section: PALETTE_SECTIONS.suggestions,
+        icon: SUGGESTION_ICONS[suggestion.action],
+        onSelect: run[suggestion.action],
+      })
+    );
     const navigation = NAV_TARGETS.map((target): PaletteItem => ({
       id: `nav-${target.id}`,
       label: `Go to ${target.label}`,
@@ -174,7 +179,7 @@ function PaletteFrame({
       icon: NAV_ICONS[target.id],
     }));
     return [...suggestions, ...navigation];
-  }, [previewAllocation, resync, themeStorageKey]);
+  }, [frame.readOnly, previewAllocation, resync, themeStorageKey]);
 
   const loadItems = useCallback(async () => {
     const body = await getJson('/api/palette');
@@ -272,6 +277,7 @@ function Frame({
       }}
       user={{
         name: frame.userName,
+        badge: frame.readOnly ? GUEST_BADGE : undefined,
       }}
       signOut={{ action: '/api/auth/logout', method: 'post' }}
       themeStorageKey={themeStorageKey}

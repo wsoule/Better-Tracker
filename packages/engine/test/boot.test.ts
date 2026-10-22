@@ -171,6 +171,8 @@ describe('createEngineFromEnv in demo mode', () => {
       'user-elena',
       'user-femi',
       'user-grace',
+      // The demo's Linear guest (read-only, owner decision 2026-10-22).
+      'user-gus',
     ]);
     for (const user of users) {
       const week = await engine.getWeekView('org-northwind', user.id);
@@ -252,7 +254,15 @@ describe('createEngineFromEnv in demo mode', () => {
     // Demo people carry no PM flag: everyone may edit everything.
     expect(actor).not.toHaveProperty('isPm');
     expect(actor?.canWriteLinear).toBe(true);
+    expect(actor?.readOnly).toBe(false);
     expect(actor?.session.userId).toBe('user-chloe');
+
+    // The demo's Linear guest signs in too, read-only: demo sessions carry
+    // write scopes, but a guest never holds canWriteLinear.
+    const guest = await engine.authenticate(
+      (await engine.devSignIn('user-gus')).sessionToken
+    );
+    expect(guest).toMatchObject({ readOnly: true, canWriteLinear: false });
 
     expect(await rejection(engine.devSignIn('user-app'))).toBeInstanceOf(
       EngineInputError

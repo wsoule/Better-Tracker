@@ -26,9 +26,20 @@ import {
 const ACTOR = {
   session: { userId: 'user-chloe', workspaceId: 'org-1' },
   canWriteLinear: true,
+  readOnly: false,
 } as unknown as Actor;
 
 const READ_ONLY = { ...ACTOR, canWriteLinear: false } as Actor;
+
+/**
+ * A Linear guest (owner decision 2026-10-22, "Guests limited to read
+ * only"), claiming write scope to show that only readOnly matters.
+ */
+const GUEST = {
+  ...ACTOR,
+  session: { userId: 'user-gus', workspaceId: 'org-1' },
+  readOnly: true,
+} as unknown as Actor;
 
 type Call = [method: string, ...args: unknown[]];
 
@@ -301,5 +312,43 @@ describe('PATCH /api/projects/[id]', () => {
     expect(body.error.grantWriteHref).toBe(
       '/api/auth/linear?intent=grant_write&returnTo=%2Ftimeline%3Fproject%3Dproj-1'
     );
+  });
+});
+
+describe('a Linear guest', () => {
+  // Read-only right after the session: 403 read_only before the id or the
+  // body is looked at, and the engine is never called.
+  test('every milestone and project PATCH is 403 read_only', async () => {
+    const { engine, calls } = recordingEngine();
+    const responses = [
+      await patchMilestone(
+        patch('/api/milestones/ms-1', { targetDate: '2026-10-30' }),
+        'ms-1',
+        resolver(engine, GUEST)
+      ),
+      await patchMilestone(
+        patch('/api/milestones/ms-1', { weight: 2, doneMeans: 'Done.' }),
+        'ms-1',
+        resolver(engine, GUEST)
+      ),
+      await patchMilestone(
+        patch('/api/milestones/ms-1', 'not json'),
+        'ms-1',
+        resolver(engine, GUEST)
+      ),
+      await patchProject(
+        patch('/api/projects/proj-1', { leadId: 'user-chloe' }),
+        'proj-1',
+        resolver(engine, GUEST)
+      ),
+    ];
+    for (const response of responses) {
+      expect(response.status).toBe(403);
+      expect(await errorOf(response)).toEqual({
+        code: 'read_only',
+        message: 'Guests in Linear can look but not change anything here.',
+      });
+    }
+    expect(calls).toEqual([]);
   });
 });

@@ -153,27 +153,33 @@ export function timelineHref(
 /**
  * The part of the engine's Actor the timeline reads. There are no roles
  * (owner decision 2026-10-22): everyone signed in edits weight and "done
- * means…", and only the Linear writes depend on the person's grant.
+ * means…", and only the Linear writes depend on the person's grant. The
+ * one exception is Linear's own: a guest is read-only (owner decision
+ * 2026-10-22, "Guests limited to read only") and edits nothing.
  */
 export interface TimelinePermissions {
   canWriteLinear: boolean;
+  /** Actor.readOnly: a Linear guest. */
+  readOnly: boolean;
 }
 
 /**
  * Re-dating and setting leads are Linear writes made with the person's own
- * token, so they need the write grant (anyone signed in can give it).
+ * token, so they need the write grant (anyone signed in but a guest can
+ * give it).
  */
 export function canEditLinear(p: TimelinePermissions): boolean {
-  return p.canWriteLinear;
+  return p.canWriteLinear && !p.readOnly;
 }
 
 /**
  * A person whose Linear token is read-only: offer the grant_write upgrade
  * on the timeline itself, so they can re-date milestones and set leads.
- * Offered to everyone, as on the issue page (owner decision 2026-10-21).
+ * Offered to everyone but a guest, as on the issue page (owner decisions
+ * 2026-10-21 and 2026-10-22).
  */
 export function needsWriteGrant(p: TimelinePermissions): boolean {
-  return !p.canWriteLinear;
+  return !p.canWriteLinear && !p.readOnly;
 }
 
 /**
@@ -643,6 +649,11 @@ export interface TimelinePageModel {
   canEditLinear: boolean;
   /** Read-only Linear grant: show the "Allow edits in Linear" notice. */
   needsWriteGrant: boolean;
+  /**
+   * A Linear guest: no handles and no edit controls anywhere, one quiet
+   * read-only notice above the chart instead of the grant notice.
+   */
+  readOnly: boolean;
 }
 
 export function buildTimelinePage(input: {
@@ -661,6 +672,7 @@ export function buildTimelinePage(input: {
     banners: buildTimelineBanners(view, issues),
     canEditLinear: canEditLinear(permissions),
     needsWriteGrant: needsWriteGrant(permissions),
+    readOnly: permissions.readOnly,
   };
 }
 
@@ -768,14 +780,23 @@ export interface MilestoneDrawerModel {
   waitsOn: { id: string; label: string }[];
   graphHref: string;
   /**
-   * Weight and "done means…" are editable by everyone signed in; date and
-   * lead are Linear writes and need the person's write grant.
+   * Weight and "done means…" are editable by everyone signed in but a
+   * guest; date and lead are Linear writes and need the person's write
+   * grant.
    */
   permissions: {
     /** Date and lead (Linear writes with the person's own token). */
     canEditLinear: boolean;
-    /** The grant_write link back to this milestone; null with the grant. */
+    /**
+     * The grant_write link back to this milestone; null with the grant,
+     * and for a guest (who is never offered one).
+     */
     grantWriteHref: string | null;
+    /**
+     * A Linear guest: every value is plain text (weight and "done
+     * means…" too) and one read-only notice replaces the edit note.
+     */
+    readOnly: boolean;
   };
   /** Active people who may lead (offered only with Linear write access). */
   leadOptions: DrawerOption[];
@@ -857,18 +878,21 @@ export function rubricChecklist(
   detail: MilestoneDetail,
   today: string,
   canEditLinear: boolean,
-  leadDeactivated = false
+  leadDeactivated = false,
+  readOnly = false
 ): ChecklistItem[] {
   const gaps = new Set(detail.assessment.rubric.gaps);
   const { milestone, assessment } = detail;
-  // "Done means…" is the planner's own field, editable by everyone; the
-  // date and the lead are editable above only with Linear write access.
+  // "Done means…" is the planner's own field, editable by everyone but a
+  // guest; the date and the lead are editable above only with Linear
+  // write access.
   const fixHere = {
     no_target_date: canEditLinear
       ? 'Set it above, or in Linear.'
       : 'Set it in Linear.',
-    no_done_means:
-      'Write it above, or start a line of the Linear description with "Done means:".',
+    no_done_means: readOnly
+      ? 'Start a line of the Linear description with "Done means:".'
+      : 'Write it above, or start a line of the Linear description with "Done means:".',
     no_project_lead: canEditLinear
       ? 'Set a lead above, or in Linear.'
       : 'Set a lead in Linear.',
@@ -1055,7 +1079,13 @@ export function buildMilestoneDrawer(input: {
             : null,
       plannerText: detail.meta?.doneMeans ?? '',
     },
-    rubric: rubricChecklist(detail, today, linear, leadDeactivated),
+    rubric: rubricChecklist(
+      detail,
+      today,
+      linear,
+      leadDeactivated,
+      permissions.readOnly
+    ),
     issues,
     openIssues: progress.open,
     waitsOn: detail.waitsOn.map((other) => ({
@@ -1065,7 +1095,9 @@ export function buildMilestoneDrawer(input: {
     graphHref: `/graph?milestone=${encodeURIComponent(milestone.id)}`,
     permissions: {
       canEditLinear: linear,
-      grantWriteHref: linear ? null : timelineGrantWriteHref(path),
+      grantWriteHref:
+        linear || permissions.readOnly ? null : timelineGrantWriteHref(path),
+      readOnly: permissions.readOnly,
     },
     leadOptions: linear ? leadOptions(users, project.leadId) : [],
     limits,

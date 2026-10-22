@@ -1,5 +1,6 @@
 // Milestone and project edits (§7, §7.1), open to every signed-in person
-// since the owner decision of 2026-10-22 (there is no PM role). Linear
+// since the owner decision of 2026-10-22 (there is no PM role) but a
+// read-only one (a Linear guest), whom engine.ts refuses first. Linear
 // writes (milestone target date, project lead) go through the person's own
 // token, so they need write scope and Linear attributes them to the person;
 // tool-owned writes (weight, "done means…") go to milestone meta and need

@@ -65,7 +65,27 @@ describe('landing', () => {
       name: 'Ben Carter',
       email: 'u-ben@example.com',
       action: 'Sign in as Ben',
+      label: null,
     });
+  });
+
+  // Owner decision 2026-10-22, "Guests limited to read only": a Linear
+  // guest is labelled Guest (Linear's own flag, not a planner role) and
+  // keeps their place by name.
+  test('a Linear guest is labelled Guest', () => {
+    const rows = demoUserRows([
+      user('u-ben', 'Ben Carter'),
+      { ...user('u-gus', 'Gus Hart'), guest: true },
+    ]);
+    expect(rows.map((r) => [r.id, r.label])).toEqual([
+      ['u-ben', null],
+      ['u-gus', 'Guest'],
+    ]);
+  });
+
+  test('read_only says why a guest cannot install or allow edits', () => {
+    expect(authErrorMessage('read_only')).toMatch(/guest in Linear/);
+    expect(authErrorMessage('read_only')).toMatch(/read-only/);
   });
 
   test('no copy names a PM role, and not_pm is not a known code', () => {

@@ -55,6 +55,12 @@
   margin-top: -1px;
 }
 
+/* A Linear guest's read-only notice: its own strip between the section's
+   sentence and its (plain-text) registers. */
+.collapse > .readOnlyNotice {
+  margin: 12px 0;
+}
+
 .sectionText {
   padding: 14px 18px;
   border: 1px solid var(--border);

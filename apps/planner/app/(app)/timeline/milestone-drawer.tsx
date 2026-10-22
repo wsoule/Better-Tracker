@@ -34,6 +34,7 @@ import { notSavedToast, sendJson } from '../../../lib/api-client';
 import { escapeResetsDraft } from '../../../lib/escape';
 import { formatDate } from '../../../lib/format';
 import type { IssueDrawerParts } from '../components/issue-drawer';
+import ReadOnlyNotice from '../components/read-only-notice';
 import css from './page.module.css';
 
 interface MilestoneDrawerProps {
@@ -327,7 +328,10 @@ function DrawerBody({
     {
       id: 'weight',
       label: 'Weight',
-      value: (
+      // A Linear guest edits nothing (owner decision 2026-10-22).
+      value: permissions.readOnly ? (
+        model.weight.label
+      ) : (
         <WeightField
           key={String(model.weight.value)}
           model={model}
@@ -367,7 +371,9 @@ function DrawerBody({
     {
       id: 'done',
       label: 'Done means…',
-      value: (
+      value: permissions.readOnly ? (
+        <DoneMeansText model={model} />
+      ) : (
         <DoneMeansField
           key={model.doneMeans.plannerText}
           model={model}
@@ -411,7 +417,11 @@ function DrawerBody({
       )}
 
       <PropertyList label="Milestone details" items={items} />
-      {permissions.grantWriteHref === null ? (
+      {permissions.readOnly ? (
+        <div className={css.readOnlyNote}>
+          <ReadOnlyNotice />
+        </div>
+      ) : permissions.grantWriteHref === null ? (
         <p className={css.editNote}>
           Due date and lead changes are written to Linear as you. Weight and
           “done means…” are kept in the planner.
@@ -684,6 +694,22 @@ function LeadField({
           : (model.lead.note ?? `Project lead of ${model.projectName}`)}
       </span>
     </form>
+  );
+}
+
+// "Done means…" as plain text, for a person who may not edit it: the text
+// and where it comes from, or that it is missing.
+function DoneMeansText({ model }: { model: MilestoneDrawerModel }) {
+  if (model.doneMeans.text === null) {
+    return <span className={css.accentMono}>Not set</span>;
+  }
+  return (
+    <span className={css.stack}>
+      <span>{model.doneMeans.text}</span>
+      {model.doneMeans.sourceLabel === null ? null : (
+        <span className={css.note}>{model.doneMeans.sourceLabel}</span>
+      )}
+    </span>
   );
 }
 

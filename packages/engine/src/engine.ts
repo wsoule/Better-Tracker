@@ -1,6 +1,10 @@
 // createEngine: wires the engine modules into the Engine contract
 // (src/types.ts). Each method delegates to a focused module; this file only
-// adds the small listings that need no logic of their own.
+// adds the small listings that need no logic of their own, and the one
+// read-only guard (owner decision 2026-10-22, "Guests limited to read
+// only"): every method that changes something for a person is wrapped in
+// `writable` (or calls requireWritable itself), so a Linear guest is
+// refused with read_only before any module runs.
 
 import { runAllocation } from './allocation-run';
 import {
@@ -29,10 +33,11 @@ import {
   setMilestoneWeight,
   setProjectLead,
 } from './milestone-edits';
+import { requireWritable } from './permissions';
 import { createRuntime, readSettings } from './runtime';
 import { updateSettings } from './settings';
 import { fullSync } from './sync';
-import type { Engine, EngineDeps, LoadedWorkspace } from './types';
+import type { Actor, Engine, EngineDeps, LoadedWorkspace } from './types';
 import {
   getGraph,
   getMilestoneDetail,
@@ -47,6 +52,20 @@ import {
 import { runWarnings } from './warning-run';
 import { handleWebhook } from './webhooks';
 
+/**
+ * Wraps a mutating method whose first argument is the person making the
+ * change: the read-only guard runs first (a rejected promise, like every
+ * other engine error), then the module.
+ */
+function writable<Rest extends unknown[], R>(
+  fn: (actor: Actor, ...rest: Rest) => Promise<R>
+): (actor: Actor, ...rest: Rest) => Promise<R> {
+  return async (actor, ...rest) => {
+    requireWritable(actor);
+    return fn(actor, ...rest);
+  };
+}
+
 /** Builds the engine over its dependencies (store, Linear, channel, …). */
 export function createEngine(deps: EngineDeps): Engine {
   const rt = createRuntime(deps);
@@ -56,7 +75,10 @@ export function createEngine(deps: EngineDeps): Engine {
 
     startOAuth: (intent) => startOAuth(rt, intent),
     finishSignIn: (input) => finishSignIn(rt, input),
-    finishInstall: (input) => finishInstall(rt, input),
+    finishInstall: async (input) => {
+      requireWritable(input.actor);
+      return finishInstall(rt, input);
+    },
     devSignIn: (userId) => devSignIn(rt, userId),
     authenticate: (token) => authenticate(rt, token),
     signOut: (token) => signOut(rt, token),
@@ -115,14 +137,21 @@ export function createEngine(deps: EngineDeps): Engine {
     handleWebhook: (event) => handleWebhook(rt, event),
     // Only the contract's fields: a public caller can never skip the
     // fresh sync the plan depends on (syncFirst is internal to runDaily).
-    runAllocation: (input) =>
-      runAllocation(rt, {
+    // A person's run is a change; the worker's (actor null) is not theirs.
+    runAllocation: async (input) => {
+      if (input.actor !== null) requireWritable(input.actor);
+      return runAllocation(rt, {
         workspaceId: input.workspaceId,
         mode: input.mode,
         trigger: input.trigger,
         actor: input.actor,
-      }),
-    runWarnings: (input) => runWarnings(rt, input),
+      });
+    },
+    // The digest preview shows everyone's digests: not for a guest.
+    runWarnings: async (input) => {
+      if (input.viewer !== undefined) requireWritable(input.viewer);
+      return runWarnings(rt, input);
+    },
     runDaily: (input) => runDaily(rt, input),
     listWorkspaceIds: async () =>
       (await deps.store.listInstallations())
@@ -133,24 +162,35 @@ export function createEngine(deps: EngineDeps): Engine {
         .filter((installation) => installation.revokedAt !== null)
         .map((installation) => installation.workspaceId),
 
-    setMilestoneTargetDate: (actor, milestoneId, targetDate) =>
-      setMilestoneTargetDate(rt, actor, milestoneId, targetDate),
-    setProjectLead: (actor, projectId, leadId) =>
-      setProjectLead(rt, actor, projectId, leadId),
-    setMilestoneWeight: (actor, milestoneId, weight) =>
-      setMilestoneWeight(rt, actor, milestoneId, weight),
-    setMilestoneDoneMeans: (actor, milestoneId, text) =>
-      setMilestoneDoneMeans(rt, actor, milestoneId, text),
-    updateSettings: (actor, patch) => updateSettings(rt, actor, patch),
+    setMilestoneTargetDate: writable((actor, milestoneId, targetDate) =>
+      setMilestoneTargetDate(rt, actor, milestoneId, targetDate)
+    ),
+    setProjectLead: writable((actor, projectId, leadId) =>
+      setProjectLead(rt, actor, projectId, leadId)
+    ),
+    setMilestoneWeight: writable((actor, milestoneId, weight) =>
+      setMilestoneWeight(rt, actor, milestoneId, weight)
+    ),
+    setMilestoneDoneMeans: writable((actor, milestoneId, text) =>
+      setMilestoneDoneMeans(rt, actor, milestoneId, text)
+    ),
+    updateSettings: writable((actor, patch) =>
+      updateSettings(rt, actor, patch)
+    ),
 
     getIssueDetail: (actor, issueId) => getIssueDetail(rt, actor, issueId),
-    updateIssue: (actor, issueId, patch) =>
-      updateIssue(rt, actor, issueId, patch),
-    addComment: (actor, issueId, body) => addComment(rt, actor, issueId, body),
-    addBlocker: (actor, issueId, blockerIssueId) =>
-      addBlocker(rt, actor, issueId, blockerIssueId),
-    removeRelation: (actor, relationId) =>
-      removeRelation(rt, actor, relationId),
+    updateIssue: writable((actor, issueId, patch) =>
+      updateIssue(rt, actor, issueId, patch)
+    ),
+    addComment: writable((actor, issueId, body) =>
+      addComment(rt, actor, issueId, body)
+    ),
+    addBlocker: writable((actor, issueId, blockerIssueId) =>
+      addBlocker(rt, actor, issueId, blockerIssueId)
+    ),
+    removeRelation: writable((actor, relationId) =>
+      removeRelation(rt, actor, relationId)
+    ),
 
     cleanup: () => cleanup(rt),
     now: () => rt.nowIso(),

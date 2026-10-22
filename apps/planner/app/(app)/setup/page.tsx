@@ -14,6 +14,7 @@ import {
 import { formatInstant } from '../../../lib/format';
 import { loadInstallation, requirePageActor } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
+import ReadOnlyNotice from '../components/read-only-notice';
 import Receipts from '../components/receipts';
 import styles from './page.module.css';
 
@@ -42,7 +43,10 @@ async function installContext(
    person's Linear workspace. Three states: installed (the facts and a way
    to the timeline), installed but revoked (Linear rejected the app's
    grant: reinstall), and not installed (what an install does, then the
-   button). Installing itself is Linear's admin consent screen. */
+   button). Installing itself is Linear's admin consent screen. A Linear
+   guest is offered no install or reinstall (owner decision 2026-10-22,
+   "Guests limited to read only"; Linear would not let one approve it
+   either), only the read-only notice. */
 export default async function SetupPage() {
   const { engine, actor } = await requirePageActor('/setup');
   const workspaceId = actor.session.workspaceId;
@@ -59,6 +63,7 @@ export default async function SetupPage() {
     // Demo mode has no OAuth: the install link would only bounce home.
     // Anyone signed in may reinstall (no roles); Linear asks for an admin.
     const demo = engine.mode === 'fixture';
+    const readOnly = actor.readOnly;
     return (
       <div className="page">
         <header className={styles.head}>
@@ -87,11 +92,13 @@ export default async function SetupPage() {
               <Button href="/timeline" variant="primary">
                 Open the timeline
               </Button>
-              {demo ? null : (
+              {demo || readOnly ? null : (
                 <Button href={INSTALL_HREF}>Reinstall to change teams</Button>
               )}
             </div>
-            {demo ? (
+            {readOnly ? (
+              <ReadOnlyNotice />
+            ) : demo ? (
               <p className={styles.note}>
                 Demo mode installs its fictional workspace when the server
                 starts; there is no Linear app to reinstall.
@@ -145,15 +152,21 @@ export default async function SetupPage() {
         />
         <Receipts items={INSTALL_STEPS} label="What installing does" />
         <div className={styles.panel}>
-          <div className={styles.actions}>
-            <Button href={INSTALL_HREF} variant="primary">
-              {revoked ? 'Reinstall in Linear' : 'Install in Linear'}
-            </Button>
-          </div>
-          <p className={styles.note}>
-            Not a Linear admin? Send this page to one: the button works for them
-            once they sign in.
-          </p>
+          {actor.readOnly ? (
+            <ReadOnlyNotice />
+          ) : (
+            <>
+              <div className={styles.actions}>
+                <Button href={INSTALL_HREF} variant="primary">
+                  {revoked ? 'Reinstall in Linear' : 'Install in Linear'}
+                </Button>
+              </div>
+              <p className={styles.note}>
+                Not a Linear admin? Send this page to one: the button works for
+                them once they sign in.
+              </p>
+            </>
+          )}
         </div>
       </section>
     </div>

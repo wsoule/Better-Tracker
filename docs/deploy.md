@@ -105,8 +105,12 @@ What the planner relies on (arch §4.1, research: Linear OAuth 2.0, Q3–Q4):
   they belong to, and no initiatives (arch §2.13). Membership changes show after
   the next full sync (Linear sends no webhook for them). Digests follow the same
   rule: a lead or watcher is never told about a project they cannot see, and a
-  digest names only issues its recipient can see. Guests can still do every
-  planner-only action everyone signed in can (settings, runs, resync).
+  digest names only issues its recipient can see. Since 2026-10-22 guests are
+  also **read-only** (design §12, "guests are read-only"): they can look but not
+  change anything here (no edits, settings, runs, resync, digest preview or
+  write grant). A person Linear turns from guest to member (or back) gets the
+  change on their next page after the mirror learns it (a User webhook, or the
+  next full sync).
 - If the workspace has **Third-Party App Approvals** turned on (paid plans), a
   member's first sign-in may become an approval request for an admin or owner
   (research: Linear OAuth 2.0, Q3). **Verify this in your workspace** before
@@ -349,11 +353,19 @@ safely. There is no build-time or pre-deploy migration step.
    has no installation. Start the install there. Linear asks the admin which
    **teams** the app may access. Pick every team whose projects the planner
    should manage, because it sees nothing else. There is no PM step: everyone
-   signed in can edit everything (design §12, 2026-10-22). If `WATCHER_EMAILS`
-   matches nobody, the installer becomes the first watcher.
+   signed in can edit everything (design §12, 2026-10-22), except **Linear
+   guests, who are read-only** (design §12, "guests are read-only"): a guest may
+   sign in and see the teams Linear shows them, but cannot install the app,
+   allow edits, change settings, start runs, resync or preview digests, and is
+   never asked for write access. Install with a full workspace member (an
+   admin); a guest who tries is sent back with "You are a guest in Linear…". If
+   `WATCHER_EMAILS` matches nobody, the installer becomes the first watcher.
 3. **Confirm the first sync**. The install triggers a full sync, and Settings →
-   Status shows when the last full sync ran and whether it worked. Within 15
-   minutes the worker's first tick logs a line such as
+   Status shows when the last full sync ran and whether it worked. Until that
+   first sync lands the planner cannot tell members from guests: the first page
+   after the install waits for it, and if it fails the planner stays read-only
+   for everyone until a sync works (each page view and the worker's next tick
+   retry it). Within 15 minutes the worker's first tick logs a line such as
    `tick ok — <workspace id>: synced (mirror v3, 412 issues, 2310 ms), …`. To
    run it right away, trigger the cron job off-schedule with `railway cron run`
    (add `--yes` outside a terminal) (research: Railway deployment, "Cron: how

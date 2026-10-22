@@ -2,6 +2,7 @@ import type { Engine } from '@better-tracker/engine';
 import {
   BlockBar,
   Button,
+  Chip,
   Notice,
   Register,
   RegisterCell,
@@ -11,6 +12,7 @@ import { redirect } from 'next/navigation';
 
 import {
   authErrorMessage,
+  DEMO_GUEST_NOTE,
   type DemoUserRow,
   demoUserRows,
   firstParam,
@@ -126,7 +128,8 @@ export default async function HomePage({
               so nothing here touches a real Linear account. Pick anyone to sign
               in as: everyone can re-date milestones, set project leads, edit
               issues, change settings and run allocation, and every edit is in
-              the audit log under that person’s name.
+              the audit log under that person’s name. The guest, as in Linear,
+              sees only their own team, and can look but not change anything.
             </p>
           ) : (
             <>
@@ -158,7 +161,19 @@ export default async function HomePage({
           >
             {demo.rows.map((row) => (
               <RegisterRow key={row.id}>
-                <RegisterCell variant="name">{row.name}</RegisterCell>
+                <RegisterCell
+                  variant="name"
+                  sub={row.label === null ? undefined : DEMO_GUEST_NOTE}
+                >
+                  {row.label === null ? (
+                    row.name
+                  ) : (
+                    <span className={styles.personWithChip}>
+                      {row.name}
+                      <Chip>{row.label}</Chip>
+                    </span>
+                  )}
+                </RegisterCell>
                 <RegisterCell label="Email" tone="muted">
                   {row.email ?? 'No email'}
                 </RegisterCell>

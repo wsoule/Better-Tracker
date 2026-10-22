@@ -2,6 +2,7 @@ import {
   isLinearApiError,
   type Actor,
   type Engine,
+  requireWritable,
 } from '@better-tracker/engine';
 import { createLogger } from '@better-tracker/logger';
 import type { ZodType } from 'zod';
@@ -50,6 +51,8 @@ export function retryAfterSeconds(
  * Maps engine and Linear errors to HTTP responses; logs the unexpected.
  * Engine errors are recognised by name as well as class (lib/engine-errors:
  * the cached engine may come from another bundle's copy of the package).
+ * not_signed_in is a 401; every other auth code is a 403, including
+ * read_only (a Linear guest, who may look but not change anything).
  * `returnTo` is the page a needs_write_scope answer's grant link comes
  * back to; the engine's rate_limited is a 429 with Retry-After when Linear
  * said when its limit resets.
@@ -137,6 +140,22 @@ export async function readJson<T>(
     );
   }
   return parsed.data;
+}
+
+/**
+ * The read-only check of every mutating route (owner decision 2026-10-22,
+ * "Guests limited to read only"): 403 read_only for a Linear guest, else
+ * null. It runs the engine's own guard (requireWritable), so the routes
+ * and the engine refuse with the same code and sentence; it comes right
+ * after the CSRF guard and the session, before the body is read.
+ */
+export function refuseReadOnly(actor: Actor): Response | null {
+  try {
+    requireWritable(actor);
+    return null;
+  } catch (error) {
+    return errorResponse(error);
+  }
 }
 
 /**

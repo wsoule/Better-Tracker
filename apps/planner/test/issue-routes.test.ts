@@ -38,6 +38,7 @@ function actor(over: Partial<Actor> = {}): Actor {
   return {
     session: { userId: 'user-chloe', workspaceId: 'org-1' },
     canWriteLinear: true,
+    readOnly: false,
     ...over,
   } as unknown as Actor;
 }
@@ -555,5 +556,112 @@ describe('GET /api/issues/[id] and /api/issues/search', () => {
       resolver(engine)
     );
     expect(long.status).toBe(400);
+  });
+});
+
+// Owner decision 2026-10-22, "Guests limited to read only": every issue
+// write answers a Linear guest 403 read_only right after the session —
+// before the body, the id or the write scope is looked at, and with no
+// grant_write link (a guest is never offered one) — while the reads stay
+// open to them.
+describe('a Linear guest', () => {
+  const guest = actor({
+    session: { userId: 'user-gus', workspaceId: 'org-1' },
+    // Claiming write scope changes nothing: readOnly decides.
+    canWriteLinear: true,
+    readOnly: true,
+  } as unknown as Partial<Actor>);
+
+  test.each([
+    [
+      'PATCH /api/issues/[id]',
+      (engine: FakeEngine) =>
+        patchIssue(
+          send('PATCH', '/api/issues/iss-ops-1', { priority: 2 }),
+          'iss-ops-1',
+          resolver(engine, guest)
+        ),
+    ],
+    [
+      'PATCH /api/issues/[id] (bad body)',
+      (engine: FakeEngine) =>
+        patchIssue(
+          send('PATCH', '/api/issues/iss-ops-1', { priority: 9 }),
+          'iss-ops-1',
+          resolver(engine, guest)
+        ),
+    ],
+    [
+      'POST /api/issues/[id]/comments',
+      (engine: FakeEngine) =>
+        postComment(
+          send('POST', '/api/issues/iss-ops-1/comments', { body: 'Hi' }),
+          'iss-ops-1',
+          resolver(engine, guest)
+        ),
+    ],
+    [
+      'POST /api/issues/[id]/blockers',
+      (engine: FakeEngine) =>
+        postBlocker(
+          send('POST', '/api/issues/iss-ops-5/blockers', {
+            blockerIssueId: 'iss-ops-6',
+          }),
+          'iss-ops-5',
+          resolver(engine, guest)
+        ),
+    ],
+    [
+      'DELETE /api/relations/[id]',
+      (engine: FakeEngine) =>
+        deleteRelation(
+          send('DELETE', '/api/relations/rel-1'),
+          'rel-1',
+          resolver(engine, guest)
+        ),
+    ],
+  ])('%s is 403 read_only, engine untouched', async (_name, call) => {
+    const { engine, calls } = recordingEngine();
+    const response = await call(engine);
+    expect(response.status).toBe(403);
+    const error = await errorOf(response);
+    expect(error).toEqual({
+      code: 'read_only',
+      message: 'Guests in Linear can look but not change anything here.',
+    });
+    expect(error.grantWriteHref).toBeUndefined();
+    expect(calls).toEqual([]);
+  });
+
+  test('a cross-origin write is still refused by the CSRF guard first', async () => {
+    const { engine } = recordingEngine();
+    const response = await patchIssue(
+      send(
+        'PATCH',
+        '/api/issues/iss-ops-1',
+        { priority: 2 },
+        'https://evil.example'
+      ),
+      'iss-ops-1',
+      resolver(engine, guest)
+    );
+    expect(response.status).toBe(403);
+    expect((await errorOf(response)).code).not.toBe('read_only');
+  });
+
+  test('the issue read and the search stay open to a guest', async () => {
+    const { engine, calls } = recordingEngine();
+    const read = await getIssue(
+      send('GET', '/api/issues/OPS-1'),
+      'OPS-1',
+      resolver(engine, guest)
+    );
+    expect(read.status).toBe(200);
+    expect(calls).toEqual([['getIssueDetail', 'iss-ops-1']]);
+    const search = await searchIssues(
+      send('GET', '/api/issues/search?q=OPS'),
+      resolver(engine, guest)
+    );
+    expect(search.status).toBe(200);
   });
 });

@@ -4,7 +4,11 @@
 //   `read,write` so their Linear edits (milestone dates, project leads,
 //   issue edits) are attributed to them; install is the admin's actor=app
 //   grant (`read,write`, prompt=consent). There are no roles (owner
-//   decision 2026-10-22): an Actor is just the session and its scopes.
+//   decision 2026-10-22): an Actor is the session, its scopes, and
+//   whether the person is read-only because Linear makes them a guest
+//   (owner decision 2026-10-22, "Guests limited to read only"; a guest's
+//   grant_write, or any sign-in that came back with write scope, is
+//   refused, and their canWriteLinear is always false).
 // - Sessions are cookie tokens whose SHA-256 is stored with the person's
 //   own Linear tokens (encrypted). Objects handed back to callers (Actor,
 //   SignInResult, Installation) carry redacted tokens so a page can never
@@ -15,7 +19,7 @@
 //   hold more than 10 for one app, so abandoned tokens must not pile up.
 //   cleanup() does the same for sessions that expired (cleanup.ts).
 
-import type { User } from '@better-tracker/core';
+import { type Snapshot, type User, viewerScope } from '@better-tracker/core';
 import {
   buildAuthorizeUrl,
   createLinearGateway,
@@ -36,7 +40,8 @@ import type {
 } from '@better-tracker/store';
 
 import { needsRefresh } from './providers';
-import type { EngineRuntime } from './runtime';
+import type { EngineRuntime, MirrorView } from './runtime';
+import { fullSync } from './sync';
 import {
   type Actor,
   EngineAuthError,
@@ -203,6 +208,57 @@ async function needsInstall(
   return installation === null || installation.revokedAt !== null;
 }
 
+/**
+ * Whether a person is read-only in the planner (Actor.readOnly): a Linear
+ * guest per the mirror, or someone the mirror does not know, who is
+ * treated like a guest exactly as per-viewer visibility treats them
+ * (core's viewerScope, §2.13). Without a mirror nobody is known:
+ * - with no active installation (never installed, or uninstalled) nobody
+ *   is read-only, so someone can install or reinstall (Linear lets only an
+ *   admin approve that, never a guest), and every other change needs an
+ *   active installation anyway (requireInstallation);
+ * - with one (authenticate tried the first sync and it failed) everybody
+ *   is, because anyone who got through could start a run, which syncs
+ *   first and then acts for a person the planner never placed.
+ */
+export function isReadOnlyPerson(
+  snapshot: Snapshot | null,
+  userId: string,
+  installed: boolean
+): boolean {
+  if (snapshot === null) return installed;
+  return viewerScope(snapshot, userId).guest;
+}
+
+/**
+ * The mirror authenticate places a person with, and whether the workspace
+ * has an active installation (only looked up when there is no mirror).
+ * An installed workspace without a mirror has not had its first sync land
+ * (the minutes after an install): that sync runs here, joined with the one
+ * the install started (fullSync is single-flight), as load() would run it
+ * for the page anyway. A failed sync leaves the mirror null and is logged;
+ * isReadOnlyPerson then fails closed.
+ */
+async function mirrorForPerson(
+  rt: EngineRuntime,
+  workspaceId: string
+): Promise<{ view: MirrorView | null; installed: boolean }> {
+  const view = await rt.mirror.current(workspaceId);
+  if (view !== null) return { view, installed: true };
+  if (await needsInstall(rt, workspaceId)) {
+    return { view: null, installed: false };
+  }
+  try {
+    await fullSync(rt, workspaceId);
+  } catch (error) {
+    rt.logger.warn(
+      'the first sync failed; everyone is read-only until it lands',
+      { workspaceId, error }
+    );
+  }
+  return { view: await rt.mirror.current(workspaceId), installed: true };
+}
+
 /** Completes signin / grant_write: a new session for the Linear user. */
 export async function finishSignIn(
   rt: EngineRuntime,
@@ -233,6 +289,28 @@ export async function finishSignIn(
         : 'Your Linear account is deactivated.'
     );
   }
+  // A guest is read-only (owner decision 2026-10-22): the planner never
+  // keeps a write grant for one, whether Linear or the mirror says so, and
+  // whatever the intent (a plain sign-in whose authorize URL was edited to
+  // ask for `write` comes back with write scope too).
+  const stored = storedTokens(tokens, input.intent);
+  if (input.intent === 'grant_write' || stored.scopes.includes('write')) {
+    const mirrored = (
+      await rt.mirror.current(workspace.id)
+    )?.snapshot.users.get(user.id);
+    if (user.guest === true || mirrored?.guest === true) {
+      await discardTokens(rt, oauth, tokens, log);
+      log.warn('refused a write grant', {
+        workspaceId: workspace.id,
+        userId: user.id,
+        reason: 'guest',
+      });
+      throw new EngineAuthError(
+        'read_only',
+        'Guests in Linear can look but not change anything here, so the planner does not take write access for a guest.'
+      );
+    }
+  }
   const expiresAt = new Date(
     rt.clock().getTime() + rt.config.sessionDays * DAY_MS
   ).toISOString();
@@ -240,7 +318,7 @@ export async function finishSignIn(
     workspaceId: workspace.id,
     userId: user.id,
     userName: user.name,
-    tokens: storedTokens(tokens, input.intent),
+    tokens: stored,
     expiresAt,
   });
   log.info('signed in', {
@@ -360,7 +438,11 @@ export async function devSignIn(
  * in for reads and is retried on their next Linear edit. A person the
  * mirror shows as deactivated in Linear is signed out the same way, since
  * sign-in refuses them too: otherwise someone who left could keep running
- * live allocation and changing settings until the session expired.
+ * live allocation and changing settings until the session expired. The
+ * Actor says whether the person is read-only (isReadOnlyPerson: a Linear
+ * guest, or unknown to the mirror; an installed workspace with no mirror
+ * yet gets its first sync here first, mirrorForPerson); a read-only person
+ * never holds canWriteLinear.
  */
 export async function authenticate(
   rt: EngineRuntime,
@@ -371,9 +453,8 @@ export async function authenticate(
   if (session === null) return null;
   const fixture = rt.linear.mode === 'fixture';
 
-  const mirrored = (
-    await rt.mirror.current(session.workspaceId)
-  )?.snapshot.users.get(session.userId);
+  const { view, installed } = await mirrorForPerson(rt, session.workspaceId);
+  const mirrored = view?.snapshot.users.get(session.userId);
   if (mirrored !== undefined && (!mirrored.active || mirrored.app)) {
     rt.logger.warn('ended the session of a deactivated Linear user', {
       workspaceId: session.workspaceId,
@@ -399,9 +480,18 @@ export async function authenticate(
     }
   }
 
+  // Decided per request from the mirror, so a person Linear turns into a
+  // guest (or back) is read-only (or not) from their next page on.
+  const readOnly = isReadOnlyPerson(
+    view?.snapshot ?? null,
+    session.userId,
+    installed
+  );
   return {
     session: publicSession(session),
-    canWriteLinear: fixture || session.tokens.scopes.includes('write'),
+    canWriteLinear:
+      !readOnly && (fixture || session.tokens.scopes.includes('write')),
+    readOnly,
   };
 }
 

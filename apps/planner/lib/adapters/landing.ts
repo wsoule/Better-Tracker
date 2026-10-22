@@ -24,6 +24,8 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
     'The app is not installed in this workspace yet. A workspace admin installs it from Setup.',
   needs_write_scope:
     'Your Linear sign-in only allows reading. Sign in again and grant write access to edit dates, leads and issues.',
+  read_only:
+    'You are a guest in Linear, so the planner is read-only for you: you can look at everything Linear shows you, but not install the app, allow edits or change anything here.',
   fixture_only: 'Demo sign-in only works on a demo server.',
   invalid: 'Linear sent back a sign-in the planner could not use. Start again.',
   not_found: 'That demo person does not exist.',
@@ -71,12 +73,26 @@ export interface DemoUserRow {
   email: string | null;
   /** The button's words: "Sign in as Ana". */
   action: string;
+  /**
+   * "Guest" for a Linear guest (Gus, in the demo), whom the planner shows
+   * read-only (owner decision 2026-10-22, "Guests limited to read only");
+   * null for everyone else.
+   */
+  label: string | null;
 }
 
+/** The picker's label for a Linear guest. */
+export const DEMO_GUEST_LABEL = 'Guest';
+
+/** What the guest label means, under the guest's name. */
+export const DEMO_GUEST_NOTE = 'Guest in Linear · sees one team, read only';
+
 /**
- * Demo people for the picker, by name. Nobody is set apart: there are no
- * roles (owner decision 2026-10-22), so every demo person sees the same
- * screens and edit controls. The engine already dropped app users and
+ * Demo people for the picker, by name. Nobody is set apart by role: there
+ * are no roles (owner decision 2026-10-22), so every demo person sees the
+ * same screens and edit controls, except a Linear guest, who is labelled
+ * Guest and sees the planner read-only (that comes from Linear's own guest
+ * flag, not a planner role). The engine already dropped app users and
  * deactivated people.
  */
 export function demoUserRows(users: readonly User[]): DemoUserRow[] {
@@ -89,6 +105,7 @@ export function demoUserRows(users: readonly User[]): DemoUserRow[] {
         name: user.name,
         email: user.email,
         action: `Sign in as ${first}`,
+        label: user.guest === true ? DEMO_GUEST_LABEL : null,
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name, 'en'));

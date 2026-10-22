@@ -78,6 +78,14 @@ export const FIXTURE_WATCHER_USER_IDS: readonly string[] = [
 /** Who demo mode's fake installation says installed the app. */
 export const FIXTURE_INSTALLER_USER_ID = 'user-ana';
 
+/**
+ * The demo workspace's one Linear guest, Gus Hart: a member of Operations
+ * only, so he sees that team alone (§2.13), and the planner is read-only
+ * for him (owner decision 2026-10-22, "Guests limited to read only"). He
+ * is in the demo picker so the read-only planner can be tried.
+ */
+export const FIXTURE_GUEST_USER_ID = 'user-gus';
+
 const BASE_URL = `https://linear.app/${FIXTURE_WORKSPACE.urlKey}`;
 
 // ---------------------------------------------------------------------------
@@ -118,7 +126,7 @@ function slugify(text: string): string {
 function person(
   id: string,
   name: string,
-  options: { active?: boolean } = {}
+  options: { active?: boolean; guest?: boolean } = {}
 ): User {
   const first = name.split(' ')[0] ?? name;
   return {
@@ -129,7 +137,7 @@ function person(
     avatarUrl: null,
     active: options.active ?? true,
     app: false,
-    guest: false,
+    guest: options.guest ?? false,
   };
 }
 
@@ -144,6 +152,8 @@ function buildUsers(): User[] {
     person('user-grace', 'Grace Lin'),
     // Deactivated, and still the lead of proj-ember (blocked/lead_inactive).
     person('user-hugo', 'Hugo Laurent', { active: false }),
+    // A Linear guest in Operations only: the read-only planner.
+    person(FIXTURE_GUEST_USER_ID, 'Gus Hart', { guest: true }),
     {
       id: FIXTURE_APP_USER_ID,
       name: 'Milestone Planner',
@@ -160,8 +170,9 @@ function buildUsers(): User[] {
 type TeamKey = 'eng' | 'ops';
 
 // Both teams are public, so every demo person sees the whole workspace
-// (per-viewer visibility, architecture §2.13); the members are who Linear
-// lists in each team.
+// (per-viewer visibility, architecture §2.13) except the guest, Gus Hart,
+// who sees only Operations, the one team he is a member of (and no
+// initiatives); the members are who Linear lists in each team.
 const TEAMS: readonly Team[] = [
   {
     id: 'team-eng',
@@ -184,7 +195,13 @@ const TEAMS: readonly Team[] = [
     name: 'Operations',
     visibility: 'public',
     parentId: null,
-    memberIds: ['user-ana', 'user-ben', 'user-elena', 'user-femi'],
+    memberIds: [
+      'user-ana',
+      'user-ben',
+      'user-elena',
+      'user-femi',
+      FIXTURE_GUEST_USER_ID,
+    ],
   },
 ];
 

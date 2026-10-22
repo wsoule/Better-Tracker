@@ -56,7 +56,9 @@ async function loadDetail(
    too. Everyone signed in sees and edits it (owner decision 2026-10-22:
    no roles): weight and "done means…" for everyone, the drag handles and
    the drawer's date and lead with Linear write access (the person's own
-   token; without it, an "Allow edits in Linear" notice). The PATCH routes
+   token; without it, an "Allow edits in Linear" notice). A Linear guest
+   only looks (owner decision 2026-10-22, "Guests limited to read only"):
+   no handles, no edit controls, one read-only notice. The PATCH routes
    and the engine enforce the same rules. All data comes from the engine;
    lib/adapters/timeline.ts maps it. */
 export default async function TimelinePage({
@@ -71,7 +73,10 @@ export default async function TimelinePage({
   );
   const state = parseTimelineState(params);
   const selection = parseTimelineSelection(params);
-  const permissions = { canWriteLinear: actor.canWriteLinear };
+  const permissions = {
+    canWriteLinear: actor.canWriteLinear,
+    readOnly: actor.readOnly,
+  };
 
   const [view, graph, loaded, detail, issueDrawer] = await orSetup(
     Promise.all([

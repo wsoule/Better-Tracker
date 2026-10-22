@@ -45,6 +45,7 @@ import {
   useIssueDrawerState,
 } from '../components/issue-drawer';
 import { PageCrumb } from '../components/page-crumb';
+import ReadOnlyNotice from '../components/read-only-notice';
 import MilestoneDrawer from './milestone-drawer';
 import css from './page.module.css';
 import TimelineBanners from './timeline-banners';
@@ -261,6 +262,7 @@ export default function TimelineScreen({
 
       {model.banners.length > 0 ||
       model.needsWriteGrant ||
+      model.readOnly ||
       missingMilestoneId !== null ? (
         <div className={css.notices}>
           {missingMilestoneId === null ? null : (
@@ -269,6 +271,7 @@ export default function TimelineScreen({
               deleted in Linear or moved to a completed project.
             </Notice>
           )}
+          {model.readOnly ? <ReadOnlyNotice /> : null}
           {model.needsWriteGrant ? (
             <Notice
               label="Linear read only"

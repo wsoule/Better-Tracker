@@ -221,6 +221,9 @@ export async function getIssueDetail(
     estimateOptions:
       estimateScale === null ? [] : estimateOptions(estimateScale),
     allocationHistory,
-    canEdit: actor.canWriteLinear,
+    // A read-only person (a Linear guest) gets no edit controls and no
+    // write grant to offer (owner decision 2026-10-22).
+    canEdit: actor.canWriteLinear && !actor.readOnly,
+    readOnly: actor.readOnly,
   };
 }

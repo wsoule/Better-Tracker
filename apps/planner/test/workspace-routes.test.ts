@@ -32,7 +32,7 @@ import {
 // member (Chloe, who was never a PM), and none of these four routes writes
 // to Linear with her token, so even a read-only Linear grant may call them.
 
-function actor(canWriteLinear: boolean): Actor {
+function actor(canWriteLinear: boolean, readOnly = false): Actor {
   return {
     session: {
       id: 'sess-1',
@@ -48,7 +48,8 @@ function actor(canWriteLinear: boolean): Actor {
       createdAt: '2026-10-01T00:00:00.000Z',
       expiresAt: '2026-11-01T00:00:00.000Z',
     },
-    canWriteLinear,
+    canWriteLinear: canWriteLinear && !readOnly,
+    readOnly,
   };
 }
 
@@ -172,6 +173,17 @@ function member(canWriteLinear = false): ApiActorResolver<Stub> {
   return () =>
     Promise.resolve({ engine: engine(), actor: actor(canWriteLinear) });
 }
+
+/**
+ * A resolver for a Linear guest (owner decision 2026-10-22, "Guests
+ * limited to read only"), claiming write scope to show that only readOnly
+ * matters.
+ */
+const guest: ApiActorResolver<Stub> = () =>
+  Promise.resolve({
+    engine: engine(),
+    actor: { ...actor(true, true), canWriteLinear: true },
+  });
 
 const signedOut: ApiActorResolver<Stub> = () =>
   Promise.resolve(
@@ -409,5 +421,69 @@ describe('PATCH /api/settings', () => {
     expect((body.error as { message: string }).message).toContain(
       'IANA timezone'
     );
+  });
+});
+
+// Owner decision 2026-10-22, "Guests limited to read only": every one of
+// these routes answers a Linear guest 403 read_only right after the
+// session (before the body is read, before the cooldown clock starts) and
+// never reaches the engine.
+describe('a Linear guest', () => {
+  test.each([
+    [
+      'POST /api/runs (dry run)',
+      () => startRun(json('POST', { mode: 'dry_run' }), guest),
+    ],
+    [
+      'POST /api/runs (live)',
+      () => startRun(json('POST', { mode: 'live' }), guest),
+    ],
+    ['POST /api/runs (bad body)', () => startRun(json('POST', '{nope'), guest)],
+    [
+      'POST /api/sync',
+      () => resync(json('POST', {}), guest, createResyncCooldown()),
+    ],
+    [
+      'POST /api/warnings/preview',
+      () => previewWarnings(json('POST', {}), guest),
+    ],
+    [
+      'PATCH /api/settings',
+      () => patchSettings(json('PATCH', { allocationMode: 'live' }), guest),
+    ],
+    [
+      'PATCH /api/settings (bad body)',
+      () => patchSettings(json('PATCH', {}), guest),
+    ],
+  ])('%s is 403 read_only and reaches nothing', async (_name, call) => {
+    allocationMode = 'live';
+    const { status, body } = await read(await call());
+    expect(status).toBe(403);
+    expect(errorCode(body)).toBe('read_only');
+    expect((body.error as { message: string }).message).toBe(
+      'Guests in Linear can look but not change anything here.'
+    );
+    expect(calls).toEqual({ runs: [], syncs: [], previews: [], patches: [] });
+  });
+
+  test('a refused resync does not start the cooldown clock', async () => {
+    const cooldown = createResyncCooldown();
+    expect((await resync(json('POST', {}), guest, cooldown)).status).toBe(403);
+    expect(cooldown.acceptedAt.size).toBe(0);
+    expect((await resync(json('POST', {}), member(), cooldown)).status).toBe(
+      200
+    );
+  });
+
+  test("the engine's own read_only refusal maps to 403 too", async () => {
+    failWith = new EngineAuthError(
+      'read_only',
+      'Guests in Linear can look but not change anything here.'
+    );
+    const { status, body } = await read(
+      await startRun(json('POST', { mode: 'dry_run' }), member())
+    );
+    expect(status).toBe(403);
+    expect(errorCode(body)).toBe('read_only');
   });
 });

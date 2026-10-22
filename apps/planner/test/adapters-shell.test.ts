@@ -23,8 +23,10 @@ import {
   isCurrentPath,
   isPaletteIndex,
   laneMark,
+  GUEST_BADGE,
   PALETTE_SUGGESTIONS,
   paletteItemsFromIndex,
+  paletteSuggestions,
   projectSectionItems,
   runIdFrom,
   syncFailureMessage,
@@ -173,6 +175,7 @@ describe('shell frame', () => {
       appName: 'Milestone Planner',
       workspaceName: null,
       userName: 'Ana Moreno',
+      readOnly: false,
       timeline: null,
       week: null,
     };
@@ -382,12 +385,34 @@ describe('palette actions', () => {
       appName: 'Milestone Planner',
       workspaceName: null,
       userName: 'Chloe Diaz',
+      readOnly: false,
       installed: false,
       timeline: null,
       week: null,
       loadFailed: false,
     });
     expect(Object.keys(frame)).not.toContain('isPm');
+    expect(frame.readOnly).toBe(false);
+  });
+
+  // Owner decision 2026-10-22, "Guests limited to read only": a Linear
+  // guest's palette keeps the theme switch (and navigation, Jump to) but
+  // offers no run or resync, and their user line says Guest.
+  test('a guest is offered no run or resync, and reads as Guest', () => {
+    expect(paletteSuggestions(false)).toEqual([...PALETTE_SUGGESTIONS]);
+    expect(paletteSuggestions(true).map((s) => s.action)).toEqual(['theme']);
+    const frame = buildShellFrame({
+      appName: 'Milestone Planner',
+      workspaceName: null,
+      userName: 'Gus Hart',
+      readOnly: true,
+      installed: false,
+      timeline: null,
+      week: null,
+      loadFailed: false,
+    });
+    expect(frame.readOnly).toBe(true);
+    expect(GUEST_BADGE).toBe('Guest');
   });
 
   test('finds the run id in a POST /api/runs answer', () => {

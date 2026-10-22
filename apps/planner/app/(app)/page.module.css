@@ -33,6 +33,15 @@
   gap: 8px;
 }
 
+/* A demo person's name with the GUEST chip beside it (a Linear guest,
+   read-only in the planner). */
+.personWithChip {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (width <= 768px) {
   .signIn {
     padding: 22px 14px 24px;

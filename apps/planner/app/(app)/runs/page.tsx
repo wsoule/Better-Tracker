@@ -10,6 +10,7 @@ import type { Metadata } from 'next';
 
 import { buildRunsPage, type RunRowModel } from '../../../lib/adapters/runs';
 import { orSetup, requireInstalledActor } from '../../../lib/load';
+import ReadOnlyNotice from '../components/read-only-notice';
 import css from './page.module.css';
 import RunActions from './run-actions';
 
@@ -41,7 +42,9 @@ const HEADER = [
    log, newest first, with "Preview (dry run)" and, only while Settings
    says allocation is live, "Run now" for everyone signed in (owner
    decision 2026-10-22: no roles); the route enforces the live gate too.
-   Each row opens the run's detail. */
+   A Linear guest gets the read-only notice instead of the buttons (owner
+   decision 2026-10-22, "Guests limited to read only"); the route and the
+   engine refuse their runs. Each row opens the run's detail. */
 export default async function RunsPage() {
   const { engine, actor, workspaceId } = await requireInstalledActor('/runs');
   const [runs, loaded] = await orSetup(
@@ -64,7 +67,11 @@ export default async function RunsPage() {
         <p className={css.receipts}>{page.receipts}</p>
       </header>
       <div className={css.body}>
-        <RunActions liveRunsOn={page.liveRunsOn} />
+        {actor.readOnly ? (
+          <ReadOnlyNotice />
+        ) : (
+          <RunActions liveRunsOn={page.liveRunsOn} />
+        )}
         <section className={css.collapse} aria-label="Allocation runs">
           <BlockBar
             index="01"

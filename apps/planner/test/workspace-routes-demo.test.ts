@@ -30,6 +30,14 @@ const { PATCH: settingsPatch } = await import('../app/api/settings/route');
 const { PATCH: milestonePatch } =
   await import('../app/api/milestones/[id]/route');
 const { PATCH: projectPatch } = await import('../app/api/projects/[id]/route');
+const { GET: issueGet, PATCH: issuePatch } =
+  await import('../app/api/issues/[id]/route');
+const { POST: commentPost } =
+  await import('../app/api/issues/[id]/comments/route');
+const { POST: blockerPost } =
+  await import('../app/api/issues/[id]/blockers/route');
+const { DELETE: relationDelete } =
+  await import('../app/api/relations/[id]/route');
 
 const APP = 'http://localhost:3000';
 const WORKSPACE = 'org-northwind';
@@ -40,6 +48,8 @@ const holder = globalThis as typeof globalThis & {
 const savedEngine = holder.__milestonePlannerEngine;
 let engine: Engine;
 let memberToken: string;
+/** Gus Hart, the demo's Linear guest (Operations only, read-only). */
+let guestToken: string;
 
 beforeAll(async () => {
   engine = await createEngineFromEnv(
@@ -48,6 +58,7 @@ beforeAll(async () => {
   );
   holder.__milestonePlannerEngine = Promise.resolve(engine);
   memberToken = (await engine.devSignIn('user-chloe')).sessionToken;
+  guestToken = (await engine.devSignIn('user-gus')).sessionToken;
 });
 
 afterAll(async () => {
@@ -235,5 +246,117 @@ describe('workspace routes on the demo engine', () => {
     ] as const) {
       expect([...mine]).toContain(action);
     }
+  });
+});
+
+// Owner decision 2026-10-22, "Guests limited to read only": through the
+// real route files (CSRF guard, session lookup, the read-only check, zod,
+// the engine), every mutating route answers the demo's Linear guest 403
+// read_only and changes nothing, while his reads still work.
+describe('a Linear guest on the demo engine', () => {
+  test('every mutating route is 403 read_only and nothing changes', async () => {
+    sessionToken = guestToken;
+    const settingsBefore = await engine.getSettings(WORKSPACE);
+    const auditBefore = await engine.listAudit(WORKSPACE, 100);
+    const runsBefore = await engine.listRuns(WORKSPACE, 100);
+    const issueBefore = (await engine.load(WORKSPACE)).snapshot.issues.get(
+      'iss-ops-1'
+    );
+    const responses: [string, Response][] = [
+      ['runs dry', await runsPost(request('POST', { mode: 'dry_run' }))],
+      ['runs live', await runsPost(request('POST', { mode: 'live' }))],
+      ['sync', await syncPost(request('POST', {}))],
+      ['preview', await previewPost(request('POST', {}))],
+      [
+        'settings',
+        await settingsPatch(request('PATCH', { allocationMode: 'dry_run' })),
+      ],
+      [
+        'milestone',
+        await milestonePatch(
+          request('PATCH', { targetDate: '2026-12-01', weight: 3 }),
+          params('ms-delta-1')
+        ),
+      ],
+      [
+        'project',
+        await projectPatch(
+          request('PATCH', { leadId: 'user-femi' }),
+          params('proj-delta')
+        ),
+      ],
+      [
+        'issue',
+        await issuePatch(
+          request('PATCH', { priority: 1 }),
+          params('iss-ops-1')
+        ),
+      ],
+      [
+        'comment',
+        await commentPost(
+          request('POST', { body: 'Hello' }),
+          params('iss-ops-1')
+        ),
+      ],
+      [
+        'blocker',
+        await blockerPost(
+          request('POST', { blockerIssueId: 'iss-ops-6' }),
+          params('iss-ops-5')
+        ),
+      ],
+      [
+        'relation',
+        await relationDelete(
+          new Request(`${APP}/api/relations/rel-atlas`, {
+            method: 'DELETE',
+            headers: { origin: APP },
+          }),
+          params('rel-atlas')
+        ),
+      ],
+    ];
+    for (const [name, response] of responses) {
+      expect([name, response.status]).toEqual([name, 403]);
+      expect([name, await code(response)]).toEqual([name, 'read_only']);
+    }
+    expect(await engine.getSettings(WORKSPACE)).toEqual(settingsBefore);
+    expect(await engine.listAudit(WORKSPACE, 100)).toEqual(auditBefore);
+    expect(await engine.listRuns(WORKSPACE, 100)).toEqual(runsBefore);
+    expect(
+      (await engine.load(WORKSPACE)).snapshot.issues.get('iss-ops-1')
+    ).toEqual(issueBefore);
+  });
+
+  test('the CSRF guard and the session still come first', async () => {
+    sessionToken = guestToken;
+    const cross = await runsPost(
+      request('POST', { mode: 'dry_run' }, 'https://evil.example')
+    );
+    expect(await code(cross)).toBe('cross_origin');
+    sessionToken = null;
+    expect((await runsPost(request('POST', { mode: 'dry_run' }))).status).toBe(
+      401
+    );
+  });
+
+  test('he reads an issue of his team, read-only', async () => {
+    sessionToken = guestToken;
+    const read = await issueGet(
+      new Request(`${APP}/api/issues/OPS-1`),
+      params('OPS-1')
+    );
+    expect(read.status).toBe(200);
+    const { result } = (await read.json()) as {
+      result: { canEdit: boolean; readOnly: boolean };
+    };
+    expect(result).toMatchObject({ canEdit: false, readOnly: true });
+    // An Engineering issue is not his to see.
+    const hidden = await issueGet(
+      new Request(`${APP}/api/issues/ENG-24`),
+      params('ENG-24')
+    );
+    expect(hidden.status).toBe(404);
   });
 });

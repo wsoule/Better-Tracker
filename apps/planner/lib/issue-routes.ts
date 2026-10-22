@@ -11,7 +11,13 @@ import type { Actor, Engine } from '@better-tracker/engine';
 import { z } from 'zod';
 
 import { findIssue, issuePagePath, searchIssueMirror } from './adapters/issue';
-import { errorResponse, jsonError, needsWriteScope, readJson } from './http';
+import {
+  errorResponse,
+  jsonError,
+  needsWriteScope,
+  readJson,
+  refuseReadOnly,
+} from './http';
 import { type ApiActorResolver, parseEntityId } from './timeline-edits';
 
 // The issue page's routes (architecture §8.1, §8.5; owner decision
@@ -28,10 +34,12 @@ import { type ApiActorResolver, parseEntityId } from './timeline-edits';
 // The app/api route files only pass their params and requireApiActor in;
 // the handlers live here so tests can run them with a fake actor resolver
 // and a recording engine. Order in every write: resolve the actor (CSRF
-// guard + signed in) → strict zod body (unknown keys, wrong types, an empty
-// patch: 400 before the engine) → Linear write scope (403
-// needs_write_scope with the grant_write link; no role check) → the engine,
-// which validates again against the mirror and Linear → errorResponse
+// guard + signed in) → the read-only check (403 read_only for a Linear
+// guest; owner decision 2026-10-22, "Guests limited to read only") →
+// strict zod body (unknown keys, wrong types, an empty patch: 400 before
+// the engine) → Linear write scope (403 needs_write_scope with the
+// grant_write link; no role check) → the engine, which refuses a guest
+// again and validates against the mirror and Linear → errorResponse
 // (linear_forbidden 403, rate_limited 429).
 
 const entityId = z.string().trim().min(1).max(200);
@@ -194,6 +202,8 @@ export async function patchIssue<E extends IssuePatchEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const id = parseEntityId(rawId);
   if (id === null) return notFound();
   const body = await readJson(request, issuePatchSchema);
@@ -219,6 +229,8 @@ export async function postComment<E extends CommentEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const id = parseEntityId(rawId);
   if (id === null) return notFound();
   const body = await readJson(request, commentSchema);
@@ -248,6 +260,8 @@ export async function postBlocker<E extends BlockerEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const id = parseEntityId(rawId);
   if (id === null) return notFound();
   const body = await readJson(request, blockerSchema);
@@ -276,6 +290,8 @@ export async function deleteRelation<E extends RelationEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const id = parseEntityId(rawId);
   if (id === null) {
     return jsonError(404, 'not_found', 'That relation is not in the planner.');

@@ -171,6 +171,13 @@ export interface IssueTaskModel {
   activity: TaskActivityItem[];
   /** The viewer's Linear token may write: show the edit controls. */
   canEdit: boolean;
+  /**
+   * The viewer is a Linear guest (owner decision 2026-10-22, "Guests
+   * limited to read only"): no edit controls, no comment composer, no
+   * relation pickers, and the read-only notice instead of "Allow edits in
+   * Linear" (a guest is never offered the write grant).
+   */
+  readOnly: boolean;
   /** Where the viewer allows edits (grant_write), coming back here. */
   grantWriteHref: string;
   /** Linear could not be read live: the page shows the mirror only. */
@@ -1154,7 +1161,10 @@ export function buildIssueTaskModel(
       timeZone,
       names: input.names,
     }),
-    canEdit: result.canEdit,
+    canEdit: result.canEdit && result.readOnly !== true,
+    // `readOnly` is additive in the engine's result; an older result
+    // without it is read as a member's.
+    readOnly: result.readOnly === true,
     grantWriteHref: input.grantWriteHref,
     liveError: result.extraError,
     edit: editModel(result, today),

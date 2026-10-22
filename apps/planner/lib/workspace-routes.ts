@@ -3,7 +3,7 @@ import type { Engine } from '@better-tracker/engine';
 import { z } from 'zod';
 
 import { digestPreview } from './adapters/settings';
-import { errorResponse, jsonError, readJson } from './http';
+import { errorResponse, jsonError, readJson, refuseReadOnly } from './http';
 import type { ApiActorResolver } from './timeline-edits';
 
 // The workspace-wide operations of /runs and /settings as route handlers
@@ -13,12 +13,16 @@ import type { ApiActorResolver } from './timeline-edits';
 // run them with a fake actor resolver and a stubbed engine.
 //
 // Order in every handler: resolve the actor (CSRF guard + signed in) →
-// validate the JSON body with zod (a malformed body never reaches the
-// engine: 400) → call the engine, mapping its errors with errorResponse.
-// There is no role check: any signed-in person of the workspace may call
-// all four (owner decision 2026-10-22). None of them writes to Linear with
-// the person's token, so none needs the write grant; the engine audits
-// every settings change.
+// the read-only check (403 read_only for a Linear guest: owner decision
+// 2026-10-22, "Guests limited to read only") → validate the JSON body with
+// zod (a malformed body never reaches the engine: 400) → call the engine,
+// mapping its errors with errorResponse. There is no role check: any
+// signed-in person of the workspace but a guest may call all four (owner
+// decision 2026-10-22). fullSync and the preview take no actor in the
+// engine, so the read-only check here is what keeps a guest from them;
+// runAllocation and updateSettings refuse a guest in the engine too. None
+// of them writes to Linear with the person's token, so none needs the
+// write grant; the engine audits every settings change.
 
 /** POST /api/runs body. */
 export const runRequestSchema = z.strictObject({
@@ -121,6 +125,8 @@ export async function startRun<E extends RunEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const body = await readJson(request, runRequestSchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
@@ -176,7 +182,8 @@ const processCooldown = createResyncCooldown();
 /**
  * POST /api/sync {}: a full resync from Linear. 200 { sync }; 429
  * resync_cooldown with Retry-After (seconds) when this workspace was
- * resynced from the web less than RESYNC_COOLDOWN_MS ago.
+ * resynced from the web less than RESYNC_COOLDOWN_MS ago; 403 read_only
+ * for a Linear guest (which, like a bad body, never starts the clock).
  */
 export async function resync<E extends SyncEngine>(
   request: Request,
@@ -185,6 +192,8 @@ export async function resync<E extends SyncEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const body = await readJson(request, emptyBodySchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
@@ -217,7 +226,8 @@ export type PreviewEngine = Pick<Engine, 'runWarnings'>;
 
 /**
  * POST /api/warnings/preview {}: today's digests, built but not recorded
- * or sent. 200 { preview } in the shape the Status section renders.
+ * or sent. 200 { preview } in the shape the Status section renders; 403
+ * read_only for a Linear guest (the preview computes everyone's digests).
  */
 export async function previewWarnings<E extends PreviewEngine>(
   request: Request,
@@ -225,6 +235,8 @@ export async function previewWarnings<E extends PreviewEngine>(
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const body = await readJson(request, emptyBodySchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;
@@ -243,13 +255,18 @@ export async function previewWarnings<E extends PreviewEngine>(
 
 export type SettingsEngine = Pick<Engine, 'updateSettings'>;
 
-/** PATCH /api/settings: a validated partial settings patch. 200 { settings }. */
+/**
+ * PATCH /api/settings: a validated partial settings patch. 200
+ * { settings }; 403 read_only for a Linear guest.
+ */
 export async function patchSettings<E extends SettingsEngine>(
   request: Request,
   resolve: ApiActorResolver<E>
 ): Promise<Response> {
   const context = await resolve(request);
   if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
   const body = await readJson(request, settingsPatchSchema);
   if (body instanceof Response) return body;
   const { engine, actor } = context;

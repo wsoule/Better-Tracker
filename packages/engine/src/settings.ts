@@ -1,7 +1,8 @@
 // Workspace settings: the first-time bootstrap of the watchers, and the
 // validation of a settings patch (architecture §7.1: "never trust the
 // client"). Any signed-in person may change settings (owner decision
-// 2026-10-22: there is no PM role); every change is audited. Settings decide
+// 2026-10-22: there is no PM role) except a read-only one (a Linear guest,
+// refused first in engine.ts); every change is audited. Settings decide
 // who is warned, so every user id must be a real, mirrored person. The
 // watcher list may be empty (then only project leads are warned).
 
