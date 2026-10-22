@@ -153,3 +153,21 @@ export function indexWorkspace(data: WorkspaceData): Snapshot {
     blocking,
   };
 }
+
+/**
+ * The mirrored issue a URL names: its id, or its identifier in any case
+ * ("ENG-24", "eng-24"). Undefined when the mirror has neither. One scan of
+ * the issues when the key is not an id (the mirror has no identifier index).
+ */
+export function findIssue(
+  issues: ReadonlyMap<string, Issue>,
+  key: string
+): Issue | undefined {
+  const byId = issues.get(key);
+  if (byId !== undefined) return byId;
+  const wanted = key.toUpperCase();
+  for (const issue of issues.values()) {
+    if (issue.identifier.toUpperCase() === wanted) return issue;
+  }
+  return undefined;
+}

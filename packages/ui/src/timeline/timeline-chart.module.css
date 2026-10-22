@@ -356,6 +356,34 @@
   color: var(--text-3);
 }
 
+/* The group's quiet link (TimelineGroup.link, e.g. "Graph"), pushed to
+   the cell's right edge: a ghost button's look (--text-2; on the sunken
+   band the hover fill is --surface-3). The negative right margin lets the
+   fill reach into the cell's padding. */
+.groupLink {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: var(--h-xs);
+  margin: 0 -6px 0 auto;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .groupLink:hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
+}
+
 /* ---- lanes ------------------------------------------------------------ */
 
 .laneText {
@@ -562,6 +590,7 @@ a.laneName:focus-visible {
   .pointMark,
   .pointLabel,
   .laneName,
+  .groupLink,
   .chip {
     transition: none;
   }

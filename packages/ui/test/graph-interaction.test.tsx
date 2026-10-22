@@ -6,12 +6,14 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { useState } from 'react';
 
 import { DependencyGraph } from '../src/graph/dependency-graph';
 import { GraphLegend } from '../src/graph/graph-legend';
 import { layoutGraph } from '../src/graph/layout';
-import type { DependencyGraphProps } from '../src/graph/types';
+import type { DependencyGraphProps, GraphLayout } from '../src/graph/types';
 import { MILESTONE_EDGES, MILESTONES } from './graph-fixture';
 
 afterEach(cleanup);
@@ -364,6 +366,423 @@ describe('DependencyGraph', () => {
     expect(nodeEl(container, 'a').tabIndex).toBe(-1);
     expect(link?.tabIndex).toBe(0);
     expect(screen.queryAllByRole('button', { pressed: false })).toHaveLength(0);
+  });
+});
+
+/**
+ * Gives the graph's frame a size for one test: happy-dom lays nothing out,
+ * so every clientWidth/clientHeight reads 0. Only the element carrying
+ * data-graph-viewport is resized; the returned function restores the
+ * prototype.
+ */
+function sizeViewport(width: number, height: number): () => void {
+  const proto = HTMLElement.prototype;
+  const own = (key: 'clientWidth' | 'clientHeight') =>
+    Object.getOwnPropertyDescriptor(proto, key);
+  const saved = {
+    clientWidth: own('clientWidth'),
+    clientHeight: own('clientHeight'),
+  };
+  for (const [key, size] of [
+    ['clientWidth', width],
+    ['clientHeight', height],
+  ] as const) {
+    Object.defineProperty(proto, key, {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.hasAttribute('data-graph-viewport') ? size : 0;
+      },
+    });
+  }
+  return () => {
+    for (const key of ['clientWidth', 'clientHeight'] as const) {
+      const descriptor = saved[key];
+      if (descriptor === undefined) Reflect.deleteProperty(proto, key);
+      else Object.defineProperty(proto, key, descriptor);
+    }
+  };
+}
+
+/**
+ * Places the graph's frame at `left`…`right` in a window `windowWidth`
+ * wide for one test (happy-dom lays nothing out, so every rect is zero);
+ * the returned function restores both.
+ */
+function stubFrame(
+  frame: { left: number; right: number },
+  windowWidth: number
+): () => void {
+  const proto = HTMLElement.prototype;
+  const rect = Object.getOwnPropertyDescriptor(proto, 'getBoundingClientRect');
+  const width = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+  const original = proto.getBoundingClientRect;
+  Object.defineProperty(proto, 'getBoundingClientRect', {
+    configurable: true,
+    value(this: HTMLElement): DOMRect {
+      if (!this.hasAttribute('data-graph-viewport')) {
+        return original.call(this);
+      }
+      return DOMRect.fromRect({
+        x: frame.left,
+        y: 0,
+        width: frame.right - frame.left,
+        height: 60,
+      });
+    },
+  });
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    value: windowWidth,
+  });
+  return () => {
+    if (rect === undefined)
+      Reflect.deleteProperty(proto, 'getBoundingClientRect');
+    else Object.defineProperty(proto, 'getBoundingClientRect', rect);
+    if (width === undefined) Reflect.deleteProperty(window, 'innerWidth');
+    else Object.defineProperty(window, 'innerWidth', width);
+  };
+}
+
+function viewportOf(container: HTMLElement): HTMLElement {
+  const viewport = container.querySelector<HTMLElement>(
+    '[data-graph-viewport]'
+  );
+  if (viewport === null) throw new Error('viewport');
+  return viewport;
+}
+
+describe('DependencyGraph: a host layout and a focus node', () => {
+  test('a given layout is used as is: its size, boxes and wrapped labels', () => {
+    // Nothing dagre would produce: the labels and positions are the host's.
+    const layout: GraphLayout = {
+      width: 640,
+      height: 200,
+      direction: 'LR',
+      nodes: [
+        {
+          id: 'a',
+          x: 10,
+          y: 20,
+          width: 180,
+          height: 60,
+          rank: 0,
+          labelLines: ['Alpha, as the host', 'wrapped it'],
+          sublabelLine: 'HOST LINE',
+        },
+        {
+          id: 'b',
+          x: 400,
+          y: 120,
+          width: 180,
+          height: 60,
+          rank: 1,
+          labelLines: ['Beta'],
+          sublabelLine: '',
+        },
+      ],
+      edges: [
+        {
+          key: 'a->b',
+          from: 'a',
+          to: 'b',
+          kind: 'risk',
+          weight: 1,
+          points: [
+            { x: 190, y: 50 },
+            { x: 400, y: 150 },
+          ],
+          path: 'M190,50L400,150',
+          arrow: 'M400,150L394,147L394,153Z',
+          label: null,
+        },
+      ],
+      groups: [],
+    };
+    const { container } = render(
+      <DependencyGraph
+        nodes={[
+          { id: 'a', label: 'Alpha', tone: 'default' },
+          { id: 'b', label: 'Beta', tone: 'default' },
+        ]}
+        edges={[{ from: 'a', to: 'b', kind: 'risk' }]}
+        ariaSummary="Two nodes."
+        emptyMessage="Nothing."
+        direction="TB"
+        layout={layout}
+      />
+    );
+    const viewport = viewportOf(container);
+    expect(viewport.style.getPropertyValue('--graph-h')).toBe('200px');
+    const canvas = viewport.firstElementChild as HTMLElement;
+    expect(canvas.style.width).toBe('640px');
+    expect(canvas.style.height).toBe('200px');
+    expect(
+      container.querySelector('svg[role="img"]')?.getAttribute('viewBox')
+    ).toBe('0 0 640 200');
+    const a = nodeEl(container, 'a');
+    expect(a.style.left).toBe('10px');
+    expect(a.style.top).toBe('20px');
+    expect(a.textContent).toContain('Alpha, as the host');
+    expect(a.textContent).toContain('HOST LINE');
+    expect(nodeEl(container, 'b').style.top).toBe('120px');
+    expect(
+      container.querySelector('[data-edge="a->b"] path')?.getAttribute('d')
+    ).toBe('M190,50L400,150');
+  });
+
+  test('focusId marks its node and ends its name, and lights nothing', () => {
+    const { container } = renderGraph({
+      onSelect: () => undefined,
+      focusId: 'mobile-m1',
+    });
+    const focus = nodeEl(container, 'mobile-m1');
+    expect(focus.hasAttribute('data-focus')).toBe(true);
+    expect(container.querySelectorAll('[data-focus]')).toHaveLength(1);
+    expect(focus.getAttribute('aria-label')).toBe(
+      // The resolved Payments SDK edge is not an open wait.
+      'Offline sync. Mobile · due Nov 5. waits on 1, blocks 1. focus.'
+    );
+    // Not a selection: not pressed, and idle means nothing lit or dimmed.
+    expect(focus.getAttribute('aria-pressed')).toBe('false');
+    expect(
+      container.querySelectorAll('[data-graph-node][data-state]')
+    ).toHaveLength(0);
+    expect(container.querySelectorAll('[data-edge][data-state]')).toHaveLength(
+      0
+    );
+    // With nothing selected or focused yet, Tab lands on the focus node.
+    const stops = [
+      ...container.querySelectorAll<HTMLElement>('[data-graph-node]'),
+    ].filter((el) => el.tabIndex === 0);
+    expect(stops).toEqual([focus]);
+    // Hover still reads a chain as usual.
+    fireEvent.pointerEnter(nodeEl(container, 'mobile-m2'), {
+      pointerType: 'mouse',
+    });
+    expect(focus.dataset.state).toBe('lit');
+  });
+
+  test('focusLabel words the name; a link node carries both marks', () => {
+    const { container } = render(
+      <DependencyGraph
+        nodes={[
+          { id: 'a', label: 'Blocker', tone: 'default' },
+          { id: 'b', label: 'Subject', tone: 'default', href: '/graph?b' },
+        ]}
+        edges={[{ from: 'a', to: 'b', kind: 'default' }]}
+        ariaSummary="Two nodes."
+        emptyMessage="Nothing."
+        focusId="b"
+        focusLabel="the issue this chain is about"
+      />
+    );
+    const wrap = nodeEl(container, 'b');
+    expect(wrap.hasAttribute('data-focus')).toBe(true);
+    expect(wrap.querySelector('a')?.getAttribute('aria-label')).toBe(
+      'Subject. waits on 1, blocks 0. the issue this chain is about.'
+    );
+    expect(nodeEl(container, 'a').getAttribute('aria-label')).toBe(
+      'Blocker. waits on 0, blocks 1.'
+    );
+  });
+
+  test('the focus mark is a 2px rule in the local ink, inside the box', () => {
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'graph',
+        'dependency-graph.module.css'
+      ),
+      'utf8'
+    );
+    const rule = /\.focus::after \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toContain('inset: 2px;');
+    expect(rule).toContain('border: 2px solid var(--foreground);');
+    expect(rule).not.toContain('radius');
+    expect(rule).not.toContain('shadow');
+  });
+
+  test('an overdue box outside the scope keeps its dashes on the flood', () => {
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'graph',
+        'dependency-graph.module.css'
+      ),
+      'utf8'
+    );
+    // The flood sets an accent border, which would hide accent dashes.
+    const rule = /\.node\.overdueNode\.external \{([^}]*)\}/.exec(css)?.[1];
+    expect(rule).toContain('border-color: var(--on-accent);');
+    expect(css.indexOf('.node.overdueNode.external')).toBeGreaterThan(
+      css.indexOf('.node.overdueNode {')
+    );
+  });
+
+  test('the first paint centres the focus node in the frame, not the page', () => {
+    const restore = sizeViewport(300, 60);
+    try {
+      const box = layoutGraph(MILESTONES, MILESTONE_EDGES).nodes.find(
+        (n) => n.id === 'mobile-m2'
+      );
+      if (box === undefined) throw new Error('mobile-m2');
+      const scrolled = mock(() => undefined);
+      const before = window.scrollY;
+      window.addEventListener('scroll', scrolled);
+      const { container } = renderGraph({
+        focusId: 'mobile-m2',
+        selectedId: 'atlas-m2',
+      });
+      window.removeEventListener('scroll', scrolled);
+      const viewport = viewportOf(container);
+      const left = box.x + box.width / 2 - 150;
+      expect(left).toBeGreaterThan(0);
+      expect(viewport.scrollLeft).toBe(left);
+      expect(viewport.scrollTop).toBe(Math.max(0, box.y + box.height / 2 - 30));
+      expect(window.scrollY).toBe(before);
+      expect(scrolled).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  test('without a focus the selection is centred, once', () => {
+    const restore = sizeViewport(300, 60);
+    try {
+      const layout = layoutGraph(MILESTONES, MILESTONE_EDGES);
+      const centre = (id: string) => {
+        const box = layout.nodes.find((n) => n.id === id);
+        if (box === undefined) throw new Error(id);
+        return Math.max(0, box.x + box.width / 2 - 150);
+      };
+      const { container, rerender } = renderGraph({
+        onSelect: () => undefined,
+        selectedId: 'billing-m2',
+      });
+      const viewport = viewportOf(container);
+      expect(viewport.scrollLeft).toBe(centre('billing-m2'));
+      // A later selection never moves the drawing under the reader.
+      viewport.scrollLeft = 0;
+      rerender(
+        <DependencyGraph
+          nodes={MILESTONES}
+          edges={MILESTONE_EDGES}
+          ariaSummary={SUMMARY}
+          emptyMessage="Nothing to draw."
+          onSelect={() => undefined}
+          selectedId="mobile-m2"
+        />
+      );
+      expect(viewport.scrollLeft).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a graph that starts empty centres its focus when the frame appears', () => {
+    const restore = sizeViewport(300, 60);
+    try {
+      const props = {
+        ariaSummary: SUMMARY,
+        emptyMessage: 'Loading.',
+        focusId: 'mobile-m2',
+      };
+      const { container, rerender } = render(
+        <DependencyGraph nodes={[]} edges={[]} {...props} />
+      );
+      rerender(
+        <DependencyGraph
+          nodes={MILESTONES}
+          edges={MILESTONE_EDGES}
+          {...props}
+        />
+      );
+      expect(viewportOf(container).scrollLeft).toBeGreaterThan(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('beside a host panel the selection is brought into the uncovered part', () => {
+    // A 600px frame from x 100 to 700 in a 1000px window; a 560px panel
+    // fixed on the right starts at x 440 and covers the frame's last 260px.
+    const restore = sizeViewport(600, 60);
+    const unstub = stubFrame({ left: 100, right: 700 }, 1000);
+    try {
+      const box = layoutGraph(MILESTONES, MILESTONE_EDGES).nodes.find(
+        (n) => n.id === 'billing-m2'
+      );
+      if (box === undefined) throw new Error('billing-m2');
+      const props = {
+        nodes: MILESTONES,
+        edges: MILESTONE_EDGES,
+        ariaSummary: SUMMARY,
+        emptyMessage: 'Nothing.',
+        onSelect: () => undefined,
+        selectedId: 'billing-m2',
+      };
+      const { container, rerender } = render(
+        <DependencyGraph {...props} coveredRight={560} />
+      );
+      const viewport = viewportOf(container);
+      // The frame keeps the covered part as padding (scroll room), and the
+      // box is brought into the 340px the panel leaves: centred there, or
+      // scrolled only until it shows whole (16px clear) when that is less.
+      expect(viewport.style.paddingRight).toBe('260px');
+      const centred = box.x + box.width / 2 - 170;
+      const revealed = box.x + box.width + 16 - 340;
+      expect(revealed).toBeLessThan(centred);
+      expect(viewport.scrollLeft).toBe(Math.max(0, revealed));
+      expect(viewport.scrollLeft).toBeGreaterThan(0);
+      // The panel closes: the room goes, the drawing is not re-centred.
+      viewport.scrollLeft = 7;
+      rerender(<DependencyGraph {...props} />);
+      expect(viewport.style.paddingRight).toBe('');
+      expect(viewport.scrollLeft).toBe(7);
+    } finally {
+      unstub();
+      restore();
+    }
+  });
+
+  test('a panel that would leave almost nothing of the frame moves nothing', () => {
+    // A phone: the 560px sheet covers the whole 600px window and frame.
+    const restore = sizeViewport(600, 60);
+    const unstub = stubFrame({ left: 0, right: 600 }, 600);
+    try {
+      const box = layoutGraph(MILESTONES, MILESTONE_EDGES).nodes.find(
+        (n) => n.id === 'billing-m2'
+      );
+      if (box === undefined) throw new Error('billing-m2');
+      const { container } = renderGraph({
+        onSelect: () => undefined,
+        selectedId: 'billing-m2',
+        coveredRight: 560,
+      });
+      const viewport = viewportOf(container);
+      expect(viewport.style.paddingRight).toBe('');
+      expect(viewport.scrollLeft).toBe(
+        Math.max(0, box.x + box.width / 2 - 300)
+      );
+    } finally {
+      unstub();
+      restore();
+    }
+  });
+
+  test('a focus or selection that is not drawn scrolls nothing', () => {
+    const restore = sizeViewport(300, 60);
+    try {
+      const { container } = renderGraph({ focusId: 'not-drawn' });
+      expect(viewportOf(container).scrollLeft).toBe(0);
+      expect(viewportOf(container).scrollTop).toBe(0);
+    } finally {
+      restore();
+    }
   });
 });
 

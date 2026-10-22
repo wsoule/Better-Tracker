@@ -10,6 +10,7 @@ import {
   type GraphLegendItem,
   GraphLegend,
   type GraphNodeData,
+  layoutGraph,
   MermaidSource,
   PropertyList,
   SegmentedControl,
@@ -26,6 +27,7 @@ import {
 import { type ReactNode, useMemo, useState } from 'react';
 
 import {
+  CHAIN_GRAPH,
   EPIC_EDGES,
   EPIC_NODES,
   type GraphFixture,
@@ -251,6 +253,30 @@ const EPIC_LEGEND: GraphLegendItem[] = [
   { mark: 'edge-resolved', label: 'Done' },
 ];
 
+const CHAIN_LEGEND: GraphLegendItem[] = [
+  { mark: 'node', label: 'Issue', note: 'blockers sit left of what waits' },
+  {
+    mark: 'node-focus',
+    label: 'Focus',
+    note: 'the issue this chain is about',
+  },
+  { mark: 'node-accent', label: 'Needs action', note: 'open and unassigned' },
+  { mark: 'edge-default', label: 'Blocks' },
+  {
+    mark: 'edge-risk',
+    label: 'Risk chain',
+    note: 'the blocker is unassigned or overdue, or waits on one',
+  },
+  { mark: 'edge-cross', label: 'Cross-project', note: 'leaves its project' },
+  { mark: 'edge-resolved', label: 'Resolved', note: 'blocker closed' },
+];
+
+/* Laid out once at module load and handed over through `layout`, as the
+   planner's server render does: the component then runs no dagre. */
+const CHAIN_LAYOUT = layoutGraph(CHAIN_GRAPH.nodes, CHAIN_GRAPH.edges, {
+  direction: 'LR',
+});
+
 function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
   const { toast } = useToast();
   const [level, setLevel] = useState(MILESTONE_GRAPH.id);
@@ -357,8 +383,29 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         />
       </section>
 
+      <section className="block" aria-labelledby="graph-chain">
+        <BlockBar
+          index="03"
+          title="Chain · focus"
+          meta="One issue's chain · focusId ruled · +2 MORE leads on · precomputed layout"
+        />
+        <h2 id="graph-chain" className="srOnly">
+          {CHAIN_GRAPH.title}
+        </h2>
+        <GraphLegend items={CHAIN_LEGEND} label="Chain graph legend" />
+        <DependencyGraph
+          nodes={CHAIN_GRAPH.nodes}
+          edges={CHAIN_GRAPH.edges}
+          layout={CHAIN_LAYOUT}
+          focusId={CHAIN_GRAPH.focusId}
+          focusLabel="the issue this chain is about"
+          ariaSummary={CHAIN_GRAPH.ariaSummary}
+          emptyMessage={CHAIN_GRAPH.emptyMessage}
+        />
+      </section>
+
       <section className="block" aria-labelledby="graph-empty">
-        <BlockBar index="03" title="Empty" meta="emptyMessage" />
+        <BlockBar index="04" title="Empty" meta="emptyMessage" />
         <h2 id="graph-empty" className="srOnly">
           Empty graph
         </h2>

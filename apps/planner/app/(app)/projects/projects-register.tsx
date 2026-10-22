@@ -13,7 +13,7 @@ import {
   type SegmentedOption,
   StatusMark,
 } from '@better-tracker/ui';
-import { ArrowUpRight, Search } from 'lucide-react';
+import { ArrowUpRight, Network, Search } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
@@ -67,7 +67,8 @@ function syncUrl(query: string, filter: ProjectFilterId): string {
 
 /* The projects register's client island: search box and status filter
    over the rows the server built (filterProjectGroups does the matching),
-   then one panel per initiative under its section title. Rows open the
+   then one panel per initiative under its section title, whose quiet
+   Graph button opens the initiative's dependency graph. Rows open the
    project's timeline lane; the end cell links to its graph and to Linear
    as quiet buttons. */
 export default function ProjectsRegister({
@@ -200,7 +201,17 @@ export default function ProjectsRegister({
             <BlockBar
               title={group.name}
               meta={plural(group.rows.length, 'project')}
-            />
+            >
+              <Button
+                href={group.graphHref}
+                variant="quiet"
+                size="sm"
+                icon={<Network size={14} strokeWidth={1.8} />}
+                aria-label={`Dependency graph of ${group.name}`}
+              >
+                Graph
+              </Button>
+            </BlockBar>
             <Register
               label={`${group.name} projects`}
               columns={COLUMNS}

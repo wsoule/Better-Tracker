@@ -155,6 +155,36 @@ export interface DependencyGraphProps {
   toolbar?: ReactNode;
   /** Wording of the toolbar hint; pass null to hide it. */
   hint?: string | null;
+  /**
+   * Precomputed by the host with `layoutGraph` from the same nodes, edges
+   * and options; used as is, so the client never runs dagre (a server
+   * render can lay the graph out once). `direction` and `cluster` are then
+   * ignored: the layout already carries them.
+   */
+  layout?: GraphLayout;
+  /**
+   * The node the graph is about (one issue's chain): a 2px ink rule inside
+   * its box. It lights nothing, unlike selection; its accessible name ends
+   * with `focusLabel`. On the first paint the frame scrolls it (else the
+   * selected node) into the middle of the viewport.
+   */
+  focusId?: string | null;
+  /** Last words of the focus node's accessible name. Defaults to "focus". */
+  focusLabel?: string;
+  /**
+   * Width in px of a panel fixed along the window's right edge that is
+   * open over the graph (an open SlideOver: `SLIDE_OVER_WIDTH`); unset or
+   * 0 for none. While it is set the frame keeps room at its right for the
+   * part the panel covers, so the first paint brings `focusId` (else
+   * `selectedId`) into the part the panel does not hide, even in a drawing
+   * that fits the frame: centred there, or scrolled only far enough to
+   * show the whole box when that is less, so what it waits on (to its
+   * left) stays in view. No room is kept when the panel would leave the frame
+   * almost nothing (a phone's full-width sheet). Pass it only while the
+   * panel the page opened on arrival stays open: later selections never
+   * move the drawing.
+   */
+  coveredRight?: number;
   className?: string;
 }
 
@@ -166,6 +196,7 @@ export type GraphLegendMark =
   | 'node-external'
   | 'node-cycle'
   | 'node-muted'
+  | 'node-focus'
   | 'edge-default'
   | 'edge-risk'
   | 'edge-cycle'

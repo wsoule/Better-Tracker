@@ -32,11 +32,13 @@ import {
   progressTone,
   SHOW_OPTIONS,
   showFilters,
+  timelineGraphHref,
   timelineHref,
   timelineReceipts,
   timelineShow,
   toChartBar,
   toChartGroups,
+  viewHasInitiatives,
   visibleDependencies,
   weightLabel,
   weightTag,
@@ -149,6 +151,7 @@ function edge(overrides: Partial<GraphEdge> = {}): GraphEdge {
     to: 'ms-b',
     resolved: false,
     crossProject: true,
+    crossInitiative: false,
     crossOwner: true,
     inCycle: false,
     onRiskChain: false,
@@ -302,6 +305,80 @@ describe('lanes', () => {
     ]);
     expect(groups[0]?.lanes[0]?.muted).toBeUndefined();
   });
+
+  test('each group links to its graph, or to the projects graph with no initiatives', () => {
+    const groups = toChartGroups(
+      view([
+        { id: 'init-1', name: 'Platform', lanes: [lane()] },
+        {
+          id: null,
+          name: 'No initiative',
+          lanes: [lane({ projectId: 'proj-2' })],
+        },
+      ]),
+      WRITER
+    );
+    expect(groups.map((g) => g.link)).toEqual([
+      {
+        label: 'Graph',
+        href: '/graph?initiative=init-1',
+        ariaLabel: 'Dependency graph of Platform',
+      },
+      {
+        label: 'Graph',
+        href: '/graph?initiative=none',
+        ariaLabel: 'Dependency graph of No initiative',
+      },
+    ]);
+    // A guest (or a workspace without initiatives) has only "No
+    // initiative": its graph is the workspace's projects.
+    const guest = view([{ id: null, name: 'No initiative', lanes: [lane()] }]);
+    expect(viewHasInitiatives(guest)).toBe(false);
+    expect(toChartGroups(guest, GUEST)[0]?.link).toEqual({
+      label: 'Graph',
+      href: '/graph?level=project',
+      ariaLabel: 'Dependency graph of No initiative',
+    });
+  });
+
+  test('"Open as graph" follows the initiative filter', () => {
+    expect(timelineGraphHref('all', true)).toBe('/graph');
+    expect(timelineGraphHref('init-1', true)).toBe(
+      '/graph?initiative=init-1&level=milestone'
+    );
+    expect(timelineGraphHref('none', true)).toBe(
+      '/graph?initiative=none&level=milestone'
+    );
+    expect(timelineGraphHref('none', false)).toBe('/graph');
+    expect(timelineGraphHref('all', false)).toBe('/graph');
+  });
+
+  test('the page model says whether any group is an initiative', () => {
+    const graph: DependencyGraph = {
+      scope: { level: 'milestone' },
+      nodes: [],
+      edges: [],
+      cycles: [],
+      fallback: null,
+      unplacedRelations: 0,
+      unrelatedIssues: 0,
+      chain: null,
+    };
+    const page = (groups: Parameters<typeof view>[0]) =>
+      buildTimelinePage({
+        view: view(groups),
+        graph,
+        permissions: WRITER,
+        issues: new Map(),
+      });
+    expect(
+      page([{ id: 'init-1', name: 'Platform', lanes: [lane()] }]).hasInitiatives
+    ).toBe(true);
+    expect(
+      page([{ id: null, name: 'No initiative', lanes: [lane()] }])
+        .hasInitiatives
+    ).toBe(false);
+  });
 });
 
 describe('dependencies', () => {
@@ -316,6 +393,10 @@ describe('dependencies', () => {
         edge({ from: 'ms-c', to: 'ms-b' }),
       ],
       cycles: [],
+      fallback: null,
+      unplacedRelations: 0,
+      unrelatedIssues: 0,
+      chain: null,
     };
     expect(chartDependencies(graph)).toEqual([
       { from: 'ms-a', to: 'ms-b', onRiskChain: true },
@@ -326,6 +407,23 @@ describe('dependencies', () => {
         ...graph,
         scope: { level: 'issue', milestoneId: 'ms-a' },
       })
+    ).toEqual([]);
+    // Only the whole workspace's milestones are the chart's connectors:
+    // one initiative's or one project's milestone graph gives none.
+    expect(
+      chartDependencies({
+        ...graph,
+        scope: { level: 'milestone', initiativeId: 'init-1' },
+      })
+    ).toEqual([]);
+    expect(
+      chartDependencies({
+        ...graph,
+        scope: { level: 'milestone', projectId: 'proj-1' },
+      })
+    ).toEqual([]);
+    expect(
+      chartDependencies({ ...graph, scope: { level: 'project' } })
     ).toEqual([]);
   });
 
@@ -712,6 +810,10 @@ describe('banners', () => {
         nodes: [],
         edges: [],
         cycles: [],
+        fallback: null,
+        unplacedRelations: 0,
+        unrelatedIssues: 0,
+        chain: null,
       },
       permissions: READ_ONLY,
       issues: new Map(),
@@ -729,6 +831,10 @@ describe('banners', () => {
         nodes: [],
         edges: [],
         cycles: [],
+        fallback: null,
+        unplacedRelations: 0,
+        unrelatedIssues: 0,
+        chain: null,
       },
       permissions: GUEST,
       issues: new Map(),
@@ -901,7 +1007,15 @@ describe('milestone drawer', () => {
       tone: 'danger',
     });
     expect(m.isNext).toBe(true);
-    expect(m.graphHref).toBe('/graph?milestone=ms-1');
+    // Built with no view, the lane's activity is unknown: "What it waits
+    // on" goes to the project's milestones, which always draw it.
+    expect(m.graphLinks).toEqual([
+      {
+        label: 'What it waits on',
+        href: '/graph?project=proj-1&level=milestone&node=ms-1',
+      },
+      { label: 'Its issues', href: '/graph?milestone=ms-1' },
+    ]);
     expect(m.waitsOn).toEqual([
       { id: 'ms-schema', label: 'Atlas / Schema cutover' },
     ]);
@@ -1244,5 +1358,51 @@ describe('milestone drawer', () => {
     // An active lane (or no view) keeps it loud.
     expect(drawer().muted).toBe(false);
     expect(drawer().overdueText).toBe('Overdue by 3 days.');
+  });
+});
+
+describe('milestone drawer graph links', () => {
+  const withLane = (d: MilestoneDetail, laneOverrides: Partial<TimelineLane>) =>
+    buildMilestoneDrawer({
+      detail: d,
+      today: TODAY,
+      permissions: WRITER,
+      users: USERS,
+      issues: ISSUES,
+      limits: LIMITS,
+      view: view([
+        {
+          id: 'init-1',
+          name: 'Platform',
+          lanes: [lane({ bars: [bar({ isNext: true })], ...laneOverrides })],
+        },
+      ]),
+    });
+
+  test('an active lane selects the milestone on the workspace graph', () => {
+    expect(withLane(detail(), {}).graphLinks).toEqual([
+      { label: 'What it waits on', href: '/graph?node=ms-1' },
+      { label: 'Its issues', href: '/graph?milestone=ms-1' },
+    ]);
+  });
+
+  test('a paused lane selects it on its project’s milestone graph', () => {
+    // The workspace graph drops relations between two inactive projects,
+    // so the milestone may be no box there; its project always draws it.
+    expect(
+      withLane(detail(), { active: false, statusType: 'paused' }).graphLinks
+    ).toEqual([
+      {
+        label: 'What it waits on',
+        href: '/graph?project=proj-1&level=milestone&node=ms-1',
+      },
+      { label: 'Its issues', href: '/graph?milestone=ms-1' },
+    ]);
+  });
+
+  test('nothing to wait on leaves only "Its issues"', () => {
+    expect(withLane(detail({ waitsOn: [] }), {}).graphLinks).toEqual([
+      { label: 'Its issues', href: '/graph?milestone=ms-1' },
+    ]);
   });
 });

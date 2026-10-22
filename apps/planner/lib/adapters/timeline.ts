@@ -1,7 +1,9 @@
 import {
   BLOCK_REASON_LABEL,
   type DependencyGraph,
+  graphContainer,
   missingLine,
+  NO_INITIATIVE_ID,
   type MilestoneDetail,
   RISK_REASON_LABEL,
   RUBRIC_GAP_LABEL,
@@ -27,6 +29,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { dueLabel, formatDate, plural } from '../format';
+import { graphHref, initiativeGraphHref } from './graph-scope';
 import { assessmentMark, blockedReasonLine } from './status';
 
 // The timeline page's core → ui mapping (architecture §8.4 Timeline, §8.3
@@ -196,8 +199,9 @@ export const GRANT_WRITE_HREF = timelineGrantWriteHref('/timeline');
 
 /* ---- chart ---------------------------------------------------------------- */
 
-/** Group id for projects in no initiative. */
-export const NO_INITIATIVE_ID = 'none';
+/** Group id for projects in no initiative (core's, shared with /graph's
+    `?initiative=none`). */
+export { NO_INITIATIVE_ID };
 
 /** "↑2" for a positive weight override, "↓3" for a negative one. */
 export function weightTag(weight: number | null): string | null {
@@ -296,27 +300,69 @@ export function toChartLane(lane: CoreLane, editable: boolean): TimelineLane {
   return out;
 }
 
-/** Every initiative group and its lanes, in the engine's timeline order. */
+/**
+ * True when some timeline group is a real initiative. A guest's mirror has
+ * no initiatives (§2.13), and a workspace may have none: then the only
+ * group is "No initiative" and the graph links skip the initiative level.
+ */
+export function viewHasInitiatives(view: TimelineView): boolean {
+  return view.groups.some((group) => group.initiativeId !== null);
+}
+
+/**
+ * The toolbar's "Open as graph": the graph of what the timeline shows, at
+ * the timeline's own milestone level. The whole workspace (`/graph`) while
+ * every initiative is shown or the viewer has none; one initiative's
+ * milestones (`/graph?initiative=<id>&level=milestone`) when filtered to it.
+ */
+export function timelineGraphHref(
+  initiative: string,
+  hasInitiatives: boolean
+): string {
+  if (initiative === 'all' || !hasInitiatives) {
+    return graphHref({ level: 'milestone' });
+  }
+  return graphHref({ level: 'milestone', initiativeId: initiative });
+}
+
+/** Every initiative group and its lanes, in the engine's timeline order,
+    each with a quiet Graph link after its project count. */
 export function toChartGroups(
   view: TimelineView,
   permissions: TimelinePermissions
 ): TimelineGroup[] {
   const editable = canEditLinear(permissions);
-  return view.groups.map((group) => ({
-    id: group.initiativeId ?? NO_INITIATIVE_ID,
-    label: group.name,
-    lanes: group.lanes.map((lane) => toChartLane(lane, editable)),
-  }));
+  const hasInitiatives = viewHasInitiatives(view);
+  return view.groups.map((group) => {
+    const id = group.initiativeId ?? NO_INITIATIVE_ID;
+    return {
+      id,
+      label: group.name,
+      lanes: group.lanes.map((lane) => toChartLane(lane, editable)),
+      link: {
+        label: 'Graph',
+        href: initiativeGraphHref(id, hasInitiatives),
+        ariaLabel: `Dependency graph of ${group.name}`,
+      },
+    };
+  });
 }
 
 /**
- * Milestone-level graph edges as chart connectors (`to` waits on `from`),
- * one per pair. Issue-level graphs have no milestone edges and give none.
+ * The workspace's milestone-level graph edges as chart connectors (`to`
+ * waits on `from`), one per pair. Any other graph (another level, or
+ * milestones inside one initiative or project) gives none: the chart draws
+ * the whole workspace's connectors or nothing.
  */
 export function chartDependencies(
   graph: DependencyGraph
 ): TimelineDependency[] {
-  if (graph.scope.level !== 'milestone') return [];
+  if (
+    graph.scope.level !== 'milestone' ||
+    graphContainer(graph.scope).kind !== 'workspace'
+  ) {
+    return [];
+  }
   const seen = new Map<string, TimelineDependency>();
   for (const edge of graph.edges) {
     if (edge.from === edge.to) continue;
@@ -662,6 +708,9 @@ export interface TimelinePageModel {
    * read-only notice above the chart instead of the grant notice.
    */
   readOnly: boolean;
+  /** Some group is an initiative (viewHasInitiatives): "Open as graph"
+      can name the filtered initiative. */
+  hasInitiatives: boolean;
 }
 
 export function buildTimelinePage(input: {
@@ -681,6 +730,7 @@ export function buildTimelinePage(input: {
     canEditLinear: canEditLinear(permissions),
     needsWriteGrant: needsWriteGrant(permissions),
     readOnly: permissions.readOnly,
+    hasInitiatives: viewHasInitiatives(view),
   };
 }
 
@@ -791,7 +841,9 @@ export interface MilestoneDrawerModel {
   issues: DrawerIssue[];
   openIssues: number;
   waitsOn: { id: string; label: string }[];
-  graphHref: string;
+  /** "What it waits on" (only when it waits on something) and "Its
+      issues": the dependency graph around this milestone (§8.4). */
+  graphLinks: { label: string; href: string }[];
   /**
    * Weight and "done means…" are editable by everyone signed in but a
    * guest; date and lead are Linear writes and need the person's write
@@ -1136,7 +1188,7 @@ export function buildMilestoneDrawer(input: {
       id: other.milestoneId,
       label: `${other.projectName} / ${other.name}`,
     })),
-    graphHref: `/graph?milestone=${encodeURIComponent(milestone.id)}`,
+    graphLinks: drawerGraphLinks(detail, lane),
     permissions: {
       canEditLinear: linear,
       grantWriteHref:
@@ -1146,6 +1198,41 @@ export function buildMilestoneDrawer(input: {
     leadOptions: linear ? leadOptions(users, project.leadId) : [],
     limits,
   };
+}
+
+/**
+ * The drawer's graph links (§8.4): "What it waits on" selects this
+ * milestone on a milestone graph (`?node=`), and "Its issues" opens its
+ * issue graph. The first goes to the workspace's milestones only for an
+ * active lane: the workspace graph drops relations between two inactive
+ * projects, so a paused project's milestone may be no box there and
+ * `?node=` would select nothing. Otherwise (or with no lane to tell) it
+ * goes to the milestones of its own project, which has no activity filter
+ * and draws every milestone it waits on, inside or as an external.
+ */
+function drawerGraphLinks(
+  detail: MilestoneDetail,
+  lane: CoreLane | undefined
+): { label: string; href: string }[] {
+  const { milestone, project } = detail;
+  const links: { label: string; href: string }[] = [];
+  if (detail.waitsOn.length > 0) {
+    links.push({
+      label: 'What it waits on',
+      href:
+        lane !== undefined && lane.active
+          ? graphHref({ level: 'milestone' }, { node: milestone.id })
+          : graphHref(
+              { level: 'milestone', projectId: project.id },
+              { node: milestone.id }
+            ),
+    });
+  }
+  links.push({
+    label: 'Its issues',
+    href: graphHref({ level: 'issue', milestoneId: milestone.id }),
+  });
+  return links;
 }
 
 function findUser(users: readonly User[], id: string): User | undefined {

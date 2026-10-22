@@ -12,6 +12,7 @@ import {
   type GraphScope,
   type MilestoneDetail,
   type RecentAllocation,
+  resolveGraphScope,
   type TimelineView,
   type WeekView,
 } from '@better-tracker/core';
@@ -93,7 +94,16 @@ export async function getTimelineView(
   });
 }
 
-/** The dependency graph; an issue-level scope must name a mirrored milestone or project. */
+/**
+ * The dependency graph (§2.10) of a scope, as `viewer` may see it: a level
+ * inside the workspace, an initiative, a project, a milestone, or one
+ * issue's chain. The scope is checked against the viewer's mirror by core's
+ * resolveGraphScope: a malformed scope is EngineInputError('invalid') and
+ * an id the viewer's mirror lacks (unknown or hidden alike) 'not_found'. A
+ * scope naming initiatives for a viewer whose mirror has none (a guest)
+ * answers the workspace instead, with `fallback` set. A read: it writes
+ * nothing, so it never calls requireWritable.
+ */
 export async function getGraph(
   rt: EngineRuntime,
   workspaceId: string,
@@ -101,39 +111,11 @@ export async function getGraph(
   viewer?: Actor
 ): Promise<DependencyGraph> {
   const loaded = await loadWorkspace(rt, workspaceId, { viewer });
-  const raw = scope as unknown as Record<string, unknown> | null;
-  if (raw === null || typeof raw !== 'object') {
-    throw new EngineInputError('invalid', 'A graph scope is required.');
+  const resolution = resolveGraphScope(loaded.snapshot, scope);
+  if (!resolution.ok) {
+    throw new EngineInputError(resolution.problem, resolution.message);
   }
-  if (raw['level'] === 'issue') {
-    const milestoneId = raw['milestoneId'];
-    const projectId = raw['projectId'];
-    if (typeof milestoneId === 'string') {
-      if (!loaded.snapshot.milestones.has(milestoneId)) {
-        throw new EngineInputError(
-          'not_found',
-          'That milestone is not in the mirror.'
-        );
-      }
-    } else if (typeof projectId === 'string') {
-      if (!loaded.snapshot.projects.has(projectId)) {
-        throw new EngineInputError(
-          'not_found',
-          'That project is not in the mirror.'
-        );
-      }
-    } else {
-      throw new EngineInputError(
-        'invalid',
-        'An issue-level graph needs a milestone or a project.'
-      );
-    }
-  } else if (raw['level'] !== 'milestone') {
-    throw new EngineInputError(
-      'invalid',
-      'Graph level must be milestone or issue.'
-    );
-  }
+  // The builder resolves the scope again (cheap) and sets `fallback`.
   return buildDependencyGraph(
     loaded.snapshot,
     loaded.ctx,

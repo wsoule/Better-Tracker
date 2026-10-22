@@ -139,7 +139,8 @@ export function resultFor(
 export function modelFor(
   identifier: string,
   over: Partial<IssueDetailResult> = {},
-  viewerId = 'user-chloe'
+  viewerId = 'user-chloe',
+  pageHref?: string
 ): IssueTaskModel {
   return buildIssueTaskModel({
     result: resultFor(identifier, over),
@@ -147,6 +148,7 @@ export function modelFor(
     timeZone: 'UTC',
     viewerId,
     grantWriteHref: '/api/auth/linear?intent=grant_write&returnTo=%2Fx',
+    pageHref,
     names,
   });
 }

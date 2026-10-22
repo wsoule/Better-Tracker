@@ -496,10 +496,14 @@ function DrawerBody({
           ))}
         </ul>
       )}
+      {/* "What it waits on" (when it waits on something) selects this
+          milestone on a milestone graph; "Its issues" draws its issues. */}
       <p className={css.graphLink}>
-        <Link href={model.graphHref} className="accentLink">
-          Open the dependency graph
-        </Link>
+        {model.graphLinks.map((link) => (
+          <Link key={link.label} href={link.href} className="accentLink">
+            {link.label}
+          </Link>
+        ))}
       </p>
     </>
   );

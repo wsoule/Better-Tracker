@@ -36,6 +36,7 @@ import {
   Link2,
   Maximize2,
   Milestone,
+  Network,
   SignalHigh,
   Tag,
   Timer,
@@ -626,26 +627,34 @@ export function useIssueTaskProps(
       blocks: model.relations.blocks.map((row) => relation(row, canEdit)),
     },
     sectionMeta: {
-      blockedBy: canEdit ? (
-        <TaskRelationPicker
-          label="Add blocked by"
-          search={writes.search}
-          exclude={exclude(model.relations.blockedBy)}
-          searchPlaceholder="Issue this waits on…"
-          onSelect={(task) => writes.addBlocker(model.issueId, task.id)}
-          formatError={formatError}
-        />
-      ) : undefined,
-      blocks: canEdit ? (
-        <TaskRelationPicker
-          label="Add blocks"
-          search={writes.search}
-          exclude={exclude(model.relations.blocks)}
-          searchPlaceholder="Issue waiting on this…"
-          onSelect={(task) => writes.addBlocker(task.id, model.issueId)}
-          formatError={formatError}
-        />
-      ) : undefined,
+      blockedBy: relationMeta(
+        model,
+        'blockedBy',
+        canEdit ? (
+          <TaskRelationPicker
+            label="Add blocked by"
+            search={writes.search}
+            exclude={exclude(model.relations.blockedBy)}
+            searchPlaceholder="Issue this waits on…"
+            onSelect={(task) => writes.addBlocker(model.issueId, task.id)}
+            formatError={formatError}
+          />
+        ) : null
+      ),
+      blocks: relationMeta(
+        model,
+        'blocks',
+        canEdit ? (
+          <TaskRelationPicker
+            label="Add blocks"
+            search={writes.search}
+            exclude={exclude(model.relations.blocks)}
+            searchPlaceholder="Issue waiting on this…"
+            onSelect={(task) => writes.addBlocker(task.id, model.issueId)}
+            formatError={formatError}
+          />
+        ) : null
+      ),
       comments: model.comments.note,
     },
     comments: {
@@ -671,4 +680,37 @@ export function useIssueTaskProps(
         </TaskDetailSection>
       ),
   };
+}
+
+/**
+ * A relations heading's controls: the Graph link (a quiet button, like the
+ * "+ Add" beside it) to the issue's blocking chain whenever it has a
+ * relation (for everyone, guests too: the graph only reads), then the
+ * "+ Add" picker for someone who may edit. The link
+ * sits on "Blocked by", or on "Blocks" when nothing blocks the issue, so it
+ * never stands over an empty "Nothing blocks this task." section.
+ */
+function relationMeta(
+  model: IssueTaskModel,
+  section: 'blockedBy' | 'blocks',
+  picker: ReactNode
+): ReactNode {
+  const linkIn = model.relations.blockedBy.length > 0 ? 'blockedBy' : 'blocks';
+  if (model.chainHref === null || section !== linkIn) {
+    return picker ?? undefined;
+  }
+  return (
+    <span className={css.sectionMeta}>
+      <Button
+        href={model.chainHref}
+        variant="quiet"
+        size="sm"
+        icon={<Network size={14} strokeWidth={1.8} />}
+        aria-label={`Blocking chain of ${model.key} as a graph`}
+      >
+        Graph
+      </Button>
+      {picker}
+    </span>
+  );
 }

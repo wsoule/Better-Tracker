@@ -8,7 +8,7 @@ import {
   type TimelineZoom,
   useToast,
 } from '@better-tracker/ui';
-import { Search } from 'lucide-react';
+import { Network, Search } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   useCallback,
@@ -32,6 +32,7 @@ import {
   showFilters,
   type TimelinePageModel,
   type TimelineSelection,
+  timelineGraphHref,
   timelineShow,
   type TimelineUrlState,
   timelineHref,
@@ -352,6 +353,18 @@ export default function TimelineScreen({
                   </option>
                 ))}
               </select>
+              {/* The same work as a dependency graph: the workspace's
+                  milestones, or the filtered initiative's. A quiet
+                  toolbar button, the Graph nav item's icon on it. */}
+              <Button
+                href={timelineGraphHref(initiative, model.hasInitiatives)}
+                variant="quiet"
+                size="sm"
+                icon={<Network size={14} strokeWidth={1.8} />}
+                className={css.graphOpen}
+              >
+                Open as graph
+              </Button>
             </div>
           }
           toolbarEnd={

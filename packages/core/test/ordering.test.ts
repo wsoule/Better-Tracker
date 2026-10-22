@@ -3,10 +3,13 @@ import { describe, expect, test } from 'bun:test';
 import {
   compareIssues,
   compareMilestones,
+  groupProjectsByInitiative,
+  homeInitiativeIds,
   indexWorkspace,
+  NO_INITIATIVE_ID,
   orderProjects,
 } from '../src/index';
-import type { Milestone } from '../src/index';
+import type { Milestone, Snapshot } from '../src/index';
 import {
   day,
   evaluate,
@@ -162,46 +165,88 @@ describe('compareIssues (§2.7)', () => {
   });
 });
 
+// Three initiatives and projects in none, one or two of them; one project
+// lists only an initiative id the mirror does not hold.
+function initiativeWorkspace(): Snapshot {
+  return indexWorkspace(
+    workspace({
+      initiatives: [
+        initiative('i-low', { priority: 4, sortOrder: 0 }),
+        initiative('i-urgent', { priority: 1, sortOrder: 5 }),
+        initiative('i-none', { priority: 0, sortOrder: 0 }),
+      ],
+      projects: [
+        project('loose', { priority: 1 }),
+        project('in-low', { initiativeIds: ['i-low'], priority: 1 }),
+        // Belongs to two initiatives: shown under the higher-ranked one.
+        project('both', {
+          initiativeIds: ['i-low', 'i-urgent'],
+          priority: 3,
+        }),
+        // The same two, best-ranked listed first: still i-urgent, so the
+        // rule is the rank, not the position in the list.
+        project('both-urgent-first', {
+          initiativeIds: ['i-urgent', 'i-low'],
+          priority: 4,
+        }),
+        project('urgent-a', {
+          initiativeIds: ['i-urgent'],
+          priority: 2,
+          sortOrder: 2,
+        }),
+        project('urgent-b', {
+          initiativeIds: ['i-urgent'],
+          priority: 2,
+          sortOrder: 1,
+        }),
+        project('unmirrored', { initiativeIds: ['ghost'], priority: 0 }),
+        project('in-none', { initiativeIds: ['i-none'] }),
+      ],
+    })
+  );
+}
+
 describe('orderProjects (timeline order)', () => {
   test('initiative order, first initiative wins, then priority and sortOrder; no initiative last', () => {
-    const snapshot = indexWorkspace(
-      workspace({
-        initiatives: [
-          initiative('i-low', { priority: 4, sortOrder: 0 }),
-          initiative('i-urgent', { priority: 1, sortOrder: 5 }),
-          initiative('i-none', { priority: 0, sortOrder: 0 }),
-        ],
-        projects: [
-          project('loose', { priority: 1 }),
-          project('in-low', { initiativeIds: ['i-low'], priority: 1 }),
-          // Belongs to two initiatives: shown under the higher-ranked one.
-          project('both', {
-            initiativeIds: ['i-low', 'i-urgent'],
-            priority: 3,
-          }),
-          project('urgent-a', {
-            initiativeIds: ['i-urgent'],
-            priority: 2,
-            sortOrder: 2,
-          }),
-          project('urgent-b', {
-            initiativeIds: ['i-urgent'],
-            priority: 2,
-            sortOrder: 1,
-          }),
-          project('unmirrored', { initiativeIds: ['ghost'], priority: 0 }),
-          project('in-none', { initiativeIds: ['i-none'] }),
-        ],
-      })
-    );
+    const snapshot = initiativeWorkspace();
     expect(orderProjects(snapshot).map((p) => p.id)).toEqual([
       'urgent-b',
       'urgent-a',
       'both',
+      'both-urgent-first',
       'in-low',
       'in-none',
       'loose',
       'unmirrored',
     ]);
+  });
+});
+
+describe('homeInitiativeIds (the timeline grouping, shared with the graph)', () => {
+  test('each project’s best-ranked mirrored initiative, or null', () => {
+    const home = homeInitiativeIds(initiativeWorkspace());
+    expect([...home.entries()]).toEqual([
+      ['loose', null],
+      ['in-low', 'i-low'],
+      // In two initiatives: the higher-ranked one, as on the timeline.
+      ['both', 'i-urgent'],
+      ['both-urgent-first', 'i-urgent'],
+      ['urgent-a', 'i-urgent'],
+      ['urgent-b', 'i-urgent'],
+      // Its only initiative id is not mirrored: ignored.
+      ['unmirrored', null],
+      ['in-none', 'i-none'],
+    ]);
+    expect(NO_INITIATIVE_ID).toBe('none');
+  });
+
+  test('agrees with groupProjectsByInitiative', () => {
+    const snapshot = initiativeWorkspace();
+    const home = homeInitiativeIds(snapshot);
+    for (const group of groupProjectsByInitiative(snapshot)) {
+      for (const project of group.projects) {
+        expect(home.get(project.id)).toBe(group.initiative?.id ?? null);
+      }
+    }
   });
 });

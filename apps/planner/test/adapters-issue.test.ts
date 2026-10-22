@@ -7,6 +7,7 @@ import {
   findIssue,
   issueActivity,
   issueAlerts,
+  issueChainHref,
   issuePagePath,
   parseIssueParam,
   searchIssueMirror,
@@ -53,6 +54,7 @@ describe('links and lookups', () => {
   });
 
   test('an issue is found by id or by identifier in any case', () => {
+    // core's findIssue, still exported here for the routes and loaders.
     expect(findIssue(snapshot.issues, 'iss-eng-24')?.identifier).toBe('ENG-24');
     expect(findIssue(snapshot.issues, 'eng-24')?.id).toBe('iss-eng-24');
     expect(findIssue(snapshot.issues, 'ENG-999')).toBeUndefined();
@@ -113,6 +115,11 @@ describe('alerts', () => {
     ]);
     expect(alerts[0]?.message).toBe('Dual-write was due Oct 18, 3 days ago.');
     expect(alerts[1]?.message).toContain('Beacon search / Search v2 beta');
+    // Holds up opens the issue's own blocking chain.
+    expect(alerts[1]?.action).toEqual({
+      label: 'Graph',
+      href: '/graph?chain=ENG-12',
+    });
     expect(alerts[2]?.message).toMatch(
       /^Backlog for \d+ days with no change; Dual-write is due Oct 18, 3 days overdue\.$/
     );
@@ -121,7 +128,7 @@ describe('alerts', () => {
     );
   });
 
-  test('a blocked issue names what it waits on, with a graph link', () => {
+  test('a blocked issue names what it waits on, with its chain as a graph', () => {
     const alerts = issueAlerts(detailOf('ENG-23'), TODAY, {
       closed: false,
       quiet: false,
@@ -129,9 +136,34 @@ describe('alerts', () => {
     const blocked = alerts.find((a) => a.id === 'blocked');
     expect(blocked?.tone).toBe('warning');
     expect(blocked?.message).toBe('Waiting on ENG-12 (Backlog, unassigned).');
+    // It was the milestone's issue graph (?milestone=ms-beacon-1) before
+    // graphs at every level; now it is ENG-23's own blocking chain.
     expect(blocked?.action).toEqual({
       label: 'Graph',
-      href: '/graph?milestone=ms-beacon-1',
+      href: '/graph?chain=ENG-23',
+    });
+  });
+
+  test('the chain link exists only for an issue with a relation', () => {
+    expect(issueChainHref(detailOf('ENG-23'))).toBe('/graph?chain=ENG-23');
+    expect(issueChainHref(detailOf('ENG-12'))).toBe('/graph?chain=ENG-12');
+    // ENG-24 neither blocks nor waits on anything in the demo.
+    expect(issueChainHref(detailOf('ENG-24'))).toBeNull();
+    expect(modelFor('ENG-23').chainHref).toBe('/graph?chain=ENG-23');
+    expect(modelFor('ENG-24').chainHref).toBeNull();
+  });
+
+  test('a slide-over drawn over its own chain offers no link to it', () => {
+    // /graph?chain=ENG-23&issue=ENG-23: the chain is already the page.
+    const own = modelFor('ENG-23', {}, 'user-chloe', '/graph?chain=ENG-23');
+    expect(own.chainHref).toBeNull();
+    expect(own.alerts.find((a) => a.id === 'blocked')?.action).toBeUndefined();
+    // Over another issue's chain (or anywhere else) the link stays.
+    const other = modelFor('ENG-23', {}, 'user-chloe', '/graph?chain=ENG-12');
+    expect(other.chainHref).toBe('/graph?chain=ENG-23');
+    expect(other.alerts.find((a) => a.id === 'blocked')?.action).toEqual({
+      label: 'Graph',
+      href: '/graph?chain=ENG-23',
     });
   });
 

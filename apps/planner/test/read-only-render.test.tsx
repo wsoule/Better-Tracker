@@ -38,6 +38,7 @@ import {
   READ_ONLY_NOTICE,
   readOnlyNotice,
 } from '../lib/read-only';
+import { modelFor } from './issue-fixture';
 
 // Owner decision 2026-10-22, "Guests limited to read only": the planner's
 // client islands and read-only sections rendered to HTML for a Linear
@@ -65,6 +66,8 @@ const { default: ModesForm } = await import('../app/(app)/settings/modes-form');
 const { default: ReadOnlyNotice, ReadOnlyReasonProvider } =
   await import('../app/(app)/components/read-only-notice');
 const { default: AppError } = await import('../app/(app)/error');
+const { default: IssuePageView } =
+  await import('../app/(app)/issues/[id]/issue-page-view');
 
 const TODAY = '2026-10-21';
 const GUEST: TimelinePermissions = { canWriteLinear: false, readOnly: true };
@@ -90,6 +93,10 @@ const graph = {
   nodes: [],
   edges: [],
   cycles: [],
+  fallback: null,
+  unplacedRelations: 0,
+  unrelatedIssues: 0,
+  chain: null,
 };
 
 function PlainLink({ children, ...rest }: UiLinkProps) {
@@ -152,6 +159,16 @@ describe('the milestone drawer', () => {
     }
   });
 
+  // The graph only reads, so a guest keeps its links (graphs at every
+  // level, owner decision 2026-10-22).
+  test('a guest keeps the graph links', () => {
+    const html = drawerHtml('ms-beacon-1', GUEST);
+    expect(html).toContain('href="/graph?node=ms-beacon-1"');
+    expect(html).toContain('What it waits on');
+    expect(html).toContain('href="/graph?milestone=ms-beacon-1"');
+    expect(html).toContain('Its issues');
+  });
+
   test('a member keeps the weight and "done means…" fields', () => {
     const html = drawerHtml('ms-compass-1', MEMBER);
     expect(html).toContain('<textarea');
@@ -191,12 +208,33 @@ describe('the timeline', () => {
     expect(html).toContain(READ_ONLY_NOTICE);
     expect(html).not.toContain('role="slider"');
     expect(html).not.toContain('Allow edits in Linear');
+    // Navigation stays: "Open as graph" and each group's Graph link.
+    expect(html).toContain('>Open as graph<');
+    expect(html).toContain(
+      'aria-label="Dependency graph of Platform reliability"'
+    );
   });
 
   test('a member with the grant gets the handles', () => {
     const html = screenHtml(MEMBER);
     expect(html).toContain('role="slider"');
     expect(html).not.toContain(READ_ONLY_NOTICE);
+  });
+});
+
+describe('the issue page, read only', () => {
+  test('a guest keeps the Blocked-by Graph link, alone', () => {
+    const html = render(
+      <IssuePageView
+        model={modelFor('ENG-23', { canEdit: false, readOnly: true })}
+      />
+    );
+    expect(html).toContain(READ_ONLY_NOTICE);
+    expect(html).toMatch(
+      /<a href="\/graph\?chain=ENG-23"[^>]*aria-label="Blocking chain of ENG-23 as a graph">(?:(?!<\/a>).)*<span>Graph<\/span><\/a>/
+    );
+    expect(html).not.toContain('aria-label="Add blocked by"');
+    expect(html).not.toContain('<input');
   });
 });
 

@@ -1,21 +1,264 @@
-// The dependency graph (§2.10, design §7.3): issue level for one milestone or
-// project, milestone level for the whole workspace. Risk flags follow open
-// blockers through the whole workspace, not just the drawn nodes, so a chain
-// that leaves the scope still counts.
+// The dependency graph (§2.10, design §7.3, extended by the owner decision
+// of 2026-10-22, "graphs at every level"): four zoom levels (initiative,
+// project, milestone, issue), each drawn for the whole workspace or inside
+// one initiative, project or milestone, plus one issue's blocking chain.
+// Above the issue level a box waits on another when an open issue in it is
+// blocked by an open issue in the other, and the edge counts how many. Risk
+// flags follow open blockers through the whole (viewer's) mirror, not just
+// the drawn nodes, so a chain that leaves the scope still counts.
 
-import { compareIssues, compareMilestones } from './ordering';
-import { isOpenState, issueStateType } from './snapshot';
+import { nextMilestoneId } from './assess';
+import { countLabel } from './labels';
+import {
+  compareInitiatives,
+  compareIssues,
+  compareMilestones,
+  homeInitiativeIds,
+  NO_INITIATIVE_ID,
+  orderProjects,
+} from './ordering';
+import { findIssue, isOpenState, issueStateType } from './snapshot';
 import type {
   DependencyGraph,
   EvalContext,
-  GraphEdge,
+  GraphContainer,
+  GraphFallback,
+  GraphLevel,
   GraphNode,
+  GraphEdge,
   GraphScope,
   Issue,
-  Milestone,
   MilestoneAssessment,
+  MilestoneStatus,
+  Project,
   Snapshot,
 } from './types';
+
+/** Most issues a chain graph holds: the nearest to its focus (§2.10). */
+export const CHAIN_MAX_NODES = 150;
+
+/** Levels a container offers, coarsest first. */
+export const GRAPH_LEVELS_WITHIN: Readonly<
+  Record<GraphContainer['kind'], readonly GraphLevel[]>
+> = {
+  workspace: ['initiative', 'project', 'milestone', 'issue'],
+  initiative: ['project', 'milestone', 'issue'],
+  project: ['milestone', 'issue'],
+  milestone: ['issue'],
+  chain: ['issue'],
+};
+
+/** The level a container opens at (what each existing URL already meant). */
+export const DEFAULT_GRAPH_LEVEL: Readonly<
+  Record<GraphContainer['kind'], GraphLevel>
+> = {
+  workspace: 'milestone',
+  initiative: 'project',
+  project: 'issue',
+  milestone: 'issue',
+  chain: 'issue',
+};
+
+/**
+ * The container a (validated) scope names; checks issueId, milestoneId,
+ * projectId, initiativeId in that order. Every branch on a scope goes
+ * through this, with an exhaustive switch on `kind`.
+ */
+export function graphContainer(scope: GraphScope): GraphContainer {
+  if ('issueId' in scope) return { kind: 'chain', id: scope.issueId };
+  if ('milestoneId' in scope) {
+    return { kind: 'milestone', id: scope.milestoneId };
+  }
+  if ('projectId' in scope) return { kind: 'project', id: scope.projectId };
+  if ('initiativeId' in scope) {
+    return { kind: 'initiative', id: scope.initiativeId };
+  }
+  return { kind: 'workspace' };
+}
+
+/**
+ * The scope for a container at `level`; the container's default level
+ * when `level` is missing or not offered there (GRAPH_LEVELS_WITHIN).
+ */
+export function graphScopeFor(
+  container: GraphContainer,
+  level?: GraphLevel
+): GraphScope {
+  const chosen =
+    level !== undefined && GRAPH_LEVELS_WITHIN[container.kind].includes(level)
+      ? level
+      : DEFAULT_GRAPH_LEVEL[container.kind];
+  switch (container.kind) {
+    case 'workspace':
+      return { level: chosen };
+    case 'initiative':
+      // GRAPH_LEVELS_WITHIN.initiative holds no 'initiative'.
+      return {
+        level: chosen as 'project' | 'milestone' | 'issue',
+        initiativeId: container.id,
+      };
+    case 'project':
+      // GRAPH_LEVELS_WITHIN.project is milestone and issue only.
+      return {
+        level: chosen as 'milestone' | 'issue',
+        projectId: container.id,
+      };
+    case 'milestone':
+      return { level: 'issue', milestoneId: container.id };
+    case 'chain':
+      return { level: 'issue', issueId: container.id };
+    default: {
+      const unreachable: never = container;
+      return unreachable;
+    }
+  }
+}
+
+/** A raw scope checked against the viewer's mirror (resolveGraphScope). */
+export type GraphScopeResolution =
+  | { ok: true; scope: GraphScope; fallback: GraphFallback | null }
+  | { ok: false; problem: 'invalid' | 'not_found'; message: string };
+
+const GRAPH_LEVEL_NAMES: readonly string[] = [
+  'initiative',
+  'project',
+  'milestone',
+  'issue',
+];
+
+// The scope keys that name a container, with the container each names.
+const CONTAINER_KEYS: readonly (readonly [
+  string,
+  Exclude<GraphContainer['kind'], 'workspace'>,
+])[] = [
+  ['issueId', 'chain'],
+  ['milestoneId', 'milestone'],
+  ['projectId', 'project'],
+  ['initiativeId', 'initiative'],
+];
+
+// Why a level is refused inside a container (the workspace offers all).
+const LEVEL_NOT_OFFERED: Readonly<
+  Record<Exclude<GraphContainer['kind'], 'workspace'>, string>
+> = {
+  initiative: "An initiative's graph shows its projects, milestones or issues.",
+  project: "A project's graph shows its milestones or issues.",
+  milestone: "A milestone's graph shows its issues.",
+  chain: "An issue's graph is its blocking chain, drawn issue by issue.",
+};
+
+function isGraphLevel(value: unknown): value is GraphLevel {
+  return typeof value === 'string' && GRAPH_LEVEL_NAMES.includes(value);
+}
+
+function refused(
+  problem: 'invalid' | 'not_found',
+  message: string
+): GraphScopeResolution {
+  return { ok: false, problem, message };
+}
+
+/**
+ * Validates a raw scope (from a URL or a caller) against the viewer's
+ * snapshot (§2.10): the shape, the level offered by the container, then
+ * the container's existence. A scope naming initiatives (the initiative
+ * level, or `initiativeId`) in a mirror with none, as a guest's, falls back
+ * to the same level for the whole workspace (the initiative level to the
+ * project level) with `fallback` set; no id is checked then, so every id
+ * gets the same answer and nothing leaks. A chain may name its issue by id
+ * or by identifier in any case; the resolved scope carries the id.
+ */
+export function resolveGraphScope(
+  snapshot: Snapshot,
+  raw: unknown
+): GraphScopeResolution {
+  if (raw === null || typeof raw !== 'object') {
+    return refused('invalid', 'A graph scope is required.');
+  }
+  const fields = raw as Record<string, unknown>;
+  const level = fields['level'];
+  if (!isGraphLevel(level)) {
+    return refused(
+      'invalid',
+      'Graph level must be initiative, project, milestone or issue.'
+    );
+  }
+  let container: GraphContainer = { kind: 'workspace' };
+  let named = 0;
+  for (const [key, kind] of CONTAINER_KEYS) {
+    const value = fields[key];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') {
+      return refused('invalid', 'Graph ids must be strings.');
+    }
+    named += 1;
+    container = { kind, id: value };
+  }
+  if (named > 1) {
+    return refused(
+      'invalid',
+      'A graph scope names at most one of initiativeId, projectId, milestoneId and issueId.'
+    );
+  }
+  if (
+    container.kind !== 'workspace' &&
+    !GRAPH_LEVELS_WITHIN[container.kind].includes(level)
+  ) {
+    return refused('invalid', LEVEL_NOT_OFFERED[container.kind]);
+  }
+  const requested = graphScopeFor(container, level);
+  if (
+    (level === 'initiative' || container.kind === 'initiative') &&
+    snapshot.initiatives.size === 0
+  ) {
+    return {
+      ok: true,
+      scope: { level: level === 'initiative' ? 'project' : level },
+      fallback: { reason: 'no_initiatives', requested },
+    };
+  }
+  switch (container.kind) {
+    case 'workspace':
+      break;
+    case 'initiative':
+      if (
+        container.id !== NO_INITIATIVE_ID &&
+        !snapshot.initiatives.has(container.id)
+      ) {
+        return refused('not_found', 'That initiative is not in the mirror.');
+      }
+      break;
+    case 'project':
+      if (!snapshot.projects.has(container.id)) {
+        return refused('not_found', 'That project is not in the mirror.');
+      }
+      break;
+    case 'milestone':
+      if (!snapshot.milestones.has(container.id)) {
+        return refused('not_found', 'That milestone is not in the mirror.');
+      }
+      break;
+    case 'chain': {
+      const issue = findIssue(snapshot.issues, container.id);
+      if (issue === undefined) {
+        return refused(
+          'not_found',
+          'That issue is not in the planner (it may be in a closed project, or in a team the app cannot see).'
+        );
+      }
+      return {
+        ok: true,
+        scope: { level: 'issue', issueId: issue.id },
+        fallback: null,
+      };
+    }
+    default: {
+      const unreachable: never = container;
+      return unreachable;
+    }
+  }
+  return { ok: true, scope: requested, fallback: null };
+}
 
 /**
  * Tarjan's strongly connected components over nodes `0..count-1`, written
@@ -164,38 +407,6 @@ export function waitingIssues(
   return waiting;
 }
 
-// Per-issue risk facts shared by both zoom levels.
-interface IssueRisk {
-  isOpen: (issue: Issue) => boolean;
-  isUnassigned: (issue: Issue) => boolean;
-  isOverdue: (issue: Issue) => boolean;
-  waitsOnUnassigned: Set<string>;
-  waitsOnOverdue: Set<string>;
-}
-
-// Computes the issue-level risk predicates and the two transitive waits
-// sets once per graph build.
-function issueRisk(
-  snapshot: Snapshot,
-  assessments: ReadonlyMap<string, MilestoneAssessment>
-): IssueRisk {
-  const isOpen = (issue: Issue): boolean =>
-    isOpenState(issueStateType(snapshot, issue));
-  const isUnassigned = (issue: Issue): boolean =>
-    isOpen(issue) && issue.assigneeId === null;
-  const isOverdue = (issue: Issue): boolean =>
-    isOpen(issue) &&
-    issue.milestoneId !== null &&
-    assessments.get(issue.milestoneId)?.status === 'overdue';
-  return {
-    isOpen,
-    isUnassigned,
-    isOverdue,
-    waitsOnUnassigned: waitingIssues(snapshot, isUnassigned),
-    waitsOnOverdue: waitingIssues(snapshot, isOverdue),
-  };
-}
-
 // Marks nodes and edges that sit on a cycle and fills `graph.cycles`. Only
 // edges whose blocker is still open take part: a resolved edge cannot
 // deadlock anything.
@@ -232,17 +443,6 @@ function markCycles(nodes: GraphNode[], edges: GraphEdge[]): string[][] {
   );
 }
 
-// True when the edge's blocker is itself a risk or waits on one.
-function blockerIsRisky(node: GraphNode | undefined): boolean {
-  return (
-    node !== undefined &&
-    (node.unassigned ||
-      node.overdue ||
-      node.waitsOnUnassigned ||
-      node.waitsOnOverdue)
-  );
-}
-
 // Orders edges by their endpoints' node order so output is stable.
 function sortEdges(nodes: readonly GraphNode[], edges: GraphEdge[]): void {
   const indexOf = new Map<string, number>();
@@ -254,17 +454,249 @@ function sortEdges(nodes: readonly GraphNode[], edges: GraphEdge[]): void {
   });
 }
 
-// Issue-level graph: the scope's issues (open and closed), plus one hop of
-// external blockers and blocked issues.
-function issueGraph(
+// Per-issue facts every level uses, computed once per graph build over the
+// viewer's snapshot (§2.10): the risk predicates and transitive waits sets,
+// the blocking cycles among open issues, each project's first initiative
+// and project activity.
+interface GraphFacts {
+  isOpen: (issue: Issue) => boolean;
+  isUnassigned: (issue: Issue) => boolean;
+  isOverdue: (issue: Issue) => boolean;
+  waitsOnUnassigned: ReadonlySet<string>;
+  waitsOnOverdue: ReadonlySet<string>;
+  /** Unassigned or overdue itself, or waits on such an issue. */
+  risky: (issue: Issue) => boolean;
+  /** Open issues on a blocking cycle among open issues. */
+  cycleIssues: ReadonlySet<string>;
+  /** A mirrored project's first initiative, NO_INITIATIVE_ID when none. */
+  homeOf: (projectId: string) => string;
+  activeProject: (project: Project) => boolean;
+  /** The issue's project is active; no (mirrored) project counts as active. */
+  active: (issue: Issue) => boolean;
+}
+
+/**
+ * The open issues on a blocking cycle among open issues: one Tarjan pass
+ * over the open issues with an edge blocker → blocked for every relation
+ * whose two ends are open. Members of components with more than one issue,
+ * plus self-loops. O(issues + relations).
+ */
+function openCycleIssues(
   snapshot: Snapshot,
-  risk: IssueRisk,
-  scope: Extract<GraphScope, { level: 'issue' }>
-): DependencyGraph {
+  isOpen: (issue: Issue) => boolean
+): Set<string> {
+  const open: Issue[] = [];
+  const indexOf = new Map<string, number>();
+  for (const issue of snapshot.issues.values()) {
+    if (!isOpen(issue)) continue;
+    indexOf.set(issue.id, open.length);
+    open.push(issue);
+  }
+  const successors = open.map((issue) => {
+    const next: number[] = [];
+    for (const blockedId of snapshot.blocking.get(issue.id) ?? []) {
+      const index = indexOf.get(blockedId);
+      if (index !== undefined) next.push(index);
+    }
+    return next;
+  });
+  const members = new Set<string>();
+  for (const component of stronglyConnectedComponents(
+    open.length,
+    successors
+  )) {
+    const first = component[0];
+    if (first === undefined) continue;
+    const selfLoop =
+      component.length === 1 && (successors[first] ?? []).includes(first);
+    if (component.length < 2 && !selfLoop) continue;
+    for (const index of component) {
+      const id = open[index]?.id;
+      if (id !== undefined) members.add(id);
+    }
+  }
+  return members;
+}
+
+// Computes the facts shared by every level once per graph build.
+function graphFacts(
+  snapshot: Snapshot,
+  ctx: EvalContext,
+  assessments: ReadonlyMap<string, MilestoneAssessment>
+): GraphFacts {
+  const isOpen = (issue: Issue): boolean =>
+    isOpenState(issueStateType(snapshot, issue));
+  const isUnassigned = (issue: Issue): boolean =>
+    isOpen(issue) && issue.assigneeId === null;
+  const isOverdue = (issue: Issue): boolean =>
+    isOpen(issue) &&
+    issue.milestoneId !== null &&
+    assessments.get(issue.milestoneId)?.status === 'overdue';
+  const waitsOnUnassigned = waitingIssues(snapshot, isUnassigned);
+  const waitsOnOverdue = waitingIssues(snapshot, isOverdue);
+  const home = homeInitiativeIds(snapshot);
+  const activeStatuses = new Set(ctx.tuning.activeProjectStatuses);
+  const activeProject = (project: Project): boolean =>
+    activeStatuses.has(project.statusType);
+  return {
+    isOpen,
+    isUnassigned,
+    isOverdue,
+    waitsOnUnassigned,
+    waitsOnOverdue,
+    risky: (issue) =>
+      isUnassigned(issue) ||
+      isOverdue(issue) ||
+      waitsOnUnassigned.has(issue.id) ||
+      waitsOnOverdue.has(issue.id),
+    cycleIssues: openCycleIssues(snapshot, isOpen),
+    homeOf: (projectId) => home.get(projectId) ?? NO_INITIATIVE_ID,
+    activeProject,
+    active: (issue) => {
+      const project =
+        issue.projectId === null
+          ? undefined
+          : snapshot.projects.get(issue.projectId);
+      return project === undefined || activeProject(project);
+    },
+  };
+}
+
+// The parts of a graph each level builder fills (the dispatcher adds the
+// resolved scope and the fallback).
+type GraphBody = Omit<DependencyGraph, 'scope' | 'fallback'>;
+
+// The containers an aggregate level or a container issue level is drawn
+// inside (a chain has its own builder).
+type MemberContainer = Exclude<GraphContainer, { kind: 'chain' }>;
+
+// The first initiative of an issue's mirrored project, or null.
+function issueHome(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  issue: Issue
+): string | null {
+  return issue.projectId !== null && snapshot.projects.has(issue.projectId)
+    ? facts.homeOf(issue.projectId)
+    : null;
+}
+
+/**
+ * `under(i, C)` (§2.10): whether an issue belongs to the container. An
+ * issue with no (mirrored) project is in no initiative container.
+ */
+function issueUnder(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  container: MemberContainer
+): (issue: Issue) => boolean {
+  switch (container.kind) {
+    case 'workspace':
+      return () => true;
+    case 'initiative':
+      return (issue) => issueHome(snapshot, facts, issue) === container.id;
+    case 'project':
+      return (issue) => issue.projectId === container.id;
+    case 'milestone':
+      return (issue) => issue.milestoneId === container.id;
+    default: {
+      const unreachable: never = container;
+      return unreachable;
+    }
+  }
+}
+
+// An issue as an issue-level node: today's fields plus its first
+// initiative, its project's activity and whether it sits on a cycle.
+function issueNode(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  issue: Issue,
+  external: boolean
+): GraphNode {
+  const assignee =
+    issue.assigneeId === null
+      ? undefined
+      : snapshot.users.get(issue.assigneeId);
+  const who =
+    issue.assigneeId === null
+      ? 'Unassigned'
+      : (assignee?.name ?? 'Unknown user');
+  return {
+    id: issue.id,
+    kind: 'issue',
+    label: issue.title,
+    sublabel: `${issue.identifier} · ${who}`,
+    url: issue.url,
+    initiativeId: issueHome(snapshot, facts, issue),
+    projectId: issue.projectId,
+    milestoneId: issue.milestoneId,
+    ownerId: issue.assigneeId,
+    external,
+    active: facts.active(issue),
+    open: facts.isOpen(issue),
+    unassigned: facts.isUnassigned(issue),
+    overdue: facts.isOverdue(issue),
+    inCycle: false,
+    holdsCycle: facts.cycleIssues.has(issue.id),
+    waitsOnUnassigned: facts.waitsOnUnassigned.has(issue.id),
+    waitsOnOverdue: facts.waitsOnOverdue.has(issue.id),
+    status: issueStateType(snapshot, issue),
+  };
+}
+
+// One blocks relation as an issue-level edge (weight 1).
+function issueEdge(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  blocker: Issue,
+  blocked: Issue
+): GraphEdge {
+  const fromHome = issueHome(snapshot, facts, blocker);
+  const toHome = issueHome(snapshot, facts, blocked);
+  return {
+    from: blocker.id,
+    to: blocked.id,
+    resolved: !facts.isOpen(blocker),
+    crossProject: blocker.projectId !== blocked.projectId,
+    crossInitiative:
+      fromHome !== null && toHome !== null && fromHome !== toHome,
+    crossOwner:
+      blocker.assigneeId !== null &&
+      blocked.assigneeId !== null &&
+      blocker.assigneeId !== blocked.assigneeId,
+    inCycle: false,
+    onRiskChain: facts.risky(blocker),
+    weight: 1,
+  };
+}
+
+// Sorts in-container nodes, then externals, each with `compare`, keeping
+// the two groups apart (§2.10 "under C, then externals").
+function containerOrder<T>(
+  items: readonly T[],
+  isExternal: (item: T) => boolean,
+  compare: (a: T, b: T) => number
+): T[] {
+  const inside = items.filter((item) => !isExternal(item)).sort(compare);
+  const outside = items.filter((item) => isExternal(item)).sort(compare);
+  return [...inside, ...outside];
+}
+
+/**
+ * Issue level inside one milestone or project (unchanged since before the
+ * graph levels): the container's issues, open and closed, every relation
+ * touching one, and one hop of external blockers and blocked issues.
+ */
+function scopedIssueGraph(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  container: Extract<GraphContainer, { kind: 'milestone' | 'project' }>
+): GraphBody {
   const scopeIssues =
-    'milestoneId' in scope
-      ? (snapshot.issuesByMilestone.get(scope.milestoneId) ?? [])
-      : (snapshot.issuesByProject.get(scope.projectId) ?? []);
+    container.kind === 'milestone'
+      ? (snapshot.issuesByMilestone.get(container.id) ?? [])
+      : (snapshot.issuesByProject.get(container.id) ?? []);
   const inScope = new Set(scopeIssues.map((issue) => issue.id));
 
   const pairs = new Set<string>();
@@ -292,174 +724,656 @@ function issueGraph(
     }
   }
 
-  const toNode = (issue: Issue, external: boolean): GraphNode => {
-    const assignee =
-      issue.assigneeId === null
-        ? undefined
-        : snapshot.users.get(issue.assigneeId);
-    const who =
-      issue.assigneeId === null
-        ? 'Unassigned'
-        : (assignee?.name ?? 'Unknown user');
-    return {
-      id: issue.id,
-      kind: 'issue',
-      label: issue.title,
-      sublabel: `${issue.identifier} · ${who}`,
-      url: issue.url,
-      projectId: issue.projectId,
-      milestoneId: issue.milestoneId,
-      ownerId: issue.assigneeId,
-      external,
-      open: risk.isOpen(issue),
-      unassigned: risk.isUnassigned(issue),
-      overdue: risk.isOverdue(issue),
-      inCycle: false,
-      waitsOnUnassigned: risk.waitsOnUnassigned.has(issue.id),
-      waitsOnOverdue: risk.waitsOnOverdue.has(issue.id),
-      status: issueStateType(snapshot, issue),
-    };
-  };
   const nodes: GraphNode[] = [
     ...[...scopeIssues]
       .sort(compareIssues)
-      .map((issue) => toNode(issue, false)),
+      .map((issue) => issueNode(snapshot, facts, issue, false)),
     ...[...externals.values()]
       .sort(compareIssues)
-      .map((issue) => toNode(issue, true)),
+      .map((issue) => issueNode(snapshot, facts, issue, true)),
   ];
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-
-  const edges: GraphEdge[] = relationPairs.map(({ blocker, blocked }) => ({
-    from: blocker.id,
-    to: blocked.id,
-    resolved: !risk.isOpen(blocker),
-    crossProject: blocker.projectId !== blocked.projectId,
-    crossOwner:
-      blocker.assigneeId !== null &&
-      blocked.assigneeId !== null &&
-      blocker.assigneeId !== blocked.assigneeId,
-    inCycle: false,
-    onRiskChain: blockerIsRisky(nodeById.get(blocker.id)),
-    weight: 1,
-  }));
-  sortEdges(nodes, edges);
-  const cycles = markCycles(nodes, edges);
-  return { scope, nodes, edges, cycles };
-}
-
-// Milestone-level graph: B → A when an open issue in A is blocked by an open
-// issue in B (A ≠ B), weighted by how many relations do that. Nodes are the
-// active projects' milestones with open issues, plus any milestone on an
-// edge that touches an active project.
-function milestoneGraph(
-  snapshot: Snapshot,
-  ctx: EvalContext,
-  assessments: ReadonlyMap<string, MilestoneAssessment>,
-  risk: IssueRisk,
-  scope: GraphScope
-): DependencyGraph {
-  const activeStatuses = new Set(ctx.tuning.activeProjectStatuses);
-  const isActive = (m: Milestone): boolean => {
-    const project = snapshot.projects.get(m.projectId);
-    return project !== undefined && activeStatuses.has(project.statusType);
-  };
-
-  const weights = new Map<
-    string,
-    { from: Milestone; to: Milestone; weight: number }
-  >();
-  const waitsOnUnassigned = new Set<string>();
-  const waitsOnOverdue = new Set<string>();
-  for (const issue of snapshot.issues.values()) {
-    if (issue.milestoneId === null || !risk.isOpen(issue)) continue;
-    const to = snapshot.milestones.get(issue.milestoneId);
-    if (to === undefined) continue;
-    if (risk.waitsOnUnassigned.has(issue.id)) waitsOnUnassigned.add(to.id);
-    if (risk.waitsOnOverdue.has(issue.id)) waitsOnOverdue.add(to.id);
-    for (const blockerId of snapshot.blockersOf.get(issue.id) ?? []) {
-      const blocker = snapshot.issues.get(blockerId);
-      if (blocker === undefined || blocker.milestoneId === null) continue;
-      if (blocker.milestoneId === to.id || !risk.isOpen(blocker)) continue;
-      const from = snapshot.milestones.get(blocker.milestoneId);
-      if (from === undefined || (!isActive(from) && !isActive(to))) continue;
-      const pair = `${from.id}\u0000${to.id}`;
-      const entry = weights.get(pair);
-      if (entry === undefined) weights.set(pair, { from, to, weight: 1 });
-      else entry.weight += 1;
-    }
-  }
-
-  const included = new Map<string, Milestone>();
-  for (const milestone of snapshot.milestones.values()) {
-    if (
-      isActive(milestone) &&
-      (assessments.get(milestone.id)?.progress.open ?? 0) > 0
-    ) {
-      included.set(milestone.id, milestone);
-    }
-  }
-  for (const { from, to } of weights.values()) {
-    included.set(from.id, from);
-    included.set(to.id, to);
-  }
-
-  const leadOf = (m: Milestone): string | null =>
-    snapshot.projects.get(m.projectId)?.leadId ?? null;
-  const nodes: GraphNode[] = [...included.values()]
-    .sort(compareMilestones(snapshot, ctx, assessments))
-    .map((milestone) => {
-      const assessment = assessments.get(milestone.id);
-      const project = snapshot.projects.get(milestone.projectId);
-      return {
-        id: milestone.id,
-        kind: 'milestone',
-        label: milestone.name,
-        sublabel: project?.name ?? '',
-        url: null,
-        projectId: milestone.projectId,
-        milestoneId: milestone.id,
-        ownerId: leadOf(milestone),
-        external: false,
-        open: (assessment?.progress.open ?? 0) > 0,
-        unassigned: (assessment?.progress.openUnassigned ?? 0) > 0,
-        overdue: assessment?.status === 'overdue',
-        inCycle: false,
-        waitsOnUnassigned: waitsOnUnassigned.has(milestone.id),
-        waitsOnOverdue: waitsOnOverdue.has(milestone.id),
-        status: assessment?.status ?? 'empty',
-      };
-    });
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-
-  const edges: GraphEdge[] = [...weights.values()].map(
-    ({ from, to, weight }) => {
-      const fromLead = leadOf(from);
-      const toLead = leadOf(to);
-      return {
-        from: from.id,
-        to: to.id,
-        resolved: false,
-        crossProject: from.projectId !== to.projectId,
-        crossOwner: fromLead !== null && toLead !== null && fromLead !== toLead,
-        inCycle: false,
-        onRiskChain: blockerIsRisky(nodeById.get(from.id)),
-        weight,
-      };
-    }
+  const edges = relationPairs.map(({ blocker, blocked }) =>
+    issueEdge(snapshot, facts, blocker, blocked)
   );
   sortEdges(nodes, edges);
   const cycles = markCycles(nodes, edges);
-  return { scope, nodes, edges, cycles };
+  return {
+    nodes,
+    edges,
+    cycles,
+    unplacedRelations: 0,
+    unrelatedIssues: 0,
+    chain: null,
+  };
 }
 
 /**
- * Builds the dependency graph for a scope (§2.10). Issue level: the
- * milestone's or project's issues plus their direct outside blockers and
- * blocked issues as `external` nodes. Milestone level: one node per
- * milestone in an active project with open issues or with edges. Nodes come
- * in display order (issues, then externals; milestones in milestone order)
- * and edges in node order, so the output is stable.
+ * Issue level inside an initiative or the whole workspace: only the ends
+ * of counted relations are nodes, so the graph stays bounded by the
+ * relations. A relation counts when it touches the container, one end is
+ * open (closed↔closed is history) and, in the workspace, one end is in an
+ * active project. Open issues on no counted relation are only counted
+ * (`unrelatedIssues`).
+ */
+function containerIssueGraph(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  container: Extract<GraphContainer, { kind: 'workspace' | 'initiative' }>
+): GraphBody {
+  const under = issueUnder(snapshot, facts, container);
+  const inWorkspace = container.kind === 'workspace';
+  const relationPairs: { blocker: Issue; blocked: Issue }[] = [];
+  const ends = new Map<string, Issue>();
+  for (const blocked of snapshot.issues.values()) {
+    const blockers = snapshot.blockersOf.get(blocked.id);
+    if (blockers === undefined) continue;
+    const blockedUnder = under(blocked);
+    const blockedOpen = facts.isOpen(blocked);
+    const blockedActive = facts.active(blocked);
+    for (const blockerId of blockers) {
+      const blocker = snapshot.issues.get(blockerId);
+      if (blocker === undefined) continue;
+      if (!blockedUnder && !under(blocker)) continue;
+      if (!blockedOpen && !facts.isOpen(blocker)) continue;
+      if (inWorkspace && !blockedActive && !facts.active(blocker)) continue;
+      relationPairs.push({ blocker, blocked });
+      ends.set(blocker.id, blocker);
+      ends.set(blocked.id, blocked);
+    }
+  }
+
+  let unrelatedIssues = 0;
+  for (const issue of snapshot.issues.values()) {
+    if (ends.has(issue.id) || !facts.isOpen(issue) || !under(issue)) continue;
+    if (inWorkspace && !facts.active(issue)) continue;
+    unrelatedIssues += 1;
+  }
+
+  const nodes = containerOrder(
+    [...ends.values()],
+    (issue) => !under(issue),
+    compareIssues
+  ).map((issue) => issueNode(snapshot, facts, issue, !under(issue)));
+  const edges = relationPairs.map(({ blocker, blocked }) =>
+    issueEdge(snapshot, facts, blocker, blocked)
+  );
+  sortEdges(nodes, edges);
+  const cycles = markCycles(nodes, edges);
+  return {
+    nodes,
+    edges,
+    cycles,
+    unplacedRelations: 0,
+    unrelatedIssues,
+    chain: null,
+  };
+}
+
+type AggregateLevel = Exclude<GraphLevel, 'issue'>;
+
+// What a node above the issue level folds over its open member issues.
+interface UnitFacts {
+  open: number;
+  unassigned: boolean;
+  overdue: boolean;
+  waitsOnUnassigned: boolean;
+  waitsOnOverdue: boolean;
+  holdsCycle: boolean;
+}
+
+const NO_UNIT_FACTS: UnitFacts = {
+  open: 0,
+  unassigned: false,
+  overdue: false,
+  waitsOnUnassigned: false,
+  waitsOnOverdue: false,
+  holdsCycle: false,
+};
+
+// Status severity for an initiative's roll-up, most severe first.
+const STATUS_SEVERITY: readonly MilestoneStatus[] = [
+  'overdue',
+  'at_risk',
+  'unscheduled',
+  'empty',
+  'on_track',
+  'complete',
+];
+
+/**
+ * `unit_L(i)` (§2.10): the node an issue counts toward at an aggregate
+ * level, or null when it has none there (no mirrored milestone at the
+ * milestone level; no mirrored project at the project and initiative
+ * levels).
+ */
+function unitMapper(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  level: AggregateLevel
+): (issue: Issue) => string | null {
+  switch (level) {
+    case 'milestone':
+      return (issue) =>
+        issue.milestoneId !== null && snapshot.milestones.has(issue.milestoneId)
+          ? issue.milestoneId
+          : null;
+    case 'project':
+      return (issue) =>
+        issue.projectId !== null && snapshot.projects.has(issue.projectId)
+          ? issue.projectId
+          : null;
+    case 'initiative':
+      return (issue) => issueHome(snapshot, facts, issue);
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * Whether a node (a unit) lies inside the container, from the unit itself:
+ * its first initiative for an initiative container, its project for a
+ * project container. A node outside is an external, one hop away.
+ */
+function unitUnderMapper(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  level: AggregateLevel,
+  container: MemberContainer
+): (unit: string) => boolean {
+  const projectOf = (unit: string): string | null => {
+    if (level === 'project') return unit;
+    if (level === 'milestone') {
+      return snapshot.milestones.get(unit)?.projectId ?? null;
+    }
+    return null;
+  };
+  switch (container.kind) {
+    case 'workspace':
+      return () => true;
+    case 'initiative':
+      return (unit) => {
+        if (level === 'initiative') return unit === container.id;
+        const projectId = projectOf(unit);
+        return projectId !== null && facts.homeOf(projectId) === container.id;
+      };
+    case 'project':
+      return (unit) => projectOf(unit) === container.id;
+    case 'milestone':
+      return (unit) => level === 'milestone' && unit === container.id;
+    default: {
+      const unreachable: never = container;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * An aggregate level (initiative, project or milestone) inside the
+ * workspace, an initiative or a project (§2.10): one fold over the issue
+ * relations with a unit mapper per level. A relation b blocks w counts
+ * when both ends are open, one end is under the container and, in the
+ * workspace, one end is in an active project; it becomes the edge
+ * unit(b) → unit(w) (none inside one unit), whose weight counts relations
+ * and which is on a risk chain when one counted blocker is risky. Nodes are
+ * the units of open issues under the container (in the workspace: in
+ * active projects) plus every edge end; node facts fold over all of a
+ * unit's open issues.
+ */
+function aggregateGraph(
+  snapshot: Snapshot,
+  ctx: EvalContext,
+  assessments: ReadonlyMap<string, MilestoneAssessment>,
+  facts: GraphFacts,
+  level: AggregateLevel,
+  container: MemberContainer
+): GraphBody {
+  const under = issueUnder(snapshot, facts, container);
+  const unitOf = unitMapper(snapshot, facts, level);
+  const unitUnder = unitUnderMapper(snapshot, facts, level, container);
+  const inWorkspace = container.kind === 'workspace';
+
+  // Node facts of every unit, and the units listed without an edge.
+  const unitFacts = new Map<string, UnitFacts>();
+  const listed = new Set<string>();
+  for (const issue of snapshot.issues.values()) {
+    if (!facts.isOpen(issue)) continue;
+    const unit = unitOf(issue);
+    if (unit === null) continue;
+    const current = unitFacts.get(unit) ?? { ...NO_UNIT_FACTS };
+    current.open += 1;
+    current.unassigned ||= facts.isUnassigned(issue);
+    current.overdue ||= facts.isOverdue(issue);
+    current.waitsOnUnassigned ||= facts.waitsOnUnassigned.has(issue.id);
+    current.waitsOnOverdue ||= facts.waitsOnOverdue.has(issue.id);
+    current.holdsCycle ||= facts.cycleIssues.has(issue.id);
+    unitFacts.set(unit, current);
+    if (under(issue) && (!inWorkspace || facts.active(issue))) {
+      listed.add(unit);
+    }
+  }
+
+  const summaries = new Map<
+    string,
+    { from: string; to: string; weight: number; onRiskChain: boolean }
+  >();
+  let unplacedRelations = 0;
+  for (const blocked of snapshot.issues.values()) {
+    const blockers = snapshot.blockersOf.get(blocked.id);
+    if (blockers === undefined || !facts.isOpen(blocked)) continue;
+    const blockedUnder = under(blocked);
+    const blockedActive = facts.active(blocked);
+    const to = unitOf(blocked);
+    for (const blockerId of blockers) {
+      const blocker = snapshot.issues.get(blockerId);
+      if (blocker === undefined || !facts.isOpen(blocker)) continue;
+      if (!blockedUnder && !under(blocker)) continue;
+      if (inWorkspace && !blockedActive && !facts.active(blocker)) continue;
+      const from = unitOf(blocker);
+      if (from === null || to === null) {
+        unplacedRelations += 1;
+        continue;
+      }
+      if (from === to) continue;
+      const pair = `${from}\u0000${to}`;
+      const summary = summaries.get(pair);
+      if (summary === undefined) {
+        summaries.set(pair, {
+          from,
+          to,
+          weight: 1,
+          onRiskChain: facts.risky(blocker),
+        });
+      } else {
+        summary.weight += 1;
+        summary.onRiskChain ||= facts.risky(blocker);
+      }
+    }
+  }
+
+  const unitIds = new Set(listed);
+  for (const { from, to } of summaries.values()) {
+    unitIds.add(from);
+    unitIds.add(to);
+  }
+  const describe = describeUnit(snapshot, assessments, facts, level);
+  const nodes = containerOrder(
+    [...unitIds],
+    (unit) => !unitUnder(unit),
+    unitComparator(snapshot, ctx, assessments, level)
+  ).map((unit) =>
+    describe(unit, unitFacts.get(unit) ?? NO_UNIT_FACTS, !unitUnder(unit))
+  );
+  const edgeFacts = describeAggregateEdge(snapshot, facts, level);
+  const edges: GraphEdge[] = [...summaries.values()].map((summary) => ({
+    from: summary.from,
+    to: summary.to,
+    resolved: false,
+    ...edgeFacts(summary.from, summary.to),
+    inCycle: false,
+    onRiskChain: summary.onRiskChain,
+    weight: summary.weight,
+  }));
+  sortEdges(nodes, edges);
+  const cycles = markCycles(nodes, edges);
+  return {
+    nodes,
+    edges,
+    cycles,
+    unplacedRelations,
+    unrelatedIssues: 0,
+    chain: null,
+  };
+}
+
+// Display order of one aggregate level's units: milestones in milestone
+// order, projects in timeline order, initiatives in initiative order with
+// "No initiative" last.
+function unitComparator(
+  snapshot: Snapshot,
+  ctx: EvalContext,
+  assessments: ReadonlyMap<string, MilestoneAssessment>,
+  level: AggregateLevel
+): (a: string, b: string) => number {
+  switch (level) {
+    case 'milestone': {
+      const compare = compareMilestones(snapshot, ctx, assessments);
+      return (a, b) => {
+        const ma = snapshot.milestones.get(a);
+        const mb = snapshot.milestones.get(b);
+        if (ma === undefined || mb === undefined) return 0;
+        return compare(ma, mb);
+      };
+    }
+    case 'project': {
+      const rank = new Map<string, number>();
+      orderProjects(snapshot).forEach((project, i) => rank.set(project.id, i));
+      return (a, b) => (rank.get(a) ?? 0) - (rank.get(b) ?? 0);
+    }
+    case 'initiative':
+      return (a, b) => {
+        const ia = snapshot.initiatives.get(a);
+        const ib = snapshot.initiatives.get(b);
+        if (ia === undefined || ib === undefined) {
+          // "No initiative" (the only unit with no Initiative) goes last.
+          return (ia === undefined ? 1 : 0) - (ib === undefined ? 1 : 0);
+        }
+        return compareInitiatives(ia, ib);
+      };
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+}
+
+// The status of a project as a graph node: its next milestone's
+// assessment status, `empty` when it has none.
+function projectStatus(
+  snapshot: Snapshot,
+  assessments: ReadonlyMap<string, MilestoneAssessment>,
+  projectId: string
+): MilestoneStatus {
+  const nextId = nextMilestoneId(snapshot, projectId, assessments);
+  return nextId === null
+    ? 'empty'
+    : (assessments.get(nextId)?.status ?? 'empty');
+}
+
+/**
+ * The node describer of one aggregate level (§2.10 node table): labels,
+ * owner, activity and status from the mirror; open, unassigned, overdue,
+ * waits and holdsCycle from the unit's folded open issues. The milestone
+ * describer keeps its assessment-based fields.
+ */
+function describeUnit(
+  snapshot: Snapshot,
+  assessments: ReadonlyMap<string, MilestoneAssessment>,
+  facts: GraphFacts,
+  level: AggregateLevel
+): (unit: string, folded: UnitFacts, external: boolean) => GraphNode {
+  // Projects per first initiative, for the initiative level's counts.
+  const projectsByHome = new Map<string, Project[]>();
+  if (level === 'initiative') {
+    for (const project of snapshot.data.projects) {
+      const home = facts.homeOf(project.id);
+      const list = projectsByHome.get(home);
+      if (list === undefined) projectsByHome.set(home, [project]);
+      else list.push(project);
+    }
+  }
+  const common = (folded: UnitFacts, external: boolean) => ({
+    external,
+    open: folded.open > 0,
+    unassigned: folded.unassigned,
+    overdue: folded.overdue,
+    inCycle: false,
+    holdsCycle: folded.holdsCycle,
+    waitsOnUnassigned: folded.waitsOnUnassigned,
+    waitsOnOverdue: folded.waitsOnOverdue,
+  });
+  switch (level) {
+    case 'milestone':
+      return (unit, folded, external) => {
+        const milestone = snapshot.milestones.get(unit);
+        const projectId = milestone?.projectId ?? null;
+        const project =
+          projectId === null ? undefined : snapshot.projects.get(projectId);
+        const assessment = assessments.get(unit);
+        return {
+          id: unit,
+          kind: 'milestone',
+          label: milestone?.name ?? unit,
+          sublabel: project?.name ?? '',
+          url: null,
+          initiativeId: projectId === null ? null : facts.homeOf(projectId),
+          projectId,
+          milestoneId: unit,
+          ownerId: project?.leadId ?? null,
+          active: project !== undefined && facts.activeProject(project),
+          ...common(folded, external),
+          open: (assessment?.progress.open ?? 0) > 0,
+          unassigned: (assessment?.progress.openUnassigned ?? 0) > 0,
+          overdue: assessment?.status === 'overdue',
+          status: assessment?.status ?? 'empty',
+        };
+      };
+    case 'project':
+      return (unit, folded, external) => {
+        const project = snapshot.projects.get(unit);
+        const leadId = project?.leadId ?? null;
+        return {
+          id: unit,
+          kind: 'project',
+          label: project?.name ?? unit,
+          sublabel:
+            leadId === null
+              ? 'No lead'
+              : (snapshot.users.get(leadId)?.name ?? 'Unknown user'),
+          url: project?.url ?? null,
+          initiativeId: facts.homeOf(unit),
+          projectId: unit,
+          milestoneId: null,
+          ownerId: leadId,
+          active: project !== undefined && facts.activeProject(project),
+          ...common(folded, external),
+          status: projectStatus(snapshot, assessments, unit),
+        };
+      };
+    case 'initiative':
+      return (unit, folded, external) => {
+        const projects = projectsByHome.get(unit) ?? [];
+        const active = projects.filter((p) => facts.activeProject(p));
+        const statuses = new Set(
+          (active.length > 0 ? active : projects).map((p) =>
+            projectStatus(snapshot, assessments, p.id)
+          )
+        );
+        return {
+          id: unit,
+          kind: 'initiative',
+          label: snapshot.initiatives.get(unit)?.name ?? 'No initiative',
+          sublabel: countLabel(projects.length, 'project'),
+          url: null,
+          initiativeId: unit,
+          projectId: null,
+          milestoneId: null,
+          ownerId: null,
+          active: active.length > 0,
+          ...common(folded, external),
+          status:
+            STATUS_SEVERITY.find((status) => statuses.has(status)) ?? 'empty',
+        };
+      };
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * The boundary facts of an aggregate edge between two units (§2.10 edge
+ * table): projects, first initiatives and leads compared per level.
+ */
+function describeAggregateEdge(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  level: AggregateLevel
+): (
+  from: string,
+  to: string
+) => Pick<GraphEdge, 'crossProject' | 'crossInitiative' | 'crossOwner'> {
+  const leadOf = (projectId: string | null): string | null =>
+    projectId === null
+      ? null
+      : (snapshot.projects.get(projectId)?.leadId ?? null);
+  const crossLeads = (a: string | null, b: string | null): boolean => {
+    const leadA = leadOf(a);
+    const leadB = leadOf(b);
+    return leadA !== null && leadB !== null && leadA !== leadB;
+  };
+  switch (level) {
+    case 'milestone':
+      return (from, to) => {
+        const fromProject = snapshot.milestones.get(from)?.projectId ?? null;
+        const toProject = snapshot.milestones.get(to)?.projectId ?? null;
+        return {
+          crossProject: fromProject !== toProject,
+          crossInitiative:
+            fromProject !== null &&
+            toProject !== null &&
+            facts.homeOf(fromProject) !== facts.homeOf(toProject),
+          crossOwner: crossLeads(fromProject, toProject),
+        };
+      };
+    case 'project':
+      return (from, to) => ({
+        crossProject: true,
+        crossInitiative: facts.homeOf(from) !== facts.homeOf(to),
+        crossOwner: crossLeads(from, to),
+      });
+    case 'initiative':
+      return () => ({
+        crossProject: true,
+        crossInitiative: true,
+        crossOwner: false,
+      });
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * Breadth-first hops from the focus over `next` (blockersOf for upstream,
+ * blocking for downstream), §2.10 "one issue's chain": the focus's direct
+ * neighbours are always reached, in any state; past the focus the walk goes
+ * through open issues only (a closed issue holds nothing up and waits on
+ * nothing), and a closed focus is one hop. The focus maps to 0.
+ */
+function chainHops(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  focus: Issue,
+  next: ReadonlyMap<string, readonly string[]>
+): Map<string, number> {
+  const hops = new Map<string, number>([[focus.id, 0]]);
+  const focusOpen = facts.isOpen(focus);
+  const queue: Issue[] = [focus];
+  for (let head = 0; head < queue.length; head++) {
+    const current = queue[head];
+    if (current === undefined) continue;
+    const isFocus = current.id === focus.id;
+    if (!isFocus && !(focusOpen && facts.isOpen(current))) continue;
+    const depth = (hops.get(current.id) ?? 0) + 1;
+    for (const id of next.get(current.id) ?? []) {
+      if (hops.has(id)) continue;
+      const neighbour = snapshot.issues.get(id);
+      if (neighbour === undefined) continue;
+      if (!isFocus && !facts.isOpen(neighbour)) continue;
+      hops.set(id, depth);
+      queue.push(neighbour);
+    }
+  }
+  return hops;
+}
+
+/**
+ * One issue's blocking chain (§2.10): everything it waits on and everything
+ * waiting on it, transitively through open issues, as the induced issue
+ * graph. Past CHAIN_MAX_NODES walk issues only the nearest are kept
+ * (|distance|, then upstream first, then issue order); kept issues next to
+ * a left-out one carry `hiddenNeighbours`. The focus comes first.
+ * O(the chain's component) plus sorting.
+ */
+function chainGraph(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  focus: Issue
+): GraphBody {
+  const up = chainHops(snapshot, facts, focus, snapshot.blockersOf);
+  const down = chainHops(snapshot, facts, focus, snapshot.blocking);
+  const walk = new Map<string, Issue>([[focus.id, focus]]);
+  for (const id of [...up.keys(), ...down.keys()]) {
+    const issue = snapshot.issues.get(id);
+    if (issue !== undefined) walk.set(id, issue);
+  }
+  const distance = new Map<string, number>();
+  for (const id of walk.keys()) {
+    const upHops = up.get(id) ?? Number.POSITIVE_INFINITY;
+    const downHops = down.get(id) ?? Number.POSITIVE_INFINITY;
+    distance.set(
+      id,
+      id === focus.id ? 0 : upHops <= downHops ? -upHops : downHops
+    );
+  }
+  const byNearness = (a: Issue, b: Issue): number => {
+    const da = distance.get(a.id) ?? 0;
+    const db = distance.get(b.id) ?? 0;
+    const byHops = Math.abs(da) - Math.abs(db);
+    if (byHops !== 0) return byHops;
+    // Upstream (negative) before downstream at the same distance.
+    if (da !== db) return da - db;
+    return compareIssues(a, b);
+  };
+  const kept = [...walk.values()].sort(byNearness).slice(0, CHAIN_MAX_NODES);
+  const keptIds = new Set(kept.map((issue) => issue.id));
+
+  const nodes = kept.map((issue) => {
+    const node = issueNode(snapshot, facts, issue, false);
+    node.distance = distance.get(issue.id) ?? 0;
+    let hidden = 0;
+    for (const map of [snapshot.blockersOf, snapshot.blocking]) {
+      for (const id of map.get(issue.id) ?? []) {
+        if (walk.has(id) && !keptIds.has(id)) hidden += 1;
+      }
+    }
+    if (hidden > 0) node.hiddenNeighbours = hidden;
+    return node;
+  });
+  const edges: GraphEdge[] = [];
+  for (const blocker of kept) {
+    for (const blockedId of snapshot.blocking.get(blocker.id) ?? []) {
+      const blocked = keptIds.has(blockedId)
+        ? snapshot.issues.get(blockedId)
+        : undefined;
+      if (blocked !== undefined) {
+        edges.push(issueEdge(snapshot, facts, blocker, blocked));
+      }
+    }
+  }
+  sortEdges(nodes, edges);
+  const cycles = markCycles(nodes, edges);
+  return {
+    nodes,
+    edges,
+    cycles,
+    unplacedRelations: 0,
+    unrelatedIssues: 0,
+    chain: {
+      focusId: focus.id,
+      upstream: up.size - 1,
+      downstream: down.size - 1,
+      hidden: walk.size - kept.length,
+    },
+  };
+}
+
+/**
+ * Builds the dependency graph for a scope (§2.10). The scope is resolved
+ * first (resolveGraphScope): an invalid scope or an unknown id gives an
+ * empty graph for the scope as given; a scope naming initiatives in a
+ * mirror without any is drawn for the whole workspace, with `fallback`
+ * set. Then: the issue level inside a milestone or project (its issues
+ * and one hop of externals, unchanged), inside an initiative or the
+ * workspace (relation ends only), an aggregate level (one node per
+ * initiative, project or milestone, edges counting the issue relations
+ * between them), or one issue's chain. Nodes come in display order (in
+ * the container first, then externals) and edges in node order, so the
+ * output is stable.
  */
 export function buildDependencyGraph(
   snapshot: Snapshot,
@@ -467,9 +1381,60 @@ export function buildDependencyGraph(
   assessments: ReadonlyMap<string, MilestoneAssessment>,
   scope: GraphScope
 ): DependencyGraph {
-  const risk = issueRisk(snapshot, assessments);
-  if (scope.level === 'milestone') {
-    return milestoneGraph(snapshot, ctx, assessments, risk, scope);
+  const resolution = resolveGraphScope(snapshot, scope);
+  if (!resolution.ok) {
+    return {
+      scope,
+      nodes: [],
+      edges: [],
+      cycles: [],
+      fallback: null,
+      unplacedRelations: 0,
+      unrelatedIssues: 0,
+      chain: null,
+    };
   }
-  return issueGraph(snapshot, risk, scope);
+  const resolved = resolution.scope;
+  const facts = graphFacts(snapshot, ctx, assessments);
+  const container = graphContainer(resolved);
+  const level = resolved.level;
+  let body: GraphBody;
+  switch (container.kind) {
+    case 'chain': {
+      const focus = snapshot.issues.get(container.id);
+      body =
+        focus === undefined
+          ? {
+              nodes: [],
+              edges: [],
+              cycles: [],
+              unplacedRelations: 0,
+              unrelatedIssues: 0,
+              chain: null,
+            }
+          : chainGraph(snapshot, facts, focus);
+      break;
+    }
+    case 'milestone':
+      body = scopedIssueGraph(snapshot, facts, container);
+      break;
+    case 'project':
+      body =
+        level === 'issue'
+          ? scopedIssueGraph(snapshot, facts, container)
+          : aggregateGraph(snapshot, ctx, assessments, facts, level, container);
+      break;
+    case 'initiative':
+    case 'workspace':
+      body =
+        level === 'issue'
+          ? containerIssueGraph(snapshot, facts, container)
+          : aggregateGraph(snapshot, ctx, assessments, facts, level, container);
+      break;
+    default: {
+      const unreachable: never = container;
+      return unreachable;
+    }
+  }
+  return { scope: resolved, ...body, fallback: resolution.fallback };
 }

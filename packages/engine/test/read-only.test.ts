@@ -5,7 +5,7 @@
 // with read_only — nothing reaches Linear, the mirror, the settings, the run
 // log or the audit log — while the same call still works for a member.
 
-import { addDays } from '@better-tracker/core';
+import { addDays, type GraphScope } from '@better-tracker/core';
 import {
   createFixtureStore,
   FIXTURE_APP_USER_ID,
@@ -138,6 +138,24 @@ describe('a Linear guest', () => {
     );
     const asMember = await h.engine.getIssueDetail(member, 'iss-ops-1');
     expect(asMember).toMatchObject({ canEdit: true, readOnly: false });
+  });
+
+  test('reads every graph level: a read never asks requireWritable', async () => {
+    for (const scope of [
+      { level: 'initiative' },
+      { level: 'project' },
+      { level: 'milestone' },
+      { level: 'issue' },
+      { level: 'project', initiativeId: 'init-platform' },
+      { level: 'milestone', projectId: 'proj-delta' },
+      { level: 'issue', projectId: 'proj-delta' },
+      { level: 'issue', milestoneId: 'ms-delta-1' },
+      { level: 'issue', issueId: 'OPS-1' },
+    ] as GraphScope[]) {
+      const graph = await h.engine.getGraph(WORKSPACE_ID, scope, gus);
+      expect(graph.nodes).toBeInstanceOf(Array);
+    }
+    expect(writes).toEqual([]);
   });
 
   test('every mutating method refuses him first, and writes nothing', async () => {

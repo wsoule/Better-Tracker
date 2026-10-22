@@ -1,7 +1,8 @@
-/* Phone fallback, Gr8r's phone list: under each initiative's heading, one
-   bordered 10px card per project (name, the lead under it), then one row
-   per milestone split by --divider rules (status mark, name + receipts,
-   due date). Hidden above 900px, where the chart draws instead. */
+/* Phone fallback, Gr8r's phone list: under each initiative's heading (and
+   its quiet link, e.g. "Graph"), one bordered 10px card per project (name,
+   the lead under it), then one row per milestone split by --divider rules
+   (status mark, name + receipts, due date). Hidden above 900px, where the
+   chart draws instead. */
 
 .cards {
   display: none;
@@ -30,8 +31,15 @@
   color: var(--text);
 }
 
+/* The heading keeps the head's type (not the h3 default size) and
+   ellipsizes before the count or the link give way. */
 .groupName {
   min-width: 0;
+  overflow: hidden;
+  font-size: inherit;
+  font-weight: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .groupCount {
@@ -39,6 +47,35 @@
   font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
   color: var(--text-3);
+}
+
+/* The group's quiet link (TimelineGroup.link, e.g. "Graph"), pushed to
+   the head's right edge: a ghost button's look (--text-2, a --surface-2
+   fill on hover). The negative block margin keeps the head's height. */
+.groupLink {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: var(--h-xs);
+  margin: -4px -6px -4px auto;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
+}
+
+/* Cards only draw at ≤ 900px, so (as for the card names) only touch is
+   kept from the hover. */
+@media (hover: hover) {
+  .groupLink:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
 }
 
 .card {
@@ -209,6 +246,7 @@ a.cardName:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .groupLink,
   .row {
     transition: none;
   }

@@ -1,3 +1,4 @@
+import type { DependencyGraph, GraphScope } from '@better-tracker/core';
 import { LinearApiError as SourceLinearApiError } from '@better-tracker/linear';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -197,7 +198,15 @@ describe('createEngineFromEnv in demo mode', () => {
       level: 'milestone',
     });
     expect(graph.nodes.length).toBeGreaterThan(0);
-    expect(graph.edges.length).toBeGreaterThan(0);
+    // Golden captured before the graph levels change (spec §13 commit 1):
+    // the workspace milestone edges, in node order, all on a risk chain.
+    expect(
+      graph.edges.map((e) => [e.from, e.to, e.onRiskChain, e.weight])
+    ).toEqual([
+      ['ms-atlas-2', 'ms-beacon-1', true, 1],
+      ['ms-atlas-2', 'ms-atlas-3', true, 1],
+      ['ms-beacon-1', 'ms-juniper-1', true, 1],
+    ]);
     const juniper = await engine.getGraph('org-northwind', {
       level: 'issue',
       milestoneId: 'ms-juniper-1',
@@ -244,6 +253,123 @@ describe('createEngineFromEnv in demo mode', () => {
       name: 'EngineAuthError',
       code: 'not_installed',
     });
+  });
+
+  test('graphs at every level over the demo workspace', async () => {
+    const edges = (graph: DependencyGraph) =>
+      graph.edges.map((e) => [e.from, e.to, e.onRiskChain, e.inCycle]);
+
+    // Platform reliability → Customer growth (ENG-12 → ENG-23) and back
+    // (ENG-23 → OPS-20, Juniper counting under Platform, its first).
+    const initiatives = await engine.getGraph('org-northwind', {
+      level: 'initiative',
+    });
+    expect(initiatives.nodes.map((n) => [n.id, n.label])).toEqual([
+      ['init-platform', 'Platform reliability'],
+      ['init-growth', 'Customer growth'],
+      ['none', 'No initiative'],
+    ]);
+    expect(edges(initiatives)).toEqual([
+      ['init-platform', 'init-growth', true, true],
+      ['init-growth', 'init-platform', true, true],
+    ]);
+    expect(initiatives.cycles).toEqual([['init-platform', 'init-growth']]);
+    // ENG-70 ⇄ ENG-71 deadlock inside Juniper.
+    expect(
+      initiatives.nodes.filter((n) => n.holdsCycle).map((n) => n.id)
+    ).toEqual(['init-platform']);
+    expect(initiatives.fallback).toBeNull();
+
+    const projects = await engine.getGraph('org-northwind', {
+      level: 'project',
+    });
+    expect(
+      projects.edges.map((e) => [
+        e.from,
+        e.to,
+        e.onRiskChain,
+        e.crossInitiative,
+      ])
+    ).toEqual([
+      ['proj-atlas', 'proj-beacon', true, true],
+      ['proj-beacon', 'proj-juniper', true, true],
+    ]);
+    expect(projects.nodes.find((n) => n.id === 'proj-delta')?.sublabel).toBe(
+      'No lead'
+    );
+
+    const growth = await engine.getGraph('org-northwind', {
+      level: 'project',
+      initiativeId: 'init-growth',
+    });
+    expect(growth.nodes.map((n) => [n.id, n.external])).toEqual([
+      ['proj-beacon', false],
+      ['proj-compass', false],
+      ['proj-ember', false],
+      ['proj-atlas', true],
+      ['proj-juniper', true],
+    ]);
+
+    const atlas = await engine.getGraph('org-northwind', {
+      level: 'milestone',
+      projectId: 'proj-atlas',
+    });
+    expect(atlas.nodes.map((n) => [n.id, n.external])).toEqual([
+      ['ms-atlas-2', false],
+      ['ms-atlas-3', false],
+      ['ms-beacon-1', true],
+    ]);
+    expect(atlas.edges.map((e) => [e.from, e.to])).toEqual([
+      ['ms-atlas-2', 'ms-atlas-3'],
+      ['ms-atlas-2', 'ms-beacon-1'],
+    ]);
+
+    // A chain by identifier, in any case: the scope comes back with the id.
+    const chain = await engine.getGraph('org-northwind', {
+      level: 'issue',
+      issueId: 'eng-23',
+    });
+    expect(chain.scope).toEqual({ level: 'issue', issueId: 'iss-eng-23' });
+    expect(chain.nodes.map((n) => [n.id, n.distance])).toEqual([
+      ['iss-eng-23', 0],
+      ['iss-eng-12', -1],
+      ['iss-ops-20', 1],
+    ]);
+    expect(chain.chain).toEqual({
+      focusId: 'iss-eng-23',
+      upstream: 1,
+      downstream: 1,
+      hidden: 0,
+    });
+    const resolved = await engine.getGraph('org-northwind', {
+      level: 'issue',
+      issueId: 'iss-eng-26',
+    });
+    expect(resolved.edges.map((e) => [e.from, e.to, e.resolved])).toEqual([
+      ['iss-eng-2', 'iss-eng-26', true],
+    ]);
+  });
+
+  test('graph scopes are validated against the mirror', async () => {
+    for (const [scope, code] of [
+      [{ level: 'initiative', initiativeId: 'init-growth' }, 'invalid'],
+      [{ level: 'project', projectId: 'proj-atlas' }, 'invalid'],
+      [{ level: 'milestone', milestoneId: 'ms-atlas-2' }, 'invalid'],
+      [{ level: 'milestone', issueId: 'ENG-23' }, 'invalid'],
+      [{ level: 'team' }, 'invalid'],
+      [{ level: 'project', initiativeId: 'init-nope' }, 'not_found'],
+      [{ level: 'issue', issueId: 'ENG-9999' }, 'not_found'],
+    ] as [GraphScope, string][]) {
+      expect(
+        await rejection(engine.getGraph('org-northwind', scope))
+      ).toMatchObject({ name: 'EngineInputError', code });
+    }
+    // "No initiative" is always a container.
+    const none = await engine.getGraph('org-northwind', {
+      level: 'project',
+      initiativeId: 'none',
+    });
+    expect(none.nodes.map((n) => n.id)).toEqual(['proj-garnet']);
   });
 
   test('demo sign-in works for people only, and webhooks are ignored', async () => {

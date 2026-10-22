@@ -46,13 +46,15 @@ const NODE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
   'node-external': styles.nodeExternal,
   'node-cycle': styles.nodeCycle,
   'node-muted': styles.nodeMuted,
+  'node-focus': styles.nodeFocus,
 };
 
-/** The small drawing beside a legend label, in the graph's own marks. */
+/** The small drawing beside a legend label, in the graph's own marks.
+    `data-mark` names the mark for hosts' and tests' queries. */
 function Swatch({ mark }: { mark: GraphLegendMark }): ReactNode {
   if (mark === 'weight') {
     return (
-      <span className={styles.weight} aria-hidden="true">
+      <span className={styles.weight} data-mark={mark} aria-hidden="true">
         3
       </span>
     );
@@ -64,6 +66,7 @@ function Swatch({ mark }: { mark: GraphLegendMark }): ReactNode {
         width="28"
         height="10"
         viewBox="0 0 28 10"
+        data-mark={mark}
         aria-hidden="true"
       >
         <path className={styles.edgeLine} d="M0.5,5L22,5" />
@@ -72,7 +75,11 @@ function Swatch({ mark }: { mark: GraphLegendMark }): ReactNode {
     );
   }
   return (
-    <span className={cx(styles.node, NODE_SWATCH[mark])} aria-hidden="true" />
+    <span
+      className={cx(styles.node, NODE_SWATCH[mark])}
+      data-mark={mark}
+      aria-hidden="true"
+    />
   );
 }
 

@@ -96,6 +96,45 @@ describe('the issue page view', () => {
     expect(html).toContain('Line one');
   });
 
+  // Graphs at every level (owner decision 2026-10-22): "Blocked by" links
+  // the issue's blocking chain whenever it has a relation, for everyone;
+  // the graph only reads, so a guest keeps it.
+  test('"Blocked by" links the blocking chain beside "+ Add", for a guest alone', () => {
+    // A quiet small Button (the Graph nav icon, then its label) like the
+    // "+ Add" beside it.
+    const chainLink =
+      /<a href="\/graph\?chain=ENG-23"[^>]*aria-label="Blocking chain of ENG-23 as a graph">(?:(?!<\/a>).)*<span>Graph<\/span><\/a>/;
+    const editor = render(<IssuePageView model={modelFor('ENG-23')} />);
+    expect(editor).toMatch(chainLink);
+    expect(editor).toContain('aria-label="Add blocked by"');
+    // The Blocked alert's Graph action is the same chain.
+    expect(editor).toContain('href="/graph?chain=ENG-23"');
+    expect(editor).not.toContain('/graph?milestone=');
+
+    const guest = render(
+      <IssuePageView
+        model={modelFor('ENG-23', { canEdit: false, readOnly: true })}
+      />
+    );
+    expect(guest).toMatch(chainLink);
+    expect(guest).not.toContain('aria-label="Add blocked by"');
+
+    // ENG-12 only holds others up: the link heads "Blocks", not the empty
+    // "Blocked by 0 · Nothing blocks this task." above it.
+    const holder = render(<IssuePageView model={modelFor('ENG-12')} />);
+    const blocksAt = holder.indexOf('>Blocks<');
+    expect(blocksAt).toBeGreaterThan(holder.indexOf('>Blocked by<'));
+    expect(holder.slice(0, blocksAt)).not.toContain('Blocking chain of');
+    expect(holder.slice(blocksAt)).toMatch(
+      /aria-label="Blocking chain of ENG-12 as a graph">(?:(?!<\/a>).)*<span>Graph<\/span><\/a>/
+    );
+
+    // No relation, no chain to draw: no link.
+    const alone = render(<IssuePageView model={modelFor('ENG-24')} />);
+    expect(alone).not.toContain('Blocking chain of');
+    expect(alone).toContain('aria-label="Add blocked by"');
+  });
+
   test('when Linear cannot be read, the live fields are not editable', () => {
     const model = modelFor('ENG-24', {
       extra: null,
