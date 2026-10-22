@@ -13,6 +13,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { formatDate, plural } from '../format';
+import type { ReadOnlyReasonCopy } from '../read-only';
 import { assessmentMark, statusLabel, uiStatus } from './status';
 
 // The app frame's core → ui mapping (architecture §8.3): the sidebar's
@@ -92,6 +93,24 @@ export function paletteSuggestions(readOnly: boolean): PaletteSuggestion[] {
 
 /** The sidebar's chip beside a guest's name. */
 export const GUEST_BADGE = 'Guest';
+
+/** The chip for someone read-only for another reason (not yet synced). */
+export const READ_ONLY_BADGE = 'Read only';
+
+/**
+ * The sidebar user line's chip: "Guest" for a Linear guest, "Read only"
+ * for someone read-only for another reason (the mirror does not know them
+ * yet, or the first sync has not landed), none otherwise.
+ */
+export function userBadge(frame: {
+  readOnly: boolean;
+  readOnlyReason: ReadOnlyReasonCopy | undefined;
+}): string | undefined {
+  if (!frame.readOnly) return undefined;
+  return frame.readOnlyReason === 'guest' || frame.readOnlyReason === undefined
+    ? GUEST_BADGE
+    : READ_ONLY_BADGE;
+}
 
 export type NavTargetId =
   | 'week'
@@ -251,10 +270,12 @@ export interface ShellFrame {
   workspaceName: string | null;
   userName: string;
   /**
-   * The person is a Linear guest, read-only in the planner: the user line
-   * says "Guest" and the palette offers no runs or resyncs.
+   * The person is read-only in the planner: the palette offers no runs or
+   * resyncs, and the user line says "Guest" for a Linear guest.
    */
   readOnly: boolean;
+  /** Why, when `readOnly` (Actor.readOnlyReason); the notices say it. */
+  readOnlyReason: ReadOnlyReasonCopy | undefined;
   /** Null when the week view could not be read (not installed, error). */
   weekCount: number | null;
   weekCountLabel: string | null;
@@ -267,8 +288,10 @@ export interface ShellFrameInput {
   appName: string;
   workspaceName: string | null;
   userName: string;
-  /** Actor.readOnly: a Linear guest. */
+  /** Actor.readOnly. */
   readOnly: boolean;
+  /** Actor.readOnlyReason. */
+  readOnlyReason?: ReadOnlyReasonCopy | undefined;
   /** The app has a working Linear installation for this workspace. */
   installed: boolean;
   timeline: TimelineView | null;
@@ -292,6 +315,9 @@ export function buildShellFrame(input: ShellFrameInput): ShellFrame {
     workspaceName: input.workspaceName,
     userName: input.userName,
     readOnly: input.readOnly,
+    readOnlyReason: input.readOnly
+      ? (input.readOnlyReason ?? 'guest')
+      : undefined,
     weekCount: count?.count ?? null,
     weekCountLabel: count?.label ?? null,
     projects,

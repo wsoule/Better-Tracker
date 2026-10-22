@@ -7,11 +7,20 @@
 // "Guests limited to read only"), and requireWritable is the single guard
 // every mutating engine method calls first (engine.ts lists them).
 
-import { type Actor, EngineAuthError } from './types';
+import { type Actor, EngineAuthError, type ReadOnlyReason } from './types';
 
 /** What a read-only person (a Linear guest) is told when they try a change. */
 export const READ_ONLY_MESSAGE =
   'Guests in Linear can look but not change anything here.';
+
+/** What a read-only person is told, per Actor.readOnlyReason. */
+const READ_ONLY_MESSAGES: Record<ReadOnlyReason, string> = {
+  guest: READ_ONLY_MESSAGE,
+  unknown:
+    'The planner has not seen your Linear account yet, so you can look but not change anything until a sync from Linear includes you.',
+  not_synced:
+    'The first sync from Linear has not landed yet, so changes are paused until it does.',
+};
 
 /**
  * Throws EngineAuthError('read_only') when the actor is read-only (a
@@ -22,8 +31,23 @@ export const READ_ONLY_MESSAGE =
  */
 export function requireWritable(actor: Actor): void {
   if (actor.readOnly) {
-    throw new EngineAuthError('read_only', READ_ONLY_MESSAGE);
+    throw new EngineAuthError(
+      'read_only',
+      READ_ONLY_MESSAGES[actor.readOnlyReason ?? 'guest']
+    );
   }
+}
+
+/**
+ * The guard on finishInstall: requireWritable, except that a workspace
+ * whose first sync has not landed (readOnlyReason `not_synced`) can still
+ * be installed again. Nobody can be placed without a mirror, but a
+ * reinstall is how an admin fixes a grant that makes that sync fail, and
+ * Linear lets only a workspace admin approve an actor=app install.
+ */
+export function requireCanInstall(actor: Actor): void {
+  if (actor.readOnlyReason === 'not_synced') return;
+  requireWritable(actor);
 }
 
 /**

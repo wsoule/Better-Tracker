@@ -165,6 +165,7 @@ export async function loadShellFrame(
     workspaceName: installation?.workspaceName ?? null,
     userName: actor.session.userName,
     readOnly: actor.readOnly,
+    readOnlyReason: actor.readOnlyReason,
     installed,
     timeline,
     week,

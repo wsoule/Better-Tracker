@@ -358,14 +358,20 @@ safely. There is no build-time or pre-deploy migration step.
    sign in and see the teams Linear shows them, but cannot install the app,
    allow edits, change settings, start runs, resync or preview digests, and is
    never asked for write access. Install with a full workspace member (an
-   admin); a guest who tries is sent back with "You are a guest in Linear…". If
-   `WATCHER_EMAILS` matches nobody, the installer becomes the first watcher.
+   admin); a guest who tries is sent back with "The planner is read-only for
+   you…". If `WATCHER_EMAILS` matches nobody, the installer becomes the first
+   watcher.
 3. **Confirm the first sync**. The install triggers a full sync, and Settings →
    Status shows when the last full sync ran and whether it worked. Until that
    first sync lands the planner cannot tell members from guests: the first page
    after the install waits for it, and if it fails the planner stays read-only
    for everyone until a sync works (each page view and the worker's next tick
-   retry it). Within 15 minutes the worker's first tick logs a line such as
+   retry it). Pages then say "The first sync from Linear has not landed yet"
+   with a way to Setup, the web service's logs say why
+   (`the first sync failed; everyone is read-only until it lands`), and Setup
+   still offers **Reinstall**, which is the fix when the cause is the app's
+   grant (for example the `initiative:read` scope missing). Within 15 minutes
+   the worker's first tick logs a line such as
    `tick ok — <workspace id>: synced (mirror v3, 412 issues, 2310 ms), …`. To
    run it right away, trigger the cron job off-schedule with `railway cron run`
    (add `--yes` outside a terminal) (research: Railway deployment, "Cron: how

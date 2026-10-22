@@ -9,6 +9,8 @@ import {
   createLinearProvider,
   type Engine,
   EngineAuthError,
+  requireCanInstall,
+  requireWritable,
 } from '../src/index';
 import {
   ACME,
@@ -331,6 +333,47 @@ describe('finishInstall', () => {
     expect(await store.getSettings('org-acme')).toBeNull();
   });
 
+  // Right after an install the first sync may fail (here the fake Linear
+  // serves no workspace reads). Nobody can be placed then, so everyone is
+  // read-only, but as `not_synced`, not as a guest, and a reinstall stays
+  // open: it is how an admin fixes a grant that makes the sync fail.
+  test('while the first sync has not landed, a reinstall is still allowed', async () => {
+    const { actor } = await signIn(PAT);
+    fake.addCode('code-install', ACME_APP, 'read,write');
+    await engine.finishInstall({
+      code: 'code-install',
+      codeVerifier: 'v',
+      actor,
+    });
+    const { actor: sam } = await signIn(SAM);
+    expect(sam).toMatchObject({
+      readOnly: true,
+      readOnlyReason: 'not_synced',
+      canWriteLinear: false,
+    });
+    expect(
+      await rejection(
+        engine.runAllocation({
+          workspaceId: 'org-acme',
+          mode: 'dry_run',
+          trigger: 'manual',
+          actor: sam,
+        })
+      )
+    ).toMatchObject({ name: 'EngineAuthError', code: 'read_only' });
+    fake.addCode('code-reinstall', ACME_APP, 'read,write');
+    const reinstalled = await engine.finishInstall({
+      code: 'code-reinstall',
+      codeVerifier: 'v',
+      actor: sam,
+    });
+    expect(reinstalled).toMatchObject({
+      workspaceId: 'org-acme',
+      installedByUserId: 'u-sam',
+      revokedAt: null,
+    });
+  });
+
   test('a reinstall keeps the saved settings, watchers included', async () => {
     const pat = await signIn(PAT);
     fake.addCode('code-install', ACME_APP, 'read,write');
@@ -576,12 +619,20 @@ describe('guests are read-only', () => {
     });
     expect(await engine.authenticate(gus)).toMatchObject({
       readOnly: true,
+      readOnlyReason: 'guest',
       canWriteLinear: false,
     });
-    expect(await engine.authenticate(sam)).toMatchObject({
+    // Sam is not called a guest: the mirror just has not seen him yet.
+    const unknown = await engine.authenticate(sam);
+    expect(unknown).toMatchObject({
       readOnly: true,
+      readOnlyReason: 'unknown',
       canWriteLinear: false,
     });
+    expect(() => requireWritable(unknown as Actor)).toThrow(
+      'The planner has not seen your Linear account yet'
+    );
+    expect(() => requireCanInstall(unknown as Actor)).toThrow();
 
     // Linear makes Gus a member: read-write from his next request on.
     await mirrorPeople([PAT.user, { ...GUS.user, guest: false }, SAM.user]);

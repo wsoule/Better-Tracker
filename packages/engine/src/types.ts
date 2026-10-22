@@ -130,7 +130,18 @@ export interface Actor {
    * them first with EngineAuthError('read_only') (requireWritable).
    */
   readOnly: boolean;
+  /**
+   * Why `readOnly` is true, so the planner can say it: `guest` (a Linear
+   * guest), `unknown` (the mirror has no such person yet) or `not_synced`
+   * (an installed workspace whose first sync has not landed, so nobody
+   * can be placed; an install or reinstall is still allowed then, since
+   * only a Linear admin can approve one). Absent when `readOnly` is false.
+   */
+  readOnlyReason?: ReadOnlyReason;
 }
+
+/** Why an Actor is read-only (Actor.readOnlyReason). */
+export type ReadOnlyReason = 'guest' | 'unknown' | 'not_synced';
 
 /**
  * The issue page (owner decision 2026-10-21): what getIssueDetail returns.

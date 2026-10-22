@@ -46,7 +46,9 @@ async function installContext(
    button). Installing itself is Linear's admin consent screen. A Linear
    guest is offered no install or reinstall (owner decision 2026-10-22,
    "Guests limited to read only"; Linear would not let one approve it
-   either), only the read-only notice. */
+   either), only the read-only notice. While an installed workspace's
+   first sync has not landed nobody can be placed, so everyone is
+   read-only, but Reinstall stays (readOnlyReason `not_synced`). */
 export default async function SetupPage() {
   const { engine, actor } = await requirePageActor('/setup');
   const workspaceId = actor.session.workspaceId;
@@ -63,7 +65,11 @@ export default async function SetupPage() {
     // Demo mode has no OAuth: the install link would only bounce home.
     // Anyone signed in may reinstall (no roles); Linear asks for an admin.
     const demo = engine.mode === 'fixture';
-    const readOnly = actor.readOnly;
+    // While the first sync has not landed everyone is read-only, but a
+    // reinstall stays open (the engine's requireCanInstall): it is how an
+    // admin fixes a grant that makes that sync fail.
+    const notSynced = actor.readOnlyReason === 'not_synced';
+    const readOnly = actor.readOnly && !notSynced;
     return (
       <div className="page">
         <header className={styles.head}>
@@ -96,7 +102,15 @@ export default async function SetupPage() {
                 <Button href={INSTALL_HREF}>Reinstall to change teams</Button>
               )}
             </div>
-            {readOnly ? (
+            {notSynced ? (
+              <Notice label="FIRST SYNC PENDING" role="status">
+                The first sync from Linear has not landed, so changes are paused
+                for everyone. It is retried on every page and every worker run.
+                If it keeps failing, the web service&apos;s logs say why; when
+                the cause is the app&apos;s grant (for example the
+                initiative:read scope missing), a workspace admin can reinstall.
+              </Notice>
+            ) : readOnly ? (
               <ReadOnlyNotice />
             ) : demo ? (
               <p className={styles.note}>

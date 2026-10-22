@@ -1,3 +1,5 @@
+import { requireCanInstall, requireWritable } from '@better-tracker/engine';
+
 import {
   authErrorLocation,
   DEFAULT_RETURN_TO,
@@ -23,7 +25,9 @@ import { signValue } from '../../../../lib/signed-cookie';
  * need someone signed in already, and neither is offered to a read-only
  * person (a Linear guest: owner decision 2026-10-22, "Guests limited to
  * read only"), who lands on "/?auth_error=read_only" instead; the engine
- * refuses both for a guest again when they finish. Write access
+ * refuses both for a guest again when they finish. The one exception is
+ * an install while the workspace's first sync has not landed (nobody can
+ * be placed yet, readOnlyReason `not_synced`). Write access
  * (grant_write) is offered to every other signed-in person (owner
  * decisions 2026-10-21 and 2026-10-22: everyone edits with their own
  * token, and there are no roles); the "Allow edits in Linear" links pass
@@ -46,7 +50,14 @@ export async function GET(request: Request): Promise<Response> {
     if (actor === null) {
       return redirectWithCookies(authErrorLocation('sign_in_first'));
     }
-    if (actor.readOnly) {
+    // The engine's own guards, so this refuses exactly what finishing
+    // would: an install also stays open while the first sync has not
+    // landed (requireCanInstall), since that is how an admin fixes a
+    // grant that makes the sync fail.
+    try {
+      if (intent === 'install') requireCanInstall(actor);
+      else requireWritable(actor);
+    } catch {
       return redirectWithCookies(authErrorLocation('read_only'));
     }
   }

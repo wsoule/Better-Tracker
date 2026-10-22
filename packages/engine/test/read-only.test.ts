@@ -23,6 +23,7 @@ import {
   type Engine,
   EngineAuthError,
   READ_ONLY_MESSAGE,
+  requireCanInstall,
   requireWritable,
 } from '../src/index';
 import {
@@ -79,13 +80,13 @@ function recordWrites(log: string[]): GatewayWrapper {
   };
 }
 
-async function refusedReadOnly(promise: Promise<unknown>): Promise<void> {
+async function refusedReadOnly(
+  promise: Promise<unknown>,
+  message: string = READ_ONLY_MESSAGE
+): Promise<void> {
   const error = await rejection(promise);
   expect(error).toBeInstanceOf(EngineAuthError);
-  expect(error).toMatchObject({
-    code: 'read_only',
-    message: READ_ONLY_MESSAGE,
-  });
+  expect(error).toMatchObject({ code: 'read_only', message });
 }
 
 let h: DemoHarness;
@@ -112,6 +113,10 @@ describe('a Linear guest', () => {
     expect(member).toMatchObject({ readOnly: false, canWriteLinear: true });
     expect(() => requireWritable(gus)).toThrow(READ_ONLY_MESSAGE);
     expect(() => requireWritable(member)).not.toThrow();
+    // A guest cannot install either; only a pending first sync opens it.
+    expect(gus.readOnlyReason).toBe('guest');
+    expect(() => requireCanInstall(gus)).toThrow(READ_ONLY_MESSAGE);
+    expect(() => requireCanInstall(member)).not.toThrow();
   });
 
   test('reads what Linear lets him see, with no edit controls', async () => {
@@ -337,7 +342,11 @@ describe('before the first sync lands', () => {
     const { engine, store } = await unsyncedWorkspace();
     try {
       const gus = await signedIn(engine, FIXTURE_GUEST_USER_ID);
-      expect(gus).toMatchObject({ readOnly: true, canWriteLinear: false });
+      expect(gus).toMatchObject({
+        readOnly: true,
+        readOnlyReason: 'guest',
+        canWriteLinear: false,
+      });
       await refusedReadOnly(
         engine.runAllocation({
           workspaceId: WORKSPACE_ID,
@@ -350,6 +359,7 @@ describe('before the first sync lands', () => {
       // A member is placed by the same sync and may change things.
       const elena = await signedIn(engine, 'user-elena');
       expect(elena).toMatchObject({ readOnly: false, canWriteLinear: true });
+      expect(elena.readOnlyReason).toBeUndefined();
     } finally {
       await store.close();
     }
@@ -360,15 +370,24 @@ describe('before the first sync lands', () => {
     try {
       for (const userId of [FIXTURE_GUEST_USER_ID, 'user-elena']) {
         const actor = await signedIn(engine, userId);
-        expect(actor).toMatchObject({ readOnly: true, canWriteLinear: false });
+        // Nobody is called a guest: the reason says what is going on.
+        expect(actor).toMatchObject({
+          readOnly: true,
+          readOnlyReason: 'not_synced',
+          canWriteLinear: false,
+        });
         await refusedReadOnly(
           engine.runAllocation({
             workspaceId: WORKSPACE_ID,
             mode: 'dry_run',
             trigger: 'manual',
             actor,
-          })
+          }),
+          'The first sync from Linear has not landed yet, so changes are paused until it does.'
         );
+        // A reinstall stays open: it is how an admin fixes a grant that
+        // makes the sync fail (only an admin can approve one in Linear).
+        expect(() => requireCanInstall(actor)).not.toThrow();
       }
       expect(await engine.listRuns(WORKSPACE_ID, 10)).toEqual([]);
     } finally {

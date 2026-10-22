@@ -67,6 +67,16 @@ const GUEST: Actor = {
   },
   canWriteLinear: false,
   readOnly: true,
+  readOnlyReason: 'guest',
+};
+
+// An installed workspace whose first sync has not landed: nobody can be
+// placed, so everyone is read-only, but a reinstall stays open.
+const NOT_SYNCED: Actor = {
+  ...ACTOR,
+  canWriteLinear: false,
+  readOnly: true,
+  readOnlyReason: 'not_synced',
 };
 
 interface Calls {
@@ -97,7 +107,9 @@ function fakeEngine(): Engine {
             ? MEMBER
             : token === 'guest-token'
               ? GUEST
-              : null
+              : token === 'unsynced-token'
+                ? NOT_SYNCED
+                : null
       ),
     finishSignIn: (input: Calls['signIn'][number]) => {
       calls.signIn.push(input);
@@ -252,6 +264,20 @@ describe('GET /api/auth/linear', () => {
       get('/api/auth/linear?intent=signin', { mp_session: 'guest-token' })
     );
     expect(signin.status).toBe(302);
+  });
+
+  test('before the first sync lands, an install may start but no write grant', async () => {
+    const install = await start(
+      get('/api/auth/linear?intent=install', { mp_session: 'unsynced-token' })
+    );
+    expect(install.status).toBe(302);
+    expect(setCookie(install, 'mp_oauth')).toBeDefined();
+    const grant = await start(
+      get('/api/auth/linear?intent=grant_write', {
+        mp_session: 'unsynced-token',
+      })
+    );
+    expect(grant.headers.get('location')).toBe('/?auth_error=read_only');
   });
 
   test('refuses unknown intents and an unusable SESSION_SECRET', async () => {

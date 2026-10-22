@@ -33,7 +33,11 @@ import {
   buildTimelinePage,
   type TimelinePermissions,
 } from '../lib/adapters/timeline';
-import { READ_ONLY_NOTICE } from '../lib/read-only';
+import {
+  FIRST_SYNC_PENDING_HEADLINE,
+  READ_ONLY_NOTICE,
+  readOnlyNotice,
+} from '../lib/read-only';
 
 // Owner decision 2026-10-22, "Guests limited to read only": the planner's
 // client islands and read-only sections rendered to HTML for a Linear
@@ -57,6 +61,9 @@ const { default: TimelineScreen } =
   await import('../app/(app)/timeline/timeline-screen');
 const { ReadOnlySettings, ReadOnlyWatchers } =
   await import('../app/(app)/settings/read-only-sections');
+const { default: ReadOnlyNotice, ReadOnlyReasonProvider } =
+  await import('../app/(app)/components/read-only-notice');
+const { default: AppError } = await import('../app/(app)/error');
 
 const TODAY = '2026-10-21';
 const GUEST: TimelinePermissions = { canWriteLinear: false, readOnly: true };
@@ -242,5 +249,56 @@ describe('settings, read only', () => {
       value: 'Europe/Oslo',
     });
     expect(schedule.at(-1)?.label).toBe('Active project statuses');
+  });
+});
+
+// Someone read-only for another reason than being a Linear guest is told
+// what is going on instead of being called a guest: the shell provides
+// the reason (Actor.readOnlyReason) to every notice below it.
+describe('the read-only notice', () => {
+  test('says why, from the reason the shell provides', () => {
+    const notice = (reason?: 'guest' | 'unknown' | 'not_synced') =>
+      renderToStaticMarkup(
+        <ReadOnlyReasonProvider reason={reason}>
+          <ReadOnlyNotice />
+        </ReadOnlyReasonProvider>
+      );
+    expect(notice()).toContain(READ_ONLY_NOTICE);
+    expect(notice('guest')).toContain(READ_ONLY_NOTICE);
+    expect(notice('not_synced')).toContain(readOnlyNotice('not_synced'));
+    expect(notice('not_synced')).not.toContain('guest');
+    expect(notice('unknown')).toContain(readOnlyNotice('unknown'));
+    expect(notice('unknown')).not.toContain('guest');
+    // Without a provider (one screen rendered alone) it reads as a guest's.
+    expect(renderToStaticMarkup(<ReadOnlyNotice />)).toContain(
+      READ_ONLY_NOTICE
+    );
+  });
+});
+
+// While the first sync has not landed every mirror-backed page fails, so
+// the (app) error page says that and points at Setup (where a reinstall
+// stays open) instead of blaming Linear or the database.
+describe('the (app) error page', () => {
+  const page = (reason?: 'guest' | 'not_synced') =>
+    renderToStaticMarkup(
+      <ReadOnlyReasonProvider reason={reason}>
+        <AppError error={new Error('No mirror')} retry={() => {}} />
+      </ReadOnlyReasonProvider>
+    );
+
+  test('says the first sync is pending and links to Setup', () => {
+    const html = page('not_synced');
+    expect(html).toContain(FIRST_SYNC_PENDING_HEADLINE);
+    expect(html).toContain('href="/setup"');
+    expect(html).not.toContain('This page could not load.');
+  });
+
+  test('otherwise reads as a plain failure', () => {
+    for (const reason of [undefined, 'guest'] as const) {
+      const html = page(reason);
+      expect(html).toContain('This page could not load.');
+      expect(html).not.toContain(FIRST_SYNC_PENDING_HEADLINE);
+    }
   });
 });

@@ -4,7 +4,9 @@
 // read-only guard (owner decision 2026-10-22, "Guests limited to read
 // only"): every method that changes something for a person is wrapped in
 // `writable` (or calls requireWritable itself), so a Linear guest is
-// refused with read_only before any module runs.
+// refused with read_only before any module runs. finishInstall uses
+// requireCanInstall, which also lets a workspace whose first sync has not
+// landed be reinstalled.
 
 import { runAllocation } from './allocation-run';
 import {
@@ -33,7 +35,7 @@ import {
   setMilestoneWeight,
   setProjectLead,
 } from './milestone-edits';
-import { requireWritable } from './permissions';
+import { requireCanInstall, requireWritable } from './permissions';
 import { createRuntime, readSettings } from './runtime';
 import { updateSettings } from './settings';
 import { fullSync } from './sync';
@@ -76,7 +78,7 @@ export function createEngine(deps: EngineDeps): Engine {
     startOAuth: (intent) => startOAuth(rt, intent),
     finishSignIn: (input) => finishSignIn(rt, input),
     finishInstall: async (input) => {
-      requireWritable(input.actor);
+      requireCanInstall(input.actor);
       return finishInstall(rt, input);
     },
     devSignIn: (userId) => devSignIn(rt, userId),

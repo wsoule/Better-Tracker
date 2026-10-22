@@ -25,7 +25,7 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
   needs_write_scope:
     'Your Linear sign-in only allows reading. Sign in again and grant write access to edit dates, leads and issues.',
   read_only:
-    'You are a guest in Linear, so the planner is read-only for you: you can look at everything Linear shows you, but not install the app, allow edits or change anything here.',
+    'The planner is read-only for you: you are a guest in Linear, or the planner has not synced your Linear account yet. You can look at everything Linear shows you, but not install the app, allow edits or change anything here.',
   fixture_only: 'Demo sign-in only works on a demo server.',
   invalid: 'Linear sent back a sign-in the planner could not use. Start again.',
   not_found: 'That demo person does not exist.',

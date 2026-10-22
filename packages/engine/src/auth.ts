@@ -48,6 +48,7 @@ import {
   EngineInputError,
   type OAuthIntent,
   type OAuthStart,
+  type ReadOnlyReason,
   type SignInResult,
 } from './types';
 
@@ -209,25 +210,30 @@ async function needsInstall(
 }
 
 /**
- * Whether a person is read-only in the planner (Actor.readOnly): a Linear
- * guest per the mirror, or someone the mirror does not know, who is
- * treated like a guest exactly as per-viewer visibility treats them
- * (core's viewerScope, §2.13). Without a mirror nobody is known:
+ * Why a person is read-only in the planner (Actor.readOnlyReason), or null
+ * when they are not: `guest` for a Linear guest per the mirror, `unknown`
+ * for someone the mirror does not know, who is treated like a guest
+ * exactly as per-viewer visibility treats them (core's viewerScope,
+ * §2.13). Without a mirror nobody is known:
  * - with no active installation (never installed, or uninstalled) nobody
  *   is read-only, so someone can install or reinstall (Linear lets only an
  *   admin approve that, never a guest), and every other change needs an
  *   active installation anyway (requireInstallation);
  * - with one (authenticate tried the first sync and it failed) everybody
- *   is, because anyone who got through could start a run, which syncs
- *   first and then acts for a person the planner never placed.
+ *   is, as `not_synced`, because anyone who got through could start a
+ *   run, which syncs first and then acts for a person the planner never
+ *   placed. Install and reinstall stay open in that state (engine.ts
+ *   finishInstall): a reinstall is how an admin fixes a grant that makes
+ *   the sync fail, and Linear still asks for an admin.
  */
-export function isReadOnlyPerson(
+export function readOnlyReasonFor(
   snapshot: Snapshot | null,
   userId: string,
   installed: boolean
-): boolean {
-  if (snapshot === null) return installed;
-  return viewerScope(snapshot, userId).guest;
+): ReadOnlyReason | null {
+  if (snapshot === null) return installed ? 'not_synced' : null;
+  if (!viewerScope(snapshot, userId).guest) return null;
+  return snapshot.users.has(userId) ? 'guest' : 'unknown';
 }
 
 /**
@@ -237,7 +243,7 @@ export function isReadOnlyPerson(
  * (the minutes after an install): that sync runs here, joined with the one
  * the install started (fullSync is single-flight), as load() would run it
  * for the page anyway. A failed sync leaves the mirror null and is logged;
- * isReadOnlyPerson then fails closed.
+ * readOnlyReasonFor then fails closed (`not_synced`).
  */
 async function mirrorForPerson(
   rt: EngineRuntime,
@@ -439,7 +445,7 @@ export async function devSignIn(
  * mirror shows as deactivated in Linear is signed out the same way, since
  * sign-in refuses them too: otherwise someone who left could keep running
  * live allocation and changing settings until the session expired. The
- * Actor says whether the person is read-only (isReadOnlyPerson: a Linear
+ * Actor says whether the person is read-only (readOnlyReasonFor: a Linear
  * guest, or unknown to the mirror; an installed workspace with no mirror
  * yet gets its first sync here first, mirrorForPerson); a read-only person
  * never holds canWriteLinear.
@@ -482,16 +488,18 @@ export async function authenticate(
 
   // Decided per request from the mirror, so a person Linear turns into a
   // guest (or back) is read-only (or not) from their next page on.
-  const readOnly = isReadOnlyPerson(
+  const reason = readOnlyReasonFor(
     view?.snapshot ?? null,
     session.userId,
     installed
   );
+  const readOnly = reason !== null;
   return {
     session: publicSession(session),
     canWriteLinear:
       !readOnly && (fixture || session.tokens.scopes.includes('write')),
     readOnly,
+    ...(reason === null ? {} : { readOnlyReason: reason }),
   };
 }
 

@@ -30,6 +30,7 @@ import {
   projectSectionItems,
   runIdFrom,
   syncFailureMessage,
+  userBadge,
   weekNavCount,
 } from '../lib/adapters/shell';
 
@@ -413,6 +414,18 @@ describe('palette actions', () => {
     });
     expect(frame.readOnly).toBe(true);
     expect(GUEST_BADGE).toBe('Guest');
+    // No reason given reads as a guest; anyone else is not called one.
+    expect(frame.readOnlyReason).toBe('guest');
+    expect(userBadge(frame)).toBe('Guest');
+    expect(userBadge({ readOnly: true, readOnlyReason: 'not_synced' })).toBe(
+      'Read only'
+    );
+    expect(userBadge({ readOnly: true, readOnlyReason: 'unknown' })).toBe(
+      'Read only'
+    );
+    expect(
+      userBadge({ readOnly: false, readOnlyReason: undefined })
+    ).toBeUndefined();
   });
 
   test('finds the run id in a POST /api/runs answer', () => {

@@ -27,7 +27,6 @@ import { type ReactNode, useCallback, useMemo } from 'react';
 
 import {
   crumbsFor,
-  GUEST_BADGE,
   isCurrentPath,
   isPaletteIndex,
   NAV_TARGETS,
@@ -41,9 +40,11 @@ import {
   type ShellFrame,
   SIDEBAR_STORAGE_KEY,
   syncFailureMessage,
+  userBadge,
 } from '../../../lib/adapters/shell';
 import { getJson, sendJson } from '../../../lib/api-client';
 import { CrumbProvider, usePageCrumb } from './page-crumb';
+import { ReadOnlyReasonProvider } from './read-only-notice';
 
 const NAV_ICONS: Record<NavTargetId, ShellIcon> = {
   week: CalendarCheck,
@@ -105,7 +106,9 @@ interface PlannerShellProps {
 export default function PlannerShell(props: PlannerShellProps) {
   return (
     <CrumbProvider>
-      <PaletteFrame {...props} />
+      <ReadOnlyReasonProvider reason={props.frame.readOnlyReason}>
+        <PaletteFrame {...props} />
+      </ReadOnlyReasonProvider>
     </CrumbProvider>
   );
 }
@@ -277,7 +280,7 @@ function Frame({
       }}
       user={{
         name: frame.userName,
-        badge: frame.readOnly ? GUEST_BADGE : undefined,
+        badge: userBadge(frame),
       }}
       signOut={{ action: '/api/auth/logout', method: 'post' }}
       themeStorageKey={themeStorageKey}
