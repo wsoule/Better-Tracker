@@ -45,9 +45,6 @@ import { type EngineRuntime } from './runtime';
 import { type Actor, EngineInputError, type IssueUpdateResult } from './types';
 import { keepsLooseIssue, relationRefsTouching } from './webhooks';
 
-/** Characters of a long text kept in the audit log (never the full text). */
-export const AUDIT_EXCERPT_LENGTH = 80;
-
 // Any line break, including the Unicode line and paragraph separators.
 const LINE_BREAK = /[\r\n\u2028\u2029]/;
 
@@ -96,20 +93,15 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * A long text as the audit log keeps it: its length and the first
- * AUDIT_EXCERPT_LENGTH characters, so the log never holds a whole comment
- * or description. Null stays null.
+ * A description or comment as the audit log keeps it: its length in
+ * characters, none of its words. Settings → Audit is open to every
+ * signed-in person, while these texts are read with each person's own
+ * token so Linear's permissions decide who sees them (and an excerpt of a
+ * short comment would be all of it). Null stays null.
  */
-export function textSummary(
-  text: string | null
-): { length: number; excerpt: string } | null {
+export function textSummary(text: string | null): { length: number } | null {
   if (text === null) return null;
-  const characters = Array.from(text);
-  const excerpt = characters.slice(0, AUDIT_EXCERPT_LENGTH).join('');
-  return {
-    length: characters.length,
-    excerpt: characters.length > AUDIT_EXCERPT_LENGTH ? `${excerpt}…` : excerpt,
-  };
+  return { length: characterCount(text) };
 }
 
 /**
@@ -335,13 +327,20 @@ function checkAgainstMirror(
   return linear;
 }
 
-// Checks a label set against the team's usable labels: every label must be
-// one of them, and a single-select group may contribute only one.
+// Checks a label set against the team's usable labels and the ones the
+// issue carries now (read live): every label must be one of them, and a
+// single-select group may contribute only one. A carried label the team
+// can no longer apply (archived: Linear keeps it on its issues but stops
+// new uses, linear.app/docs/labels) may stay, since an edit sends the
+// whole set back; it can be removed but never added anew.
 function checkLabels(
   labelIds: readonly string[],
-  usable: readonly IssueLabel[]
+  usable: readonly IssueLabel[],
+  carried: readonly IssueLabel[]
 ): IssueLabel[] {
-  const byId = new Map(usable.map((label) => [label.id, label]));
+  const byId = new Map(
+    [...carried, ...usable].map((label) => [label.id, label])
+  );
   const chosen: IssueLabel[] = [];
   const groups = new Map<string, string>();
   for (const id of labelIds) {
@@ -598,7 +597,7 @@ async function readLiveForEdit(
   if (needsExtras && extras === null) {
     throw new EngineInputError(
       'not_found',
-      `Linear no longer has ${issue.identifier} (deleted or archived).`
+      `Linear does not show ${issue.identifier} to your account: it is in a team you cannot see, or it was deleted or archived.`
     );
   }
   return { extras, labels };
@@ -646,7 +645,11 @@ export async function updateIssue(
     const chosenLabels =
       linearPatch.labelIds === undefined
         ? null
-        : checkLabels(linearPatch.labelIds, live.labels ?? []);
+        : checkLabels(
+            linearPatch.labelIds,
+            live.labels ?? [],
+            live.extras?.labels ?? []
+          );
 
     const changes = diffPatch(issue, linearPatch, live.extras, chosenLabels);
     if (changes.length === 0) return { issue, changed: [] };

@@ -696,8 +696,11 @@ export interface IssueLabel {
   id: string;
   name: string;
   /**
-   * Linear's HEX colour, kept as data only: the planner draws labels in
-   * its own marks and never paints this colour (one accent, §8.2).
+   * Linear's HEX colour. Linear labels are colour-coded, so the planner
+   * draws it as the small swatch beside the label's name in the label
+   * picker (hex values only), the one place a colour from data appears;
+   * everything else stays in the planner's own marks (architecture §8.2,
+   * §8.5).
    */
   color: string;
   /** The team the label belongs to; null for a workspace label. */

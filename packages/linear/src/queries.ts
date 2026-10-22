@@ -440,7 +440,10 @@ ${RELATION_FIELDS}`;
 /**
  * Description, estimate, due date, the first page of labels and comments,
  * and the team's estimate scale (with up to two parent teams, for
- * sub-teams that inherit it).
+ * sub-teams that inherit it). Labels include archived ones: Linear keeps
+ * an archived label on the issues that carry it (linear.app/docs/labels),
+ * and an edit sends the whole set back (labelIds), so a set read without
+ * them would make any label edit drop them.
  */
 export const ISSUE_DETAIL_QUERY: string = `
 query IssueDetail($id: String!) {
@@ -458,7 +461,7 @@ query IssueDetail($id: String!) {
         parent { ...EstimateScaleFields }
       }
     }
-    labels(first: ${ISSUE_LABELS_PAGE_SIZE}) {
+    labels(first: ${ISSUE_LABELS_PAGE_SIZE}, includeArchived: true) {
       nodes { ...IssueLabelFields }
       ${PAGE_INFO}
     }
@@ -472,12 +475,12 @@ ${ESTIMATE_SCALE_FIELDS}
 ${ISSUE_LABEL_FIELDS}
 ${COMMENT_FIELDS}`;
 
-/** Further pages of one issue's labels. */
+/** Further pages of one issue's labels (archived ones included). */
 export const ISSUE_LABELS_PAGE_QUERY: string = `
 query IssueLabelsPage($id: String!, $after: String) {
   issue(id: $id) {
     id
-    labels(first: ${ISSUE_LABELS_PAGE_SIZE}, after: $after) {
+    labels(first: ${ISSUE_LABELS_PAGE_SIZE}, after: $after, includeArchived: true) {
       nodes { ...IssueLabelFields }
       ${PAGE_INFO}
     }

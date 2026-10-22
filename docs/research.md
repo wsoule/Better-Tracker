@@ -1553,6 +1553,18 @@ questions that need a live test.
   X-Complexity header to calibrate.  
   _Source (inferred, medium):_ https://linear.app/developers/rate-limiting
 
+- **NEW (issue page review, 2026-10-22): archived labels stay on issues.**
+  Linear's labels page: "Archiving a label keeps it on any issues where it's
+  been applied, but stops people from using that label moving forward." In the
+  SDL, `Issue.labels(…, includeArchived: Boolean)` defaults to false and
+  `IssueUpdateInput.labelIds` replaces the whole set, so an editor that reads
+  the set without `includeArchived: true` and sends it back drops archived
+  labels the person never touched. The same page: "Subteams can use labels
+  inherited from their parent team" (the planner offers only the team's own and
+  workspace labels; architecture §4.1).  
+  _Source (verified, high):_ https://linear.app/docs/labels (via Linear's
+  documentation search) and the vendored SDL.
+
 ### Open questions
 
 - What is the documented maximum for first/last on Linear connections? 250 is

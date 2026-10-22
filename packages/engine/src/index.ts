@@ -33,7 +33,6 @@ export { WEBHOOK_RETENTION_DAYS } from './cleanup';
 export { DONE_MEANS_MAX_LENGTH, WEIGHT_MAX, WEIGHT_MIN } from './pm-edits';
 export { ISSUE_HISTORY_LIMIT } from './issue-detail';
 export {
-  AUDIT_EXCERPT_LENGTH,
   normalizeCommentBody,
   normalizeIssuePatch,
   textSummary,

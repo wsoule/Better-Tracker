@@ -3,8 +3,10 @@
 // mirror does not keep (description, labels, estimate, due date, comments)
 // and the team's labels and estimate scale are read live with the viewer's
 // own token, so Linear's permissions decide what they see. When their token
-// cannot be used the app's reads instead; when the live read fails the page
-// still renders from the mirror, with `extra` null and the reason.
+// cannot be refreshed right now (a transient failure) the app's reads
+// instead; a grant Linear rejected for good is never bridged that way. When
+// the live read fails the page still renders from the mirror, with `extra`
+// null and the reason.
 
 import {
   buildIssueDetail,
@@ -18,7 +20,12 @@ import type { Logger } from '@better-tracker/logger';
 import { isLinearApiError } from './linear-errors';
 import { loadWorkspace } from './load';
 import { type EngineRuntime, errorMessage } from './runtime';
-import { type Actor, EngineInputError, type IssueDetailResult } from './types';
+import {
+  type Actor,
+  EngineAuthError,
+  EngineInputError,
+  type IssueDetailResult,
+} from './types';
 
 /** How many allocation run entries the issue page lists (newest first). */
 export const ISSUE_HISTORY_LIMIT = 20;
@@ -31,9 +38,18 @@ interface LiveRead {
   source: 'actor' | 'app' | null;
 }
 
-// The viewer's gateway, else the app's: a session whose Linear grant cannot
-// be used right now (expired, revoked, refresh failing) still gets the
-// page, read as the app.
+/** Thrown by readerFor when Linear rejected the viewer's grant for good. */
+class DeadGrant extends Error {}
+
+const DEAD_GRANT_MESSAGE =
+  'Linear no longer accepts your sign-in; sign in again to see the description, labels and comments.';
+
+// The viewer's gateway, else the app's: a session whose token cannot be
+// refreshed right now (Linear's token endpoint unreachable) still gets the
+// page, read as the app. A grant Linear rejected for good (invalid_grant:
+// the person revoked the planner or lost access, EngineAuthError
+// 'not_signed_in') is not bridged with the app's token: Linear has said
+// this person may no longer read through the planner.
 async function readerFor(
   rt: EngineRuntime,
   actor: Actor,
@@ -45,6 +61,10 @@ async function readerFor(
       source: 'actor',
     };
   } catch (error) {
+    if (error instanceof EngineAuthError && error.code === 'not_signed_in') {
+      log.warn("the viewer's Linear grant is dead; showing the mirror only");
+      throw new DeadGrant(DEAD_GRANT_MESSAGE);
+    }
     log.warn('cannot read Linear as the viewer; reading as the app', {
       error,
     });
@@ -95,12 +115,19 @@ async function readLive(
         extra: null,
         labels,
         source,
+        // Linear answers "not found" for an issue the token may not see
+        // (a private team) as well as for one that is gone.
         error:
-          'Linear no longer has this issue (deleted or archived); the next sync removes it here.',
+          source === 'actor'
+            ? 'Linear does not show this issue to your account: it is in a team you cannot see, or it was deleted or archived.'
+            : 'Linear no longer has this issue (deleted or archived); the next sync removes it here.',
       };
     }
     return { extra, labels, source, error: null };
   } catch (error) {
+    if (error instanceof DeadGrant) {
+      return { extra: null, labels: [], source: null, error: error.message };
+    }
     log.warn('live issue read failed; showing the mirror only', { error });
     return { extra: null, labels: [], source, error: liveReadError(error) };
   }

@@ -201,7 +201,7 @@ export interface AuditEntry {
     // A person's issue edits (owner decision 2026-10-21): one entry per
     // changed field; subjectId is the issue (the blocked issue for
     // relations). Comment and description texts are logged as their
-    // length and a short excerpt, never in full.
+    // length only, never any of their words.
     | 'issue.title'
     | 'issue.description'
     | 'issue.state'

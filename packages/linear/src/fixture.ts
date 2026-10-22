@@ -1556,22 +1556,26 @@ export function createFixtureGateway(
     };
   }
 
-  // Checks a label set the way Linear does: every label exists, is not
-  // archived or a group, belongs to the issue's team or the workspace, and
+  // Checks a label set the way Linear does: every label exists and is not
+  // a group; a label newly applied is not archived and belongs to the
+  // issue's team or the workspace (one the issue already carries may stay:
+  // Linear keeps an archived label on its issues, linear.app/docs/labels);
   // a single-select group contributes at most one label.
   function checkLabels(issue: Issue, labelIds: readonly string[]): string[] {
     const byId = labelsById();
+    const carried = new Set(fieldsOf(issue.id).labelIds);
     const unique = [...new Set(labelIds)];
     const groups = new Set<string>();
     for (const id of unique) {
       const entry = byId.get(id);
-      if (entry === undefined || entry.archived) {
+      const kept = carried.has(id);
+      if (entry === undefined || (entry.archived && !kept)) {
         throw refused(`Label not found: ${id}`);
       }
       if (entry.isGroup) {
         throw refused(`${entry.name} is a label group and cannot be applied`);
       }
-      if (entry.teamId !== null && entry.teamId !== issue.teamId) {
+      if (!kept && entry.teamId !== null && entry.teamId !== issue.teamId) {
         throw refused(`${entry.name} is not a label of this issue's team`);
       }
       const group =

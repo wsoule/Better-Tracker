@@ -257,6 +257,38 @@ describe('fixture updateIssueFields', () => {
     );
     await ana.updateIssueFields('iss-ops-5', { estimate: 21 });
   });
+
+  // linear.app/docs/labels: "Archiving a label keeps it on any issues
+  // where it's been applied, but stops people from using that label moving
+  // forward." labelIds replaces the whole set, so an edit that sends the
+  // carried archived label back must keep it.
+  test('keeps an archived label the issue carries; never applies it anew', async () => {
+    const { store, ana } = setup();
+    const fields = store.issueFields['iss-eng-12'];
+    if (fields === undefined) throw new Error('iss-eng-12 has demo fields');
+    fields.labelIds = [...fields.labelIds, 'lbl-legacy'];
+    const carried = [...fields.labelIds];
+
+    const before = await ana.fetchIssueDetail('iss-eng-12');
+    expect(before?.labels.map((l) => l.id)).toContain('lbl-legacy');
+
+    await ana.updateIssueFields('iss-eng-12', {
+      labelIds: [...carried, 'lbl-feature'],
+    });
+    expect(store.issueFields['iss-eng-12']?.labelIds).toEqual([
+      ...carried,
+      'lbl-feature',
+    ]);
+    // Removing it is allowed; putting it back is not.
+    const without = carried.filter((id) => id !== 'lbl-legacy');
+    await ana.updateIssueFields('iss-eng-12', { labelIds: without });
+    expect(store.issueFields['iss-eng-12']?.labelIds).toEqual(without);
+    expect(
+      await caught(
+        ana.updateIssueFields('iss-eng-12', { labelIds: [...carried] })
+      )
+    ).toMatchObject({ kind: 'invalid_input' });
+  });
 });
 
 describe('fixture relations and comments', () => {

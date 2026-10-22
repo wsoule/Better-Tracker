@@ -21,7 +21,8 @@ export interface FixtureIssueFields {
 export interface FixtureLabel {
   id: string;
   name: string;
-  /** Data only; the planner never paints label colours. */
+  /** Linear's hex colour; the planner draws it only as the label
+      picker's small swatch. */
   color: string;
   /** null = workspace label. */
   teamId: string | null;

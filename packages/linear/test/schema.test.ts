@@ -125,6 +125,31 @@ function connectionsWithoutPageInfo(source: string): string[] {
   return missing;
 }
 
+// Issue.labels selections that leave out `includeArchived: true`. Linear
+// keeps an archived label on the issues that carry it (linear.app/docs/
+// labels), and an edit sends the whole set back through labelIds, so a
+// read without archived labels would make any label edit drop them.
+function issueLabelsWithoutArchived(source: string): number {
+  const typeInfo = new TypeInfo(schema);
+  let missing = 0;
+  visit(
+    parse(source),
+    visitWithTypeInfo(typeInfo, {
+      Field(node) {
+        if (node.name.value !== 'labels') return;
+        if (typeInfo.getParentType()?.name !== 'Issue') return;
+        const archived = (node.arguments ?? []).find(
+          (arg) => arg.name.value === 'includeArchived'
+        );
+        if (archived?.value.kind !== Kind.BOOLEAN || !archived.value.value) {
+          missing += 1;
+        }
+      },
+    })
+  );
+  return missing;
+}
+
 // A conservative estimate of Linear's query complexity (architecture §4.1,
 // Linear's rate-limit docs): 0.1 per scalar, 1 per object, and a
 // connection multiplies everything under it (pageInfo included, which
@@ -319,7 +344,17 @@ describe('queries.ts against the Linear schema', () => {
     expect(queries.ISSUE_DETAIL_QUERY).toContain(
       'comments(first: 50, orderBy: createdAt)'
     );
-    expect(queries.ISSUE_DETAIL_QUERY).toContain('labels(first: 50)');
+    // An issue's labels include archived ones (Linear keeps them on the
+    // issue; an edit sends the whole set back).
+    expect(queries.ISSUE_DETAIL_QUERY).toContain(
+      'labels(first: 50, includeArchived: true)'
+    );
+    expect(queries.ISSUE_LABELS_PAGE_QUERY).toContain(
+      'labels(first: 50, after: $after, includeArchived: true)'
+    );
+    for (const [, source] of documents) {
+      expect(issueLabelsWithoutArchived(source)).toBe(0);
+    }
     // Team labels and workspace labels (team null), nothing else.
     expect(queries.TEAM_LABELS_QUERY).toContain(
       'filter: { or: [{ team: { id: { eq: $teamId } } }, { team: { null: true } }] }'

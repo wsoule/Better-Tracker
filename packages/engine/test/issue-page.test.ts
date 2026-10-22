@@ -187,10 +187,50 @@ describe('getIssueDetail when Linear cannot be read', () => {
     }
   });
 
-  test("falls back to the app's token when the person's cannot be used", async () => {
+  test("falls back to the app's token when the person's cannot be refreshed right now", async () => {
     const h = await createDemoHarness({
       linear: (fixture) => {
         const base = fixtureProvider(fixture);
+        return {
+          ...base,
+          // A transient failure of the token refresh (Linear's OAuth
+          // endpoint unreachable): the grant itself is still good.
+          forSession: () =>
+            Promise.reject(
+              new LinearApiError('network', 'token refresh timed out')
+            ),
+        };
+      },
+    });
+    try {
+      const member = await actorFor(h, 'user-dev');
+      const page = await h.engine.getIssueDetail(member, 'iss-eng-12');
+      expect(page.extraSource).toBe('app');
+      expect(page.extra?.labels).toHaveLength(2);
+      expect(page.extraError).toBeNull();
+    } finally {
+      await h.close();
+    }
+  });
+
+  // A grant Linear rejected for good (invalid_grant: the person revoked the
+  // planner or lost access) must not be bridged with the app's token: the
+  // page then shows the mirror only, and nothing is read as the app.
+  test("a dead grant is never bridged with the app's token", async () => {
+    const appReads: string[] = [];
+    const recordAppReads: GatewayWrapper = (gateway, actor) =>
+      actor === 'app'
+        ? {
+            ...gateway,
+            fetchIssueDetail: (id) => {
+              appReads.push(id);
+              return gateway.fetchIssueDetail(id);
+            },
+          }
+        : gateway;
+    const h = await createDemoHarness({
+      linear: (fixture) => {
+        const base = fixtureProvider(fixture, { wrap: recordAppReads });
         return {
           ...base,
           forSession: () =>
@@ -202,10 +242,37 @@ describe('getIssueDetail when Linear cannot be read', () => {
     });
     try {
       const member = await actorFor(h, 'user-dev');
+      appReads.length = 0;
       const page = await h.engine.getIssueDetail(member, 'iss-eng-12');
-      expect(page.extraSource).toBe('app');
-      expect(page.extra?.labels).toHaveLength(2);
-      expect(page.extraError).toBeNull();
+      expect(page.extra).toBeNull();
+      expect(page.extraSource).toBeNull();
+      expect(page.labels).toEqual([]);
+      expect(page.extraError).toBe(
+        'Linear no longer accepts your sign-in; sign in again to see the description, labels and comments.'
+      );
+      expect(appReads).toEqual([]);
+    } finally {
+      await h.close();
+    }
+  });
+
+  // Linear answers "not found" for an issue the person's token may not
+  // see (a private team): the page must not claim the issue is gone.
+  test('an issue Linear does not show to the person is not called deleted', async () => {
+    const h = await createDemoHarness({
+      wrap: (gateway, actor): LinearGateway =>
+        actor === 'app'
+          ? gateway
+          : { ...gateway, fetchIssueDetail: () => Promise.resolve(null) },
+    });
+    try {
+      const member = await actorFor(h, 'user-dev');
+      const page = await h.engine.getIssueDetail(member, 'iss-eng-12');
+      expect(page.extra).toBeNull();
+      expect(page.extraSource).toBe('actor');
+      expect(page.extraError).toBe(
+        'Linear does not show this issue to your account: it is in a team you cannot see, or it was deleted or archived.'
+      );
     } finally {
       await h.close();
     }
@@ -498,14 +565,71 @@ describe('issue edits: fields', () => {
     ]);
   });
 
-  test('long texts are audited as length and excerpt only', async () => {
+  // The audit log is shown to every signed-in person (Settings → Audit),
+  // while descriptions are read with each person's own token so Linear's
+  // permissions decide who sees them: the log keeps a text's length only,
+  // never any of its words (a short text's "excerpt" would be all of it).
+  test('descriptions are audited as their length only', async () => {
     const description = `${'Long text. '.repeat(30)}End.`;
     await h.engine.updateIssue(member, 'iss-eng-36', { description });
     const [entry] = await h.engine.listAudit(WORKSPACE_ID, 1);
     expect(entry?.action).toBe('issue.description');
+    expect(entry?.after).toEqual({ length: Array.from(description).length });
     expect(entry?.after).toEqual(textSummary(description));
-    const after = entry?.after as { excerpt: string } | undefined;
-    expect(after?.excerpt.length ?? Infinity).toBeLessThan(description.length);
+    await h.engine.updateIssue(member, 'iss-eng-36', { description: 'Short.' });
+    const [short] = await h.engine.listAudit(WORKSPACE_ID, 1);
+    expect(short?.before).toEqual({ length: Array.from(description).length });
+    expect(short?.after).toEqual({ length: 6 });
+    expect(JSON.stringify(short)).not.toContain('Short');
+    expect(JSON.stringify(short)).not.toContain('Long text');
+  });
+});
+
+describe('issue edits: archived labels', () => {
+  // linear.app/docs/labels: "Archiving a label keeps it on any issues
+  // where it's been applied, but stops people from using that label moving
+  // forward." An edit sends the whole label set back (labelIds), so the
+  // set read live must include it and the edit must be allowed to keep it.
+  test('a label edit keeps an archived label the issue carries', async () => {
+    const h = await createDemoHarness();
+    try {
+      const member = await actorFor(h, 'user-chloe');
+      const fields = h.fixture.issueFields['iss-eng-12'];
+      if (fields === undefined) throw new Error('iss-eng-12 has demo fields');
+      fields.labelIds = [...fields.labelIds, 'lbl-legacy'];
+
+      const page = await h.engine.getIssueDetail(member, 'iss-eng-12');
+      const carried = page.extra?.labels.map((label) => label.id) ?? [];
+      expect(carried).toContain('lbl-legacy');
+
+      const added = await h.engine.updateIssue(member, 'iss-eng-12', {
+        labelIds: [...carried, 'lbl-feature'],
+      });
+      expect(added.changed).toEqual(['labelIds']);
+      expect(h.fixture.issueFields['iss-eng-12']?.labelIds).toEqual(
+        expect.arrayContaining(['lbl-legacy', 'lbl-feature'])
+      );
+
+      // It can be removed, but not applied again once it is gone.
+      const without = carried.filter((id) => id !== 'lbl-legacy');
+      const removed = await h.engine.updateIssue(member, 'iss-eng-12', {
+        labelIds: without,
+      });
+      expect(removed.changed).toEqual(['labelIds']);
+      expect(h.fixture.issueFields['iss-eng-12']?.labelIds).not.toContain(
+        'lbl-legacy'
+      );
+      const error = await rejectsWith(
+        h.engine.updateIssue(member, 'iss-eng-12', { labelIds: carried }),
+        EngineInputError,
+        'invalid'
+      );
+      expect(error.message).toBe(
+        "A label is not available on this issue's team."
+      );
+    } finally {
+      await h.close();
+    }
   });
 });
 
@@ -675,6 +799,13 @@ describe('issue edits: comments and relations', () => {
       after: { commentId: comment.id, length: body.trim().length },
     });
     expect(JSON.stringify(entry?.after)).not.toContain(body.trim());
+
+    // A short comment is not kept in full either (an 80-character
+    // "excerpt" would be the whole of it): only its id and length.
+    const short = await h.engine.addComment(member, 'iss-eng-71', 'Done.');
+    const [shortEntry] = await h.engine.listAudit(WORKSPACE_ID, 1);
+    expect(shortEntry?.after).toEqual({ commentId: short.id, length: 5 });
+    expect(JSON.stringify(shortEntry)).not.toContain('Done');
 
     for (const bad of ['', '   ', 'x'.repeat(10_001)]) {
       await rejectsWith(
