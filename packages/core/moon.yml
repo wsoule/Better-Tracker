@@ -6,3 +6,17 @@ $schema: 'https://moonrepo.dev/schemas/project.json'
 language: 'typescript'
 layer: 'library'
 tags: ['tsdown']
+
+tasks:
+  # The inherited `bun test`, plus the ui's tokens.css: test/mermaid-hues
+  # keeps MERMAID_HUES equal to its status hues, so a token change must
+  # make this task affected (and change its cache hash). Explicit inputs
+  # replace the default whole-project input, so it is listed again, minus
+  # the installed and generated trees (explicit globs ignore .gitignore).
+  test:
+    inputs:
+      - '**/*'
+      - '!node_modules/**'
+      - '!dist/**'
+      - '!**/*.tsbuildinfo'
+      - '/packages/ui/src/styles/tokens.css'

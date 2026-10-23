@@ -35,9 +35,8 @@
 }
 
 /* Quiet one-line notes under the receipts: why the graph covers more
-   than asked (no initiatives), what this level cannot place, what has no
-   relation, a project counted under another initiative, a closed or cut
-   chain. */
+   than asked (no initiatives), what this level cannot place, a project
+   counted under another initiative, a closed or cut chain. */
 .notice {
   max-width: 96ch;
   font-size: 13px;
@@ -53,6 +52,30 @@
 
 .collapse > * + * {
   margin-top: -1px;
+}
+
+/* Every highlight's legend stacked in one grid cell, only the current one
+   shown: the cell keeps the tallest legend's height, so switching the
+   highlight never moves the switch or the drawing (the shown legend's
+   hairline box stretches to the cell). */
+.legends {
+  display: grid;
+}
+
+.legendSlot {
+  display: flex;
+  flex-direction: column;
+  grid-area: 1 / 1;
+  min-width: 0;
+  visibility: hidden;
+}
+
+.legendSlot[data-shown] {
+  visibility: visible;
+}
+
+.legendSlot > * {
+  flex: 1 1 auto;
 }
 
 .panel {
@@ -82,6 +105,36 @@
   gap: 8px;
 }
 
+/* The count after a list's mono key ("WAITS ON · 2"). */
+.panelCount {
+  font-weight: 400;
+}
+
+/* The panel's one-line summary above its lists: "Waits on 1 · Holds up 1
+   · Finishing it would clear 1". */
+.panelSummary {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* What a list leaves out because the graph does not draw it ("1 more
+   blocker is outside this graph."), and the box-arrow caveat under the
+   lists: quiet notes, never a status. */
+.panelNote,
+.panelCaveat {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* The highlight switch (Status / Risk / Critical path) after the level
+   tabs in the canvas toolbar; a phone gives it its own row. */
+.highlightSwitch {
+  display: flex;
+  min-width: 0;
+}
+
 .neighbour {
   display: inline-flex;
   align-items: center;
@@ -100,13 +153,13 @@
   color: var(--tone-ink);
 }
 
-/* Nodes with no blocking relation, listed under the canvas: a hairline
-   bar (count, why, Show/Hide) over a small register. */
-.isolated > * + * {
+/* Past the draw limits, where the canvas would be: the notice, then a
+   hairline bar (what the list is) over the narrower graphs' register. */
+.tooLarge > * + * {
   margin-top: -1px;
 }
 
-.isolatedBar {
+.tooLargeBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -115,40 +168,19 @@
   border: 1px solid var(--border);
 }
 
-.isolatedText {
+.tooLargeText {
   flex: 1 1 320px;
   min-width: 0;
   font-size: 13.5px;
   line-height: 1.5;
 }
 
-.isolatedTitle {
+.tooLargeTitle {
   font-weight: 600;
   color: var(--foreground);
 }
 
-.isolatedNote {
-  color: var(--muted);
-}
-
-/* "Showing 100 of 240. Narrow the graph to see the rest." under a cut
-   register. */
-.cutLine {
-  padding: 10px 18px;
-  border: 1px solid var(--border);
-  border-top: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-}
-
-.isolatedKey {
-  margin-right: 8px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
+.tooLargeNote {
   color: var(--muted);
 }
 
@@ -175,7 +207,13 @@
     padding: 0 16px 48px;
   }
 
-  .isolatedBar {
+  .tooLargeBar {
     padding: 12px 14px;
+  }
+}
+
+@media (width <= 640px) {
+  .highlightSwitch {
+    flex: 1 1 100%;
   }
 }

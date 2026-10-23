@@ -1,9 +1,11 @@
 import {
   type AllocationPlan,
   type DependencyGraph,
+  type GraphCluster,
   type GraphContainer,
   type GraphEdge,
   graphContainer,
+  type GraphHighlight,
   type GraphLevel,
   type GraphNode,
   type GraphScope,
@@ -11,6 +13,8 @@ import {
   homeInitiativeIds,
   type IsoDate,
   isIssueOpen,
+  type MermaidParts,
+  mermaidParts,
   type MilestoneAssessment,
   type MilestoneStatus,
   nextMilestoneId,
@@ -18,22 +22,33 @@ import {
   PRIORITY_LABEL,
   type Project,
   type ProjectAllocationPlan,
+  readinessClass,
+  readinessLabel,
   RISK_REASON_LABEL,
   RUBRIC_GAP_LABEL,
   type Snapshot,
   STATUS_LABEL,
-  toMermaid,
 } from '@better-tracker/core';
 import {
+  chainPhrase,
+  type GraphClusterData,
   type GraphEdgeData,
   type GraphEdgeKind,
   type GraphLayout,
   type GraphLegendItem,
   type GraphNodeData,
+  type GraphNodeReadiness,
   type GraphNodeTag,
   type GraphNodeTone,
+  type GraphPathWords,
   layoutGraph,
+  longestChain,
+  longestChains,
+  type LongestChains,
+  nameList,
   type NavTabItem,
+  type OpenChain,
+  pathNodeName,
   type ShellCrumb,
   type UiStatus,
   type UiTone,
@@ -48,11 +63,9 @@ import {
   graphHref,
   graphTrail,
   initiativeName,
-  ISOLATED_MAX_ROWS,
   levelTabs,
   NARROW_MAX_ROWS,
 } from './graph-scope';
-import { withIssueParam } from './issue';
 import { allocationCell, dueTone } from './projects';
 import { assessmentMark, uiStatus } from './status';
 
@@ -60,20 +73,36 @@ import { assessmentMark, uiStatus } from './status';
 // DependencyGraph at any of its four levels (initiative, project,
 // milestone, issue) inside the workspace, an initiative, a project, a
 // milestone or one issue's chain, mapped onto the ui package's
-// GraphNodeData / GraphEdgeData, plus everything the page says around it
-// (heading, trail, receipts, notices, the screen-reader summary, the
-// legend, the level tabs, the Mermaid text, each drawn node's slide-over
-// details, the server-side layout, and the too-large state). Pure
-// functions over engine data; the server page builds the model once and
-// the client island only renders it.
+// GraphNodeData / GraphEdgeData / GraphClusterData (readiness, boundary
+// crossings and the labelled frames included). Every item of the scope is
+// drawn, not only the ones on a blocking relation (owner decision
+// 2026-10-23): the arrows are the relations, and the frames group the
+// boxes by parent. Around the drawing: heading, trail, receipts, notices,
+// the screen-reader summary, the level tabs, each node's slide-over
+// details, the server-side layout, the too-large state, and per highlight
+// (Status, Risk, Critical path) the legend, the idle readout and the
+// Mermaid styles, with the readout's words. Pure functions over engine
+// data; the server page builds the model once and the client island only
+// renders it, switching highlights on its own.
 
 export {
+  addressHref,
+  carryHighlight,
   chainHref,
+  DEFAULT_GRAPH_HIGHLIGHT,
+  effectiveHighlight,
+  GRAPH_HIGHLIGHT_LABEL,
+  GRAPH_HIGHLIGHTS,
   GRAPH_PATH,
   graphHref,
+  HIGHLIGHT_COOKIE,
+  highlightCookie,
+  highlightFromCookies,
   levelTabs,
   parseGraphParams,
   parseGraphScope,
+  parseHighlight,
+  withHighlightParam,
 } from './graph-scope';
 
 function timelineMilestoneHref(milestoneId: string): string {
@@ -126,56 +155,6 @@ export interface GraphNodeDetail {
   issueKey: string | null;
 }
 
-/** One node with no blocking relation, listed under the canvas instead. */
-export interface IsolatedRow {
-  id: string;
-  /** Initiative, project or milestone name, or issue title. */
-  name: string;
-  /** The issue identifier ("ENG-12"); null for the other kinds. */
-  key: string | null;
-  status: UiStatus;
-  statusLabel: string;
-  /** The mark in greys whatever the status: paused work is never loud
-      (§2.8); the label still names the status. */
-  statusMuted: boolean;
-  /** Projects count (initiatives), lead (projects), project name
-      (milestones) or assignee (issues). */
-  context: string;
-  /** Warning when the context needs action ("No lead", "Unassigned"). */
-  contextTone: UiTone;
-  /** "Oct 26 · in 5 days", "No target date", "No open milestone". */
-  due: string;
-  /** dueTone's colour (danger overdue; warning undated or due today or
-      tomorrow); default for inactive work and a closed issue. */
-  dueTone: UiTone;
-  /** The initiative's or project's graph, the milestone's timeline drawer,
-      or the issue's slide-over on this graph (?issue=). */
-  href: string;
-  external: boolean;
-  rowLabel: string;
-  /** The box's tone: danger / warning draw the row's 2px rule in the
-      hue, muted greys a closed or inactive row. */
-  tone: UiTone;
-}
-
-/** The register of nodes left off the canvas (no edge in scope). */
-export interface IsolatedList {
-  /** "10 milestones have no blocking relations" (counts every one). */
-  title: string;
-  /** Why they are not drawn. */
-  note: string;
-  /** Register column labels: name, context, due. */
-  nameLabel: string;
-  contextLabel: string;
-  dueLabel: string;
-  /** At most ISOLATED_MAX_ROWS rows, in node order. */
-  rows: IsolatedRow[];
-  /** "Showing 100 of 240. Narrow the graph to see the rest.", or null. */
-  cutLine: string | null;
-  /** Long lists start collapsed behind a Show button. */
-  collapsed: boolean;
-}
-
 /** One way to narrow a graph too large to draw. */
 export interface GraphNarrowRow {
   id: string;
@@ -197,13 +176,7 @@ export interface GraphTooLarge {
 
 /** A quiet one-line paragraph under the receipts. */
 export interface GraphNotice {
-  id:
-    | 'fallback'
-    | 'unplaced'
-    | 'unrelated'
-    | 'shared'
-    | 'chain-closed'
-    | 'chain-cut';
+  id: 'fallback' | 'unplaced' | 'shared' | 'chain-closed' | 'chain-cut';
   text: string;
 }
 
@@ -225,18 +198,20 @@ export interface GraphPageModel {
   blockTitle: string;
   /** BlockBar meta over the graph. */
   meta: string;
-  /** The drawn nodes: those on at least one edge (plus any kept one). */
+  /** The drawn nodes: every item of the scope (plus the externals one
+      relation away), whether or not it is on an edge; empty when nothing
+      is drawn (no item, too large, or a chain with no relation). */
   nodes: GraphNodeData[];
   edges: GraphEdgeData[];
-  /** layoutGraph of nodes and edges, computed once on the server. */
+  /** The labelled frames the nodes are drawn in, parents first (core
+      DependencyGraph.clusters); empty at the initiative level, in a chain
+      and when nothing is drawn. The canvas names each box's frames. */
+  clusters: GraphClusterData[];
+  /** layoutGraph of nodes and edges (in the clusters, except for a
+      chain), computed once on the server. */
   layout: GraphLayout | null;
-  /** Slide-over details of the drawn nodes and the listed rows only. */
+  /** Slide-over details of the drawn nodes. */
   details: Record<string, GraphNodeDetail>;
-  /** Nodes with no blocking relation, or null when there are none. With
-   * nothing drawn it is null (the empty state covers that) except at an
-   * initiative's or a project's aggregate levels, where every box is
-   * listed so each one's own graph stays a click away. */
-  isolated: IsolatedList | null;
   /** Set instead of nodes when the graph is past GRAPH_DRAW_LIMITS. */
   tooLarge: GraphTooLarge | null;
   /** The ?node= box selected on arrival, when it is drawn. */
@@ -245,9 +220,24 @@ export interface GraphPageModel {
   focusId: string | null;
   ariaSummary: string;
   emptyMessage: string;
-  legend: GraphLegendItem[];
-  /** Mermaid text of the drawn graph; null when nothing is drawn. */
-  mermaid: string | null;
+  /** The legend of each highlight (the screen shows its own mode's). */
+  legends: Record<GraphHighlight, GraphLegendItem[]>;
+  /**
+   * What the readout under the drawing says with nothing pointed at, per
+   * highlight, over the drawn nodes ("3 ready · 5 blocked · 1 done").
+   * Empty when nothing is drawn. A chain graph's readout describes its
+   * focus instead.
+   */
+  readouts: Record<GraphHighlight, string>;
+  /** The readout's and the pill's words for this level (ui GraphPathWords). */
+  pathWords: Partial<GraphPathWords>;
+  /**
+   * Mermaid of the drawn graph as one body and a style block per
+   * highlight (core mermaidParts; the critical block draws the critical
+   * path shown at rest); Copy Mermaid joins the body with the current
+   * highlight's styles. Null when nothing is drawn.
+   */
+  mermaid: MermaidParts | null;
   /** The page's own breadcrumb ("Issues in Dual-write"), or null. */
   crumb: string | null;
 }
@@ -258,37 +248,12 @@ export interface GraphPageInput {
   assessments: ReadonlyMap<string, MilestoneAssessment>;
   allocationPlan: AllocationPlan;
   today: IsoDate;
-  /** ?node=: an aggregate box to select (and keep) on arrival. */
+  /** ?node=: an aggregate box to select on arrival. */
   nodeId?: string | null;
-  /** ?issue=: an issue slide-over is open, so ?node= selects nothing. Its
-      node is not kept: opening a listed issue must not move it onto the
-      canvas. */
+  /** ?issue=: an issue slide-over is open, so ?node= selects nothing. */
   issueKey?: string | null;
   /** Actor.readOnlyReason, for the no-initiatives notice. */
   readOnlyReason?: ReadOnlyReasonCopy;
-  /** Node ids drawn even without an edge. */
-  keep?: readonly string[];
-}
-
-/** Isolated lists longer than this start collapsed. */
-export const ISOLATED_COLLAPSE_AFTER = 6;
-
-/**
- * The ids of nodes that touch no edge, in node order, minus `keep`. They
- * are listed under the canvas rather than drawn: a column of unconnected
- * boxes would push the few that wait on each other out of view.
- */
-export function isolatedNodeIds(
-  nodeIds: readonly string[],
-  edges: readonly { from: string; to: string }[],
-  keep: readonly string[] = []
-): string[] {
-  const linked = new Set<string>(keep);
-  for (const edge of edges) {
-    linked.add(edge.from);
-    linked.add(edge.to);
-  }
-  return nodeIds.filter((id) => !linked.has(id));
 }
 
 function isMilestoneStatus(value: string): value is MilestoneStatus {
@@ -298,8 +263,10 @@ function isMilestoneStatus(value: string): value is MilestoneStatus {
 /** Whether an edge crosses the boundary the level draws as "cross": a
     project at the issue and milestone levels, a first initiative at the
     project level (never for a viewer without initiatives, whose edges
-    carry no crossInitiative), nothing at the initiative level. */
-function crossesBoundary(edge: GraphEdge, level: GraphLevel): boolean {
+    carry no crossInitiative), nothing at the initiative level. The
+    Status and Critical path highlights dash every such edge that still
+    blocks (ui GraphEdgeData.cross), whatever its kind. */
+export function crossesBoundary(edge: GraphEdge, level: GraphLevel): boolean {
   switch (level) {
     case 'issue':
     case 'milestone':
@@ -317,29 +284,40 @@ function crossesBoundary(edge: GraphEdge, level: GraphLevel): boolean {
 
 /**
  * How an edge is drawn, in the ui package's precedence (resolved > cycle >
- * risk > cross > default): a closed blocker no longer holds anything up,
- * a cycle is the loudest problem, a risk chain next, then the level's
- * boundary (crossesBoundary).
+ * risk > cross > default): an edge that no longer blocks (its blocker is
+ * done, or the issue that waited is) holds nothing up and is drawn
+ * "unblocked", a cycle is the loudest problem, a risk chain next, then the
+ * level's boundary (crossesBoundary). The kind never depends on the
+ * highlight, so the layout is the same in every mode.
  */
 export function edgeKind(
   edge: GraphEdge,
   level: GraphLevel = 'issue'
 ): GraphEdgeKind {
-  if (edge.resolved) return 'resolved';
+  if (!edge.blocking) return 'resolved';
   if (edge.inCycle) return 'cycle';
   if (edge.onRiskChain) return 'risk';
   if (crossesBoundary(edge, level)) return 'cross';
   return 'default';
 }
 
+/** The chip of an issue on an open cycle that this graph does not draw
+    whole: the word without the dashed outline, which stays for drawn
+    cycles (CYCLE). */
+export const ON_A_CYCLE_TAG = 'ON A CYCLE';
+
 /**
  * The mono chips on a node, from core's flags, in this order: UNASSIGNED
  * (open issues and milestones only: a project or initiative always holds
  * some unassigned later work; a filled amber chip), OVERDUE (never for an
- * inactive project's work; it floods the box red), CYCLE (the box gets the
- * dashed red outline), CYCLE INSIDE (a box holding an issue loop), NO LEAD
- * (an active project), INACTIVE (a box with no active project) and +N MORE
- * (a chain issue leading on to issues the chain cap left out).
+ * inactive project's work; it floods the box red under the Risk
+ * highlight), CYCLE (a drawn cycle: the box gets the dashed red outline),
+ * ON A CYCLE (an issue on an open cycle the graph does not draw whole, so
+ * its stuck red always has a word), CYCLE INSIDE (a box holding an issue
+ * loop), NO LEAD (an active project), INACTIVE (a box with no active
+ * project, or an open issue of an inactive one: paused work is quiet, and
+ * the word says why) and +N MORE (a chain issue leading on to issues the
+ * chain cap left out).
  */
 export function nodeTags(node: GraphNode): GraphNodeTag[] {
   const tags: GraphNodeTag[] = [];
@@ -353,11 +331,14 @@ export function nodeTags(node: GraphNode): GraphNodeTag[] {
   }
   if (node.overdue && node.active) tags.push('OVERDUE');
   if (node.inCycle) tags.push('CYCLE');
+  else if (!aggregate && node.open && node.holdsCycle) {
+    tags.push(ON_A_CYCLE_TAG);
+  }
   if (aggregate && node.holdsCycle) tags.push('CYCLE INSIDE');
   if (node.kind === 'project' && node.active && node.ownerId === null) {
     tags.push('NO LEAD');
   }
-  if (aggregate && !node.active) tags.push('INACTIVE');
+  if (!node.active && (aggregate || node.open)) tags.push('INACTIVE');
   if ((node.hiddenNeighbours ?? 0) > 0) {
     tags.push(`+${node.hiddenNeighbours} MORE`);
   }
@@ -398,6 +379,41 @@ export function nodeTone(node: GraphNode): GraphNodeTone {
       return unreachable;
     }
   }
+}
+
+/** The Status highlight's tone of each readiness class (core
+    readinessClass): ready a green edge, blocked the amber rule, stuck the
+    red rule, quiet (done or paused work) faint, and independent ("No
+    dependencies": on no blocking relation at all) neutral, so a graph of
+    every item is not a sea of green. */
+export const READINESS_TONE: Readonly<
+  Record<ReturnType<typeof readinessClass>, GraphNodeTone>
+> = {
+  ready: 'success',
+  blocked: 'warning',
+  stuck: 'danger',
+  independent: 'default',
+  quiet: 'muted',
+};
+
+/**
+ * Core's readiness facts as the ui draws them: the chip word (an
+ * independent node's "No dependencies" is said in its name and the
+ * readout, never drawn as a chip), the Status tone, the mirror-wide
+ * counts, and for a box whether anything in it can start (a clear box
+ * whose every open issue waits inside it cannot, so "start with" never
+ * points at it). Issues leave canStart unset.
+ */
+export function nodeReadiness(node: GraphNode): GraphNodeReadiness {
+  const readiness: GraphNodeReadiness = {
+    state: node.readiness,
+    label: readinessLabel(node),
+    tone: READINESS_TONE[readinessClass(node)],
+    blockedBy: node.blockedBy,
+    unblocks: node.unblocks,
+  };
+  if (node.kind !== 'issue') readiness.canStart = node.readyIssues > 0;
+  return readiness;
 }
 
 interface Mark {
@@ -457,6 +473,9 @@ interface PageContext {
   /** Each project's first initiative (homeInitiativeIds). */
   home: ReadonlyMap<string, string | null>;
   plans: ReadonlyMap<string, ProjectAllocationPlan>;
+  /** Drawn node id → the labels of its drawn direct blockers (blocking
+      edges between drawn nodes), for the panel's Readiness row. */
+  drawnBlockers: Map<string, string[]>;
 }
 
 function homeOf(ctx: PageContext, projectId: string): string {
@@ -516,15 +535,6 @@ function containerPhrase(ctx: PageContext, noun: string): string {
       : 'in projects with no initiative';
   }
   return `in ${ctx.containerName}`;
-}
-
-/** "a project with no initiative" or the container's name, as the place
-    an open issue sits in ("No open issue in {it} blocks …"). */
-function containerSubject(ctx: PageContext): string {
-  const { container } = ctx;
-  return container.kind === 'initiative' && container.id === NO_INITIATIVE_ID
-    ? 'a project with no initiative'
-    : ctx.containerName;
 }
 
 /**
@@ -625,6 +635,89 @@ function outsideLine(ctx: PageContext, noun: string): GraphProperty {
   };
 }
 
+/**
+ * A box's Readiness panel row (§2.10 "Readiness"), toned by its Status
+ * class (an inactive box carries no tone, §2.8): "Waiting on 1 milestone:
+ * Dual-write" (warning; the drawn direct blockers, "(1 not drawn)" when it
+ * waits on more boxes, and the blockers with no box at this level counted
+ * apart as issues: "…, and 2 issues with no milestone"), "Clear: nothing
+ * outside it holds it up" (success), "None ready: …" (danger), a waiting
+ * box none of whose issues can start (danger), "No dependencies: …" (no
+ * tone: on no blocking relation), "Complete" (it has issues, none open)
+ * or "No issues" (nothing counts toward it in the viewer's mirror).
+ */
+function readinessRow(ctx: PageContext, node: GraphNode): GraphProperty {
+  const klass = readinessClass(node);
+  const tone: UiTone = klass === 'quiet' ? 'default' : READINESS_TONE[klass];
+  if (node.readiness === 'done') {
+    return { label: 'Readiness', value: 'Complete', tone: 'default' };
+  }
+  if (node.readiness === 'empty') {
+    return { label: 'Readiness', value: 'No issues', tone: 'default' };
+  }
+  if (node.readiness === 'independent') {
+    return {
+      label: 'Readiness',
+      value: `No dependencies: it neither waits on nor holds up another ${node.kind}`,
+      tone: 'default',
+    };
+  }
+  if (node.readiness === 'ready') {
+    return {
+      label: 'Readiness',
+      value:
+        node.readyIssues === 0
+          ? 'None ready: every open issue in it waits on another'
+          : 'Clear: nothing outside it holds it up',
+      tone,
+    };
+  }
+  const names = ctx.drawnBlockers.get(node.id) ?? [];
+  // Blockers with no box at this level are issues, not boxes (core
+  // unplacedBlockers): counted apart, never under the level's noun.
+  const unplaced = node.unplacedBlockers;
+  const boxes = Math.max(0, node.blockedBy - unplaced);
+  const notDrawn = Math.max(0, boxes - names.length);
+  const listed = names.length === 0 ? '' : `: ${nameList(names)}`;
+  const extra = notDrawn > 0 ? ` (${notDrawn} not drawn)` : '';
+  const home = node.kind === 'milestone' ? 'milestone' : 'project';
+  const loose =
+    unplaced > 0 ? `${plural(unplaced, 'issue')} with no ${home}` : '';
+  const stuck =
+    klass === 'stuck'
+      ? '. None of its open issues can start: a cycle inside holds some of them'
+      : '';
+  const waits =
+    boxes === 0
+      ? loose
+      : `${plural(boxes, node.kind)}${listed}${extra}${loose === '' ? '' : `, and ${loose}`}`;
+  return {
+    label: 'Readiness',
+    value: `Waiting on ${waits}${stuck}`,
+    tone,
+  };
+}
+
+/** "4 open · 3 can start · 1 blocked" (core's mirror-wide counts), or
+    "None open"; `unassigned` adds "· 2 unassigned" (the initiative's row).
+    "Can start", not "ready": the issues nothing open blocks include those
+    on no relation at all, which the Issues level calls "No dependencies"
+    and keeps "Ready" for the ones in the blocking flow (owner, 2026-10-23). */
+function openIssuesValue(node: GraphNode, unassigned = 0): string {
+  if (node.openIssues === 0) return 'None open';
+  const blocked = node.openIssues - node.readyIssues;
+  const tail = unassigned > 0 ? ` · ${unassigned} unassigned` : '';
+  return `${node.openIssues} open · ${node.readyIssues} can start · ${blocked} blocked${tail}`;
+}
+
+/** The Readiness and Open issues rows of a project or milestone panel. */
+function readinessRows(ctx: PageContext, node: GraphNode): GraphProperty[] {
+  return [
+    readinessRow(ctx, node),
+    { label: 'Open issues', value: openIssuesValue(node) },
+  ];
+}
+
 function initiativeDetail(
   ctx: PageContext,
   node: GraphNode,
@@ -635,12 +728,10 @@ function initiativeDetail(
   const none = id === NO_INITIATIVE_ID;
   const projects = projectsUnder(ctx, id);
   const inactive = projects.filter((p) => isInactive(ctx, p.id)).length;
-  let open = 0;
   let unassigned = 0;
   for (const project of projects) {
     for (const issue of snapshot.issuesByProject.get(project.id) ?? []) {
       if (!isIssueOpen(snapshot, issue)) continue;
-      open += 1;
       if (issue.assigneeId === null) unassigned += 1;
     }
   }
@@ -665,10 +756,8 @@ function initiativeDetail(
       label: 'Projects',
       value: `${plural(projects.length, 'project')}${inactive > 0 ? ` · ${inactive} inactive` : ''}`,
     },
-    {
-      label: 'Open issues',
-      value: `${open} open${unassigned > 0 ? ` · ${unassigned} unassigned` : ''}`,
-    },
+    readinessRow(ctx, node),
+    { label: 'Open issues', value: openIssuesValue(node, unassigned) },
     {
       label: 'At risk',
       value: atRisk.length === 0 ? 'None' : atRisk.join('; '),
@@ -757,6 +846,7 @@ function projectDetail(
       tone: active && progress.openUnassigned > 0 ? 'warning' : 'default',
     });
   }
+  properties.push(...readinessRows(ctx, node));
   const cell = allocationCell(ctx.plans.get(node.id) ?? null);
   properties.push({
     label: 'Allocation',
@@ -834,7 +924,7 @@ function milestoneDetail(
   const progress = assessment?.progress;
   const lead = userName(snapshot, project?.leadId ?? null);
   // An inactive project's milestone is never loud (§2.8): the panel says
-  // the same facts without a status hue, as its box and register row do.
+  // the same facts without a status hue, as its box does.
   const loud = node.active;
   const properties: GraphProperty[] = [
     {
@@ -870,6 +960,7 @@ function milestoneDetail(
       tone: loud && progress.openUnassigned > 0 ? 'warning' : 'default',
     });
   }
+  properties.push(...readinessRows(ctx, node));
   if (assessment !== undefined && assessment.reasons.length > 0) {
     properties.push({
       label: 'Risk reasons',
@@ -1008,11 +1099,11 @@ function issueDetail(
   };
 }
 
-/** What one node draws and says, per kind: mark, sublabel, cluster. */
+/** What one node draws and says, per kind: its mark and sublabel (the
+    frame it sits in comes from core's clusters). */
 interface NodeFace {
   mark: Mark;
   sublabel: string;
-  group: string | undefined;
 }
 
 function nodeFace(ctx: PageContext, node: GraphNode): NodeFace {
@@ -1026,22 +1117,14 @@ function nodeFace(ctx: PageContext, node: GraphNode): NodeFace {
           node.id === NO_INITIATIVE_ID
             ? node.sublabel
             : `${node.sublabel} · ${target ?? 'no target date'}`,
-        group: undefined,
       };
     }
     case 'project':
-      return {
-        mark: projectMark(ctx, node.id),
-        sublabel: node.sublabel,
-        group: ctx.hasInitiatives
-          ? initiativeName(snapshot, node.initiativeId ?? NO_INITIATIVE_ID)
-          : undefined,
-      };
+      return { mark: projectMark(ctx, node.id), sublabel: node.sublabel };
     case 'milestone':
       return {
         mark: milestoneMark(node, assessments.get(node.id)),
         sublabel: milestoneSublabel(snapshot, node.id, today),
-        group: projectName(snapshot, node.projectId),
       };
     case 'issue': {
       const issue = snapshot.issues.get(node.id);
@@ -1056,7 +1139,6 @@ function nodeFace(ctx: PageContext, node: GraphNode): NodeFace {
           stateName,
         }),
         sublabel: node.sublabel,
-        group: projectName(snapshot, node.projectId),
       };
     }
     default: {
@@ -1159,7 +1241,7 @@ const ISSUE_LEGEND: GraphLegendItem[] = [
   },
   { mark: 'edge-cycle', label: 'Cycle', note: 'both ends wait' },
   { mark: 'edge-cross', label: 'Cross-project', note: 'leaves its project' },
-  { mark: 'edge-resolved', label: 'Resolved', note: 'blocker closed' },
+  { mark: 'edge-resolved', label: 'Unblocked', note: 'one end is done' },
 ];
 
 /** The issue legend where nothing is outside the scope: the workspace
@@ -1240,7 +1322,13 @@ function withExternal(
   ];
 }
 
-function legendFor(ctx: PageContext): GraphLegendItem[] {
+/** The Risk highlight's legend: the level's boxes and arrows (today's
+    look, "Resolved" now "Unblocked"), then the Paths row. */
+function riskLegend(ctx: PageContext): GraphLegendItem[] {
+  return [...riskMarks(ctx), ...pathItems(ctx.scope.level !== 'issue')];
+}
+
+function riskMarks(ctx: PageContext): GraphLegendItem[] {
   const { container } = ctx;
   const level = ctx.scope.level;
   const where =
@@ -1290,39 +1378,401 @@ function legendFor(ctx: PageContext): GraphLegendItem[] {
   }
 }
 
-/* ---- the "no blocking relations" register ---------------------------------- */
+/** The box being read: what the reader points at, focuses or taps
+    (the accent flood, on every input). */
+const READING_ITEM: GraphLegendItem = {
+  mark: 'path-active',
+  label: 'Reading',
+  note: 'the box you point at, focus or tap',
+};
 
-/** Register copy per level (§8.5 isolated register). */
-const ISOLATED_COPY: Readonly<
-  Record<
-    GraphLevel,
-    { noun: string; nameLabel: string; contextLabel: string; dueLabel: string }
-  >
-> = {
-  initiative: {
-    noun: 'initiative',
-    nameLabel: 'Initiative',
-    contextLabel: 'Projects',
-    dueLabel: 'Target',
-  },
-  project: {
-    noun: 'project',
-    nameLabel: 'Project',
-    contextLabel: 'Lead',
-    dueLabel: 'Next milestone',
-  },
-  milestone: {
-    noun: 'milestone',
-    nameLabel: 'Milestone',
-    contextLabel: 'Project',
-    dueLabel: 'Due',
-  },
-  issue: {
-    noun: 'issue',
-    nameLabel: 'Issue',
-    contextLabel: 'Assignee',
-    dueLabel: 'Due',
-  },
+/** What pointing at a box lights (the Paths row of every legend but the
+    Critical path's): box paths follow the box arrows above the issue
+    level, and "Clear next" replaces "Ready next" there. */
+function pathItems(aggregate: boolean): GraphLegendItem[] {
+  return [
+    READING_ITEM,
+    {
+      mark: 'path-up',
+      label: 'Waits on',
+      note: 'what the box you point at waits on',
+    },
+    {
+      mark: 'path-down',
+      label: 'Holds up',
+      note: aggregate
+        ? 'what waits on it, through box arrows'
+        : 'what waits on it',
+    },
+    aggregate
+      ? {
+          mark: 'path-next',
+          label: 'Clear next',
+          note: 'clear once it is finished',
+        }
+      : {
+          mark: 'path-next',
+          label: 'Ready next',
+          note: 'ready once it is done',
+        },
+  ];
+}
+
+/** Whether the scope draws boxes from outside its container (one hop). */
+function drawsExternals(ctx: PageContext): boolean {
+  const { container } = ctx;
+  if (ctx.scope.level === 'initiative') return false;
+  return (
+    container.kind === 'initiative' ||
+    container.kind === 'project' ||
+    container.kind === 'milestone'
+  );
+}
+
+/** "External — outside …", when the scope draws externals. */
+function externalItems(ctx: PageContext): GraphLegendItem[] {
+  if (!drawsExternals(ctx)) return [];
+  const { container } = ctx;
+  const where =
+    ctx.scope.level === 'issue'
+      ? 'this scope'
+      : container.kind === 'initiative'
+        ? 'this initiative'
+        : 'this project';
+  return [
+    { mark: 'node-external', label: 'External', note: `outside ${where}` },
+  ];
+}
+
+/** "Focus — the issue this chain is about", on a chain. */
+function focusItems(ctx: PageContext): GraphLegendItem[] {
+  return ctx.container.kind === 'chain'
+    ? [
+        {
+          mark: 'node-focus',
+          label: 'Focus',
+          note: 'the issue this chain is about',
+        },
+      ]
+    : [];
+}
+
+/** The faint box of each aggregate level (today's notes). */
+function quietItem(level: GraphLevel): GraphLegendItem {
+  switch (level) {
+    case 'initiative':
+      return {
+        mark: 'node-muted',
+        label: 'Inactive',
+        note: 'no active project',
+      };
+    case 'project':
+      return {
+        mark: 'node-muted',
+        label: 'Inactive',
+        note: 'paused or not started',
+      };
+    case 'milestone':
+      return {
+        mark: 'node-muted',
+        label: 'Complete or inactive',
+        note: 'nothing open, or a paused project',
+      };
+    case 'issue':
+      return {
+        mark: 'node-muted',
+        label: 'Done or paused',
+        note: 'closed, or in a paused project (Inactive)',
+      };
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+}
+
+/** The level's cross-boundary arrow, as the Risk legend names it. */
+function crossItems(ctx: PageContext): GraphLegendItem[] {
+  const level = ctx.scope.level;
+  switch (level) {
+    case 'issue':
+    case 'milestone':
+      return [
+        {
+          mark: 'edge-cross',
+          label: 'Cross-project',
+          note: 'leaves its project',
+        },
+      ];
+    case 'project':
+      return ctx.hasInitiatives
+        ? [
+            {
+              mark: 'edge-cross',
+              label: 'Cross-initiative',
+              note: 'leaves its initiative',
+            },
+          ]
+        : [];
+    case 'initiative':
+      return [];
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * The Status highlight's legend: where each box stands (ready / no
+ * dependencies / blocked / stuck / done or paused at the issue level;
+ * clear / no dependencies / waiting / stuck / the level's faint box above
+ * it; a chain draws nothing without a relation), the drawn-cycle outline,
+ * externals and the focus; the arrows, with unblocked ones as green dots;
+ * the paths.
+ */
+function statusLegend(ctx: PageContext): GraphLegendItem[] {
+  const level = ctx.scope.level;
+  const noun = levelNoun(level);
+  const aggregate = level !== 'issue';
+  const boxes: GraphLegendItem[] = aggregate
+    ? [
+        {
+          mark: 'node-ready',
+          label: 'Clear',
+          note: 'nothing outside it holds it up',
+        },
+        {
+          mark: 'node',
+          label: 'No dependencies',
+          note: `it neither waits on nor holds up another ${noun}`,
+        },
+        {
+          mark: 'node-blocked',
+          label: 'Waiting',
+          note: `an open issue in it waits on another ${noun}`,
+        },
+        {
+          mark: 'node-stuck',
+          label: 'Stuck',
+          note: 'nothing inside can start: a cycle inside holds it',
+        },
+        {
+          mark: 'node-cycle',
+          label: 'In a cycle',
+          note: 'they wait on each other',
+        },
+        quietItem(level),
+      ]
+    : [
+        { mark: 'node-ready', label: 'Ready', note: 'nothing open blocks it' },
+        // A chain draws only what is on it.
+        ...(ctx.container.kind === 'chain'
+          ? []
+          : [
+              {
+                mark: 'node' as const,
+                label: 'No dependencies',
+                note: 'it neither blocks nor waits on another issue',
+              },
+            ]),
+        {
+          mark: 'node-blocked',
+          label: 'Blocked',
+          note: 'an open issue blocks it',
+        },
+        {
+          mark: 'node-stuck',
+          label: 'Stuck',
+          note: 'on a blocking cycle (it may run outside this graph)',
+        },
+        { mark: 'node-cycle', label: 'In a cycle', note: 'waits on itself' },
+        quietItem(level),
+      ];
+  const arrows: GraphLegendItem[] = aggregate
+    ? [
+        {
+          mark: 'edge-default',
+          label: 'Blocks',
+          note: 'an open issue blocks one',
+        },
+        { mark: 'edge-cycle', label: 'Cycle', note: 'both ends wait' },
+        ...crossItems(ctx),
+        WEIGHT_ITEM,
+      ]
+    : [
+        {
+          mark: 'edge-default',
+          label: 'Blocks',
+          note: 'the blocker is still open',
+        },
+        {
+          mark: 'edge-unblocked',
+          label: 'Unblocked',
+          note: 'one end is done: no longer blocking',
+        },
+        { mark: 'edge-cycle', label: 'Cycle', note: 'both ends wait' },
+        ...crossItems(ctx),
+      ];
+  return [
+    ...boxes,
+    ...externalItems(ctx),
+    ...focusItems(ctx),
+    ...arrows,
+    ...pathItems(aggregate),
+  ];
+}
+
+/**
+ * The Critical path highlight's legend: the numbered boxes on the
+ * longest chain and the faded rest, the drawn-cycle outline, externals
+ * and the focus; the chain's heavier arrows (counted in issues, or in the
+ * level's boxes), plain and cycle arrows, unblocked dots at the issue
+ * level; and what pointing at a box shows.
+ */
+function criticalLegend(ctx: PageContext): GraphLegendItem[] {
+  const level = ctx.scope.level;
+  const aggregate = level !== 'issue';
+  const counted = `${levelNoun(level)}s`;
+  return [
+    {
+      mark: 'node-chain',
+      label: 'Critical path',
+      note: 'numbered in order; each waits on the one before',
+    },
+    { mark: 'node-faded', label: 'Off the path', note: 'faded' },
+    {
+      mark: 'node-cycle',
+      label: 'In a cycle',
+      note: aggregate ? 'they wait on each other' : 'waits on itself',
+    },
+    ...externalItems(ctx),
+    ...focusItems(ctx),
+    {
+      mark: 'edge-chain',
+      label: 'Critical path',
+      note: `the longest chain of open blockers, counted in ${counted}`,
+    },
+    {
+      mark: 'edge-default',
+      label: 'Blocks',
+      note: aggregate
+        ? 'an open issue blocks one'
+        : 'the blocker is still open',
+    },
+    { mark: 'edge-cycle', label: 'Cycle', note: 'both ends wait' },
+    ...(aggregate
+      ? []
+      : [
+          {
+            mark: 'edge-resolved' as const,
+            label: 'Unblocked',
+            note: 'one end is done',
+          },
+        ]),
+    READING_ITEM,
+    {
+      mark: 'path-chain',
+      label: 'Critical path',
+      note: 'through the box you point at: the longest chain it is on',
+    },
+  ];
+}
+
+/**
+ * The frames the graph draws, for every highlight's Nodes row: what a
+ * frame stands for at this level (a milestone, inside its project's frame
+ * when the issues span projects; a project; an initiative), then the
+ * hatched frame of paused work when one is drawn. None at the initiative
+ * level, in a chain, or in a mirror without initiatives at the project
+ * level (no clusters).
+ */
+function frameItems(
+  level: GraphLevel,
+  clusters: readonly GraphCluster[]
+): GraphLegendItem[] {
+  if (clusters.length === 0) return [];
+  let frame: GraphLegendItem;
+  switch (level) {
+    case 'issue':
+      frame = {
+        mark: 'cluster',
+        label: 'Milestone',
+        note: clusters.some((cluster) => cluster.kind === 'project')
+          ? 'a frame of its issues, inside its project’s'
+          : 'a frame of its issues',
+      };
+      break;
+    case 'milestone':
+      frame = {
+        mark: 'cluster',
+        label: 'Project',
+        note: 'a frame of its milestones',
+      };
+      break;
+    case 'project':
+      frame = {
+        mark: 'cluster',
+        label: 'Initiative',
+        note: 'a frame of its projects (each under its first initiative)',
+      };
+      break;
+    case 'initiative':
+      return [];
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+  return clusters.some((cluster) => !cluster.active)
+    ? [
+        frame,
+        {
+          mark: 'cluster-muted',
+          label: 'Inactive',
+          note: 'a hatched frame of paused work',
+        },
+      ]
+    : [frame];
+}
+
+/** Every highlight's legend for the page's level and container, each
+    with the frames the graph draws. */
+function legendsFor(
+  ctx: PageContext,
+  clusters: readonly GraphCluster[]
+): Record<GraphHighlight, GraphLegendItem[]> {
+  const frames = frameItems(ctx.scope.level, clusters);
+  return {
+    status: [...statusLegend(ctx), ...frames],
+    risk: [...riskLegend(ctx), ...frames],
+    critical: [...criticalLegend(ctx), ...frames],
+  };
+}
+
+/** Core's clusters as the ui draws them (GraphClusterData): the frame of
+    work with nothing active muted (hatched), one holding only boxes from
+    outside the scope dashed. */
+export function clusterData(
+  clusters: readonly GraphCluster[]
+): GraphClusterData[] {
+  return clusters.map((cluster) => {
+    const data: GraphClusterData = { id: cluster.id, label: cluster.label };
+    if (cluster.parentId !== null) data.parent = cluster.parentId;
+    if (!cluster.active) data.muted = true;
+    if (cluster.external) data.external = true;
+    return data;
+  });
+}
+
+/* ---- words per level ------------------------------------------------------- */
+
+/** Each level's noun in counts ("3 milestones"). */
+const LEVEL_NOUN: Readonly<Record<GraphLevel, string>> = {
+  initiative: 'initiative',
+  project: 'project',
+  milestone: 'milestone',
+  issue: 'issue',
 };
 
 /** An aggregate box's mark label, saying why the box is quiet when it is
@@ -1330,242 +1780,6 @@ const ISOLATED_COPY: Readonly<
 function quietLabel(node: GraphNode, label: string): string {
   if (node.active) return label;
   return `${label} · ${node.kind === 'initiative' ? 'no active project' : 'inactive project'}`;
-}
-
-/** A register row's tone: the box's own (a status tone, muted, or
-    default), so the row's rule repeats the box's hue. */
-function rowTone(data: GraphNodeData): IsolatedRow['tone'] {
-  return data.tone;
-}
-
-/** An initiative left off the canvas: opens its own graph. */
-function isolatedInitiativeRow(
-  ctx: PageContext,
-  node: GraphNode,
-  data: GraphNodeData
-): IsolatedRow {
-  return {
-    id: node.id,
-    name: node.label,
-    key: null,
-    status: data.status ?? 'missing',
-    statusLabel: data.statusLabel ?? '',
-    statusMuted: !node.active,
-    context: node.sublabel,
-    contextTone: 'default',
-    due: initiativeTarget(ctx, node.id) ?? 'No target date',
-    dueTone: 'default',
-    href: graphHref({ level: 'project', initiativeId: node.id }),
-    external: false,
-    rowLabel: `${node.label}, ${node.sublabel}: open its graph`,
-    tone: rowTone(data),
-  };
-}
-
-/** A project left off the canvas: opens its issue graph. */
-function isolatedProjectRow(
-  ctx: PageContext,
-  node: GraphNode,
-  data: GraphNodeData
-): IsolatedRow {
-  const project = ctx.snapshot.projects.get(node.id);
-  const lead = userName(ctx.snapshot, project?.leadId ?? null);
-  const next = nextMilestoneOf(ctx, node.id);
-  return {
-    id: node.id,
-    name: node.label,
-    key: null,
-    status: data.status ?? 'missing',
-    statusLabel: data.statusLabel ?? '',
-    statusMuted: !node.active,
-    context: lead ?? 'No lead',
-    contextTone: lead === null && node.active ? 'warning' : 'default',
-    due:
-      next === null
-        ? 'No open milestone'
-        : dueLabel(
-            next.milestone.targetDate,
-            next.assessment?.daysLeft ?? null,
-            ctx.today,
-            next.assessment?.status
-          ),
-    dueTone:
-      next === null || !node.active
-        ? 'default'
-        : dueTone(
-            next.assessment?.status ?? null,
-            next.assessment?.daysLeft ?? null,
-            next.milestone.targetDate === null
-          ),
-    href: graphHref({ level: 'issue', projectId: node.id }),
-    external: false,
-    rowLabel: `${node.label}, ${lead ?? 'no lead'}: open its graph`,
-    tone: rowTone(data),
-  };
-}
-
-/** A milestone left off the canvas, as a register row. */
-function isolatedMilestoneRow(
-  ctx: PageContext,
-  node: GraphNode,
-  data: GraphNodeData
-): IsolatedRow {
-  const { snapshot, assessments, today } = ctx;
-  const milestone = snapshot.milestones.get(node.id);
-  const assessment = assessments.get(node.id);
-  return {
-    id: node.id,
-    name: node.label,
-    key: null,
-    status: data.status ?? 'missing',
-    statusLabel: data.statusLabel ?? '',
-    statusMuted: !node.active,
-    context: projectName(snapshot, node.projectId),
-    contextTone: 'default',
-    due: dueLabel(
-      milestone?.targetDate ?? null,
-      assessment?.daysLeft ?? null,
-      today,
-      assessment?.status
-    ),
-    // Paused work is never loud (§2.8): no toned date, a muted row.
-    dueTone: node.active
-      ? dueTone(
-          assessment?.status ?? null,
-          assessment?.daysLeft ?? null,
-          (milestone?.targetDate ?? null) === null
-        )
-      : 'default',
-    href: timelineMilestoneHref(node.id),
-    external: false,
-    rowLabel: `${node.label}, ${projectName(snapshot, node.projectId)}: open on the timeline`,
-    tone: rowTone(data),
-  };
-}
-
-/** An issue left off the canvas, as a register row (opens the issue's
-    slide-over on this graph). */
-function isolatedIssueRow(
-  ctx: PageContext,
-  node: GraphNode,
-  data: GraphNodeData
-): IsolatedRow {
-  const { snapshot, assessments, today } = ctx;
-  const issue = snapshot.issues.get(node.id);
-  const milestone =
-    issue?.milestoneId == null
-      ? undefined
-      : snapshot.milestones.get(issue.milestoneId);
-  const assignee = userName(snapshot, issue?.assigneeId ?? null);
-  const key = issue?.identifier ?? null;
-  return {
-    id: node.id,
-    name: node.label,
-    key,
-    status: data.status ?? 'missing',
-    statusLabel: data.statusLabel ?? '',
-    statusMuted: false,
-    context: assignee ?? 'Unassigned',
-    // An inactive project's issue is never loud (§2.8), like its box.
-    contextTone:
-      assignee === null && node.open && node.active ? 'warning' : 'default',
-    // A closed issue is not late, whatever its milestone's countdown says.
-    due:
-      milestone === undefined
-        ? 'No milestone'
-        : dueLabel(
-            milestone.targetDate,
-            node.open
-              ? (assessments.get(milestone.id)?.daysLeft ?? null)
-              : null,
-            today
-          ),
-    dueTone: node.active && node.overdue ? 'danger' : 'default',
-    href: withIssueParam(ctx.scopeHref, key ?? node.id),
-    external: false,
-    rowLabel: `${key === null ? '' : `${key} `}${node.label}`,
-    tone: rowTone(data),
-  };
-}
-
-function isolatedRow(
-  ctx: PageContext,
-  node: GraphNode,
-  data: GraphNodeData
-): IsolatedRow {
-  switch (node.kind) {
-    case 'initiative':
-      return isolatedInitiativeRow(ctx, node, data);
-    case 'project':
-      return isolatedProjectRow(ctx, node, data);
-    case 'milestone':
-      return isolatedMilestoneRow(ctx, node, data);
-    case 'issue':
-      return isolatedIssueRow(ctx, node, data);
-    default: {
-      const unreachable: never = node.kind;
-      return unreachable;
-    }
-  }
-}
-
-/** What a register row opens, as the note says it when the register is
-    all the page shows (listsWhenEmpty). */
-const OPENS: Readonly<Record<GraphLevel, string>> = {
-  initiative: 'Open one to see its projects.',
-  project: 'Open one to see its issues.',
-  milestone: 'Open one on the timeline.',
-  issue: 'Open one to see it.',
-};
-
-/**
- * The register under the canvas, or null when it would be empty. `total`
- * counts every isolated node; `rows` holds at most ISOLATED_MAX_ROWS.
- * `alone` is the empty state of a container's aggregate level: the page
- * already says nothing is joined, so the note says what a row opens.
- */
-function isolatedList(
-  level: GraphLevel,
-  rows: IsolatedRow[],
-  total: number,
-  alone = false
-): IsolatedList | null {
-  if (total === 0) return null;
-  const copy = ISOLATED_COPY[level];
-  const them = total === 1 ? 'it' : 'them';
-  let note: string;
-  switch (level) {
-    case 'initiative':
-    case 'project':
-    case 'milestone':
-      note = alone
-        ? OPENS[level]
-        : `Not drawn: no open issue in ${them} blocks, or waits on, an open issue in another ${copy.noun}.`;
-      break;
-    case 'issue':
-      note =
-        total === 1
-          ? 'Not drawn: it neither blocks nor waits on another issue.'
-          : 'Not drawn: none of them blocks or waits on another issue.';
-      break;
-    default: {
-      const unreachable: never = level;
-      return unreachable;
-    }
-  }
-  return {
-    title: `${plural(total, copy.noun)} ${total === 1 ? 'has' : 'have'} no blocking relations`,
-    note,
-    nameLabel: copy.nameLabel,
-    contextLabel: copy.contextLabel,
-    dueLabel: copy.dueLabel,
-    rows,
-    cutLine:
-      rows.length < total
-        ? `Showing ${rows.length} of ${total}. Narrow the graph to see the rest.`
-        : null,
-    collapsed: total > ISOLATED_COLLAPSE_AFTER,
-  };
 }
 
 /* ---- notices --------------------------------------------------------------- */
@@ -1843,7 +2057,7 @@ function arrivalRow(
 
 /** "milestone", "issue": the level's noun in counts. */
 function levelNoun(level: GraphLevel): string {
-  return ISOLATED_COPY[level].noun;
+  return LEVEL_NOUN[level];
 }
 
 /** What the receipts say when no graph is drawn (or it is too large). */
@@ -1852,26 +2066,15 @@ function aboutSentence(ctx: PageContext, focusTitle: string | null): string {
   const level = ctx.scope.level;
   switch (container.kind) {
     case 'workspace':
-      switch (level) {
-        case 'initiative':
-          return 'Which initiatives wait on which, from Linear’s blocking relations between open issues.';
-        case 'project':
-          return 'Which projects wait on which, from Linear’s blocking relations between open issues.';
-        case 'milestone':
-          return 'Which milestones wait on which, from Linear’s blocking relations between open issues.';
-        case 'issue':
-          return 'Which issues wait on which, from Linear’s blocking relations.';
-        default: {
-          const unreachable: never = level;
-          return unreachable;
-        }
-      }
+      return level === 'issue'
+        ? 'Every issue in the workspace, and which wait on which, from Linear’s blocking relations.'
+        : `Every ${levelNoun(level)} in the workspace, and which wait on which, from Linear’s blocking relations between open issues.`;
     case 'chain':
       return `${ctx.containerName} “${focusTitle ?? ''}”: everything it waits on and everything waiting on it, through open issues.`;
     case 'initiative':
     case 'project':
     case 'milestone':
-      return `Which ${levelNoun(level)}s ${containerPhrase(ctx, levelNoun(level))} wait on which, from Linear’s blocking relations.`;
+      return `Every ${levelNoun(level)} ${containerPhrase(ctx, levelNoun(level))}, and which wait on which, from Linear’s blocking relations.`;
     default: {
       const unreachable: never = container;
       return unreachable;
@@ -1879,28 +2082,299 @@ function aboutSentence(ctx: PageContext, focusTitle: string | null): string {
   }
 }
 
+/* ---- readouts, the critical path in words, path words --------------------- */
+
+/** Zero parts left out, joined: "3 ready · 5 blocked". */
+function countParts(
+  parts: readonly [count: number, word: string][],
+  separator: string
+): string {
+  return parts
+    .filter(([count]) => count > 0)
+    .map(([count, word]) => `${count} ${word}`)
+    .join(separator);
+}
+
+/** How many drawn nodes stand where: ready / blocked / with no
+    dependencies / done; above the issue level clear / waiting / with no
+    dependencies / complete / with no issues, plus their open issues. */
+function readinessCounts(nodes: readonly GraphNode[]) {
+  let ready = 0;
+  let blocked = 0;
+  let independent = 0;
+  let done = 0;
+  let empty = 0;
+  let open = 0;
+  let readyIssues = 0;
+  for (const node of nodes) {
+    if (node.readiness === 'ready') ready += 1;
+    else if (node.readiness === 'blocked') blocked += 1;
+    else if (node.readiness === 'independent') independent += 1;
+    else if (node.readiness === 'empty') empty += 1;
+    else done += 1;
+    open += node.openIssues;
+    readyIssues += node.readyIssues;
+  }
+  return { ready, blocked, independent, done, empty, open, readyIssues };
+}
+
+/** The readiness counts as count/word pairs, in reading order: what can
+    start, what waits, what has no dependencies, what is finished, and
+    above the issue level the boxes with no issues at all (never counted
+    as complete: their names say "No issues yet"). */
+function readinessParts(
+  level: GraphLevel,
+  c: ReturnType<typeof readinessCounts>
+): [count: number, word: string][] {
+  return level === 'issue'
+    ? [
+        [c.ready, 'ready'],
+        [c.blocked, 'blocked'],
+        [c.independent, 'with no dependencies'],
+        [c.done, 'done'],
+      ]
+    : [
+        [c.ready, 'clear'],
+        [c.blocked, 'waiting'],
+        [c.independent, 'with no dependencies'],
+        [c.done, 'complete'],
+        [c.empty, 'with no issues'],
+      ];
+}
+
 /**
- * Whether an aggregate level with no blocking relation still lists its
- * boxes: inside an initiative or a project, where each row opens that
- * box's own graph (or its milestone on the timeline), so drilling down
- * never dead-ends on "none joined". The workspace (the guest fallback
- * included) and every issue level keep the plain empty state.
+ * The Status highlight's idle readout over every drawn node: "3 ready ·
+ * 5 blocked · 36 with no dependencies · 7 done" at the issue level; above
+ * it "1 clear · 3 waiting · 11 with no dependencies · 1 complete · 1 with
+ * no issues · 38 open issues: 33 can start, 5 blocked" (zero parts left
+ * out; "can start" as in `openIssuesValue`).
  */
-function listsWhenEmpty(container: GraphContainer, level: GraphLevel): boolean {
-  if (level === 'issue') return false;
-  switch (container.kind) {
-    case 'initiative':
-    case 'project':
-      return true;
-    case 'workspace':
-    case 'milestone':
-    case 'chain':
-      return false;
-    default: {
-      const unreachable: never = container;
-      return unreachable;
+function statusReadout(level: GraphLevel, drawnNodes: readonly GraphNode[]) {
+  const c = readinessCounts(drawnNodes);
+  if (level === 'issue') return countParts(readinessParts(level, c), ' · ');
+  const boxes = countParts(readinessParts(level, c), ' · ');
+  if (c.open === 0) return boxes;
+  const split = countParts(
+    [
+      [c.readyIssues, 'can start'],
+      [c.open - c.readyIssues, 'blocked'],
+    ],
+    ', '
+  );
+  return `${boxes} · ${plural(c.open, 'open issue')}: ${split}`;
+}
+
+/** The Risk highlight's idle readout: "3 relations on a risk chain · 1
+    cycle" (issues), "3 edges on a risk chain · no cycles" (boxes), or "No
+    risk chains or cycles." */
+function riskReadout(level: GraphLevel, risk: number, cycles: number): string {
+  if (risk === 0 && cycles === 0) return 'No risk chains or cycles.';
+  const noun = level === 'issue' ? 'relation' : 'edge';
+  return [
+    risk === 0 ? 'no risk chains' : `${plural(risk, noun)} on a risk chain`,
+    cycles === 0 ? 'no cycles' : plural(cycles, 'cycle'),
+  ].join(' · ');
+}
+
+/** A drawn node as copy names it: an issue's key, else its label cut to
+    32 characters (ui pathNodeName, as the readout does). */
+function copyName(byId: ReadonlyMap<string, GraphNodeData>, id: string) {
+  const node = byId.get(id);
+  return node === undefined ? id : pathNodeName(node);
+}
+
+/** "A and B", "A, B and C", then "A, B, C and 2 more": copy's caps. */
+function cappedPhrase(names: readonly string[]): string {
+  if (names.length <= 3) return listPhrase(names);
+  return `${names.slice(0, 3).join(', ')} and ${names.length - 3} more`;
+}
+
+/** Whether the step group holding `id` is a cycle (or a self-loop). */
+function groupIsCycle(chains: LongestChains, id: string): boolean {
+  const group = chains.groupOf.get(id);
+  return group !== undefined && chains.cyclic[group] === true;
+}
+
+/**
+ * The Critical path highlight's idle readout: the chain shown at rest
+ * (graph-wide, or through a chain's focus) with its count in the level's
+ * noun and its steps ("Dual-write → Search v2 beta → Tokens and type");
+ * where to start ("Start with Dual-write (clear).", or why nothing can:
+ * the head waits outside the graph, or is a box where nothing can start);
+ * and, when it runs through a cycle, that it cannot finish until the
+ * cycle is broken. Above the issue level a cycle of boxes may be no issue
+ * cycle at all (box arrows are not one issue chain), so it says so and
+ * points at the Issues level instead.
+ */
+function criticalReadout(input: {
+  chain: OpenChain | null;
+  chains: LongestChains;
+  byId: ReadonlyMap<string, GraphNodeData>;
+  level: GraphLevel;
+  focusId: string | null;
+}): string {
+  const { chain, chains, byId, level, focusId } = input;
+  if (chain === null) {
+    return 'No open chain: nothing drawn waits on anything open.';
+  }
+  const name = (id: string) => copyName(byId, id);
+  const steps = chainPhrase(chain.groups.map((group) => group.map(name)));
+  const count = plural(chain.length, levelNoun(level));
+  const sentences: string[] = [
+    focusId !== null && chain.steps.has(focusId)
+      ? `Critical path through ${name(focusId)}: ${count}: ${steps}.`
+      : chain.stepCount === 1
+        ? `Critical path: ${count}: ${steps}.`
+        : `Critical path: ${count}, each waiting on the one before: ${steps}.`,
+  ];
+  const head = chain.groups[0] ?? [];
+  const headId = head[0];
+  if (
+    headId !== undefined &&
+    head.length === 1 &&
+    !groupIsCycle(chains, headId)
+  ) {
+    const readiness = byId.get(headId)?.readiness;
+    if (readiness?.state === 'ready' && readiness.canStart !== false) {
+      sentences.push(
+        `Start with ${name(headId)} (${readiness.label.toLowerCase()}).`
+      );
+    } else if (readiness?.state === 'ready') {
+      sentences.push(
+        `It starts at ${name(headId)}, where nothing can start: a cycle inside holds it.`
+      );
+    } else if (readiness?.state === 'blocked') {
+      sentences.push(
+        `It starts at ${name(headId)}, which waits on ${readiness.blockedBy} more outside this graph.`
+      );
     }
   }
+  const cycles = chain.groups.filter(
+    (group) => group[0] !== undefined && groupIsCycle(chains, group[0])
+  );
+  if (cycles.length > 0 && level === 'issue') {
+    const clauses = cycles
+      .map((group) =>
+        group.length === 1
+          ? `${name(group[0] ?? '')} blocks itself`
+          : `${cappedPhrase(group.map(name))} wait on each other`
+      )
+      .join('; ');
+    sentences.push(
+      cycles.length === 1
+        ? `It runs through a cycle (${clauses}), so it cannot finish until the cycle is broken.`
+        : `It runs through ${cycles.length} cycles (${clauses}), so it cannot finish until they are broken.`
+    );
+  } else if (cycles.length > 0) {
+    const groups = cycles.map((group) => cappedPhrase(group.map(name)));
+    sentences.push(
+      `It runs through boxes that wait on each other (${groups.join('; ')}); the Issues level shows whether their issues form a real cycle.`
+    );
+  }
+  return sentences.join(' ');
+}
+
+/** The aria summary's readiness sentence: "3 ready, 5 blocked, 36 with
+    no dependencies, 7 done." ("1 clear, 3 waiting, …" above the issue
+    level). */
+function readinessSentence(
+  level: GraphLevel,
+  drawnNodes: readonly GraphNode[]
+): string {
+  const parts = countParts(
+    readinessParts(level, readinessCounts(drawnNodes)),
+    ', '
+  );
+  return parts === '' ? '' : `${parts}.`;
+}
+
+/** The aria summary's critical-path sentence, with copy's caps: "Critical
+    path: 3 issues: ENG-12, ENG-23, OPS-20." ('' without one). */
+function criticalSentence(
+  chain: OpenChain | null,
+  byId: ReadonlyMap<string, GraphNodeData>,
+  level: GraphLevel
+): string {
+  if (chain === null) return '';
+  const steps = chainPhrase(
+    chain.groups.map((group) => group.map((id) => copyName(byId, id))),
+    undefined,
+    ', '
+  );
+  return `Critical path: ${plural(chain.length, levelNoun(level))}: ${steps}.`;
+}
+
+/**
+ * The readout's words for the level (ui GraphPathWords): issues are
+ * counted as issues; above the issue level as the level's boxes, which
+ * wait on other boxes ("Waits on 1", "Nothing outside it holds it up"),
+ * are cleared rather than unblocked ("Finishing it would clear 1: …",
+ * the "Clear next" pill) and read "Complete" when done.
+ */
+export function pathWordsFor(level: GraphLevel): Partial<GraphPathWords> {
+  if (level === 'issue') return { unit: ['issue', 'issues'] };
+  const noun = levelNoun(level);
+  return {
+    unit: [noun, `${noun}s`],
+    waitsOn: 'Waits on {n}',
+    waitsOnNone: 'Nothing outside it holds it up',
+    waitsOnOutside: 'Waits on {n} outside this graph',
+    unblock: 'Finishing it would clear {n}: {names}',
+    next: 'Clear next',
+    done: 'Complete',
+  };
+}
+
+/* ---- receipts: what is drawn ---------------------------------------------- */
+
+/**
+ * Where the drawn issues sit, as the frames show it, after "N issues in
+ * X": ", in 3 milestones", ", 45 of them in 16 milestones", or ", none in
+ * a milestone".
+ */
+function milestonesClause(issues: readonly GraphNode[]): string {
+  const ids = new Set<string>();
+  let placed = 0;
+  for (const issue of issues) {
+    if (issue.milestoneId === null) continue;
+    placed += 1;
+    ids.add(issue.milestoneId);
+  }
+  if (placed === 0) {
+    return issues.length === 1
+      ? ', not in a milestone'
+      : ', none in a milestone';
+  }
+  const where = plural(ids.size, 'milestone');
+  return placed === issues.length
+    ? `, in ${where}`
+    : `, ${placed} of them in ${where}`;
+}
+
+/** " in 2 initiatives, 1 with no initiative" after "N projects" (nothing
+    for a viewer without initiatives): the frames of the project level. */
+function initiativesClause(
+  ctx: PageContext,
+  projects: readonly GraphNode[]
+): string {
+  if (!ctx.hasInitiatives) return '';
+  const ids = new Set<string>();
+  let none = 0;
+  for (const project of projects) {
+    const id = project.initiativeId;
+    if (id === null || id === NO_INITIATIVE_ID) none += 1;
+    else ids.add(id);
+  }
+  const homes = ids.size === 0 ? '' : ` in ${plural(ids.size, 'initiative')}`;
+  if (none === 0) return homes;
+  if (ids.size === 0) return ', none in an initiative';
+  return `${homes}, ${none} with no initiative`;
+}
+
+/** "6 blocking relations", "no blocking edges": the arrows, counted. */
+function arrowsPhrase(count: number, level: GraphLevel): string {
+  const word = level === 'issue' ? 'blocking relation' : 'blocking edge';
+  return count === 0 ? `no ${word}s` : plural(count, word);
 }
 
 /** Builds everything /graph shows from the engine's graph and mirror. */
@@ -1909,13 +2383,13 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   const scope = graph.scope;
   const container = graphContainer(scope);
   const level = scope.level;
+  const isChain = container.kind === 'chain';
   const focusIssue =
     graph.chain === null ? undefined : snapshot.issues.get(graph.chain.focusId);
   const focusKey = focusIssue?.identifier ?? graph.chain?.focusId ?? null;
-  const scopeHref =
-    container.kind === 'chain'
-      ? chainHref(focusKey ?? container.id)
-      : graphHref(scope);
+  const scopeHref = isChain
+    ? chainHref(focusKey ?? container.id)
+    : graphHref(scope);
   const ctx: PageContext = {
     snapshot,
     assessments,
@@ -1927,12 +2401,13 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
     hasInitiatives: snapshot.initiatives.size > 0,
     home: homeInitiativeIds(snapshot),
     plans: new Map(input.allocationPlan.projects.map((p) => [p.projectId, p])),
+    drawnBlockers: new Map(),
   };
   const name = ctx.containerName;
   const noun = levelNoun(level);
 
-  // ?node= selects (and keeps) an aggregate box on arrival, unless an
-  // issue's slide-over is open or the box is not in this graph.
+  // ?node= selects an aggregate box on arrival, unless an issue's
+  // slide-over is open or the box is not in this graph.
   const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
   const arrival =
     level !== 'issue' &&
@@ -1940,42 +2415,33 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
     input.nodeId != null
       ? nodeById.get(input.nodeId)
       : undefined;
-  const keep = [...(input.keep ?? [])];
-  if (arrival !== undefined) keep.push(arrival.id);
-  if (graph.chain !== null) keep.push(graph.chain.focusId);
-  const isolatedIds = new Set(
-    isolatedNodeIds(
-      graph.nodes.map((n) => n.id),
-      graph.edges,
-      keep
-    )
-  );
-  const drawnGraphNodes = graph.nodes.filter((n) => !isolatedIds.has(n.id));
-  const isolatedTotal = isolatedIds.size;
 
-  // With no edge there is nothing to draw: every box would stand alone,
-  // so the page shows its empty state instead of a grid of boxes (and no
-  // list of them either). Past the draw limits it shows narrower graphs
-  // instead, building no node data, details, layout or Mermaid. Otherwise
-  // only nodes on an edge are drawn and the rest are listed under it.
-  const hasEdges = graph.edges.length > 0;
+  // Every item of the scope is drawn, on an edge or not (owner decision
+  // 2026-10-23): the empty state is only for a scope with nothing in it,
+  // and for a chain whose issue has no relation. Past the draw limits the
+  // page shows narrower graphs instead, building no node data, details,
+  // layout or Mermaid.
+  const hasNodes =
+    graph.nodes.length > 0 && (!isChain || graph.edges.length > 0);
   const overLimit =
-    hasEdges &&
-    (drawnGraphNodes.length > GRAPH_DRAW_LIMITS.nodes ||
+    hasNodes &&
+    (graph.nodes.length > GRAPH_DRAW_LIMITS.nodes ||
       graph.edges.length > GRAPH_DRAW_LIMITS.edges);
-  const drawn = hasEdges && !overLimit;
-  // Nothing drawn inside an initiative or a project: every box is listed.
-  const listAlone = !hasEdges && listsWhenEmpty(container, level);
+  const drawn = hasNodes && !overLimit;
 
   const nodes: GraphNodeData[] = [];
-  const isolatedRows: IsolatedRow[] = [];
   const details: Record<string, GraphNodeDetail> = {};
   const labels = new Map<string, string>();
   for (const node of graph.nodes) labels.set(node.id, node.label);
-  if (drawn || listAlone) {
+  if (drawn) {
+    for (const edge of graph.edges) {
+      if (!edge.blocking || edge.from === edge.to) continue;
+      const names = ctx.drawnBlockers.get(edge.to) ?? [];
+      const blocker = labels.get(edge.from) ?? edge.from;
+      if (!names.includes(blocker)) names.push(blocker);
+      ctx.drawnBlockers.set(edge.to, names);
+    }
     for (const node of graph.nodes) {
-      const isolated = listAlone || isolatedIds.has(node.id);
-      if (isolated && isolatedRows.length >= ISOLATED_MAX_ROWS) continue;
       const face = nodeFace(ctx, node);
       const data: GraphNodeData = {
         id: node.id,
@@ -1988,12 +2454,16 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
             ? face.mark.label
             : quietLabel(node, face.mark.label),
         tags: nodeTags(node),
+        readiness: nodeReadiness(node),
       };
-      if (face.group !== undefined) data.group = face.group;
+      if (node.kind === 'issue') {
+        const key = snapshot.issues.get(node.id)?.identifier;
+        if (key !== undefined) data.key = key;
+      }
+      if (node.clusterId !== null) data.cluster = node.clusterId;
       if (node.external) data.external = true;
       details[node.id] = nodeDetail(ctx, node, face.mark);
-      if (isolated) isolatedRows.push(isolatedRow(ctx, node, data));
-      else nodes.push(data);
+      nodes.push(data);
     }
   }
   const edges: GraphEdgeData[] = drawn
@@ -2002,23 +2472,26 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
         to: edge.to,
         kind: edgeKind(edge, level),
         weight: edge.weight,
+        cross: crossesBoundary(edge, level),
       }))
     : [];
+  const clusters = drawn ? clusterData(graph.clusters) : [];
 
   const edgeCount = graph.edges.length;
   const riskCount = edges.filter((e) => e.kind === 'risk').length;
   const crossProjects = graph.edges.filter(
-    (e) => e.crossProject && !e.resolved
+    (e) => e.crossProject && e.blocking
   ).length;
   const crossInitiatives = graph.edges.filter(
-    (e) => e.crossInitiative && !e.resolved
+    (e) => e.crossInitiative && e.blocking
   ).length;
+  // Edges that no longer block (one end done): "unblocked", as the legend.
   const resolvedCount = edges.filter((e) => e.kind === 'resolved').length;
   const cycleCount = graph.cycles.length;
   const cycles = cyclesPhrase(graph.cycles, labels);
   const cyclesPart = cycleCount > 0 ? plural(cycleCount, 'cycle') : null;
   const riskPart = riskCount > 0 ? `${riskCount} on a risk chain` : null;
-  const resolvedPart = resolvedCount > 0 ? `${resolvedCount} resolved` : null;
+  const resolvedPart = resolvedCount > 0 ? `${resolvedCount} unblocked` : null;
   const crossPart =
     level === 'project'
       ? ctx.hasInitiatives && crossInitiatives > 0
@@ -2027,43 +2500,28 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
       : level === 'milestone' && crossProjects > 0
         ? `${crossProjects} across projects`
         : null;
-  const listed = drawn ? isolatedTotal : 0;
-  const isolated = drawn
-    ? isolatedList(level, isolatedRows, isolatedTotal)
-    : listAlone
-      ? isolatedList(level, isolatedRows, graph.nodes.length, true)
-      : null;
-  const outside = drawnGraphNodes.filter((n) => n.external).length;
-  const insideDrawn = drawnGraphNodes.length - outside;
-  const insideAll = graph.nodes.filter((n) => !n.external).length;
+  const insideNodes = graph.nodes.filter((n) => !n.external);
+  const outside = graph.nodes.length - insideNodes.length;
+  const inside = insideNodes.length;
+  const arrows = arrowsPhrase(edges.length, level);
   const metaCycles =
     cycleCount === 0 ? '' : ` · ${plural(cycleCount, 'cycle')}`;
   const meta = overLimit
-    ? `${plural(drawnGraphNodes.length, noun)} · ${plural(edgeCount, 'edge')} · too many to draw`
+    ? `${plural(graph.nodes.length, noun)} · ${plural(edgeCount, 'edge')} · too many to draw`
     : drawn
-      ? `${listed === 0 ? plural(nodes.length, noun) : `${nodes.length} of ${plural(graph.nodes.length, noun)}`} · ${plural(edges.length, 'edge')}${metaCycles}`
-      : 'No edges';
+      ? `${plural(nodes.length, noun)} · ${plural(edges.length, 'edge')}${metaCycles}`
+      : isChain
+        ? 'No edges'
+        : `No ${noun}s`;
 
-  const workspaceListed =
-    listed === 0
-      ? ''
-      : ` ${listed} more ${listed === 1 ? `${noun} has` : 'have'} no blocking relations and ${listed === 1 ? 'is' : 'are'} listed under the graph.`;
   // "in Dual-write", or "with no initiative" for that group of projects.
   const where = containerPhrase(ctx, noun);
   const noInitiative =
     container.kind === 'initiative' && container.id === NO_INITIATIVE_ID;
-  const containerListed =
-    listed === 0
-      ? ''
-      : ` ${listed} more ${where} ${listed === 1 ? 'has' : 'have'} no blocking relations and ${listed === 1 ? 'is' : 'are'} listed under the graph.`;
   const outsidePart =
     outside === 0
       ? ''
       : `, plus ${plural(outside, noun)} ${noInitiative ? 'elsewhere' : 'outside it'} that ${outside === 1 ? 'blocks or waits' : 'block or wait'} on them`;
-  const listedAria =
-    listed === 0
-      ? ''
-      : ` ${plural(listed, noun)} with no blocking relations ${listed === 1 ? 'is' : 'are'} listed after the graph.`;
 
   let receipts: string;
   let ariaSummary: string;
@@ -2079,44 +2537,46 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
             cycleCount === 0
               ? null
               : `${plural(cycleCount, 'cycle')} (${graph.cycles.map((c) => cycleClause(c, labels)).join('; ')})`;
-          receipts = `${plural(nodes.length, 'initiative')} joined by ${plural(edges.length, 'blocking edge')}${detailClause([riskPart, namedCycles])}. A project in several initiatives counts under the first, as on the timeline.${workspaceListed} Select an initiative to see its projects.`;
+          const named = graph.nodes.filter(
+            (n) => n.id !== NO_INITIATIVE_ID
+          ).length;
+          const boxes =
+            named === graph.nodes.length
+              ? plural(named, 'initiative')
+              : named === 0
+                ? 'The projects with no initiative'
+                : `${plural(named, 'initiative')} and the projects with no initiative`;
+          receipts = `${boxes}; ${arrows}${detailClause([riskPart, namedCycles])}. A project in several initiatives counts under the first, as on the timeline. Select an initiative to see its projects.`;
+          ariaSummary = `Initiative dependency graph of the workspace: ${boxes.charAt(0).toLowerCase()}${boxes.slice(1)}, with ${arrows}, ${riskCount} on a risk chain; ${cycles}.`;
           break;
         }
         case 'project': {
-          const groups = ctx.hasInitiatives
-            ? new Set(
-                drawnGraphNodes
-                  .map((n) => n.initiativeId)
-                  .filter((id) => id !== null && id !== NO_INITIATIVE_ID)
-              ).size
-            : 0;
-          receipts = `${plural(nodes.length, 'project')}${groups > 0 ? ` in ${plural(groups, 'initiative')}` : ''}, joined by ${plural(edges.length, 'blocking edge')}${detailClause([riskPart, crossPart, cyclesPart])}.${workspaceListed} Select a project to see its milestones and issues.`;
+          const homes = initiativesClause(ctx, graph.nodes);
+          receipts = `${plural(nodes.length, 'project')}${homes}; ${arrows}${detailClause([riskPart, crossPart, cyclesPart])}. Select a project to see its milestones and issues.`;
+          ariaSummary = `Project dependency graph of the workspace: ${plural(nodes.length, 'project')}${homes}, with ${arrows}, ${riskCount} on a risk chain; ${cycles}.`;
           break;
         }
         case 'milestone': {
-          const projects = new Set(drawnGraphNodes.map((n) => n.projectId))
-            .size;
-          receipts = `${plural(nodes.length, 'milestone')} in ${plural(projects, 'project')}, joined by ${plural(edges.length, 'blocking edge')}${detailClause([riskPart, crossPart, cyclesPart])}.${workspaceListed} Select a milestone to see its issues.`;
+          const projects = plural(
+            new Set(graph.nodes.map((n) => n.projectId)).size,
+            'project'
+          );
+          receipts = `${plural(nodes.length, 'milestone')} in ${projects}; ${arrows}${detailClause([riskPart, crossPart, cyclesPart])}. Select a milestone to see its issues.`;
+          ariaSummary = `Milestone dependency graph: ${plural(nodes.length, 'milestone')} in ${projects}, with ${arrows}, ${riskCount} on a risk chain and ${crossProjects} across projects; ${cycles}.`;
           break;
         }
-        case 'issue':
-          receipts = `${plural(nodes.length, 'issue')} in active projects, joined by ${plural(edges.length, 'blocking relation')}${detailClause([riskPart, resolvedPart, cyclesPart])}.`;
+        case 'issue': {
+          const placed = milestonesClause(graph.nodes);
+          receipts = `${plural(nodes.length, 'issue')} in the workspace${placed}; ${arrows}${detailClause([riskPart, resolvedPart, cyclesPart])}.`;
+          ariaSummary = `Issue dependency graph of the workspace: ${plural(nodes.length, 'issue')}${placed}, with ${arrows}, ${riskCount} on a risk chain and ${resolvedCount} unblocked; ${cycles}.`;
           break;
+        }
         default: {
           const unreachable: never = level;
-          receipts = unreachable;
+          return unreachable;
         }
       }
-      if (level === 'milestone') {
-        const projects = new Set(drawnGraphNodes.map((n) => n.projectId)).size;
-        ariaSummary = `Milestone dependency graph: ${plural(nodes.length, 'milestone')} in ${plural(projects, 'project')} joined by ${plural(edges.length, 'blocking edge')}, ${riskCount} on a risk chain and ${crossProjects} across projects; ${cycles}.${listedAria}`;
-      } else {
-        ariaSummary = `${KIND_LABEL[level]} dependency graph of the workspace: ${plural(nodes.length, noun)} joined by ${plural(edges.length, level === 'issue' ? 'blocking relation' : 'blocking edge')}, ${riskCount} on a risk chain; ${cycles}.${listedAria}`;
-      }
-      emptyMessage =
-        level === 'issue'
-          ? 'No blocking relations between open issues in active projects.'
-          : 'No blocking relations between open work in active projects.';
+      emptyMessage = `No ${noun}s in the workspace.`;
       if (!drawn) receipts = aboutSentence(ctx, null);
       break;
     }
@@ -2124,21 +2584,17 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
     case 'project':
     case 'milestone': {
       if (level === 'issue') {
-        receipts = drawn
-          ? `${plural(insideDrawn, 'issue')} ${where}${outsidePart}; ${plural(edges.length, 'blocking relation')}${detailClause([riskPart, resolvedPart, cyclesPart])}.${containerListed}`
-          : container.kind === 'initiative'
-            ? `${plural(graph.unrelatedIssues, 'open issue')} ${where}, none blocking or waiting on another.`
-            : `${plural(insideAll, 'issue')} ${where}, none blocking or waiting on another.`;
-        ariaSummary = `Issue dependency graph for ${name}: ${plural(insideDrawn, 'issue')} in scope and ${plural(outside, 'outside issue')} joined by ${plural(edges.length, 'blocking relation')}, ${riskCount} on a risk chain and ${resolvedCount} resolved; ${cycles}.${listedAria}`;
-        emptyMessage = `No issue in ${containerSubject(ctx)} blocks or waits on another.`;
+        // A milestone is one frame: no "in N milestones" inside it.
+        const placed =
+          container.kind === 'milestone' ? '' : milestonesClause(insideNodes);
+        receipts = `${plural(inside, 'issue')} ${where}${placed}${outsidePart}; ${arrows}${detailClause([riskPart, resolvedPart, cyclesPart])}.`;
+        ariaSummary = `Issue dependency graph for ${name}: ${plural(inside, 'issue')} in scope${placed} and ${plural(outside, 'outside issue')}, with ${arrows}, ${riskCount} on a risk chain and ${resolvedCount} unblocked; ${cycles}.`;
       } else {
-        receipts = drawn
-          ? `${plural(insideDrawn, noun)} ${where}${outsidePart}; ${plural(edges.length, 'blocking edge')}${detailClause([riskPart, crossPart, cyclesPart])}.${containerListed}`
-          : `${plural(insideAll, noun)} ${where}, none joined to another by a blocking relation.`;
-        ariaSummary = `${KIND_LABEL[level]} dependency graph for ${name}: ${plural(insideDrawn, noun)} in scope and ${plural(outside, `outside ${noun}`)} joined by ${plural(edges.length, 'blocking edge')}, ${riskCount} on a risk chain; ${cycles}.${listedAria}`;
-        emptyMessage = `No open issue in ${containerSubject(ctx)} blocks, or waits on, an open issue in another ${noun}.`;
+        receipts = `${plural(inside, noun)} ${where}${outsidePart}; ${arrows}${detailClause([riskPart, crossPart, cyclesPart])}.`;
+        ariaSummary = `${KIND_LABEL[level]} dependency graph for ${name}: ${plural(inside, noun)} in scope and ${plural(outside, `outside ${noun}`)}, with ${arrows}, ${riskCount} on a risk chain; ${cycles}.`;
       }
-      if (overLimit) receipts = aboutSentence(ctx, null);
+      emptyMessage = `No ${noun}s ${where}.`;
+      if (!drawn) receipts = aboutSentence(ctx, null);
       break;
     }
     case 'chain': {
@@ -2154,7 +2610,7 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
         : overLimit
           ? aboutSentence(ctx, title)
           : `${name} “${title}” neither blocks nor waits on another issue.`;
-      ariaSummary = `Blocking chain of ${name}: ${plural(nodes.length, 'issue')} joined by ${plural(edges.length, 'blocking relation')}, ${riskCount} on a risk chain and ${resolvedCount} resolved; ${cycles}. ${name} is the focus.`;
+      ariaSummary = `Blocking chain of ${name}: ${plural(nodes.length, 'issue')} joined by ${plural(edges.length, 'blocking relation')}, ${riskCount} on a risk chain and ${resolvedCount} unblocked; ${cycles}. ${name} is the focus.`;
       emptyMessage = `${name} neither blocks nor waits on another issue.`;
       break;
     }
@@ -2163,6 +2619,7 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
       return unreachable;
     }
   }
+  if (!drawn && !overLimit) ariaSummary = emptyMessage;
 
   const notices: GraphNotice[] = [];
   if (graph.fallback !== null) {
@@ -2177,17 +2634,6 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
         n === 1
           ? `1 blocking relation involves an issue with no ${what}, so this level cannot place it; the Issues tab shows it.`
           : `${n} blocking relations involve issues with no ${what}, so this level cannot place them; the Issues tab shows them.`,
-    });
-  }
-  if (drawn && graph.unrelatedIssues > 0) {
-    const n = graph.unrelatedIssues;
-    const among =
-      container.kind === 'workspace'
-        ? 'in active projects'
-        : containerPhrase(ctx, 'issue');
-    notices.push({
-      id: 'unrelated',
-      text: `${plural(n, 'other open issue')} ${among} ${n === 1 ? 'has' : 'have'} no blocking relations.`,
     });
   }
   if (container.kind === 'initiative') {
@@ -2210,21 +2656,16 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   let tooLarge: GraphTooLarge | null = null;
   if (overLimit) {
     const relationWord = level === 'issue' ? 'relation' : 'edge';
-    let rows = narrowRows(ctx, graph, drawnGraphNodes);
+    let rows = narrowRows(ctx, graph, graph.nodes);
     // Issues with no project (or, in a project, no milestone) have no
     // smaller container: offer the most connected ones instead.
     let byIssue = container.kind === 'milestone';
-    if (rows.length === 0 && level === 'issue' && container.kind !== 'chain') {
-      rows = mostConnectedRows(
-        ctx,
-        graph,
-        drawnGraphNodes,
-        MOST_CONNECTED_ROWS
-      );
+    if (rows.length === 0 && level === 'issue' && !isChain) {
+      rows = mostConnectedRows(ctx, graph, graph.nodes, MOST_CONNECTED_ROWS);
       byIssue = true;
     }
     if (arrival !== undefined) {
-      const first = arrivalRow(ctx, arrival, drawnGraphNodes);
+      const first = arrivalRow(ctx, arrival, graph.nodes);
       if (first !== null) {
         const plain = first.href.replace(/[?&]node=[^&]*$/, '');
         rows.unshift(first);
@@ -2233,28 +2674,65 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
       }
     }
     // "Narrow it down:" only introduces rows that follow it.
-    const limits = `and the graph draws at most ${GRAPH_DRAW_LIMITS.nodes} boxes and ${GRAPH_DRAW_LIMITS.edges} arrows${rows.length > 0 ? '. Narrow it down:' : '.'}`;
-    tooLarge =
-      container.kind === 'chain'
-        ? {
-            message: `Too many to draw: the nearest ${plural(drawnGraphNodes.length, 'issue')} on ${name}’s chain are joined by ${plural(edgeCount, 'blocking relation')}.`,
-            title: 'Its direct neighbours',
-            note: 'Open one’s chain to follow it.',
-            rows,
-          }
-        : {
-            message: `Too many to draw: ${plural(drawnGraphNodes.length, noun)} ${where} are joined by ${plural(edgeCount, `blocking ${relationWord}`)}, ${limits}`,
-            title: byIssue ? 'Most connected issues' : 'Narrow to',
-            note: byIssue ? 'Open one’s chain to follow it.' : null,
-            rows,
-          };
+    const limits = `and the graph draws at most ${GRAPH_DRAW_LIMITS.nodes.toLocaleString('en-US')} boxes and ${GRAPH_DRAW_LIMITS.edges.toLocaleString('en-US')} arrows${rows.length > 0 ? '. Narrow it down:' : '.'}`;
+    tooLarge = isChain
+      ? {
+          message: `Too many to draw: the nearest ${plural(graph.nodes.length, 'issue')} on ${name}’s chain are joined by ${plural(edgeCount, 'blocking relation')}.`,
+          title: 'Its direct neighbours',
+          note: 'Open one’s chain to follow it.',
+          rows,
+        }
+      : {
+          message: `Too many to draw: ${plural(graph.nodes.length, noun)} ${where} with ${plural(edgeCount, `blocking ${relationWord}`)}, ${limits}`,
+          title: byIssue ? 'Most connected issues' : 'Narrow to',
+          note: byIssue ? 'Open one’s chain to follow it.' : null,
+          rows,
+        };
     ariaSummary = tooLarge.message;
   }
 
+  // The critical path shown at rest: graph-wide, or through a chain's
+  // focus. The ui's own walk over the drawn nodes and edges (the canvas
+  // runs the same one), so the readout, the aria summary and the Mermaid
+  // export name exactly what the drawing numbers.
+  const focusId = drawn ? (graph.chain?.focusId ?? null) : null;
+  const chains = drawn ? longestChains(nodes, edges) : null;
+  const critical = chains === null ? null : longestChain(chains, focusId);
+  const nodeData = new Map(nodes.map((node) => [node.id, node]));
+  if (drawn) {
+    ariaSummary = [
+      ariaSummary,
+      readinessSentence(level, graph.nodes),
+      criticalSentence(critical, nodeData, level),
+    ]
+      .filter((part) => part !== '')
+      .join(' ');
+  }
+  const readouts: Record<GraphHighlight, string> =
+    chains === null
+      ? { status: '', risk: '', critical: '' }
+      : {
+          status: statusReadout(level, graph.nodes),
+          risk: riskReadout(level, riskCount, cycleCount),
+          critical: criticalReadout({
+            chain: critical,
+            chains,
+            byId: nodeData,
+            level,
+            focusId,
+          }),
+        };
+
   const initialSelectedId = drawn && arrival !== undefined ? arrival.id : null;
   const heading = graphHeading(snapshot, scope);
-  const mermaid = drawn
-    ? toMermaid({ ...graph, nodes: drawnGraphNodes })
+  // A chain keeps its one dagre flow; every other scope is laid out in
+  // its frames (the initiative level's are none: its loose boxes pack).
+  const layout = drawn
+    ? layoutGraph(
+        nodes,
+        edges,
+        isChain ? { direction: 'LR' } : { direction: 'LR', clusters }
+      )
     : null;
   return {
     level,
@@ -2269,24 +2747,26 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
     notices,
     trail: graphTrail(snapshot, scope),
     tabs: levelTabs(scope, { hasInitiatives: ctx.hasInitiatives }),
-    blockTitle: container.kind === 'chain' ? 'Chain' : GRAPH_LEVEL_LABEL[level],
+    blockTitle: isChain ? 'Chain' : GRAPH_LEVEL_LABEL[level],
     meta,
     nodes,
     edges,
-    layout: drawn ? layoutGraph(nodes, edges, { direction: 'LR' }) : null,
+    clusters,
+    layout,
     details,
-    isolated,
     tooLarge,
     initialSelectedId,
-    focusId: drawn ? (graph.chain?.focusId ?? null) : null,
+    focusId,
     ariaSummary,
     emptyMessage,
-    legend: legendFor(ctx),
-    mermaid,
+    legends: legendsFor(ctx, drawn ? graph.clusters : []),
+    readouts,
+    pathWords: pathWordsFor(level),
+    mermaid: drawn ? mermaidParts(graph, { critical }) : null,
     crumb:
       container.kind === 'workspace'
         ? null
-        : container.kind === 'chain'
+        : isChain
           ? `Chain of ${name}`
           : heading,
   };

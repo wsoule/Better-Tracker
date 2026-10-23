@@ -100,9 +100,9 @@ const graph = {
   nodes: [],
   edges: [],
   cycles: [],
+  clusters: [],
   fallback: null,
   unplacedRelations: 0,
-  unrelatedIssues: 0,
   chain: null,
 };
 

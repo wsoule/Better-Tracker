@@ -7,10 +7,14 @@ import {
   Button,
   Chip,
   type ChipTone,
+  defaultGraphLegend,
   DependencyGraph,
+  downstreamChain,
+  type GraphHighlight,
   type GraphLegendItem,
   GraphLegend,
   type GraphNodeData,
+  type GraphPathWords,
   layoutGraph,
   MermaidSource,
   PropertyList,
@@ -82,7 +86,7 @@ function countCycles(fixture: GraphFixture): number {
   return fixture.edges.filter((edge) => edge.kind === 'cycle').length / 2;
 }
 
-/* One node in the slide-over's "Waits on" / "Blocks" lists: a row that
+/* One node in the slide-over's "Waits on" / "Holds up" lists: a row that
    re-selects that node, so the reader can walk the chain from the panel. */
 function NodeRow({
   node,
@@ -147,8 +151,11 @@ function SelectionPanel({
   const waitsOn = (chain?.nodeIds ?? [])
     .map((id) => byId.get(id))
     .filter((n): n is GraphNodeData => n !== undefined);
-  const holdsUp = (node === undefined ? [] : (waiters.get(node.id) ?? []))
-    .map((edge) => byId.get(edge.to))
+  // What it holds up, transitively (the ink path the canvas lights).
+  const holdsUp = (
+    node === undefined ? [] : downstreamChain(node.id, waiters).nodeIds
+  )
+    .map((id) => byId.get(id))
     .filter((n): n is GraphNodeData => n !== undefined);
   const tags = node?.tags ?? [];
 
@@ -221,10 +228,17 @@ function SelectionPanel({
                   ),
               },
               {
+                label: 'Readiness',
+                value:
+                  node.readiness === undefined || node.readiness.label === ''
+                    ? 'Done'
+                    : node.readiness.label,
+              },
+              {
                 label: 'Waits on',
                 value: `${waitsOn.length} upstream`,
               },
-              { label: 'Blocks', value: `${holdsUp.length} directly` },
+              { label: 'Holds up', value: `${holdsUp.length} downstream` },
             ]}
           />
           <section className={styles.panelSection} aria-label="Waits on">
@@ -239,8 +253,8 @@ function SelectionPanel({
               </ul>
             )}
           </section>
-          <section className={styles.panelSection} aria-label="Blocks">
-            <h3 className={styles.panelKey}>Blocks</h3>
+          <section className={styles.panelSection} aria-label="Holds up">
+            <h3 className={styles.panelKey}>Holds up</h3>
             {holdsUp.length === 0 ? (
               <p className={styles.panelEmpty}>Nothing waits on this.</p>
             ) : (
@@ -281,8 +295,133 @@ const CHAIN_LEGEND: GraphLegendItem[] = [
     note: 'the blocker is unassigned or overdue, or waits on one',
   },
   { mark: 'edge-cross', label: 'Cross-project', note: 'leaves its project' },
-  { mark: 'edge-resolved', label: 'Resolved', note: 'blocker closed' },
+  { mark: 'edge-resolved', label: 'Unblocked', note: 'one end is done' },
 ];
+
+/** The highlight switch, as the planner's /graph toolbar offers it. */
+const HIGHLIGHTS: { id: GraphHighlight; label: string }[] = [
+  { id: 'status', label: 'Status' },
+  { id: 'risk', label: 'Risk' },
+  { id: 'critical', label: 'Critical path' },
+];
+
+/** Each highlight's legend for the milestone and issue fixtures. */
+const LEGENDS: Record<GraphHighlight, GraphLegendItem[]> = {
+  status: [
+    { mark: 'node-ready', label: 'Ready', note: 'nothing open blocks it' },
+    {
+      mark: 'node',
+      label: 'No dependencies',
+      note: 'it neither blocks nor waits on anything',
+    },
+    { mark: 'node-blocked', label: 'Blocked', note: 'an open one blocks it' },
+    { mark: 'node-stuck', label: 'Stuck', note: 'on a blocking cycle' },
+    { mark: 'node-cycle', label: 'In a cycle', note: 'waits on itself' },
+    { mark: 'node-muted', label: 'Done', note: 'closed' },
+    { mark: 'node-external', label: 'External', note: 'outside this scope' },
+    { mark: 'edge-default', label: 'Blocks', note: 'the blocker is open' },
+    {
+      mark: 'edge-unblocked',
+      label: 'Unblocked',
+      note: 'one end is done: no longer blocking',
+    },
+    { mark: 'edge-cycle', label: 'Cycle', note: 'both ends wait' },
+    { mark: 'edge-cross', label: 'Cross-project', note: 'leaves its project' },
+    {
+      mark: 'path-up',
+      label: 'Waits on',
+      note: 'what the box you point at waits on',
+    },
+    { mark: 'path-down', label: 'Holds up', note: 'what waits on it' },
+    { mark: 'path-next', label: 'Ready next', note: 'ready once it is done' },
+  ],
+  risk: defaultGraphLegend,
+  critical: [
+    {
+      mark: 'node-chain',
+      label: 'Critical path',
+      note: 'numbered in order; each waits on the one before',
+    },
+    { mark: 'node-faded', label: 'Off the path', note: 'faded' },
+    { mark: 'node-cycle', label: 'In a cycle', note: 'waits on itself' },
+    {
+      mark: 'edge-chain',
+      label: 'Critical path',
+      note: 'the longest chain of open blockers',
+    },
+    { mark: 'edge-default', label: 'Blocks' },
+    { mark: 'edge-cycle', label: 'Cycle', note: 'both ends wait' },
+    { mark: 'edge-resolved', label: 'Unblocked', note: 'one end is done' },
+    {
+      mark: 'path-chain',
+      label: 'Critical path',
+      note: 'through the box you point at',
+    },
+  ],
+};
+
+/** The milestone fixture's boxes are cleared, not unblocked (the
+    planner's aggregate words). */
+const BOX_WORDS: Partial<GraphPathWords> = {
+  unit: ['milestone', 'milestones'],
+  waitsOn: 'Waits on {n}',
+  waitsOnNone: 'Nothing outside it holds it up',
+  unblock: 'Finishing it would clear {n}: {names}',
+  next: 'Clear next',
+  done: 'Complete',
+};
+const ISSUE_WORDS: Partial<GraphPathWords> = { unit: ['issue', 'issues'] };
+
+/** The Status legend's box rows in the milestone fixture's words. */
+const BOX_STATUS_LEGEND: GraphLegendItem[] = LEGENDS.status.map((item) =>
+  item.mark === 'node-ready'
+    ? { ...item, label: 'Clear', note: 'nothing outside it holds it up' }
+    : item.mark === 'node-blocked'
+      ? { ...item, label: 'Waiting', note: 'it waits on another milestone' }
+      : item.mark === 'path-next'
+        ? { ...item, label: 'Clear next', note: 'clear once it is finished' }
+        : item
+);
+
+/** The frames' swatches, as the planner's legends end their Nodes row. */
+const FRAME_LEGEND: GraphLegendItem[] = [
+  { mark: 'cluster', label: 'Project', note: 'a frame of its boxes' },
+];
+
+/** The legend of a fixture in a highlight (boxes say clear / waiting),
+    with the frames' swatch while they are drawn. */
+function legendOf(
+  fixture: GraphFixture,
+  highlight: GraphHighlight,
+  frames: boolean
+) {
+  const items =
+    highlight === 'status' && fixture === MILESTONE_GRAPH
+      ? BOX_STATUS_LEGEND
+      : LEGENDS[highlight];
+  return frames ? [...items, ...FRAME_LEGEND] : items;
+}
+
+/** The idle readout per highlight: readiness counts, or a plain line. */
+function idleReadout(fixture: GraphFixture, highlight: GraphHighlight) {
+  if (highlight === 'risk') {
+    const risk = fixture.edges.filter((edge) => edge.kind === 'risk').length;
+    return `${risk} on a risk chain · ${countCycles(fixture)} cycle`;
+  }
+  if (highlight === 'critical') return 'The longest open chain is numbered.';
+  const count = (state: string) =>
+    fixture.nodes.filter((node) => node.readiness?.state === state).length;
+  const boxes = fixture === MILESTONE_GRAPH;
+  return [
+    [count('ready'), boxes ? 'clear' : 'ready'],
+    [count('blocked'), boxes ? 'waiting' : 'blocked'],
+    [count('independent'), 'with no dependencies'],
+    [count('done'), boxes ? 'complete' : 'done'],
+  ]
+    .filter(([n]) => n !== 0)
+    .map(([n, word]) => `${n} ${word}`)
+    .join(' · ');
+}
 
 /* Laid out once at module load and handed over through `layout`, as the
    planner's server render does: the component then runs no dagre. */
@@ -294,9 +433,26 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
   const { toast } = useToast();
   const [level, setLevel] = useState(MILESTONE_GRAPH.id);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [frames, setFrames] = useState(false);
+  // On by default, as the planner draws every graph but a chain framed.
+  const [frames, setFrames] = useState(true);
+  const [highlight, setHighlight] = useState<GraphHighlight>('status');
   const fixture = GRAPHS[level] ?? MILESTONE_GRAPH;
-  const mermaid = useMemo(() => toMermaid(fixture), [fixture]);
+  const mermaid = useMemo(
+    () => toMermaid(fixture, highlight, frames ? fixture.clusters : []),
+    [fixture, highlight, frames]
+  );
+  const highlightSwitch = (
+    <SegmentedControl
+      label="Highlight"
+      size="sm"
+      options={HIGHLIGHTS}
+      value={highlight}
+      onChange={(id) => {
+        const next = HIGHLIGHTS.find((option) => option.id === id);
+        if (next !== undefined) setHighlight(next.id);
+      }}
+    />
+  );
 
   return (
     <main className={`page ${styles.page}`}>
@@ -324,17 +480,23 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         <h2 id="graph-page" className="srOnly">
           Dependency graph, {fixture.title}
         </h2>
-        <GraphLegend />
+        <GraphLegend
+          items={legendOf(fixture, highlight, frames)}
+          label={`Graph legend: ${HIGHLIGHTS.find((h) => h.id === highlight)?.label ?? ''}`}
+        />
         <DependencyGraph
           nodes={fixture.nodes}
           edges={fixture.edges}
+          highlight={highlight}
+          readout={idleReadout(fixture, highlight)}
+          pathWords={fixture === MILESTONE_GRAPH ? BOX_WORDS : ISSUE_WORDS}
           selectedId={selectedId}
           onSelect={(id) =>
             setSelectedId((current) => (current === id ? null : id))
           }
           ariaSummary={fixture.ariaSummary}
           emptyMessage={fixture.emptyMessage}
-          cluster={frames}
+          clusters={frames ? fixture.clusters : undefined}
           toolbar={
             <>
               <SegmentedControl
@@ -347,9 +509,10 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
                   setSelectedId(null);
                 }}
               />
+              {highlightSwitch}
               <Switch
                 label="Frames"
-                note="group by project"
+                note="by project and milestone"
                 checked={frames}
                 onChange={setFrames}
               />
@@ -389,6 +552,7 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         <DependencyGraph
           nodes={EPIC_NODES}
           edges={EPIC_EDGES}
+          highlight={highlight}
           direction="TB"
           ariaSummary="Epic graph of 5 tasks: the client queue needs you and holds up conflict resolution, which holds up shipping behind a flag."
           emptyMessage="No tasks yet."
@@ -410,6 +574,9 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
           nodes={CHAIN_GRAPH.nodes}
           edges={CHAIN_GRAPH.edges}
           layout={CHAIN_LAYOUT}
+          highlight={highlight}
+          pathWords={ISSUE_WORDS}
+          toolbar={highlightSwitch}
           focusId={CHAIN_GRAPH.focusId}
           focusLabel="the issue this chain is about"
           ariaSummary={CHAIN_GRAPH.ariaSummary}

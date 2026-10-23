@@ -314,8 +314,12 @@ describe('createEngineFromEnv in demo mode', () => {
       level: 'milestone',
       projectId: 'proj-atlas',
     });
+    // Every milestone of the project is drawn (owner decision 2026-10-23),
+    // the complete Schema cutover (ms-atlas-1) included, then the one
+    // outside milestone on an edge.
     expect(atlas.nodes.map((n) => [n.id, n.external])).toEqual([
       ['ms-atlas-2', false],
+      ['ms-atlas-1', false],
       ['ms-atlas-3', false],
       ['ms-beacon-1', true],
     ]);

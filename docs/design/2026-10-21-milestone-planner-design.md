@@ -162,6 +162,14 @@ Banners: projects with no lead; milestones with no date; issues with no mileston
 two — initiative, project, milestone and issue — each drawn for the whole
 workspace or inside one initiative, project or milestone, plus one issue's
 blocking chain. The original text is kept.)*
+*(Extended 2026-10-22, §12 "graph highlights": every box says whether its work
+can start; pointing at or selecting one traces what it waits on and what it
+holds up; a switch picks Status, Risk or Critical path. The original text is
+kept.)*
+*(Corrected 2026-10-23, §12 "the graph shows every issue": each level draws
+every item in its scope, not only those on a blocking relation; the relations
+are the arrows, and boxes are framed by their milestone, project or
+initiative. The original text is kept.)*
 
 Rendered from Linear `blocks`/`blocked by` relations, as a mermaid-style directed graph.
 Two zoom levels: **milestone level** (milestone A depends on milestone B if any issue in
@@ -460,3 +468,119 @@ only. This refines the "risk color" of §7.1 and §7.2; nothing else changes.
   someone who cannot tell the colours apart, in either theme. Coloured text
   reads at 4.5:1 and coloured marks at 3:1 on their real background, light and
   dark.
+
+### 2026-10-22 — graph highlights
+
+Asked for by the product owner, in their words: "There needs to be different
+highlights for the graphs as well, like paths and stuff showing what's unblocked
+and not and everything." It extends §7.3; nothing else changes.
+
+- **Every box says where it stands:** an issue is ready, blocked by N or done;
+  above the issue level a box is clear, waiting on N, or has none ready. An
+  arrow whose blocker (or waiting issue) is done reads "unblocked". The words
+  are on every box, so the colours only repeat them.
+- **Pointing at, focusing, tapping or selecting a box** lights what it waits on
+  and what it holds up, in two styles, and marks what finishing it alone would
+  unblock ("Ready next"; "Clear next" above the issue level). A line under the
+  graph says it in words, and a box's panel lists both, transitively.
+- **A switch** offers Status (the default), Risk (the earlier look) and Critical
+  path: the longest chain of open blocking relations, or with a box selected
+  the longest one through it, numbered. The choice is in the link and
+  remembered on the device.
+- **Read-only and per viewer,** like every graph: no Linear write, no new
+  permission, nothing audited; it counts only what the viewer can see.
+
+*Builder's calls, flagged for review:*
+- Status is the default;
+- "Ready" means nothing open blocks it, as far as the viewer can see (Triage
+  and Backlog included);
+- box paths follow box arrows (an arrow in and an arrow out may be different
+  issues; the Issues level shows the exact chains);
+- the critical path counts issues (or boxes), not estimates, and ties go by
+  display order;
+- an arrow into a closed issue reads "unblocked";
+- a box is "stuck" (red) only when none of its open issues can start and a cycle
+  inside holds some of them; boxes whose arrows merely form a cycle stay amber
+  with their Cycle mark;
+- on touch, the first tap traces and the second opens;
+- the mode is remembered per device;
+- Mermaid follows the chosen highlight;
+- on the current look (§12 "keep the current look") a ready box is a thin green
+  edge and a blocked one a heavier amber rule, with no tints; the waits-on path
+  is the purple (a selection highlight, never a status), the holds-up path and
+  the critical path ink.
+
+### 2026-10-23 — the graph shows every issue, not only blocking ones
+
+Owner, in their words: "the graph is there to show all issues not just blocking
+ones". It corrects §7.3 and the two 2026-10-22 graph entries above; nothing
+else changes.
+
+- **Every item in the scope is drawn,** related or not: at the issue level
+  every issue in the workspace, initiative, project or milestone the viewer
+  can see, done ones included (faint, with their filled done mark), canceled
+  and duplicate ones left out; above it every milestone, every project, every
+  initiative (and the projects with no initiative). One issue's blocking chain
+  stays a chain. The blocking relations are the arrows, as before.
+- **Boxes sit in labelled frames by their parent,** so the unrelated ones pack
+  together instead of piling into one long column: issues by milestone ("No
+  milestone" per project), inside their project's frame when the graph spans
+  projects; milestones by project; projects by initiative. A paused project's
+  frame is quiet.
+- **The list under the graph of boxes "with no blocking relations" is gone;**
+  the counts say what is drawn ("51 issues in the workspace, 45 of them in 16
+  milestones; 6 blocking relations").
+- **An item on no relation at all reads "No dependencies"** and stays neutral,
+  so a graph of every issue is not a sea of green; "Ready" (green) is for work
+  in the blocking flow that nothing open holds up. Paths, the critical path and
+  the three highlights are unchanged.
+- **A graph draws up to 700 boxes and 1,000 arrows** (it was 200 and 300).
+  Past that it still offers narrower graphs instead.
+
+*Builder's calls, flagged for review:*
+- the frames are dim hairlines with mono caps titles, in the current look;
+- milestone frames nest in project frames whenever the drawn issues span more
+  than one project (an outside issue's frame is dashed);
+- at the issue level every relation between drawn issues is an arrow, closed
+  ones dotted, so "No dependencies" means exactly "no arrow";
+- an empty milestone is drawn faint like a complete one, but reads "No
+  issues" and is counted apart ("1 complete · 1 with no issues"), never
+  "Complete" (review fix below);
+- a milestone box still names its project on its second line, inside that
+  project's frame;
+- above the issue level the open-issue counts say "can start", not "ready"
+  ("38 open issues: 33 can start, 5 blocked"; a box's "4 open · 3 can start ·
+  1 blocked"), because they include issues with no dependencies, which the
+  Issues level does not call Ready;
+- an arrow between frames runs round the other boxes in the frames it leaves
+  and enters (it no longer cuts behind them); in a big, dense workspace long
+  arrows between distant frames still cross boxes.
+
+*Review fixes, same day (builder's calls, flagged for review):*
+- **The box you are reading is purple.** Pointing at a box, focusing it with
+  the keyboard or tapping it on a phone floods it in the purple, so the box
+  whose paths are lit is never just one more ring; the legend's Paths row
+  calls it "Reading". The selected box keeps its ink fill.
+- **A relation between two paused projects is now an arrow** at the
+  milestone, project and initiative levels, because both boxes are drawn; the
+  timeline still leaves those connectors out, as before.
+- **A box with no issues says so:** "No issues" in its panel and counted apart
+  in the summaries, never "Complete" (it used to count a milestone with no
+  issues, and for a guest one whose issues he cannot see, as complete).
+- **Blockers with no box at this level are counted as issues:** "Waiting on 1
+  milestone: Dual-write, and 2 issues with no milestone".
+- **The highlight follows the page you are on:** Back and Forward show the mode
+  each page had; a mode that came in a shared link carries on when you click a
+  level tab, the trail or a panel link; a link that says Status keeps Status
+  on a reload even when you usually use Risk; switching while an issue opens
+  never cancels it.
+- **The legend above the graph keeps one height,** so switching the highlight
+  never moves the switch or the drawing.
+- **Hovering stays smooth on big graphs:** the rest of the graph dims at once
+  instead of fading (about four times cheaper at the limit).
+- **Large workspaces lay out in under a second** at the 700 boxes / 1,000
+  arrows limit whatever their shape (they took up to 5 s with many projects,
+  and a rare small project hung the server's render).
+- Wording: "Nothing here waits on it" (something not drawn may still wait on
+  it); under Critical path the hint says "show the longest chain through it".
+- A box of two or three loose boxes lays them side by side, not in a column.

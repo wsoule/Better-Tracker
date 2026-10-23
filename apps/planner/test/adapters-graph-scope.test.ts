@@ -9,19 +9,32 @@ import { createFixtureWorkspace } from '@better-tracker/linear';
 import { describe, expect, test } from 'bun:test';
 
 import {
+  addressHref,
+  carryHighlight,
   chainHref,
+  DEFAULT_GRAPH_HIGHLIGHT,
+  effectiveHighlight,
   GRAPH_DRAW_LIMITS,
+  GRAPH_HIGHLIGHT_LABEL,
+  GRAPH_HIGHLIGHTS,
   graphHref,
   graphTrail,
+  HIGHLIGHT_COOKIE,
+  highlightCookie,
+  highlightFromCookies,
   levelTabs,
   parseGraphParams,
   parseGraphScope,
+  parseHighlight,
+  withHighlightParam,
 } from '../lib/adapters/graph-scope';
+import { OAUTH_COOKIE, SESSION_COOKIE } from '../lib/auth-cookies';
 
 // The /graph URL vocabulary: reading a query string into a scope (and the
 // ?node= arrival selection), writing a scope's canonical URL, the drill-up
-// trail and the level tabs. The trail reads the demo mirror, as a member
-// and as the guest (who sees no initiatives).
+// trail, the level tabs, and the highlight (?highlight= and its cookie).
+// The trail reads the demo mirror, as a member and as the guest (who sees
+// no initiatives).
 
 const TODAY = '2026-10-21';
 
@@ -206,8 +219,10 @@ describe('parseGraphParams', () => {
     });
   });
 
-  test('the draw limits are 200 boxes and 300 arrows', () => {
-    expect(GRAPH_DRAW_LIMITS).toEqual({ nodes: 200, edges: 300 });
+  test('the draw limits are 700 boxes and 1,000 arrows', () => {
+    // Every item of a scope is drawn (owner decision 2026-10-23): about
+    // 0.8 s of framed layout at these sizes (architecture §8.4).
+    expect(GRAPH_DRAW_LIMITS).toEqual({ nodes: 700, edges: 1000 });
   });
 });
 
@@ -350,5 +365,184 @@ describe('levelTabs', () => {
   test('a milestone and a chain offer one level: no tabs', () => {
     expect(tabs({ level: 'issue', milestoneId: 'ms-atlas-2' })).toEqual([]);
     expect(tabs({ level: 'issue', issueId: 'ENG-24' })).toEqual([]);
+  });
+});
+
+describe('the highlight', () => {
+  test('three modes in switch order, Status by default', () => {
+    expect(GRAPH_HIGHLIGHTS).toEqual(['status', 'risk', 'critical']);
+    expect(GRAPH_HIGHLIGHTS.map((id) => GRAPH_HIGHLIGHT_LABEL[id])).toEqual([
+      'Status',
+      'Risk',
+      'Critical path',
+    ]);
+    expect(DEFAULT_GRAPH_HIGHLIGHT).toBe('status');
+  });
+
+  test('?highlight= is lenient: any case, trimmed, critical-path, the first value', () => {
+    expect(parseHighlight('Status')).toBe('status');
+    expect(parseHighlight('RISK')).toBe('risk');
+    expect(parseHighlight(' critical-path ')).toBe('critical');
+    expect(parseHighlight('CriticalPath')).toBe('critical');
+    expect(parseHighlight('critical')).toBe('critical');
+    expect(parseHighlight(['risk', 'status'])).toBe('risk');
+    expect(parseHighlight(query('highlight=Risk&highlight=x').highlight)).toBe(
+      'risk'
+    );
+  });
+
+  test('anything else is null, never a 404: junk, blanks, prototype names', () => {
+    for (const value of [
+      'junk',
+      '',
+      '   ',
+      'critical path',
+      'constructor',
+      '__proto__',
+      'toString',
+      'hasOwnProperty',
+      'r'.repeat(500),
+    ]) {
+      expect(parseHighlight(value)).toBeNull();
+    }
+    expect(parseHighlight(undefined)).toBeNull();
+    expect(parseHighlight(null)).toBeNull();
+  });
+
+  test('the URL wins, then a valid cookie, then the default', () => {
+    expect(effectiveHighlight('risk', 'critical')).toBe('risk');
+    expect(effectiveHighlight(undefined, 'critical')).toBe('critical');
+    expect(effectiveHighlight('junk', 'Critical')).toBe('critical');
+    // An invalid cookie is ignored, whatever it holds.
+    expect(effectiveHighlight(undefined, '__proto__')).toBe('status');
+    expect(effectiveHighlight(undefined, 'risk; Path=/')).toBe('status');
+    expect(effectiveHighlight(undefined, undefined)).toBe('status');
+    expect(effectiveHighlight('status', 'risk')).toBe('status');
+  });
+
+  test('withHighlightParam changes only ?highlight=, keeping every other param as written', () => {
+    expect(withHighlightParam('/graph?chain=ENG-23', 'critical')).toBe(
+      '/graph?chain=ENG-23&highlight=critical'
+    );
+    expect(withHighlightParam('/graph', 'risk')).toBe('/graph?highlight=risk');
+    // The default is never written; dropping the last param drops the "?".
+    expect(withHighlightParam('/graph?highlight=risk', 'status')).toBe(
+      '/graph'
+    );
+    expect(
+      withHighlightParam('/graph?level=initiative&highlight=risk', 'status')
+    ).toBe('/graph?level=initiative');
+    // A changed mode replaces every repeat of the param, in any encoding.
+    expect(
+      withHighlightParam(
+        '/graph?highlight=Risk&project=proj%2Fx&high%6Cight=status&issue=ENG-23',
+        'critical'
+      )
+    ).toBe('/graph?project=proj%2Fx&issue=ENG-23&highlight=critical');
+    // Other params keep their exact bytes (+, %20, empty values, order),
+    // and a fragment stays last.
+    expect(
+      withHighlightParam('/graph?q=a+b&x=%20&empty=&node=ms-1#top', 'risk')
+    ).toBe('/graph?q=a+b&x=%20&empty=&node=ms-1&highlight=risk#top');
+    expect(withHighlightParam('/graph?highlights=1', 'status')).toBe(
+      '/graph?highlights=1'
+    );
+  });
+
+  test('the address bar drops ?highlight= only when the mode and a bare URL here are both Status', () => {
+    // No cookie (or Status): Status is the bare URL, Risk is written.
+    expect(addressHref('/graph?level=issue', 'status', 'status')).toBe(
+      '/graph?level=issue'
+    );
+    expect(addressHref('/graph?level=issue', 'risk', 'status')).toBe(
+      '/graph?level=issue&highlight=risk'
+    );
+    // A cookie that says Risk: Risk is still written (a copied link shows
+    // it to anyone), and an explicit Status survives a reload here.
+    expect(addressHref('/graph?level=issue', 'risk', 'risk')).toBe(
+      '/graph?level=issue&highlight=risk'
+    );
+    expect(
+      addressHref('/graph?level=issue&highlight=status', 'status', 'risk')
+    ).toBe('/graph?level=issue&highlight=status');
+  });
+
+  test('links the screen draws carry the mode only when the next page would not pick it', () => {
+    // Arrived on a shared ?highlight=critical, this device's own mode is
+    // Status: a level tab, a trail crumb or a panel link keeps Critical.
+    expect(carryHighlight('/graph', 'critical', 'status')).toBe(
+      '/graph?highlight=critical'
+    );
+    expect(
+      carryHighlight(
+        '/graph?project=proj-atlas&level=milestone',
+        'critical',
+        'status'
+      )
+    ).toBe('/graph?project=proj-atlas&level=milestone&highlight=critical');
+    // A Status page on a device whose cookie says Risk keeps Status too.
+    expect(carryHighlight('/graph?level=issue', 'status', 'risk')).toBe(
+      '/graph?level=issue&highlight=status'
+    );
+    // The mode the next page picks anyway: the link stays canonical.
+    expect(carryHighlight('/graph?level=issue', 'risk', 'risk')).toBe(
+      '/graph?level=issue'
+    );
+    // Only /graph links: an issue or timeline link is left alone.
+    expect(
+      carryHighlight('/timeline?milestone=ms-1', 'critical', 'status')
+    ).toBe('/timeline?milestone=ms-1');
+    // A panel's "Open as list" goes to the Issues page untouched.
+    expect(
+      carryHighlight('/issues?milestone=ms-atlas-2', 'critical', 'status')
+    ).toBe('/issues?milestone=ms-atlas-2');
+    expect(carryHighlight('/graphs', 'critical', 'status')).toBe('/graphs');
+    // Links into the graph from other pages (the Issues row's Blocking
+    // chain, its "Open as graph") stay canonical: the cookie, sent only to
+    // /graph, picks the mode on arrival.
+    expect(chainHref('ENG-23')).toBe('/graph?chain=ENG-23');
+  });
+
+  test('the cookie read takes the first valid graph-highlight pair, as the browser orders them', () => {
+    // The reader's own Path=/graph pick comes first; a wider Path=/ one
+    // (a parent domain's, say) after it never shadows it.
+    expect(
+      highlightFromCookies(
+        'graph-highlight=risk; mp_session=abc; graph-highlight=critical'
+      )
+    ).toBe('risk');
+    expect(
+      highlightFromCookies('graph-highlight=evil; graph-highlight=critical')
+    ).toBe('critical');
+    expect(highlightFromCookies('mp_session=abc')).toBeNull();
+    expect(highlightFromCookies('')).toBeNull();
+    expect(highlightFromCookies(null)).toBeNull();
+    expect(highlightFromCookies('graph-highlight=__proto__')).toBeNull();
+    expect(highlightFromCookies('xgraph-highlight=risk')).toBeNull();
+    expect(highlightFromCookies(' graph-highlight = Risk ')).toBe('risk');
+  });
+
+  test('the cookie: a year on /graph, Lax, Secure on https; never a session cookie', () => {
+    expect(highlightCookie('critical', false)).toBe(
+      'graph-highlight=critical; Path=/graph; Max-Age=31536000; SameSite=Lax'
+    );
+    expect(highlightCookie('risk', true)).toBe(
+      'graph-highlight=risk; Path=/graph; Max-Age=31536000; SameSite=Lax; Secure'
+    );
+    expect(HIGHLIGHT_COOKIE).toBe('graph-highlight');
+    expect([SESSION_COOKIE, OAUTH_COOKIE]).not.toContain(HIGHLIGHT_COOKIE);
+  });
+
+  test('graphHref never carries the highlight: links follow the cookie', () => {
+    for (const href of [
+      '/graph?highlight=critical',
+      '/graph?chain=ENG-23&highlight=risk',
+      '/graph?project=proj-atlas&level=milestone&node=ms-atlas-2&highlight=critical',
+    ]) {
+      const { scope, nodeId } = parseGraphParams(
+        query(href.split('?')[1] ?? '')
+      );
+      expect(graphHref(scope, { node: nodeId })).not.toContain('highlight');
+    }
   });
 });

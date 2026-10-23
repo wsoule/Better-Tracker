@@ -16,6 +16,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from 'react';
 
 import {
@@ -49,6 +50,8 @@ export interface IssueDrawerState {
   requested: string | null;
   /** Requested, and the server has not answered for it yet. */
   loading: boolean;
+  /** The drawer's own navigation (open, swap or close) is on its way. */
+  navigating: boolean;
   /** The answered model of `requested` (null while loading or missing). */
   model: IssueTaskModel | null;
   /** The server answered: no such issue in the planner. */
@@ -89,22 +92,30 @@ export function useIssueDrawerState(
     (key: string) => withIssueParam(current, key),
     [current]
   );
+  // The drawer's own navigations run in a transition, so the screen can
+  // tell one is on its way (a history write would cancel it).
+  const [navigating, startNavigation] = useTransition();
   const open = useCallback(
     (key: string) => {
       setRequested(key);
-      router.push(withIssueParam(current, key), { scroll: false });
+      startNavigation(() => {
+        router.push(withIssueParam(current, key), { scroll: false });
+      });
     },
     [router, current]
   );
   const close = useCallback(() => {
     setRequested(null);
-    router.push(withIssueParam(current, null), { scroll: false });
+    startNavigation(() => {
+      router.push(withIssueParam(current, null), { scroll: false });
+    });
   }, [router, current]);
   const forget = useCallback(() => setRequested(null), []);
 
   const answered = requested !== null && requested === server.param;
   return {
     requested,
+    navigating,
     loading: requested !== null && !answered,
     model: answered ? server.model : null,
     missing: answered && server.model === null,

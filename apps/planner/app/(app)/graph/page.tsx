@@ -1,10 +1,15 @@
 import type { DependencyGraph, GraphScope } from '@better-tracker/core';
 import type { Engine } from '@better-tracker/engine';
-import { TaskCrumbs } from '@better-tracker/ui';
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 
-import { buildGraphPage, parseGraphParams } from '../../../lib/adapters/graph';
+import {
+  buildGraphPage,
+  DEFAULT_GRAPH_HIGHLIGHT,
+  highlightFromCookies,
+  parseGraphParams,
+} from '../../../lib/adapters/graph';
 import { parseIssueParam } from '../../../lib/adapters/issue';
 import { engineInputCode } from '../../../lib/engine-errors';
 import { currentHref, loadIssueDrawer } from '../../../lib/issue-load';
@@ -15,7 +20,6 @@ import {
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import GraphScreen from './graph-screen';
-import css from './page.module.css';
 
 export const metadata: Metadata = { title: 'Graph' };
 
@@ -40,8 +44,11 @@ async function loadGraph(
    (?initiative=<id|none>), a project (?project=), a milestone
    (?milestone=), or one issue's blocking chain (?chain=<key>); ?level=
    picks another level the container offers, ?node=<id> selects a box on
-   arrival, and ?issue=<key> opens an issue node's slide-over (§8.5). With
-   no parameters it is the workspace's milestones. Everyone sees the
+   arrival, ?highlight=status|risk|critical picks what the drawing
+   emphasises (else the graph-highlight cookie remembers the last one
+   picked, else Status; the island reads both, so Back and Forward show
+   what each history entry says), and ?issue=<key> opens an issue node's slide-over
+   (§8.5). With no parameters it is the workspace's milestones. Everyone sees the
    graph; it is read-only. The engine builds the graph from the viewer's
    mirror (a viewer with no initiatives gets the workspace, with a notice),
    lib/adapters/graph.ts maps it, lays it out and computes the Mermaid text
@@ -67,6 +74,14 @@ export default async function GraphPage({
     ])
   );
   if (graph === null) notFound();
+  // A viewing preference: the URL's ?highlight= wins (the island reads it
+  // from the URL), then the cookie (an invalid value is ignored), then
+  // the default. The raw Cookie header, first valid pair: the browser
+  // sends the reader's own Path=/graph pick before any wider one. Not a
+  // write, not audited.
+  const bareHighlight =
+    highlightFromCookies((await headers()).get('cookie')) ??
+    DEFAULT_GRAPH_HIGHLIGHT;
   const model = buildGraphPage({
     graph,
     snapshot: loaded.snapshot,
@@ -78,29 +93,14 @@ export default async function GraphPage({
     readOnlyReason: actor.readOnlyReason,
   });
 
+  // The island draws the header too: its trail links carry the mode on
+  // screen (carryHighlight), which only the client knows after a switch.
   return (
     <>
-      <header className={css.head}>
-        {model.trail.length > 0 ? (
-          <div className={css.trail}>
-            <TaskCrumbs
-              label="Graph scope"
-              breadcrumb={model.trail}
-              taskKey=""
-            />
-          </div>
-        ) : null}
-        <h1 className={css.title}>{model.heading}</h1>
-        <p className={css.receipts}>{model.receipts}</p>
-        {model.notices.map((notice) => (
-          <p key={notice.id} className={css.notice} data-notice={notice.id}>
-            {notice.text}
-          </p>
-        ))}
-      </header>
       <GraphScreen
         key={model.pageKey}
         model={model}
+        bareHighlight={bareHighlight}
         issueDrawer={issueDrawer}
       />
       {model.crumb !== null ? <PageCrumb label={model.crumb} /> : null}

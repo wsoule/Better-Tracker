@@ -184,6 +184,69 @@
   white-space: nowrap;
 }
 
+/* ---- clusters (labelled frames by parent) --------------------------------- */
+
+/* A frame around the boxes that share a parent (a milestone, a project, an
+   initiative): a 1px hairline in the dim furniture grey (3.23:1 on the
+   light paper, 5.93:1 on the dark one), square, no shadow, under the
+   arrows and boxes. Its mono caps title sits inside the top-left corner
+   (placed from CLUSTER_METRICS in layout.ts: 9px on a 12px line, 8px
+   down, 10px in) on a paper patch above the arrows, so a line passes
+   behind it. A top-level frame titles in ink, a nested one in the
+   secondary grey. */
+.cluster {
+  position: absolute;
+  border: 1px solid var(--grey-2);
+  pointer-events: none;
+}
+
+.clusterTitle {
+  position: absolute;
+  padding: 0 3px;
+  margin-left: -3px;
+  overflow: hidden;
+  background: var(--background);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 12px;
+  letter-spacing: 0.1em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.clusterTitleTop {
+  color: var(--foreground);
+}
+
+/* Inactive work (a paused project): the blueprint hatch, the hatch the
+   base already uses for what is unavailable, its rule in the inactive
+   mark grey (3:1 even on a hatch line: 3.11:1 light, 3.12:1 dark, where
+   --grey-2 would give 2.84:1 in light) and a dim title (on its paper
+   patch, never on the hatch: 5.10:1 light, 5.93:1 dark). The boxes
+   inside keep their own paper and their muted look. */
+.clusterMuted {
+  border-color: var(--grey);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 9px
+  );
+}
+
+.clusterTitleMuted {
+  color: var(--grey-2-ink);
+}
+
+/* Outside the scope: dashed, like an external box. */
+.clusterExternal {
+  border-style: dashed;
+}
+
 /* ---- edges -------------------------------------------------------------- */
 
 .edges {
@@ -194,9 +257,11 @@
   pointer-events: none;
 }
 
+/* No colour transition on edges: a path read on a big graph dims every
+   other edge at once, and animating that restyles the whole drawing for
+   several frames (architecture §8.4 Graph, "Hover cost"). */
 .edge {
   color: var(--foreground);
-  transition: opacity 0.15s ease;
 }
 
 .edgeLine {
@@ -234,8 +299,17 @@
   stroke-dasharray: 3 3;
 }
 
+/* No longer blocking (one end is done): 2px round dots, never a line, in
+   the dim text grey so the antialiased dots still clear 3:1 on the paper
+   (5.10:1 light, 5.93:1 dark). */
 .edgeResolved {
-  color: var(--grey-3);
+  color: var(--grey-2-ink);
+}
+
+.edgeResolved .edgeLine {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 4;
 }
 
 .weight rect {
@@ -252,13 +326,69 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 2px is emphasis: spent on the chain being read. */
-.edge.lit .edgeLine {
+/* The Status highlight: what no longer blocks is green dots (unblocked),
+   and a risk chain is drawn as any other block (the Risk highlight keeps
+   the amber). The Critical path highlight draws risk chains as blocks too.
+   The mode prefixes sit in :where() so these rules weigh what the kind's
+   own rule weighs (they win by order), and the forced-colours block below
+   still overrides every edge colour. */
+:where(.graph[data-highlight='status']) .edgeResolved {
+  --edge-ink: var(--green-ink);
+
+  color: var(--green);
+}
+
+:where(.graph:is([data-highlight='status'], [data-highlight='critical']))
+  .edgeRisk {
+  --edge-ink: currentcolor;
+
+  color: var(--foreground);
+}
+
+/* Under Status and Critical path, an edge that crosses a boundary
+   (data-cross) is dashed whatever its kind, but only while it blocks and
+   is not a cycle: one line has one dash pattern, and the unblocked dots
+   and the cycle's long dashes are those edges' only cue besides colour. */
+:where(.graph:is([data-highlight='status'], [data-highlight='critical']))
+  .edge[data-cross]:is(.edgeDefault, .edgeRisk, .edgeCross)
+  .edgeLine {
+  stroke-dasharray: 3 3;
+}
+
+/* 2px is emphasis: spent on the paths being read (drawn again in the
+   overlay, above the rest). What the node waits on runs in the accent (a
+   selection-derived highlight, never a status); a cycle keeps its red and,
+   under Risk, a risk chain its amber. What it holds up runs in ink. */
+.edge.lit .edgeLine,
+.edge.down .edgeLine {
   stroke-width: 2;
 }
 
-.edge.dim {
-  opacity: 0.16;
+.edge.lit:is(.edgeDefault, .edgeCross),
+:where(.graph:not([data-highlight='risk'])) .edge.lit.edgeRisk {
+  --edge-ink: var(--accent-ink);
+
+  color: var(--accent);
+}
+
+/* The critical path: 2.5px ink, keeping its dashes; a cycle keeps its red. */
+.edge.chain .edgeLine {
+  stroke-width: 2.5;
+}
+
+.edge.chain:is(.edgeDefault, .edgeCross) {
+  color: var(--foreground);
+}
+
+/* Receding: a plain line steps down to the dim text grey (still 5.10:1
+   light, 5.93:1 dark, so it reads); a risk chain (under Risk), a cycle and
+   unblocked dots keep their look, facts that stay true while another path
+   is read. */
+.edge.dim:is(.edgeDefault, .edgeCross),
+:where(.graph:not([data-highlight='risk'])) .edge.dim.edgeRisk {
+  --edge-ink: currentcolor;
+
+  color: var(--grey-2-ink);
 }
 
 /* ---- nodes -------------------------------------------------------------- */
@@ -274,11 +404,14 @@
   color: var(--foreground);
   text-align: left;
   cursor: pointer;
+
+  /* Only the flood and the rings fade: text and rule colours change at
+     once, so dimming every other box while a path is read (one class per
+     box) never animates hundreds of boxes; the hover rule below fades its
+     own box's words and rule in with the flood. */
   transition:
     background-color 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease,
-    opacity 0.15s ease;
+    outline-color 0.15s ease;
 
   /* The status mark's hues (.glyph below; --glyph-ink is done's ink
      fill). A faint box turns them grey and a flood (overdue, hover) turns
@@ -408,15 +541,50 @@ div.node {
   color: var(--on-amber);
 }
 
+/* A chip in a status tone (data-tone): the readiness chip under Status,
+   OVERDUE wherever the red flood is off. The outline in the hue's MARK,
+   the word in its TEXT colour, as the Chip atom draws a status. */
+.tagToned {
+  border-color: var(--tone);
+  color: var(--tone-ink);
+}
+
+/* "Ready" leads with a small square, so a ready chip differs from a
+   blocked one in shape, not only in hue. */
+.readyChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.readyChip::before {
+  content: '';
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  background: currentcolor;
+}
+
+.tagToned.readyChip::before {
+  background: var(--tone);
+}
+
 /* ---- node marks ----------------------------------------------------------- */
 
 /* A status tone (data-tone, tokens.css): warning amber for needs action
-   (unassigned, at risk), danger red for overdue; a host's accent stays
-   purple. 2px, so padding gives the extra pixel back and the content
-   never moves. */
+   (unassigned, at risk, blocked), danger red for overdue or stuck; a
+   host's accent stays purple. 2px, so padding gives the extra pixel back
+   and the content never moves. */
 .toned {
   padding: 9px 11px;
   border: 2px solid var(--tone);
+}
+
+/* Ready under the Status highlight: the box's own 1px edge in the green,
+   nothing more. Most boxes are ready, and a 1px edge against a blocked
+   box's 2px rule tells the two apart without their hues. */
+.toneEdge {
+  border-color: var(--tone);
 }
 
 /* Closed or inactive work steps back: faint rule, muted text, and its
@@ -431,9 +599,22 @@ div.node {
   color: var(--muted);
 }
 
-/* Outside the scope: present for context, drawn in a lighter hand. */
+/* Done keeps its filled ink square in a faint box (a graph of every issue
+   draws the done ones faint): the square is done's one shape, and the
+   ink follows the box's own ink, so a hover or selection flood still
+   turns it to the flood's ink. */
+.toneMuted > .done {
+  --glyph-ink: var(--foreground);
+}
+
+/* Outside the scope: present for context, drawn in a lighter hand. A
+   status rule or the ready edge keeps its hue in the dashes: it is the
+   box's state, and the edge is a ready box's only shape. */
 .external {
   border-style: dashed;
+}
+
+.external:not(.toned, .toneEdge) {
   border-color: var(--muted);
 }
 
@@ -519,15 +700,94 @@ div.node {
    hues (MARK tokens are 3:1 on the ink): the overdue flood's swap to its
    own ink is scoped to an unselected box above. */
 
-/* The chain being read: 2px rules on its boxes, everything else recedes. */
-.node.lit,
+/* The node being read: a 2px rule, flooded in the accent while the
+   reader is on it (.pointed below); a selection or a chain's focus that
+   lights its paths at rest keeps its own look. */
 .node.active {
   padding: 9px 11px;
   border-width: 2px;
 }
 
-.node.dim {
-  opacity: 0.22;
+/* Its paths: a 2px ring hugging the box outside its border, so the box's
+   own rule (its status) still shows. What it waits on in the accent (a
+   selection-derived highlight), what it holds up and the critical path in
+   ink: 4.66:1 apart in light, 3.85:1 in dark, and apart in place too
+   (blockers sit before what waits). The keyboard focus ring wins on the
+   focused box. */
+.node.lit:not(:focus-visible),
+.node.down:not(:focus-visible),
+.node.chain:not(:focus-visible) {
+  outline: 2px solid var(--ink);
+  outline-offset: 0;
+}
+
+.node.lit:not(:focus-visible) {
+  outline-color: var(--accent);
+}
+
+/* Receding while another node's paths are lit: the words step down to the
+   dim text grey (5.10:1 light, 5.93:1 dark, so they still read) and a
+   plain box's hairline goes faint. A status rule, the ready edge, the
+   dashes of an outside box, the chips and the status marks keep their
+   colours: they are facts, true while another path is read. The colour
+   is set on the words themselves, never swapped as an inherited colour
+   or token on the box: a swap there restyles every element inside every
+   box, which at the draw limits cost a quarter of a second a hover
+   (architecture §8.4 Graph, "Hover cost"). */
+.node.dim:not(.overdueNode) > .text > :is(.label, .sublabel) {
+  color: var(--grey-2-ink);
+}
+
+.node.dim:not(.toned, .toneEdge, .external, .overdueNode, .selected) {
+  border-color: var(--hairline-faint);
+}
+
+/* "Ready next": what finishing the node being read alone would unblock.
+   A square mono tag riding the box's top rule, in the success green (it
+   will be ready). Its own paper behind it, so the rule never strikes
+   through the word. */
+.next {
+  position: absolute;
+  top: -8px;
+  right: 8px;
+  z-index: 1;
+  padding: 0 5px;
+  border: 1px solid var(--green);
+  background: var(--background);
+  color: var(--green-ink);
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* A box's step on the critical path: an ink square on the box's top-left
+   corner, cut out of the rule by a paper border; members of one cycle
+   share the number. */
+.step {
+  position: absolute;
+  top: -9px;
+  left: -9px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border: 2px solid var(--paper);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 @media (hover: hover) and (width >= 901px) {
@@ -543,6 +803,11 @@ div.node {
     border-color: var(--accent);
     background: var(--accent);
     color: var(--on-accent);
+    transition:
+      background-color 0.2s ease,
+      color 0.2s ease,
+      border-color 0.2s ease,
+      outline-color 0.15s ease;
   }
 
   .node.overdueNode:not(.selected):hover {
@@ -555,6 +820,62 @@ div.node {
     background: var(--on-accent);
     color: var(--accent);
   }
+
+  /* A toned chip turns to the flood's ink, its word still saying it. */
+  .node:not(.selected):hover .tagToned {
+    border-color: var(--on-accent);
+    color: var(--on-accent);
+  }
+
+  .node:not(.selected):hover .tagToned.readyChip::before {
+    background: var(--on-accent);
+  }
+}
+
+/* The node being read: the reader points at it, focuses it or tapped it
+   (a touch pin). The accent flood, a selection-derived highlight, on every
+   input, so the subject of the paths is never just one more 2px ring (the
+   rings mark what it waits on and holds up). A pointer's :hover above
+   floods at once; this class follows hover, keyboard focus and the pin. The
+   words fade in with the flood. Not on the selected box: its ink fill is
+   its own mark. */
+.node.pointed:not(.selected) {
+  --foreground: var(--on-accent);
+  --border: var(--on-accent);
+  --muted: var(--on-accent);
+  --glyph-ink: var(--on-accent);
+  --glyph-green: var(--on-accent);
+  --glyph-amber: var(--on-accent);
+  --glyph-red: var(--on-accent);
+
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease,
+    outline-color 0.15s ease;
+}
+
+.node.overdueNode.pointed:not(.selected) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+}
+
+.node.pointed:not(.selected) .tagWarning {
+  border-color: var(--on-accent);
+  background: var(--on-accent);
+  color: var(--accent);
+}
+
+.node.pointed:not(.selected) .tagToned {
+  border-color: var(--on-accent);
+  color: var(--on-accent);
+}
+
+.node.pointed:not(.selected) .tagToned.readyChip::before {
+  background: var(--on-accent);
 }
 
 /* Forced colours drop backgrounds: the filled marks keep a fill in the
@@ -578,6 +899,130 @@ div.node {
       transparent 1px,
       transparent 3px
     );
+  }
+
+  /* Paths without hue: every line in the text colour (its dashes and dots
+     tell the kinds apart), what it waits on in the Highlight colour, a
+     receding line in GrayText; the ring of what it holds up dashed. */
+  .node.lit:not(:focus-visible) {
+    outline-color: Highlight;
+  }
+
+  .node.down:not(:focus-visible) {
+    outline: 2px dashed CanvasText;
+  }
+
+  .node.chain:not(:focus-visible) {
+    outline-color: CanvasText;
+  }
+
+  .graph .edge {
+    color: CanvasText;
+  }
+
+  .graph .edge.lit {
+    color: Highlight;
+  }
+
+  .graph .edge.down,
+  .graph .edge.chain {
+    color: CanvasText;
+  }
+
+  .graph .edge.dim {
+    color: GrayText;
+  }
+
+  /* The node being read, and the selected node (whose ink fill is
+     dropped): a double rule just outside the box, apart from the solid
+     Highlight ring of what it waits on and the dashed one of what it
+     holds up. The keyboard focus ring wins on the focused box. */
+  .node.pointed:not(:focus-visible),
+  .node.selected:not(:focus-visible, .lit, .down, .chain) {
+    outline: 4px double CanvasText;
+    outline-offset: 2px;
+  }
+
+  /* Frames keep their shape: solid, dashed outside the scope; a muted
+     frame's rule and title in GrayText (the hatch is dropped). */
+  .cluster {
+    border-color: CanvasText;
+  }
+
+  .clusterMuted {
+    border-color: GrayText;
+  }
+
+  .clusterTitle,
+  .clusterTitleTop {
+    color: CanvasText;
+  }
+
+  .clusterTitleMuted {
+    color: GrayText;
+  }
+
+  .step {
+    forced-color-adjust: none;
+    border-color: Canvas;
+    background: CanvasText;
+    color: Canvas;
+  }
+
+  .next {
+    border: 1px solid CanvasText;
+  }
+}
+
+/* ---- readout ------------------------------------------------------------ */
+
+/* One line under the frame, collapsing into it with -1px: the node being
+   read and its paths in words, else the host's summary and how to trace a
+   node. It wraps to more lines on a phone. */
+.readout {
+  min-height: 40px;
+  margin-top: -1px;
+  padding: 11px 18px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.readoutSubject {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.readoutSep {
+  color: var(--grey-2);
+}
+
+.readoutIdle {
+  color: var(--foreground);
+}
+
+.readoutHint {
+  color: var(--grey-2-ink);
+}
+
+/* The hint names the gesture the device has: point and focus where
+   something can hover, tap elsewhere. */
+.hintHover {
+  display: none;
+}
+
+@media (hover: hover) {
+  .hintHover {
+    display: inline;
+  }
+
+  .hintTap {
+    display: none;
   }
 }
 
@@ -603,12 +1048,19 @@ div.node {
     height: clamp(220px, calc(var(--graph-h) + 12px), 64vh);
     cursor: auto;
   }
+
+  .readout {
+    padding: 10px 14px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .zoomButton,
-  .edge,
-  .node {
+  .node,
+  .node.pointed:not(.selected),
+  .node:not(.selected):hover,
+  .next,
+  .step {
     transition: none;
   }
 }

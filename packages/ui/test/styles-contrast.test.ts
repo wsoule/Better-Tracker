@@ -497,3 +497,147 @@ describe('hover floods swap the text tokens', () => {
     expect(missing).toEqual([]);
   });
 });
+
+// The dependency graph's highlights (architecture §8.4 Graph): every line,
+// ring and mark is 3:1 on the paper canvas and every word 4.5:1, in both
+// themes, read from the tokens the graph's stylesheet actually uses.
+// Measured: ink 21.00 / 16.37, the dim grey 5.10 / 5.93, green 4.71 /
+// 4.90, amber 3.56 / 5.23, red 4.83 / 4.15, accent 4.51 / 4.25; the
+// accent and ink rings 4.66 / 3.85 apart; the "Ready next" word 5.42 /
+// 8.86 (9.71 / 4.63 on a selected box's ink), the step digits 21.00 /
+// 16.37, receding words 5.10 / 5.93 (8.33 / 5.98 on a selected box).
+describe('graph marks meet WCAG in both themes', () => {
+  const graphCss = readFileSync(
+    path.join(srcDir, 'graph', 'dependency-graph.module.css'),
+    'utf8'
+  )
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ');
+
+  /** The declarations of the first rule whose selector is exactly `selector`. */
+  function graphRule(selector: string): string {
+    const at = graphCss.indexOf(`${selector} {`);
+    expect([selector, at >= 0]).toEqual([selector, true]);
+    const open = graphCss.indexOf('{', at);
+    return graphCss.slice(open + 1, graphCss.indexOf('}', open));
+  }
+
+  test('each job uses the token measured below', () => {
+    const uses: [string, string][] = [
+      ['.edge', 'color: var(--foreground)'],
+      ['.edgeResolved', 'color: var(--grey-2-ink)'],
+      [":where(.graph[data-highlight='status']) .edgeResolved", 'var(--green)'],
+      [
+        ".edge.dim:is(.edgeDefault, .edgeCross), :where(.graph:not([data-highlight='risk'])) .edge.dim.edgeRisk",
+        'color: var(--grey-2-ink)',
+      ],
+      [
+        ".edge.lit:is(.edgeDefault, .edgeCross), :where(.graph:not([data-highlight='risk'])) .edge.lit.edgeRisk",
+        'color: var(--accent)',
+      ],
+      [
+        '.node.lit:not(:focus-visible), .node.down:not(:focus-visible), .node.chain:not(:focus-visible)',
+        'outline: 2px solid var(--ink)',
+      ],
+      ['.node.lit:not(:focus-visible)', 'outline-color: var(--accent)'],
+      [
+        '.node.dim:not(.overdueNode) > .text > :is(.label, .sublabel)',
+        'color: var(--grey-2-ink)',
+      ],
+      // The box being read: the accent flood, its words in --on-accent.
+      ['.node.pointed:not(.selected)', 'background: var(--accent)'],
+      ['.node.pointed:not(.selected)', 'color: var(--on-accent)'],
+      ['.toneEdge', 'border-color: var(--tone)'],
+      ['.tagToned', 'color: var(--tone-ink)'],
+      ['.next', 'color: var(--green-ink)'],
+      ['.next', 'border: 1px solid var(--green)'],
+      ['.next', 'background: var(--background)'],
+      ['.step', 'background: var(--ink)'],
+      ['.step', 'color: var(--paper)'],
+      ['.readout', 'color: var(--muted)'],
+      // Cluster frames (every item, owner decision 2026-10-23) and their
+      // titles, each title on a paper patch.
+      ['.cluster', 'border: 1px solid var(--grey-2)'],
+      ['.clusterMuted', 'border-color: var(--grey)'],
+      ['.clusterTitle', 'color: var(--muted)'],
+      ['.clusterTitle', 'background: var(--background)'],
+      ['.clusterTitleTop', 'color: var(--foreground)'],
+      ['.clusterTitleMuted', 'color: var(--grey-2-ink)'],
+    ];
+    expect(
+      uses
+        .filter(([selector, use]) => !graphRule(selector).includes(use))
+        .map(([selector, use]) => `${selector}: ${use}`)
+    ).toEqual([]);
+  });
+
+  for (const [theme, t] of [
+    ['light', lightTokens],
+    ['dark', dark],
+  ] as const) {
+    const token = (name: string): string => t[name] ?? '(missing)';
+    const paper = token('--paper');
+    const ink = token('--ink');
+
+    test(`${theme}: lines, rings and box edges are 3:1 on the canvas`, () => {
+      const pairs = [
+        // Blocking lines, the downstream and critical rings and lines.
+        '--ink',
+        // Receding lines, unblocked dots outside Status.
+        '--grey-2-ink',
+        // The ready edge, unblocked dots under Status, the pill's rule.
+        '--green',
+        // Blocked and stuck rules, risk chains, cycles.
+        '--amber',
+        '--red',
+        // The upstream ring and lines.
+        '--accent',
+      ].map((name) => ({ name, ratio: contrast(token(name), paper) }));
+      expect(
+        pairs.filter(({ ratio }) => !(ratio >= 3)).map(({ name }) => name)
+      ).toEqual([]);
+    });
+
+    test(`${theme}: cluster frames are 3:1, a muted one on its hatch too`, () => {
+      const line = theme === 'light' ? hatch.light : hatch.dark;
+      expect(contrast(token('--grey-2'), paper)).toBeGreaterThanOrEqual(3);
+      expect(contrast(token('--grey'), paper)).toBeGreaterThanOrEqual(3);
+      expect(contrast(token('--grey'), line)).toBeGreaterThanOrEqual(3);
+    });
+
+    test(`${theme}: the upstream and downstream rings are 3:1 apart`, () => {
+      expect(contrast(token('--accent'), ink)).toBeGreaterThanOrEqual(3);
+    });
+
+    test(`${theme}: the graph's words are 4.5:1`, () => {
+      const pairs: [string, string, string][] = [
+        // "Ready next" on its paper, and on a selected box's ink fill
+        // (which swaps --green-ink to its inverse and --background to ink).
+        ['pill', token('--green-ink'), paper],
+        ['pill on a selected box', token('--green-ink-inverse'), ink],
+        // Step digits on the ink badge.
+        ['step', paper, ink],
+        // Receding words, and on a selected box.
+        ['receding', token('--grey-2-ink'), paper],
+        ['receding on a selected box', token('--muted-inverse'), ink],
+        // The readout line and its hint.
+        ['readout', token('--muted'), paper],
+        ['readout hint', token('--grey-2-ink'), paper],
+        // Readiness chips under Status.
+        ['ready chip', token('--green-ink'), paper],
+        ['blocked chip', token('--amber-ink'), paper],
+        ['stuck chip', token('--red-ink'), paper],
+        // Cluster titles on their paper patch: top-level, nested, muted.
+        // --foreground is the ink.
+        ['top cluster title', ink, paper],
+        ['nested cluster title', token('--muted'), paper],
+        ['muted cluster title', token('--grey-2-ink'), paper],
+      ];
+      expect(
+        pairs
+          .filter(([, fg, bg]) => !(contrast(fg, bg) >= 4.5))
+          .map(([label, fg, bg]) => `${label} ${contrast(fg, bg).toFixed(2)}`)
+      ).toEqual([]);
+    });
+  }
+});

@@ -68,6 +68,9 @@ describe('DependencyGraph', () => {
     );
     expect(table.textContent).toContain('Index rebuild');
     expect(table.textContent).toContain('blocks, in a cycle');
+    // A resolved edge: one end is done, so it no longer blocks.
+    expect(table.textContent).toContain('no longer blocks');
+    expect(table.textContent).not.toContain('resolved');
   });
 
   test('shows the empty message when there are no nodes', () => {
@@ -106,7 +109,11 @@ describe('DependencyGraph', () => {
       ?.getAttribute('aria-label');
     expect(name).toContain('Index rebuild');
     expect(name).toContain('unassigned');
-    expect(name).toContain('waits on 0, blocks 2');
+    // Transitive over the drawn edges: it holds up Offline sync, Ranking
+    // v3 and Store release; finishing it alone frees the first two (Store
+    // release also waits on SSO rollout, Offline sync's other edge is
+    // resolved).
+    expect(name).toContain('waits on 0, holds up 3; done would unblock 2');
   });
 
   test('Enter selects the focused node; aria-pressed follows', () => {
@@ -540,7 +547,7 @@ describe('DependencyGraph: a host layout and a focus node', () => {
     expect(container.querySelectorAll('[data-focus]')).toHaveLength(1);
     expect(focus.getAttribute('aria-label')).toBe(
       // The resolved Payments SDK edge is not an open wait.
-      'Offline sync. Mobile · due Nov 5. waits on 1, blocks 1. focus.'
+      'Offline sync. Mobile · due Nov 5. waits on 1, holds up 1. focus.'
     );
     // Not a selection: not pressed, and idle means nothing lit or dimmed.
     expect(focus.getAttribute('aria-pressed')).toBe('false');
@@ -579,10 +586,10 @@ describe('DependencyGraph: a host layout and a focus node', () => {
     const wrap = nodeEl(container, 'b');
     expect(wrap.hasAttribute('data-focus')).toBe(true);
     expect(wrap.querySelector('a')?.getAttribute('aria-label')).toBe(
-      'Subject. waits on 1, blocks 0. the issue this chain is about.'
+      'Subject. waits on 1, holds up 0. the issue this chain is about.'
     );
     expect(nodeEl(container, 'a').getAttribute('aria-label')).toBe(
-      'Blocker. waits on 0, blocks 1.'
+      'Blocker. waits on 0, holds up 1; done would unblock 1.'
     );
   });
 

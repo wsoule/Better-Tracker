@@ -119,6 +119,7 @@ describe('a private team', () => {
       { level: 'project', initiativeId: 'init-growth' },
       { level: 'milestone', initiativeId: 'init-platform' },
       { level: 'issue', initiativeId: 'init-platform' },
+      { level: 'issue', issueId: 'ENG-23' },
     ] as GraphScope[]) {
       const graph = await h.engine.getGraph(WORKSPACE_ID, scope, chloe);
       const text = JSON.stringify(graph);
@@ -126,6 +127,22 @@ describe('a private team', () => {
         expect(text).not.toContain(id);
       }
     }
+    // OPS-20 waits on ENG-23 alone. Chloe cannot see OPS-20, so for her
+    // finishing ENG-23 frees nothing; the whole mirror counts it.
+    const eng23 = async (viewer?: Actor) =>
+      (
+        await h.engine.getGraph(
+          WORKSPACE_ID,
+          { level: 'issue', issueId: 'ENG-23' },
+          viewer
+        )
+      ).nodes.find((n) => n.id === 'iss-eng-23');
+    expect(await eng23(chloe)).toMatchObject({
+      readiness: 'blocked',
+      blockedBy: 1,
+      unblocks: 0,
+    });
+    expect((await eng23())?.unblocks).toBe(1);
     // Platform holds Atlas, Delta, Fjord, Harbor and Juniper; Chloe sees
     // three of them, and not OPS-20, so Growth no longer waits back on it.
     const initiatives = await h.engine.getGraph(

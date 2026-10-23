@@ -353,9 +353,12 @@ export function toChartGroups(
 
 /**
  * The workspace's milestone-level graph edges as chart connectors (`to`
- * waits on `from`), one per pair. Any other graph (another level, or
- * milestones inside one initiative or project) gives none: the chart draws
- * the whole workspace's connectors or nothing.
+ * waits on `from`), one per pair, leaving out an edge between two
+ * milestones of inactive projects (§2.8): /graph draws those, since it
+ * draws every milestone, but paused work never pulls a connector across
+ * the chart. Any other graph (another level, or milestones inside one
+ * initiative or project) gives none: the chart draws the whole
+ * workspace's connectors or nothing.
  */
 export function chartDependencies(
   graph: DependencyGraph
@@ -366,9 +369,13 @@ export function chartDependencies(
   ) {
     return [];
   }
+  const active = new Map(graph.nodes.map((node) => [node.id, node.active]));
   const seen = new Map<string, TimelineDependency>();
   for (const edge of graph.edges) {
     if (edge.from === edge.to) continue;
+    if (active.get(edge.from) === false && active.get(edge.to) === false) {
+      continue;
+    }
     const key = `${edge.from}\u0000${edge.to}`;
     const prior = seen.get(key);
     seen.set(key, {

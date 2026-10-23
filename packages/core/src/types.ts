@@ -549,6 +549,67 @@ export interface GraphFallback {
   requested: GraphScope;
 }
 
+/**
+ * Where a graph node stands in the blocking flow (§2.10 "Readiness"):
+ * `independent` is open work that neither blocks nor waits on anything
+ * ("No dependencies"), drawn neutral; `ready` is open work in the blocking
+ * flow that nothing open holds up; `done` has issues and none open;
+ * `empty` (a box only) has no issue in the viewer's mirror at all, so it
+ * is neither done nor in the flow ("No issues").
+ */
+export type GraphReadiness =
+  | 'ready'
+  | 'blocked'
+  | 'done'
+  | 'independent'
+  | 'empty';
+
+/** The highlight a graph is drawn or exported with (§2.10, planner ?highlight=). */
+export type GraphHighlight = 'status' | 'risk' | 'critical';
+
+/** What a graph cluster groups its nodes by (§2.10 "Clusters"). */
+export type GraphClusterKind = 'initiative' | 'project' | 'milestone';
+
+/**
+ * A labelled frame around the drawn nodes that share a parent (§2.10
+ * "Clusters", owner decision 2026-10-23): at the issue level one per
+ * milestone ("No milestone" per project, "No project"), nested in one per
+ * project when the drawn issues span more than one project; at the
+ * milestone level one per project; at the project level one per first
+ * initiative ("No initiative"), and none in a mirror without initiatives.
+ * The initiative level and a chain have none. Only clusters with a drawn
+ * node in them exist.
+ */
+export interface GraphCluster {
+  /**
+   * Stable and unique in the graph: `project:<id>`, `project:none`,
+   * `milestone:<id>`, `milestone:none:<projectId>`, `initiative:<id>`
+   * (`initiative:none` for NO_INITIATIVE_ID).
+   */
+  id: string;
+  kind: GraphClusterKind;
+  /**
+   * The milestone, project or initiative it stands for
+   * (NO_INITIATIVE_ID for "No initiative"); null for "No milestone" and
+   * "No project".
+   */
+  refId: string | null;
+  /** The name; "No milestone", "No project" or "No initiative". */
+  label: string;
+  /** The enclosing cluster (a milestone's project) or null at the top. */
+  parentId: string | null;
+  /**
+   * The project it belongs to: a project cluster its own, a milestone
+   * cluster (or "No milestone") its project's; null for "No project" and
+   * initiative clusters.
+   */
+  projectId: string | null;
+  /** One of its nodes is active (§2.8); inactive clusters are drawn muted. */
+  active: boolean;
+  /** Every node in it is an external (outside the container). */
+  external: boolean;
+}
+
 /** One issue's chain, summarised (chain scopes only). */
 export interface GraphChain {
   focusId: string;
@@ -590,6 +651,11 @@ export interface GraphNode {
   /** Outside the requested container, one hop away. */
   external: boolean;
   /**
+   * The innermost cluster (DependencyGraph.clusters) it is drawn in; null
+   * when the graph has no clusters (the initiative level, a chain).
+   */
+  clusterId: string | null;
+  /**
    * Its project is active (§2.8); an issue with no mirrored project counts
    * as active; an initiative: one of its projects is.
    */
@@ -609,6 +675,47 @@ export interface GraphNode {
   waitsOnOverdue: boolean;
   status: MilestoneStatus | WorkflowStateType;
   /**
+   * Issue: done when completed or canceled; blocked when open with an open
+   * blocker in the viewer's mirror; independent ("No dependencies") when
+   * open with no blocks relation, either way, to an issue that is not
+   * canceled; ready otherwise (in the blocking flow, nothing open holds it
+   * up). Above the issue level: empty when no issue at all counts toward
+   * the unit in the viewer's mirror (a milestone with "No issues yet", an
+   * initiative whose projects count elsewhere or are hidden); done when
+   * issues count toward it and none is open; blocked ("waiting") when one
+   * of its open issues has an open
+   * blocker that counts toward another unit of this level or toward none;
+   * independent when it is also no such blocker of another unit's (or an
+   * unplaced) open issue and something in it can start; ready ("clear")
+   * otherwise (it may still hold blocked issues of its own). Mirror-wide,
+   * like the risk facts.
+   */
+  readiness: GraphReadiness;
+  /**
+   * Issue: its distinct open blockers (a self-loop counts). Above: the
+   * other units holding an open blocker of its open issues, plus the open
+   * blockers with no unit at this level. 0 unless blocked. May exceed the
+   * drawn in-edges.
+   */
+  blockedBy: number;
+  /**
+   * Above the issue level: how many of `blockedBy` are open blockers with
+   * no unit at this level (an issue with no milestone at the milestone
+   * level, with no project above it): issues, not boxes, so copy counts
+   * them apart. 0 for an issue.
+   */
+  unplacedBlockers: number;
+  /**
+   * What finishing it alone would free. Issue: the open issues (not itself)
+   * whose only open blocker it is. Above: the units whose only blocker
+   * (units and unplaced alike) it is. 0 when done.
+   */
+  unblocks: number;
+  /** Open issues counting toward the node (an issue: 1 when open). */
+  openIssues: number;
+  /** Of those, the ones with no open blocker anywhere in the mirror. */
+  readyIssues: number;
+  /**
    * Chain graphs only: signed hops from the focus (0 = the focus, negative
    * = upstream).
    */
@@ -627,6 +734,13 @@ export interface GraphEdge {
   to: string;
   /** Blocker is already completed/canceled (issue level only). */
   resolved: boolean;
+  /**
+   * Both ends are open: the blocker still holds the waiting end up. Always
+   * true above the issue level (aggregate edges count open→open relations
+   * only). False when the blocker is closed (`resolved`) or the waiting
+   * issue is closed.
+   */
+  blocking: boolean;
   /**
    * The ends are in different projects (always true at the project and
    * initiative levels).
@@ -662,6 +776,13 @@ export interface DependencyGraph {
   edges: GraphEdge[];
   /** Each cycle as node ids in order. */
   cycles: string[][];
+  /**
+   * The labelled frames the nodes are drawn in (GraphCluster), parents
+   * before their children, siblings in display order (in the container
+   * first, then the ones holding only externals). Empty at the initiative
+   * level and in a chain.
+   */
+  clusters: GraphCluster[];
   /** Set when the scope named initiatives the viewer has none of. */
   fallback: GraphFallback | null;
   /**
@@ -670,11 +791,6 @@ export interface DependencyGraph {
    * level; no project at the project and initiative levels).
    */
   unplacedRelations: number;
-  /**
-   * Issue level in the workspace or an initiative: open issues under the
-   * container on no counted relation (counted, not nodes).
-   */
-  unrelatedIssues: number;
   /** Chain scopes only. */
   chain: GraphChain | null;
 }

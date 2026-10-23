@@ -148,6 +148,7 @@ function edge(overrides: Partial<GraphEdge> = {}): GraphEdge {
     from: 'ms-a',
     to: 'ms-b',
     resolved: false,
+    blocking: true,
     crossProject: true,
     crossInitiative: false,
     crossOwner: true,
@@ -357,9 +358,9 @@ describe('lanes', () => {
       nodes: [],
       edges: [],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     };
     const page = (groups: Parameters<typeof view>[0]) =>
@@ -391,9 +392,9 @@ describe('dependencies', () => {
         edge({ from: 'ms-c', to: 'ms-b' }),
       ],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     };
     expect(chartDependencies(graph)).toEqual([
@@ -423,6 +424,34 @@ describe('dependencies', () => {
     expect(
       chartDependencies({ ...graph, scope: { level: 'project' } })
     ).toEqual([]);
+  });
+
+  test('an edge between two inactive projects’ milestones is no connector', () => {
+    // /graph draws every milestone, so it draws the arrow between two
+    // paused ones too; the chart keeps paused work quiet and leaves it out
+    // (as the workspace graph itself did before 2026-10-23). Only `id` and
+    // `active` of a node are read here.
+    const nodes = [
+      { id: 'ms-p1', active: false },
+      { id: 'ms-p2', active: false },
+      { id: 'ms-a', active: true },
+    ] as unknown as DependencyGraph['nodes'];
+    const graph: DependencyGraph = {
+      scope: { level: 'milestone' },
+      nodes,
+      edges: [
+        edge({ from: 'ms-p1', to: 'ms-p2' }),
+        edge({ from: 'ms-p2', to: 'ms-a' }),
+      ],
+      cycles: [],
+      clusters: [],
+      fallback: null,
+      unplacedRelations: 0,
+      chain: null,
+    };
+    expect(chartDependencies(graph)).toEqual([
+      { from: 'ms-p2', to: 'ms-a', onRiskChain: false },
+    ]);
   });
 
   test('connectors whose ends are filtered out are dropped', () => {
@@ -818,9 +847,9 @@ describe('banners', () => {
         nodes: [],
         edges: [],
         cycles: [],
+        clusters: [],
         fallback: null,
         unplacedRelations: 0,
-        unrelatedIssues: 0,
         chain: null,
       },
       permissions: READ_ONLY,
@@ -839,9 +868,9 @@ describe('banners', () => {
         nodes: [],
         edges: [],
         cycles: [],
+        clusters: [],
         fallback: null,
         unplacedRelations: 0,
-        unrelatedIssues: 0,
         chain: null,
       },
       permissions: GUEST,

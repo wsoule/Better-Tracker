@@ -78,6 +78,10 @@ describe('public API (docs/architecture.md §3)', () => {
     'findIssue',
     'isRiskNode',
     'isOverdueNode',
+    'readinessLabel',
+    'readinessClass',
+    'escapeMermaidLabel',
+    'mermaidParts',
     'toMermaid',
     'buildWeekView',
     'buildTimelineView',
@@ -124,6 +128,7 @@ describe('public API (docs/architecture.md §3)', () => {
     'ISSUE_LIST_QUICK_LABEL',
     'ISSUE_LIST_TIER_LABEL',
     'ISSUE_LIST_PRESET_LABEL',
+    'MERMAID_HUES',
   ])('exports constant %s', (name) => {
     expect(typeof (core as Record<string, unknown>)[name]).toBe('object');
   });

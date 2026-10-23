@@ -18,35 +18,41 @@ import {
   createFixtureWorkspace,
   FIXTURE_MILESTONE_META,
 } from '@better-tracker/linear';
+import { longestChain, longestChains } from '@better-tracker/ui';
 import { describe, expect, test } from 'bun:test';
 
 import {
   buildGraphPage,
+  clusterData,
+  crossesBoundary,
   cyclesPhrase,
   edgeKind,
   type GraphPageInput,
+  type GraphPageModel,
   graphHref,
-  ISOLATED_COLLAPSE_AFTER,
-  isolatedNodeIds,
   issueMark,
   listPhrase,
+  nodeReadiness,
   nodeTags,
   nodeTone,
   parseGraphScope,
+  pathWordsFor,
+  READINESS_TONE,
 } from '../lib/adapters/graph';
 
 // Unit tables for the small mappings, then the whole page built from the
 // demo workspace through core's real graph builder (the same path the
 // page takes), so counts, cycles and links are checked against real data.
 // Synthetic graphs cover what the demo is too small for (the draw limits,
-// the register cap, a cut chain).
+// a cut chain). Every item of a scope is drawn, on a relation or not, in
+// labelled frames by parent (owner decision 2026-10-23).
 
 const TODAY = '2026-10-21';
 
 /** buildGraphPage's options beside the graph and the mirror. */
 type PageOptions = Pick<
   GraphPageInput,
-  'keep' | 'nodeId' | 'issueKey' | 'readOnlyReason'
+  'nodeId' | 'issueKey' | 'readOnlyReason'
 >;
 
 /**
@@ -106,6 +112,7 @@ function node(overrides: Partial<GraphNode> = {}): GraphNode {
     milestoneId: 'm1',
     ownerId: 'u1',
     external: false,
+    clusterId: null,
     active: true,
     open: true,
     unassigned: false,
@@ -115,6 +122,12 @@ function node(overrides: Partial<GraphNode> = {}): GraphNode {
     waitsOnUnassigned: false,
     waitsOnOverdue: false,
     status: 'started',
+    readiness: 'ready',
+    blockedBy: 0,
+    unplacedBlockers: 0,
+    unblocks: 0,
+    openIssues: 1,
+    readyIssues: 1,
     ...overrides,
   };
 }
@@ -124,6 +137,7 @@ function edge(overrides: Partial<GraphEdge> = {}): GraphEdge {
     from: 'a',
     to: 'b',
     resolved: false,
+    blocking: true,
     crossProject: false,
     crossInitiative: false,
     crossOwner: false,
@@ -176,7 +190,10 @@ describe('edgeKind', () => {
     [{ crossProject: true }, 'cross'],
     [{ crossProject: true, onRiskChain: true }, 'risk'],
     [{ onRiskChain: true, inCycle: true }, 'cycle'],
-    [{ inCycle: true, resolved: true, onRiskChain: true }, 'resolved'],
+    [
+      { inCycle: true, resolved: true, blocking: false, onRiskChain: true },
+      'resolved',
+    ],
   ] as const)('%j → %s', (flags, kind) => {
     expect(edgeKind(edge(flags))).toBe(kind);
   });
@@ -248,7 +265,19 @@ describe('node flags', () => {
     expect(
       nodeTags(node({ inCycle: true, holdsCycle: true, hiddenNeighbours: 2 }))
     ).toEqual(['CYCLE', '+2 MORE']);
-    expect(nodeTags(node({ overdue: true, active: false }))).toEqual([]);
+    // An open issue of a paused project says so (its quiet box has a
+    // word); a closed one is quiet anyway.
+    expect(nodeTags(node({ overdue: true, active: false }))).toEqual([
+      'INACTIVE',
+    ]);
+    expect(
+      nodeTags(node({ overdue: true, active: false, open: false }))
+    ).toEqual([]);
+    // On an open cycle this graph does not draw whole: the word, without
+    // the dashed outline of a drawn cycle (CYCLE).
+    expect(
+      nodeTags(node({ holdsCycle: true, readiness: 'blocked', blockedBy: 1 }))
+    ).toEqual(['ON A CYCLE']);
   });
 
   test('tone: inactive work is quiet, aggregate boxes follow their status', () => {
@@ -341,11 +370,13 @@ describe('buildGraphPage on the demo workspace', () => {
         `/issues?milestone=${encodeURIComponent(n.id)}`
       );
     }
-    expect(model.mermaid?.startsWith('flowchart LR\n')).toBe(true);
+    expect(model.mermaid?.body.startsWith('flowchart LR\n')).toBe(true);
     expect(model.ariaSummary).toContain(`${model.nodes.length} milestones`);
     expect(model.ariaSummary).toContain('no cycles');
     expect(model.receipts).toContain('Select a milestone to see its issues.');
-    expect(model.legend.some((item) => item.mark === 'weight')).toBe(true);
+    expect(model.legends.risk.some((item) => item.mark === 'weight')).toBe(
+      true
+    );
   });
 
   test('an overdue milestone floods red, says so and names its project', () => {
@@ -412,122 +443,249 @@ describe('buildGraphPage on the demo workspace', () => {
     expect(milestone?.tone).toBe('default');
   });
 
-  test('a scope without any blocking relation shows the empty state', () => {
+  test('a scope without any blocking relation still draws every issue', () => {
     const model = page({ level: 'issue', projectId: 'proj-compass' });
-    expect(model.nodes).toEqual([]);
-    expect(model.emptyMessage).toBe(
-      'No issue in Compass onboarding blocks or waits on another.'
+    expect(model.nodes.map((n) => n.id).sort()).toEqual(
+      [...snapshot.issues.values()]
+        .filter((issue) => issue.projectId === 'proj-compass')
+        .map((issue) => issue.id)
+        .sort()
     );
-    expect(model.meta).toBe('No edges');
+    expect(model.edges).toEqual([]);
+    expect(model.meta).toBe('9 issues · 0 edges');
+    expect(model.receipts).toBe(
+      '9 issues in Compass onboarding, in 3 milestones; no blocking relations.'
+    );
+    // Nothing waits on anything: every open one has no dependencies, in
+    // no status hue, and there is no chain to number.
+    expect(
+      model.nodes.every(
+        (n) =>
+          n.readiness?.state === 'done' ||
+          (n.readiness?.state === 'independent' &&
+            n.readiness.tone === 'default')
+      )
+    ).toBe(true);
+    expect(model.readouts.critical).toBe(
+      'No open chain: nothing drawn waits on anything open.'
+    );
+  });
+
+  test('a scope with nothing in it shows the empty state', () => {
+    // Garnet's Push notifications milestone holds no issue yet.
+    const model = page({ level: 'issue', milestoneId: 'ms-garnet-2' });
+    expect(model.nodes).toEqual([]);
+    expect(model.clusters).toEqual([]);
+    expect(model.layout).toBeNull();
+    expect(model.mermaid).toBeNull();
+    expect(model.emptyMessage).toBe('No issues in Push notifications.');
+    expect(model.ariaSummary).toBe('No issues in Push notifications.');
+    expect(model.meta).toBe('No issues');
+    expect(model.receipts).toBe(
+      'Every issue in Push notifications, and which wait on which, from Linear’s blocking relations.'
+    );
   });
 });
 
-describe('nodes with no blocking relation', () => {
-  const { snapshot, page } = fixture();
+// The owner's correction (2026-10-23): the graph is there to show all
+// issues, not just blocking ones. Every item of the scope is drawn, the
+// blocking relations are the arrows, and labelled frames group the boxes
+// by parent so the unrelated ones pack instead of piling up.
+describe('every item drawn, framed by parent', () => {
+  const { snapshot, graphOf, page } = fixture();
 
-  test('isolatedNodeIds keeps node order and spares kept ids', () => {
-    const edges = [{ from: 'b', to: 'c' }];
-    expect(isolatedNodeIds(['a', 'b', 'c', 'd'], edges)).toEqual(['a', 'd']);
-    expect(isolatedNodeIds(['a', 'b', 'c', 'd'], edges, ['d'])).toEqual(['a']);
-    expect(isolatedNodeIds(['a'], [])).toEqual(['a']);
-  });
-
-  test('milestone level draws only connected milestones and lists the rest', () => {
+  test('the milestone level draws every milestone, framed by its project', () => {
+    const graph = graphOf({ level: 'milestone' });
     const model = page({ level: 'milestone' });
+    expect(model.nodes.map((n) => n.id)).toEqual(graph.nodes.map((n) => n.id));
+    expect(model.nodes).toHaveLength(17);
     const onEdge = new Set(model.edges.flatMap((e) => [e.from, e.to]));
-    expect(model.nodes.length).toBeGreaterThan(0);
-    for (const n of model.nodes) expect(onEdge.has(n.id)).toBe(true);
-
-    const list = model.isolated;
-    expect(list).not.toBeNull();
-    if (list === null) return;
-    const listed = list.rows.length;
-    expect(listed).toBeGreaterThan(ISOLATED_COLLAPSE_AFTER);
-    expect(list.collapsed).toBe(true);
-    expect(list.title).toBe(`${listed} milestones have no blocking relations`);
-    expect(list.nameLabel).toBe('Milestone');
-    expect(list.contextLabel).toBe('Project');
-    for (const row of list.rows) {
-      expect(onEdge.has(row.id)).toBe(false);
-      expect(row.href).toBe(
-        `/timeline?milestone=${encodeURIComponent(row.id)}`
-      );
-      expect(row.external).toBe(false);
-      const milestone = snapshot.milestones.get(row.id);
-      expect(row.context).toBe(
-        snapshot.projects.get(milestone?.projectId ?? '')?.name ?? ''
-      );
+    expect(model.nodes.filter((n) => !onEdge.has(n.id))).toHaveLength(13);
+    // Each box sits in its project's frame; the paused Fjord's is muted.
+    expect(model.clusters).toEqual(clusterData(graph.clusters));
+    expect(model.clusters).toHaveLength(9);
+    for (const n of model.nodes) {
+      const milestone = snapshot.milestones.get(n.id);
+      expect(n.cluster).toBe(`project:${milestone?.projectId ?? ''}`);
     }
-    // Counts in the header sentence and the block meta: shown vs listed.
-    const total = model.nodes.length + listed;
-    expect(model.meta).toBe(
-      `${model.nodes.length} of ${total} milestones · ${model.edges.length} edges`
-    );
-    expect(model.receipts).toContain(
-      `${listed} more have no blocking relations and are listed under the graph.`
-    );
-    expect(model.ariaSummary).toContain(
-      `${listed} milestones with no blocking relations are listed after the graph.`
-    );
-    // The Mermaid copy is the drawn graph: one line per drawn node.
-    const nodeLines = (model.mermaid ?? '')
-      .split('\n')
-      .filter((line) => /^ {2}n\d+\["/.test(line));
-    expect(nodeLines).toHaveLength(model.nodes.length);
+    expect(model.clusters.find((c) => c.id === 'project:proj-fjord')).toEqual({
+      id: 'project:proj-fjord',
+      label: 'Fjord analytics',
+      muted: true,
+    });
+    // Counts say what is drawn; nothing is "listed under the graph".
+    expect(model.meta).toBe('17 milestones · 3 edges');
+    expect(model.receipts).not.toContain('listed');
+    expect(model.ariaSummary).not.toContain('listed');
+    // The server layout is framed: one frame per cluster, every box in it.
+    expect(model.layout?.clustered).toBe(true);
+    expect(
+      model.layout?.groups.filter((g) => g.kind === 'cluster').map((g) => g.id)
+    ).toEqual(model.clusters.map((c) => c.id));
+    expect(model.layout?.nodes).toHaveLength(17);
+    // The Mermaid copy is the drawn graph: one line per box, one subgraph
+    // per frame.
+    const lines = (model.mermaid?.body ?? '').split('\n');
+    expect(lines.filter((line) => /^ +n\d+\["/.test(line))).toHaveLength(17);
+    expect(
+      lines.filter((line) => /^ +subgraph c\d+\["/.test(line))
+    ).toHaveLength(9);
   });
 
-  test('a kept node is drawn even without an edge', () => {
-    const plain = page({ level: 'milestone' });
-    const first = plain.isolated?.rows[0];
-    expect(first).toBeDefined();
-    if (first === undefined) return;
-    const kept = page({ level: 'milestone' }, { keep: [first.id] });
-    expect(kept.nodes.some((n) => n.id === first.id)).toBe(true);
-    expect(kept.isolated?.rows.some((r) => r.id === first.id)).toBe(false);
+  test('an item on no relation reads “No dependencies”, in no status hue', () => {
+    const model = page({ level: 'milestone' });
+    const harbor = model.nodes.find((n) => n.id === 'ms-harbor-1');
+    expect(harbor?.readiness).toEqual({
+      state: 'independent',
+      label: 'No dependencies',
+      tone: 'default',
+      blockedBy: 0,
+      unblocks: 0,
+      canStart: true,
+    });
+    // Its own facts keep their hue: at risk and unassigned stay amber.
+    expect([harbor?.tone, harbor?.tags]).toEqual(['warning', ['UNASSIGNED']]);
+    expect(
+      model.details['ms-harbor-1']?.properties.find(
+        (p) => p.label === 'Readiness'
+      )
+    ).toEqual({
+      label: 'Readiness',
+      value:
+        'No dependencies: it neither waits on nor holds up another milestone',
+      tone: 'default',
+    });
+    // The Status legend says so, with a plain box.
+    expect(model.legends.status[1]).toEqual({
+      mark: 'node',
+      label: 'No dependencies',
+      note: 'it neither waits on nor holds up another milestone',
+    });
   });
 
-  test('issue level lists unrelated issues, opening their slide-over', () => {
-    const model = page({ level: 'issue', milestoneId: 'ms-atlas-2' });
-    const list = model.isolated;
-    expect(list).not.toBeNull();
-    if (list === null) return;
-    expect(list.collapsed).toBe(list.rows.length > ISOLATED_COLLAPSE_AFTER);
-    expect(list.nameLabel).toBe('Issue');
-    expect(list.contextLabel).toBe('Assignee');
-    for (const row of list.rows) {
-      const issue = snapshot.issues.get(row.id);
-      expect(row.key).toBe(issue?.identifier ?? null);
-      expect(row.href).toBe(
-        `/graph?milestone=ms-atlas-2&issue=${issue?.identifier ?? ''}`
-      );
-      expect(row.external).toBe(false);
-      expect(row.rowLabel).toBe(`${issue?.identifier ?? ''} ${row.name}`);
-      const closed = row.status === 'done';
-      // A closed issue shows its milestone's date without a countdown.
-      if (closed) expect(row.due).not.toMatch(/overdue|in \d+ days/);
-      if (issue?.assigneeId === null && !closed) {
-        expect(row.context).toBe('Unassigned');
-        expect(row.contextTone).toBe('warning');
-      }
+  test('the issue level draws done issues and leaves canceled ones out', () => {
+    const model = page({ level: 'issue', projectId: 'proj-atlas' });
+    const ids = model.nodes.map((n) => n.id);
+    // Schema cutover's done ENG-1 and ENG-2 are drawn, muted with their
+    // filled mark; ENG-3 (canceled) and ENG-14 (duplicate) are not.
+    expect(ids).toContain('iss-eng-1');
+    expect(ids).toContain('iss-eng-2');
+    expect(ids).not.toContain('iss-eng-3');
+    expect(ids).not.toContain('iss-eng-14');
+    const done = model.nodes.find((n) => n.id === 'iss-eng-1');
+    expect([done?.tone, done?.status, done?.readiness?.state]).toEqual([
+      'muted',
+      'done',
+      'done',
+    ]);
+    // Milestone frames nest in project frames: the issues span Atlas and
+    // the external Beacon.
+    expect(
+      model.clusters.map((c) => [c.id, c.parent ?? null, c.external === true])
+    ).toEqual([
+      ['project:proj-atlas', null, false],
+      ['milestone:ms-atlas-2', 'project:proj-atlas', false],
+      ['milestone:ms-atlas-1', 'project:proj-atlas', false],
+      ['milestone:ms-atlas-3', 'project:proj-atlas', false],
+      ['milestone:none:proj-atlas', 'project:proj-atlas', false],
+      ['project:proj-beacon', null, true],
+      ['milestone:ms-beacon-1', 'project:proj-beacon', true],
+    ]);
+    expect(model.clusters[4]?.label).toBe('No milestone');
+    expect(model.receipts).toBe(
+      '9 issues in Atlas billing migration, 8 of them in 3 milestones, plus 2 issues outside it that block or wait on them; 3 blocking relations: 2 on a risk chain and 1 unblocked.'
+    );
+    // The frames' legend item, in every highlight.
+    for (const legend of Object.values(model.legends)) {
+      expect(legend.find((item) => item.mark === 'cluster')).toEqual({
+        mark: 'cluster',
+        label: 'Milestone',
+        note: 'a frame of its issues, inside its project’s',
+      });
     }
-    const inside = model.nodes.filter((n) => n.external !== true).length;
-    expect(model.receipts.startsWith(`${inside} issue`)).toBe(true);
-    expect(model.receipts).toContain(
-      `${list.rows.length} more in Dual-write have no blocking relations`
-    );
   });
 
-  test('with no edge at all there is only the empty state', () => {
-    const model = page({ level: 'issue', projectId: 'proj-compass' });
-    expect(model.nodes).toEqual([]);
-    expect(model.isolated).toBeNull();
+  test('clusterData: parents, muted and external frames', () => {
+    expect(
+      clusterData([
+        {
+          id: 'project:p1',
+          kind: 'project',
+          refId: 'p1',
+          label: 'Orion',
+          parentId: null,
+          projectId: 'p1',
+          active: false,
+          external: false,
+        },
+        {
+          id: 'milestone:none:p1',
+          kind: 'milestone',
+          refId: null,
+          label: 'No milestone',
+          parentId: 'project:p1',
+          projectId: 'p1',
+          active: true,
+          external: true,
+        },
+      ])
+    ).toEqual([
+      { id: 'project:p1', label: 'Orion', muted: true },
+      {
+        id: 'milestone:none:p1',
+        label: 'No milestone',
+        parent: 'project:p1',
+        external: true,
+      },
+    ]);
+  });
+
+  test('the initiative level packs its loose boxes; a chain keeps one flow', () => {
+    const initiatives = page({ level: 'initiative' });
+    expect(initiatives.clusters).toEqual([]);
+    expect(initiatives.layout?.clustered).toBe(true);
+    expect(
+      initiatives.legends.status.some((item) => item.mark === 'cluster')
+    ).toBe(false);
+    const chain = page({ level: 'issue', issueId: 'ENG-23' });
+    expect(chain.clusters).toEqual([]);
+    expect(chain.layout?.clustered).toBeUndefined();
+    expect(chain.nodes.every((n) => n.cluster === undefined)).toBe(true);
+  });
+
+  test('a paused project’s frame is muted, and the legend says so', () => {
+    const model = page({ level: 'issue' });
+    expect(
+      model.clusters
+        .filter((c) => c.muted === true)
+        .map((c) => [c.id, c.parent ?? null])
+    ).toEqual([
+      ['project:proj-fjord', null],
+      ['milestone:ms-fjord-1', 'project:proj-fjord'],
+    ]);
+    expect(
+      model.legends.risk.filter((item) => item.mark.startsWith('cluster'))
+    ).toEqual([
+      {
+        mark: 'cluster',
+        label: 'Milestone',
+        note: 'a frame of its issues, inside its project’s',
+      },
+      {
+        mark: 'cluster-muted',
+        label: 'Inactive',
+        note: 'a hatched frame of paused work',
+      },
+    ]);
   });
 });
 
 // Goldens captured on 2026-10-22 from the page as it was before the graph
 // levels change (spec §13 commit 1): today's three kinds of /graph page
 // keep what they say and draw. Tags may gain CYCLE INSIDE (asserted on its
-// own), so it is left out of the tag comparison.
+// own), so it is left out of the tag comparison. Updated 2026-10-23 for the
+// owner's every-item rule: the boxes that were listed under the canvas are
+// drawn now, in the same order around the related ones, inside frames.
 describe('pages kept', () => {
   const { page } = fixture();
   const kept = (scope: GraphScope) => {
@@ -537,9 +695,8 @@ describe('pages kept', () => {
       receipts: m.receipts,
       meta: m.meta,
       nodes: m.nodes.map((n) => n.id),
+      clusters: m.clusters.map((c) => c.id),
       edges: m.edges.map((e) => [e.from, e.to, e.kind, e.weight]),
-      isolatedTitle: m.isolated?.title ?? null,
-      isolatedRows: m.isolated?.rows.map((r) => r.id) ?? [],
       tags: m.nodes.map((n) => [
         n.id,
         (n.tags ?? []).filter((tag) => tag !== 'CYCLE INSIDE'),
@@ -551,32 +708,64 @@ describe('pages kept', () => {
     expect(kept({ level: 'milestone' })).toEqual({
       heading: 'Dependencies',
       receipts:
-        '4 milestones in 3 projects, joined by 3 blocking edges: 3 on a risk chain and 2 across projects. 10 more have no blocking relations and are listed under the graph. Select a milestone to see its issues.',
-      meta: '4 of 14 milestones · 3 edges',
-      nodes: ['ms-atlas-2', 'ms-juniper-1', 'ms-beacon-1', 'ms-atlas-3'],
-      edges: [
-        ['ms-atlas-2', 'ms-beacon-1', 'risk', 1],
-        ['ms-atlas-2', 'ms-atlas-3', 'risk', 1],
-        ['ms-beacon-1', 'ms-juniper-1', 'risk', 1],
-      ],
-      isolatedTitle: '10 milestones have no blocking relations',
-      isolatedRows: [
+        '17 milestones in 9 projects; 3 blocking edges: 3 on a risk chain and 2 across projects. Select a milestone to see its issues.',
+      meta: '17 milestones · 3 edges',
+      // The four related ones keep their order; the ten that were listed
+      // keep theirs; the paused Dashboards, the complete Schema cutover and
+      // the empty Push notifications are drawn too.
+      nodes: [
+        'ms-fjord-1',
+        'ms-atlas-2',
+        'ms-juniper-1',
+        'ms-atlas-1',
+        'ms-beacon-1',
         'ms-harbor-1',
         'ms-compass-1',
         'ms-garnet-1',
         'ms-ember-1',
         'ms-delta-1',
+        'ms-garnet-2',
+        'ms-atlas-3',
         'ms-harbor-2',
         'ms-beacon-2',
         'ms-juniper-2',
         'ms-compass-2',
         'ms-compass-3',
       ],
+      clusters: [
+        'project:proj-atlas',
+        'project:proj-harbor',
+        'project:proj-delta',
+        'project:proj-fjord',
+        'project:proj-juniper',
+        'project:proj-beacon',
+        'project:proj-compass',
+        'project:proj-ember',
+        'project:proj-garnet',
+      ],
+      edges: [
+        ['ms-atlas-2', 'ms-beacon-1', 'risk', 1],
+        ['ms-atlas-2', 'ms-atlas-3', 'risk', 1],
+        ['ms-beacon-1', 'ms-juniper-1', 'risk', 1],
+      ],
       tags: [
+        ['ms-fjord-1', ['UNASSIGNED', 'INACTIVE']],
         ['ms-atlas-2', ['UNASSIGNED', 'OVERDUE']],
         ['ms-juniper-1', []],
+        ['ms-atlas-1', []],
         ['ms-beacon-1', []],
+        ['ms-harbor-1', ['UNASSIGNED']],
+        ['ms-compass-1', ['UNASSIGNED']],
+        ['ms-garnet-1', []],
+        ['ms-ember-1', ['UNASSIGNED']],
+        ['ms-delta-1', ['UNASSIGNED']],
+        ['ms-garnet-2', []],
         ['ms-atlas-3', ['UNASSIGNED']],
+        ['ms-harbor-2', []],
+        ['ms-beacon-2', []],
+        ['ms-juniper-2', []],
+        ['ms-compass-2', []],
+        ['ms-compass-3', ['UNASSIGNED']],
       ],
     });
   });
@@ -585,18 +774,33 @@ describe('pages kept', () => {
     expect(kept({ level: 'issue', milestoneId: 'ms-atlas-2' })).toEqual({
       heading: 'Issues in Dual-write',
       receipts:
-        '2 issues in Dual-write, plus 2 issues outside it that block or wait on them; 2 blocking relations: 2 on a risk chain. 3 more in Dual-write have no blocking relations and are listed under the graph.',
-      meta: '4 of 7 issues · 2 edges',
-      nodes: ['iss-eng-10', 'iss-eng-12', 'iss-eng-23', 'iss-eng-16'],
+        '4 issues in Dual-write, plus 2 issues outside it that block or wait on them; 2 blocking relations: 2 on a risk chain.',
+      meta: '6 issues · 2 edges',
+      // ENG-14 is a duplicate: never drawn.
+      nodes: [
+        'iss-eng-10',
+        'iss-eng-12',
+        'iss-eng-11',
+        'iss-eng-13',
+        'iss-eng-23',
+        'iss-eng-16',
+      ],
+      clusters: [
+        'project:proj-atlas',
+        'milestone:ms-atlas-2',
+        'milestone:ms-atlas-3',
+        'project:proj-beacon',
+        'milestone:ms-beacon-1',
+      ],
       edges: [
         ['iss-eng-10', 'iss-eng-16', 'risk', 1],
         ['iss-eng-12', 'iss-eng-23', 'risk', 1],
       ],
-      isolatedTitle: '3 issues have no blocking relations',
-      isolatedRows: ['iss-eng-11', 'iss-eng-13', 'iss-eng-14'],
       tags: [
         ['iss-eng-10', ['OVERDUE']],
         ['iss-eng-12', ['UNASSIGNED', 'OVERDUE']],
+        ['iss-eng-11', ['OVERDUE']],
+        ['iss-eng-13', ['UNASSIGNED', 'OVERDUE']],
         ['iss-eng-23', []],
         ['iss-eng-16', []],
       ],
@@ -607,20 +811,34 @@ describe('pages kept', () => {
     expect(kept({ level: 'issue', projectId: 'proj-juniper' })).toEqual({
       heading: 'Issues in Juniper design system',
       receipts:
-        '3 issues in Juniper design system, plus 1 issue outside it that blocks or waits on them; 3 blocking relations: 1 on a risk chain and 1 cycle. 2 more in Juniper design system have no blocking relations and are listed under the graph.',
-      meta: '4 of 6 issues · 3 edges · 1 cycle',
-      nodes: ['iss-eng-70', 'iss-eng-71', 'iss-ops-20', 'iss-eng-23'],
+        '5 issues in Juniper design system, in 2 milestones, plus 1 issue outside it that blocks or waits on them; 3 blocking relations: 1 on a risk chain and 1 cycle.',
+      meta: '6 issues · 3 edges · 1 cycle',
+      nodes: [
+        'iss-eng-70',
+        'iss-eng-71',
+        'iss-ops-20',
+        'iss-eng-72',
+        'iss-eng-73',
+        'iss-eng-23',
+      ],
+      clusters: [
+        'project:proj-juniper',
+        'milestone:ms-juniper-1',
+        'milestone:ms-juniper-2',
+        'project:proj-beacon',
+        'milestone:ms-beacon-1',
+      ],
       edges: [
         ['iss-eng-70', 'iss-eng-71', 'cycle', 1],
         ['iss-eng-71', 'iss-eng-70', 'cycle', 1],
         ['iss-eng-23', 'iss-ops-20', 'risk', 1],
       ],
-      isolatedTitle: '2 issues have no blocking relations',
-      isolatedRows: ['iss-eng-72', 'iss-eng-73'],
       tags: [
         ['iss-eng-70', ['CYCLE']],
         ['iss-eng-71', ['CYCLE']],
         ['iss-ops-20', []],
+        ['iss-eng-72', []],
+        ['iss-eng-73', []],
         ['iss-eng-23', []],
       ],
     });
@@ -638,20 +856,20 @@ function synthetic(
     nodes,
     edges,
     cycles: [],
+    clusters: [],
     fallback: null,
     unplacedRelations: 0,
-    unrelatedIssues: 0,
     chain: null,
   };
 }
 
 describe('every level on the demo workspace', () => {
-  const { graphOf, page } = fixture();
+  const { graphOf, page, pageOf } = fixture();
   const ids = (list: readonly { id: string }[]) => list.map((n) => n.id);
   const drawnEdges = (scope: GraphScope) =>
     page(scope).edges.map((e) => [e.from, e.to, e.kind, e.weight]);
 
-  test('/graph?level=initiative: Platform ⇄ Growth, No initiative listed', () => {
+  test('/graph?level=initiative: Platform ⇄ Growth, No initiative drawn beside them', () => {
     const model = page({ level: 'initiative' });
     expect(model.heading).toBe('Dependencies');
     expect(model.crumb).toBeNull();
@@ -659,10 +877,10 @@ describe('every level on the demo workspace', () => {
     expect(model.blockTitle).toBe('Initiatives');
     expect(model.scopeHref).toBe('/graph?level=initiative');
     expect(model.receipts).toBe(
-      '2 initiatives joined by 2 blocking edges: 1 cycle (Platform reliability and Customer growth wait on each other). A project in several initiatives counts under the first, as on the timeline. 1 more initiative has no blocking relations and is listed under the graph. Select an initiative to see its projects.'
+      '2 initiatives and the projects with no initiative; 2 blocking edges: 1 cycle (Platform reliability and Customer growth wait on each other). A project in several initiatives counts under the first, as on the timeline. Select an initiative to see its projects.'
     );
-    expect(model.meta).toBe('2 of 3 initiatives · 2 edges · 1 cycle');
-    expect(ids(model.nodes)).toEqual(['init-platform', 'init-growth']);
+    expect(model.meta).toBe('3 initiatives · 2 edges · 1 cycle');
+    expect(ids(model.nodes)).toEqual(['init-platform', 'init-growth', 'none']);
     expect(drawnEdges({ level: 'initiative' })).toEqual([
       ['init-platform', 'init-growth', 'cycle', 1],
       ['init-growth', 'init-platform', 'cycle', 1],
@@ -672,35 +890,34 @@ describe('every level on the demo workspace', () => {
     expect(platform?.tags).toEqual(['OVERDUE', 'CYCLE', 'CYCLE INSIDE']);
     // Its next milestones are overdue: the red flood, not the purple.
     expect(platform?.tone).toBe('danger');
-    expect(platform?.group).toBeUndefined();
-    expect(model.isolated?.title).toBe(
-      '1 initiative has no blocking relations'
-    );
-    expect(model.isolated?.rows).toEqual([
-      {
-        id: 'none',
-        name: 'No initiative',
-        key: null,
-        status: 'at_risk',
-        statusLabel: 'At risk',
-        statusMuted: false,
-        context: '1 project',
-        contextTone: 'default',
-        due: 'No target date',
-        dueTone: 'default',
-        href: '/graph?initiative=none',
-        external: false,
-        rowLabel: 'No initiative, 1 project: open its graph',
-        // At risk: the row's 2px rule in amber.
-        tone: 'warning',
+    expect(platform?.cluster).toBeUndefined();
+    // "No initiative" is on no relation: drawn all the same, in no frame
+    // (the initiative level has none), its at-risk amber kept, its
+    // readiness neutral.
+    expect(model.nodes[2]).toEqual({
+      id: 'none',
+      label: 'No initiative',
+      sublabel: '1 project',
+      tone: 'warning',
+      status: 'at_risk',
+      statusLabel: 'At risk',
+      tags: [],
+      readiness: {
+        state: 'independent',
+        label: 'No dependencies',
+        tone: 'default',
+        blockedBy: 0,
+        unblocks: 0,
+        canStart: true,
       },
-    ]);
-    expect([
-      model.isolated?.nameLabel,
-      model.isolated?.contextLabel,
-      model.isolated?.dueLabel,
-    ]).toEqual(['Initiative', 'Projects', 'Target']);
-    expect(model.legend.map((item) => `${item.label} — ${item.note}`)).toEqual([
+    });
+    expect(model.clusters).toEqual([]);
+    expect(model.ariaSummary).toBe(
+      'Initiative dependency graph of the workspace: 2 initiatives and the projects with no initiative, with 2 blocking edges, 0 on a risk chain; 1 cycle: Platform reliability and Customer growth wait on each other. 2 waiting, 1 with no dependencies. Critical path: 2 initiatives: Platform reliability + Customer growth.'
+    );
+    expect(
+      model.legends.risk.map((item) => `${item.label} — ${item.note}`)
+    ).toEqual([
       'Initiative — blockers sit left of what waits',
       'Overdue — a project’s milestone is past due',
       'At risk — a project’s next milestone',
@@ -710,14 +927,18 @@ describe('every level on the demo workspace', () => {
       'Risk chain — a blocking issue is unassigned or overdue, or waits on one',
       'Cycle — both ends wait',
       'Count — issue relations on one edge',
+      'Reading — the box you point at, focus or tap',
+      'Waits on — what the box you point at waits on',
+      'Holds up — what waits on it, through box arrows',
+      'Clear next — clear once it is finished',
     ]);
     // The swatches draw the status hues: the red flood, the amber rule.
-    expect(model.legend.slice(0, 3).map((item) => item.mark)).toEqual([
+    expect(model.legends.risk.slice(0, 3).map((item) => item.mark)).toEqual([
       'node',
       'node-overdue',
       'node-warning',
     ]);
-    expect(model.legend.some((item) => item.mark === 'node-accent')).toBe(
+    expect(model.legends.risk.some((item) => item.mark === 'node-accent')).toBe(
       false
     );
     expect(model.tabs).toEqual([
@@ -748,54 +969,69 @@ describe('every level on the demo workspace', () => {
     ]);
   });
 
-  test('/graph?level=project: Atlas → Beacon → Juniper, the rest listed', () => {
+  test('/graph?level=project: Atlas → Beacon → Juniper among every project, framed by initiative', () => {
     const model = page({ level: 'project' });
     expect(model.receipts).toBe(
-      '3 projects in 2 initiatives, joined by 2 blocking edges: 2 on a risk chain and 2 across initiatives. 5 more have no blocking relations and are listed under the graph. Select a project to see its milestones and issues.'
+      '9 projects in 2 initiatives, 1 with no initiative; 2 blocking edges: 2 on a risk chain and 2 across initiatives. Select a project to see its milestones and issues.'
     );
-    expect(model.meta).toBe('3 of 8 projects · 2 edges');
-    expect(ids(model.nodes)).toEqual([
-      'proj-atlas',
-      'proj-juniper',
-      'proj-beacon',
-    ]);
+    expect(model.meta).toBe('9 projects · 2 edges');
     expect(drawnEdges({ level: 'project' })).toEqual([
       ['proj-atlas', 'proj-beacon', 'risk', 1],
       ['proj-beacon', 'proj-juniper', 'risk', 1],
     ]);
-    expect(model.nodes.map((n) => [n.id, n.sublabel, n.tags, n.group])).toEqual(
+    // Every project, the paused Fjord included, each in its first
+    // initiative's frame, "No initiative" last.
+    expect(
+      model.nodes.map((n) => [n.id, n.sublabel, n.tags, n.cluster])
+    ).toEqual([
+      ['proj-atlas', 'Chloe Diaz', ['OVERDUE'], 'initiative:init-platform'],
+      ['proj-harbor', 'Elena Novak', [], 'initiative:init-platform'],
+      ['proj-delta', 'No lead', ['NO LEAD'], 'initiative:init-platform'],
+      ['proj-fjord', 'Femi Adeyemi', ['INACTIVE'], 'initiative:init-platform'],
       [
-        ['proj-atlas', 'Chloe Diaz', ['OVERDUE'], 'Platform reliability'],
-        ['proj-juniper', 'Grace Lin', ['CYCLE INSIDE'], 'Platform reliability'],
-        ['proj-beacon', 'Dev Patel', [], 'Customer growth'],
-      ]
-    );
-    expect(model.isolated?.rows.map((r) => r.id)).toEqual([
-      'proj-harbor',
-      'proj-delta',
-      'proj-compass',
-      'proj-ember',
-      'proj-garnet',
+        'proj-juniper',
+        'Grace Lin',
+        ['CYCLE INSIDE'],
+        'initiative:init-platform',
+      ],
+      ['proj-beacon', 'Dev Patel', [], 'initiative:init-growth'],
+      ['proj-compass', 'Ana Moreno', [], 'initiative:init-growth'],
+      ['proj-ember', 'Hugo Laurent', [], 'initiative:init-growth'],
+      ['proj-garnet', 'Ben Carter', [], 'initiative:none'],
     ]);
-    const delta = model.isolated?.rows.find((r) => r.id === 'proj-delta');
-    expect(delta?.context).toBe('No lead');
-    expect(delta?.contextTone).toBe('warning');
-    expect(delta?.href).toBe('/graph?project=proj-delta');
-    expect(model.isolated?.dueLabel).toBe('Next milestone');
+    expect(model.clusters).toEqual([
+      { id: 'initiative:init-platform', label: 'Platform reliability' },
+      { id: 'initiative:init-growth', label: 'Customer growth' },
+      { id: 'initiative:none', label: 'No initiative' },
+    ]);
+    expect(
+      model.legends.status.find((item) => item.mark === 'cluster')
+    ).toEqual({
+      mark: 'cluster',
+      label: 'Initiative',
+      note: 'a frame of its projects (each under its first initiative)',
+    });
+    expect(model.details['proj-delta']?.properties[1]).toEqual({
+      label: 'Lead',
+      value: 'No lead',
+      tone: 'warning',
+    });
     const deltaNode = graphOf({ level: 'project' }).nodes.find(
       (n) => n.id === 'proj-delta'
     );
     expect(deltaNode === undefined ? [] : nodeTags(deltaNode)).toEqual([
       'NO LEAD',
     ]);
-    expect(model.legend.find((item) => item.mark === 'edge-cross')).toEqual({
+    expect(
+      model.legends.risk.find((item) => item.mark === 'edge-cross')
+    ).toEqual({
       mark: 'edge-cross',
       label: 'Cross-initiative',
       note: 'leaves its initiative',
     });
-    expect(model.legend.some((item) => item.mark === 'node-external')).toBe(
-      false
-    );
+    expect(
+      model.legends.risk.some((item) => item.mark === 'node-external')
+    ).toBe(false);
   });
 
   test('/graph: CYCLE INSIDE on ms-juniper-1, the muted swatch names inactive', () => {
@@ -803,7 +1039,9 @@ describe('every level on the demo workspace', () => {
     expect(model.nodes.find((n) => n.id === 'ms-juniper-1')?.tags).toEqual([
       'CYCLE INSIDE',
     ]);
-    expect(model.legend.find((item) => item.mark === 'node-muted')).toEqual({
+    expect(
+      model.legends.risk.find((item) => item.mark === 'node-muted')
+    ).toEqual({
       mark: 'node-muted',
       label: 'Complete or inactive',
       note: 'nothing open, or a paused project',
@@ -824,15 +1062,17 @@ describe('every level on the demo workspace', () => {
       'INACTIVE',
     ]);
     expect(fjord === undefined ? null : nodeTone(fjord)).toBe('muted');
-    // Listed under the canvas, its mark is grey and says why.
-    const row = page({
+    // Drawn among the others, its box is faint and its mark says why, in
+    // its initiative's frame.
+    const box = page({
       level: 'project',
       initiativeId: 'init-platform',
-    }).isolated?.rows.find((r) => r.id === 'proj-fjord');
-    expect(row?.status).toBe('overdue');
-    expect(row?.statusMuted).toBe(true);
-    expect(row?.statusLabel).toBe('Overdue · inactive project');
-    expect(row?.tone).toBe('muted');
+    }).nodes.find((n) => n.id === 'proj-fjord');
+    expect(box?.status).toBe('overdue');
+    expect(box?.statusLabel).toBe('Overdue · inactive project');
+    expect(box?.tone).toBe('muted');
+    expect(box?.readiness?.tone).toBe('muted');
+    expect(box?.cluster).toBe('initiative:init-platform');
   });
 
   test('/graph?initiative=init-growth: Beacon in scope, Atlas and Juniper external', () => {
@@ -841,16 +1081,26 @@ describe('every level on the demo workspace', () => {
     expect(model.crumb).toBe('Projects in Customer growth');
     expect(model.scopeHref).toBe('/graph?initiative=init-growth');
     expect(model.receipts).toBe(
-      '1 project in Customer growth, plus 2 projects outside it that block or wait on them; 2 blocking edges: 2 on a risk chain and 2 across initiatives. 2 more in Customer growth have no blocking relations and are listed under the graph.'
+      '3 projects in Customer growth, plus 2 projects outside it that block or wait on them; 2 blocking edges: 2 on a risk chain and 2 across initiatives.'
     );
-    expect(model.nodes.map((n) => [n.id, n.external === true])).toEqual([
-      ['proj-beacon', false],
-      ['proj-atlas', true],
-      ['proj-juniper', true],
+    // Its three projects, related or not, then the two outside ones on an
+    // edge, in Platform reliability's dashed frame.
+    expect(
+      model.nodes.map((n) => [n.id, n.external === true, n.cluster])
+    ).toEqual([
+      ['proj-beacon', false, 'initiative:init-growth'],
+      ['proj-compass', false, 'initiative:init-growth'],
+      ['proj-ember', false, 'initiative:init-growth'],
+      ['proj-atlas', true, 'initiative:init-platform'],
+      ['proj-juniper', true, 'initiative:init-platform'],
     ]);
-    expect(model.isolated?.rows.map((r) => r.id)).toEqual([
-      'proj-compass',
-      'proj-ember',
+    expect(model.clusters).toEqual([
+      { id: 'initiative:init-growth', label: 'Customer growth' },
+      {
+        id: 'initiative:init-platform',
+        label: 'Platform reliability',
+        external: true,
+      },
     ]);
     expect(model.notices).toEqual([
       {
@@ -869,7 +1119,9 @@ describe('every level on the demo workspace', () => {
         ['Issues', '/graph?initiative=init-growth&level=issue', false],
       ]
     );
-    expect(model.legend.find((item) => item.mark === 'node-external')).toEqual({
+    expect(
+      model.legends.risk.find((item) => item.mark === 'node-external')
+    ).toEqual({
       mark: 'node-external',
       label: 'External',
       note: 'outside this initiative',
@@ -899,6 +1151,14 @@ describe('every level on the demo workspace', () => {
           value: '0/4 done · 2 open issues unassigned',
           tone: 'warning',
         },
+        // Where it stands, mirror-wide (§2.10 "Readiness"), in the Status
+        // tone: nothing outside it holds it up.
+        {
+          label: 'Readiness',
+          value: 'Clear: nothing outside it holds it up',
+          tone: 'success',
+        },
+        { label: 'Open issues', value: '7 open · 6 can start · 1 blocked' },
         // The register's allocation chip tone (§8.2): info allocating.
         { label: 'Allocation', value: 'Allocating 2', tone: 'info' },
         {
@@ -957,7 +1217,15 @@ describe('every level on the demo workspace', () => {
       properties: [
         { label: 'Target date', value: 'Dec 20' },
         { label: 'Projects', value: '5 projects · 1 inactive' },
-        { label: 'Open issues', value: '20 open · 7 unassigned' },
+        {
+          label: 'Readiness',
+          value: 'Waiting on 1 initiative: Customer growth',
+          tone: 'warning',
+        },
+        {
+          label: 'Open issues',
+          value: '20 open · 16 can start · 4 blocked · 7 unassigned',
+        },
         {
           label: 'At risk',
           value:
@@ -1059,22 +1327,36 @@ describe('every level on the demo workspace', () => {
     ]);
   });
 
-  test('the workspace issue level counts what has no relation', () => {
+  test('the workspace issue level draws every issue and counts them all', () => {
+    const graph = graphOf({ level: 'issue' });
     const model = page({ level: 'issue' });
+    expect(ids(model.nodes)).toEqual(ids(graph.nodes));
     expect(model.receipts).toBe(
-      '9 issues in active projects, joined by 6 blocking relations: 3 on a risk chain, 1 resolved and 1 cycle.'
+      '51 issues in the workspace, 45 of them in 16 milestones; 6 blocking relations: 3 on a risk chain, 1 unblocked and 1 cycle.'
     );
-    expect(model.isolated).toBeNull();
-    expect(model.notices).toEqual([
-      {
-        id: 'unrelated',
-        text: '34 other open issues in active projects have no blocking relations.',
-      },
-    ]);
+    expect(model.meta).toBe('51 issues · 6 edges · 1 cycle');
+    // Nothing is counted and left out any more: no "unrelated" notice.
+    expect(model.notices).toEqual([]);
+    expect(model.readouts.status).toBe(
+      '3 ready · 5 blocked · 36 with no dependencies · 7 done'
+    );
+    expect(model.ariaSummary).toBe(
+      'Issue dependency graph of the workspace: 51 issues, 45 of them in 16 milestones, with 6 blocking relations, 3 on a risk chain and 1 unblocked; 1 cycle: Color tokens and Type scale wait on each other. 3 ready, 5 blocked, 36 with no dependencies, 7 done. Critical path: 3 issues: ENG-12, ENG-23, OPS-20.'
+    );
+    // 9 project frames, each holding its milestones' (and "No
+    // milestone") frames, then "No project".
+    expect(model.clusters.filter((c) => c.parent === undefined)).toHaveLength(
+      10
+    );
+    expect(model.clusters).toHaveLength(28);
+    expect(model.clusters.at(-1)).toEqual({
+      id: 'project:none',
+      label: 'No project',
+    });
     const growth = page({ level: 'issue', initiativeId: 'init-growth' });
-    expect(growth.notices.map((n) => n.id)).toEqual(['unrelated', 'shared']);
-    expect(growth.notices[0]?.text).toBe(
-      '14 other open issues in Customer growth have no blocking relations.'
+    expect(growth.notices.map((n) => n.id)).toEqual(['shared']);
+    expect(growth.receipts).toBe(
+      '20 issues in Customer growth, in 6 milestones, plus 3 issues outside it that block or wait on them; 3 blocking relations: 2 on a risk chain and 1 unblocked.'
     );
   });
 
@@ -1085,29 +1367,44 @@ describe('every level on the demo workspace', () => {
     expect(page({ level: 'issue', issueId: 'ENG-23' }).tabs).toEqual([]);
   });
 
-  test('an empty container still has its tabs (the screen moves them to the block bar)', () => {
+  test('boxes on no relation are drawn: Compass’s milestones, none waiting', () => {
     const model = page({ level: 'milestone', projectId: 'proj-compass' });
+    expect(ids(model.nodes)).toEqual([
+      'ms-compass-1',
+      'ms-compass-2',
+      'ms-compass-3',
+    ]);
+    expect(model.edges).toEqual([]);
+    expect(model.receipts).toBe(
+      '3 milestones in Compass onboarding; no blocking edges.'
+    );
+    expect(model.meta).toBe('3 milestones · 0 edges');
+    expect(model.clusters).toEqual([
+      { id: 'project:proj-compass', label: 'Compass onboarding' },
+    ]);
+    expect(Object.keys(model.details)).toEqual(ids(model.nodes));
+    expect(model.readouts.status).toBe(
+      '3 with no dependencies · 8 open issues: 8 can start'
+    );
+  });
+
+  test('an empty container still has its tabs (the screen moves them to the block bar)', () => {
+    // A project with no milestone yet: nothing to draw at that level.
+    const model = pageOf(
+      synthetic({ level: 'milestone', projectId: 'proj-compass' }, [], [])
+    );
     expect(model.nodes).toEqual([]);
     expect(model.receipts).toBe(
-      '3 milestones in Compass onboarding, none joined to another by a blocking relation.'
+      'Every milestone in Compass onboarding, and which wait on which, from Linear’s blocking relations.'
     );
-    expect(model.emptyMessage).toBe(
-      'No open issue in Compass onboarding blocks, or waits on, an open issue in another milestone.'
-    );
+    expect(model.emptyMessage).toBe('No milestones in Compass onboarding.');
+    expect(model.meta).toBe('No milestones');
     expect(model.tabs.find((tab) => tab.id === 'issue')?.href).toBe(
       '/graph?project=proj-compass'
     );
     expect(model.layout).toBeNull();
     expect(model.mermaid).toBeNull();
-    // Nothing is drawn, but inside a project every box is still listed.
-    expect(model.isolated?.title).toBe(
-      '3 milestones have no blocking relations'
-    );
-    expect(model.isolated?.note).toBe('Open one on the timeline.');
-    expect(Object.keys(model.details)).toEqual(
-      model.isolated?.rows.map((row) => row.id) ?? []
-    );
-    expect(Object.keys(model.details)).toHaveLength(3);
+    expect(model.details).toEqual({});
   });
 
   test('a drawn graph carries its server layout, one box per drawn node', () => {
@@ -1120,65 +1417,78 @@ describe('every level on the demo workspace', () => {
   });
 });
 
-describe('“No initiative” copy, empty containers and quiet rows', () => {
+describe('“No initiative” copy, empty containers and quiet boxes', () => {
   const { page, pageOf } = fixture();
 
   test('“No initiative” reads as a group of projects, not a name', () => {
     const projects = page({ level: 'project', initiativeId: 'none' });
     expect(projects.heading).toBe('Projects with no initiative');
     expect(projects.receipts).toBe(
-      '1 project with no initiative, none joined to another by a blocking relation.'
+      '1 project with no initiative; no blocking edges.'
     );
-    expect(projects.emptyMessage).toBe(
-      'No open issue in a project with no initiative blocks, or waits on, an open issue in another project.'
-    );
+    expect(projects.emptyMessage).toBe('No projects with no initiative.');
     const milestones = page({ level: 'milestone', initiativeId: 'none' });
     expect(milestones.receipts).toBe(
-      '1 milestone in projects with no initiative, none joined to another by a blocking relation.'
+      '2 milestones in projects with no initiative; no blocking edges.'
     );
     const issues = page({ level: 'issue', initiativeId: 'none' });
     expect(issues.receipts).toBe(
-      '5 open issues in projects with no initiative, none blocking or waiting on another.'
+      '6 issues in projects with no initiative, 4 of them in 1 milestone; no blocking relations.'
     );
     expect(issues.emptyMessage).toBe(
-      'No issue in a project with no initiative blocks or waits on another.'
+      'No issues in projects with no initiative.'
     );
   });
 
-  test('an initiative or project with nothing drawn still lists its boxes', () => {
-    // Garnet, the one project with no initiative: its graph is a click away.
+  test('a box on no relation is drawn, its own graph a click away', () => {
+    // Garnet, the one project with no initiative, waits on nothing.
     const model = page({ level: 'project', initiativeId: 'none' });
-    expect(model.nodes).toEqual([]);
-    expect(model.isolated?.title).toBe('1 project has no blocking relations');
-    expect(model.isolated?.note).toBe('Open one to see its issues.');
-    expect(
-      model.isolated?.rows.map((row) => [row.id, row.name, row.href])
-    ).toEqual([
-      ['proj-garnet', 'Garnet mobile app', '/graph?project=proj-garnet'],
+    expect(model.nodes.map((n) => [n.id, n.label, n.cluster])).toEqual([
+      ['proj-garnet', 'Garnet mobile app', 'initiative:none'],
     ]);
-    // The workspace (the guest fallback included) and issue levels keep
-    // the plain empty state.
-    expect(page({ level: 'issue', initiativeId: 'none' }).isolated).toBeNull();
     expect(
-      page({ level: 'issue', projectId: 'proj-fjord' }).isolated
-    ).toBeNull();
+      model.details['proj-garnet']?.links.map((l) => [l.label, l.href])
+    ).toEqual(
+      expect.arrayContaining([
+        ['Issues of Garnet mobile app', '/graph?project=proj-garnet'],
+      ])
+    );
+    // The paused Fjord's open issues are drawn too: quiet in Status, with
+    // the word that says why.
+    const fjord = page({ level: 'issue', projectId: 'proj-fjord' });
+    expect(
+      fjord.nodes.map((n) => [n.id, n.readiness?.tone, n.tags?.at(-1)])
+    ).toEqual([
+      ['iss-ops-8', 'muted', 'INACTIVE'],
+      ['iss-ops-9', 'muted', 'INACTIVE'],
+    ]);
+    expect(fjord.receipts).toBe(
+      '2 issues in Fjord analytics, in 1 milestone; no blocking relations.'
+    );
   });
 
-  test('an inactive project’s rows are quiet: no accent date or assignee', () => {
+  test('an inactive project’s boxes are quiet: no status hue on a date or assignee', () => {
     // Dashboards (Fjord analytics, paused) is 5 days overdue.
     const model = page({ level: 'milestone', initiativeId: 'init-platform' });
-    const dashboards = model.isolated?.rows.find((r) => r.id === 'ms-fjord-1');
+    const dashboards = model.nodes.find((n) => n.id === 'ms-fjord-1');
     expect(dashboards).toMatchObject({
-      due: 'Oct 16 · 5 days overdue',
-      dueTone: 'default',
       tone: 'muted',
-      statusMuted: true,
+      status: 'overdue',
+      statusLabel: 'Overdue · inactive project',
+      tags: ['UNASSIGNED', 'INACTIVE'],
+      cluster: 'project:proj-fjord',
+    });
+    expect(dashboards?.readiness?.tone).toBe('muted');
+    expect(model.clusters.find((c) => c.id === 'project:proj-fjord')).toEqual({
+      id: 'project:proj-fjord',
+      label: 'Fjord analytics',
+      muted: true,
     });
     expect(model.details['ms-fjord-1']?.alert).toBeNull();
     expect(
       model.details['ms-fjord-1']?.properties.find((p) => p.label === 'Due')
     ).toMatchObject({ value: 'Oct 16 · 5 days overdue', tone: 'default' });
-    // An unassigned, overdue issue of a paused project, listed beside two
+    // An unassigned, overdue issue of a paused project, drawn beside two
     // related ones: the same facts, in ink.
     const graph = synthetic(
       { level: 'issue', projectId: 'proj-fjord' },
@@ -1186,7 +1496,7 @@ describe('“No initiative” copy, empty containers and quiet rows', () => {
         node({ id: 'a', projectId: 'proj-fjord', active: false }),
         node({ id: 'b', projectId: 'proj-fjord', active: false }),
         node({
-          id: 'iss-fjord-1',
+          id: 'iss-ops-8',
           projectId: 'proj-fjord',
           milestoneId: 'ms-fjord-1',
           active: false,
@@ -1196,13 +1506,20 @@ describe('“No initiative” copy, empty containers and quiet rows', () => {
       ],
       [edge({ from: 'a', to: 'b' })]
     );
-    const row = pageOf(graph).isolated?.rows[0];
-    expect(row).toMatchObject({ id: 'iss-fjord-1', dueTone: 'default' });
-    expect(row?.contextTone).toBe('default');
+    const paused = pageOf(graph);
+    expect(paused.nodes.find((n) => n.id === 'iss-ops-8')?.tone).toBe(
+      'default'
+    );
+    expect(
+      paused.details['iss-ops-8']?.properties
+        .filter((p) => p.label === 'Assignee' || p.label === 'Milestone')
+        .map((p) => p.tone)
+    ).toEqual(['default', 'default']);
   });
 
   test('the workspace issue legend has no External swatch; an initiative’s has', () => {
-    const marks = (scope: GraphScope) => page(scope).legend.map((l) => l.mark);
+    const marks = (scope: GraphScope) =>
+      page(scope).legends.risk.map((l) => l.mark);
     expect(marks({ level: 'issue' })).not.toContain('node-external');
     expect(marks({ level: 'issue', initiativeId: 'init-growth' })).toContain(
       'node-external'
@@ -1213,13 +1530,11 @@ describe('“No initiative” copy, empty containers and quiet rows', () => {
 describe('?node= on arrival', () => {
   const { page } = fixture();
 
-  test('selects and keeps the box, and keys the island by it', () => {
+  test('selects the box, and keys the island by it', () => {
+    // Harbor's Public beta is on no relation: drawn all the same.
     const model = page({ level: 'milestone' }, { nodeId: 'ms-harbor-1' });
     expect(model.initialSelectedId).toBe('ms-harbor-1');
     expect(model.nodes.some((n) => n.id === 'ms-harbor-1')).toBe(true);
-    expect(model.isolated?.rows.some((r) => r.id === 'ms-harbor-1')).toBe(
-      false
-    );
     expect(model.pageKey).toBe('/graph?node=ms-harbor-1');
     expect(model.scopeHref).toBe('/graph');
     const plain = page({ level: 'milestone' });
@@ -1233,25 +1548,27 @@ describe('?node= on arrival', () => {
       { nodeId: 'iss-eng-1' }
     );
     expect(issue.initialSelectedId).toBeNull();
-    expect(issue.isolated?.rows.some((r) => r.id === 'iss-eng-1')).toBe(true);
+    expect(issue.pageKey).toBe('/graph?project=proj-atlas');
     const open = page(
       { level: 'milestone' },
       { nodeId: 'ms-harbor-1', issueKey: 'ENG-24' }
     );
     expect(open.initialSelectedId).toBeNull();
-    expect(open.isolated?.rows.some((r) => r.id === 'ms-harbor-1')).toBe(true);
+    expect(open.pageKey).toBe('/graph');
     expect(
       page({ level: 'milestone' }, { nodeId: 'nope' }).initialSelectedId
     ).toBeNull();
   });
 
-  test('an open issue slide-over leaves its row in the register', () => {
+  test('an open issue slide-over finds its box among every issue drawn', () => {
+    // ENG-11 has no relation: its box is drawn, so the screen marks it
+    // while its slide-over is open.
     const model = page(
       { level: 'issue', milestoneId: 'ms-atlas-2' },
       { issueKey: 'ENG-11' }
     );
-    expect(model.isolated?.rows.some((r) => r.id === 'iss-eng-11')).toBe(true);
-    expect(model.nodes.some((n) => n.id === 'iss-eng-11')).toBe(false);
+    expect(model.nodes.some((n) => n.id === 'iss-eng-11')).toBe(true);
+    expect(model.details['iss-eng-11']?.issueKey).toBe('ENG-11');
   });
 });
 
@@ -1284,7 +1601,7 @@ describe('one issue’s chain', () => {
       { label: 'Search v2 beta', href: '/graph?milestone=ms-beacon-1' },
       { label: 'ENG-23' },
     ]);
-    expect(model.legend.map((item) => item.mark)).toEqual([
+    expect(model.legends.risk.map((item) => item.mark)).toEqual([
       'node',
       'node-focus',
       'node-overdue',
@@ -1296,6 +1613,10 @@ describe('one issue’s chain', () => {
       'edge-cycle',
       'edge-cross',
       'edge-resolved',
+      'path-active',
+      'path-up',
+      'path-down',
+      'path-next',
     ]);
     expect(model.notices).toEqual([]);
   });
@@ -1364,16 +1685,24 @@ describe('notices', () => {
         text: 'Linear shows guests no initiatives, so this graph covers every project you can see.',
       },
     ]);
-    // No Initiatives tab; the others stay (in the block bar: nothing drawn).
+    // No Initiatives tab; the others stay.
     expect(model.tabs.map((tab) => [tab.id, tab.current])).toEqual([
       ['project', true],
       ['milestone', false],
       ['issue', false],
     ]);
-    expect(model.nodes).toEqual([]);
-    expect(model.isolated).toBeNull();
+    // He sees no relation, but the projects he can see are drawn, with
+    // no initiative to frame them by.
+    expect(model.nodes.map((n) => n.id)).toEqual([
+      'proj-compass',
+      'proj-delta',
+      'proj-fjord',
+      'proj-juniper',
+    ]);
+    expect(model.edges).toEqual([]);
+    expect(model.clusters).toEqual([]);
     expect(model.receipts).toBe(
-      'Which projects wait on which, from Linear’s blocking relations between open issues.'
+      '4 projects; no blocking edges. Select a project to see its milestones and issues.'
     );
     expect(pageOf(graph, { readOnlyReason: 'unknown' }).notices[0]?.text).toBe(
       'The planner has not seen your Linear account yet, so it shows you no initiatives; this graph covers every project you can see.'
@@ -1396,10 +1725,15 @@ describe('notices', () => {
         text: 'This workspace has no initiatives in Linear, so this graph covers every project.',
       },
     ]);
-    // Without initiatives nothing crosses one, and nothing is grouped.
+    // Without initiatives nothing crosses one, and nothing is framed: the
+    // project level packs its boxes loose.
     expect(model.edges.map((e) => e.kind)).toEqual(['risk', 'risk']);
-    expect(model.nodes.every((n) => n.group === undefined)).toBe(true);
-    expect(model.legend.some((item) => item.mark === 'edge-cross')).toBe(false);
+    expect(model.nodes.every((n) => n.cluster === undefined)).toBe(true);
+    expect(model.clusters).toEqual([]);
+    expect(model.layout?.clustered).toBe(true);
+    expect(model.legends.risk.some((item) => item.mark === 'edge-cross')).toBe(
+      false
+    );
   });
 
   test('relations this level cannot place are counted', () => {
@@ -1431,16 +1765,19 @@ describe('notices', () => {
   });
 });
 
+// GRAPH_DRAW_LIMITS is 700 boxes and 1,000 arrows (every item is drawn,
+// so a workspace's issue level holds every issue): past either, nothing
+// is drawn and narrower graphs are offered.
 describe('the draw limits', () => {
   const { pageOf } = fixture();
 
-  test('250 boxes are too many: no data, layout or Mermaid, narrower graphs instead', () => {
-    // s0…s199 spread over init-0…init-59 (4 boxes for the first 20, 3
-    // for the rest); s200…s249 all in init-late, met last in node order.
-    const nodes = Array.from({ length: 250 }, (_, i) =>
+  test('750 boxes are too many: no data, layout or Mermaid, narrower graphs instead', () => {
+    // s0…s699 spread over init-0…init-59 (12 boxes for the first 40, 11
+    // for the rest); s700…s749 all in init-late, met last in node order.
+    const nodes = Array.from({ length: 750 }, (_, i) =>
       node({
         id: `s${i}`,
-        initiativeId: i >= 200 ? 'init-late' : `init-${i % 60}`,
+        initiativeId: i >= 700 ? 'init-late' : `init-${i % 60}`,
       })
     );
     const edges = Array.from({ length: 125 }, (_, i) =>
@@ -1449,22 +1786,23 @@ describe('the draw limits', () => {
     const model = pageOf(synthetic({ level: 'issue' }, nodes, edges));
     expect(model.nodes).toEqual([]);
     expect(model.edges).toEqual([]);
+    expect(model.clusters).toEqual([]);
     expect(model.details).toEqual({});
     expect(model.layout).toBeNull();
     expect(model.mermaid).toBeNull();
-    expect(model.isolated).toBeNull();
-    expect(model.meta).toBe('250 issues · 125 edges · too many to draw');
+    expect(model.meta).toBe('750 issues · 125 edges · too many to draw');
     expect(model.receipts).toBe(
-      'Which issues wait on which, from Linear’s blocking relations.'
+      'Every issue in the workspace, and which wait on which, from Linear’s blocking relations.'
     );
     expect(model.tooLarge?.message).toBe(
-      'Too many to draw: 250 issues in the workspace are joined by 125 blocking relations, and the graph draws at most 200 boxes and 300 arrows. Narrow it down:'
+      'Too many to draw: 750 issues in the workspace with 125 blocking relations, and the graph draws at most 700 boxes and 1,000 arrows. Narrow it down:'
     );
+    expect(model.ariaSummary).toBe(model.tooLarge?.message ?? '');
     expect(model.tooLarge?.title).toBe('Narrow to');
     expect(model.tooLarge?.note).toBeNull();
     const rows = model.tooLarge?.rows ?? [];
     // 61 initiatives, capped at 50, most boxes first: init-late (50) though
-    // it is met last, then the ones holding 4, then 3, ties in node order.
+    // it is met last, then the ones holding 12, then 11, ties in node order.
     expect(rows).toHaveLength(50);
     expect(rows.slice(0, 2)).toEqual([
       {
@@ -1478,54 +1816,95 @@ describe('the draw limits', () => {
         id: 'init-0',
         label: 'Unknown initiative',
         kind: 'Initiative',
-        count: '4',
+        count: '12',
         href: '/graph?initiative=init-0&level=issue',
       },
     ]);
-    expect(rows.slice(19, 22).map((r) => [r.id, r.count])).toEqual([
-      ['init-18', '4'],
-      ['init-19', '4'],
-      ['init-20', '3'],
+    expect(rows.slice(39, 42).map((r) => [r.id, r.count])).toEqual([
+      ['init-38', '12'],
+      ['init-39', '12'],
+      ['init-40', '11'],
     ]);
     expect(rows[49]?.id).toBe('init-48');
     // The tabs stay: the screen shows them in the block bar.
     expect(model.tabs.length).toBe(4);
   });
 
-  test('301 arrows are too many, even between few boxes', () => {
-    const nodes = Array.from({ length: 30 }, (_, i) => node({ id: `s${i}` }));
+  test('1,001 arrows are too many, even between few boxes', () => {
+    const nodes = Array.from({ length: 40 }, (_, i) => node({ id: `s${i}` }));
     const edges: GraphEdge[] = [];
-    for (let a = 0; a < 30 && edges.length < 301; a += 1) {
-      for (let b = 0; b < 30 && edges.length < 301; b += 1) {
+    for (let a = 0; a < 40 && edges.length < 1001; a += 1) {
+      for (let b = 0; b < 40 && edges.length < 1001; b += 1) {
         if (a !== b) edges.push(edge({ from: `s${a}`, to: `s${b}` }));
       }
     }
     const model = pageOf(synthetic({ level: 'issue' }, nodes, edges));
     expect(model.tooLarge).not.toBeNull();
     expect(model.nodes).toEqual([]);
+    expect(model.meta).toBe('40 issues · 1001 edges · too many to draw');
+  });
+
+  test('700 boxes are drawn, every one of them, with no relation at all', () => {
+    // At the limit, and none of them on an edge: all drawn, packed loose
+    // in the one project's milestone frames.
+    const nodes = Array.from({ length: 700 }, (_, i) =>
+      node({
+        id: `s${i}`,
+        milestoneId: `m${i % 7}`,
+        clusterId: `milestone:m${i % 7}`,
+        readiness: 'independent',
+      })
+    );
+    const graph: DependencyGraph = {
+      ...synthetic({ level: 'issue', projectId: 'p1' }, nodes, []),
+      clusters: Array.from({ length: 7 }, (_, i) => ({
+        id: `milestone:m${i}`,
+        kind: 'milestone' as const,
+        refId: `m${i}`,
+        label: `M${i}`,
+        parentId: null,
+        projectId: 'p1',
+        active: true,
+        external: false,
+      })),
+    };
+    const model = pageOf(graph);
+    expect(model.tooLarge).toBeNull();
+    expect(model.nodes).toHaveLength(700);
+    expect(model.layout?.nodes).toHaveLength(700);
+    expect(model.clusters).toHaveLength(7);
+    expect(model.meta).toBe('700 issues · 0 edges');
+    expect(model.readouts.status).toBe('700 with no dependencies');
+    // One more is past the limit.
+    const over = pageOf({
+      ...graph,
+      nodes: [...nodes, node({ id: 's700', clusterId: 'milestone:m0' })],
+    });
+    expect(over.tooLarge).not.toBeNull();
+    expect(over.nodes).toEqual([]);
   });
 
   test('issues with no smaller container offer the most connected ones', () => {
-    // A project's 250 related issues, none in a milestone: there is no
+    // A project's 750 related issues, none in a milestone: there is no
     // milestone to narrow to, so the page lists the busiest issues.
-    const nodes = Array.from({ length: 250 }, (_, i) =>
+    const nodes = Array.from({ length: 750 }, (_, i) =>
       node({ id: `s${i}`, projectId: 'proj-atlas', milestoneId: null })
     );
-    const edges = Array.from({ length: 249 }, (_, i) =>
+    const edges = Array.from({ length: 749 }, (_, i) =>
       edge({ from: 's0', to: `s${i + 1}` })
     );
     const model = pageOf(
       synthetic({ level: 'issue', projectId: 'proj-atlas' }, nodes, edges)
     );
     expect(model.tooLarge?.message).toBe(
-      'Too many to draw: 250 issues in Atlas billing migration are joined by 249 blocking relations, and the graph draws at most 200 boxes and 300 arrows. Narrow it down:'
+      'Too many to draw: 750 issues in Atlas billing migration with 749 blocking relations, and the graph draws at most 700 boxes and 1,000 arrows. Narrow it down:'
     );
     expect(model.tooLarge?.title).toBe('Most connected issues');
     expect(model.tooLarge?.note).toBe('Open one’s chain to follow it.');
     const rows = model.tooLarge?.rows ?? [];
     expect(rows).toHaveLength(20);
     expect(rows.slice(0, 2).map((r) => [r.id, r.count, r.href])).toEqual([
-      ['s0', '249', '/graph?chain=s0'],
+      ['s0', '749', '/graph?chain=s0'],
       ['s1', '1', '/graph?chain=s1'],
     ]);
     // The same in the workspace when the issues have no project.
@@ -1540,7 +1919,7 @@ describe('the draw limits', () => {
   });
 
   test('?node= past the limits offers its own container first', () => {
-    const nodes = Array.from({ length: 210 }, (_, i) =>
+    const nodes = Array.from({ length: 710 }, (_, i) =>
       node({
         id: `s${i}`,
         kind: 'milestone',
@@ -1549,7 +1928,7 @@ describe('the draw limits', () => {
         projectId: i === 0 ? 'proj-atlas' : 'p1',
       })
     );
-    const edges = Array.from({ length: 105 }, (_, i) =>
+    const edges = Array.from({ length: 355 }, (_, i) =>
       edge({ from: `s${2 * i}`, to: `s${2 * i + 1}` })
     );
     const model = pageOf(synthetic({ level: 'milestone' }, nodes, edges), {
@@ -1568,19 +1947,19 @@ describe('the draw limits', () => {
         id: 'i1',
         label: 'Unknown initiative',
         kind: 'Initiative',
-        count: '210',
+        count: '710',
         href: '/graph?initiative=i1&level=milestone',
       },
     ]);
   });
 
   test('inside a milestone: its most connected issues, each opening its chain', () => {
-    const nodes = Array.from({ length: 202 }, (_, i) =>
+    const nodes = Array.from({ length: 702 }, (_, i) =>
       node({ id: `s${i}`, milestoneId: 'ms-atlas-2' })
     );
-    // s0 blocks everything; s1 blocks the second half too.
+    // s0 blocks everything; s1 blocks issues s103…s201 too.
     const edges = [
-      ...Array.from({ length: 201 }, (_, i) =>
+      ...Array.from({ length: 701 }, (_, i) =>
         edge({ from: 's0', to: `s${i + 1}` })
       ),
       ...Array.from({ length: 99 }, (_, i) =>
@@ -1595,37 +1974,10 @@ describe('the draw limits', () => {
     const rows = model.tooLarge?.rows ?? [];
     expect(rows).toHaveLength(20);
     expect(rows.slice(0, 3).map((r) => [r.id, r.count, r.href])).toEqual([
-      ['s0', '201', '/graph?chain=s0'],
+      ['s0', '701', '/graph?chain=s0'],
       ['s1', '100', '/graph?chain=s1'],
       ['s103', '2', '/graph?chain=s103'],
     ]);
-  });
-
-  test('the register is capped at 100 rows, with the cut line', () => {
-    const nodes = [
-      node({ id: 'a', kind: 'milestone', status: 'on_track' }),
-      node({ id: 'b', kind: 'milestone', status: 'on_track' }),
-      ...Array.from({ length: 300 }, (_, i) =>
-        node({ id: `m${i}`, kind: 'milestone', status: 'on_track' })
-      ),
-    ];
-    const model = pageOf(
-      synthetic({ level: 'milestone' }, nodes, [edge({ from: 'a', to: 'b' })])
-    );
-    const list = model.isolated;
-    expect(list?.title).toBe('300 milestones have no blocking relations');
-    expect(list?.rows).toHaveLength(100);
-    expect(list?.rows[99]?.id).toBe('m99');
-    expect(list?.cutLine).toBe(
-      'Showing 100 of 300. Narrow the graph to see the rest.'
-    );
-    expect(list?.collapsed).toBe(true);
-    // Details only for what is drawn or listed.
-    expect(Object.keys(model.details)).toHaveLength(102);
-    expect(model.meta).toBe('2 of 302 milestones · 1 edge');
-    expect(model.receipts).toContain(
-      '300 more have no blocking relations and are listed under the graph.'
-    );
   });
 });
 
@@ -1633,34 +1985,34 @@ describe('a chain past the draw limits', () => {
   const { pageOf } = fixture();
 
   test('lists the focus’s direct neighbours, each opening its own chain', () => {
-    // 20 issues all blocking each other: 380 relations between 20 boxes.
-    const nodes = Array.from({ length: 20 }, (_, i) =>
+    // 33 issues all blocking each other: 1,056 relations between 33 boxes.
+    const nodes = Array.from({ length: 33 }, (_, i) =>
       node({ id: `c${i}`, distance: i === 0 ? 0 : 1 })
     );
     const edges: GraphEdge[] = [];
-    for (let a = 0; a < 20; a += 1) {
-      for (let b = 0; b < 20; b += 1) {
+    for (let a = 0; a < 33; a += 1) {
+      for (let b = 0; b < 33; b += 1) {
         if (a !== b) edges.push(edge({ from: `c${a}`, to: `c${b}` }));
       }
     }
     const graph: DependencyGraph = {
       ...synthetic({ level: 'issue', issueId: 'c0' }, nodes, edges),
-      chain: { focusId: 'c0', upstream: 19, downstream: 19, hidden: 0 },
+      chain: { focusId: 'c0', upstream: 32, downstream: 32, hidden: 0 },
     };
     const model = pageOf(graph);
     expect(model.nodes).toEqual([]);
     expect(model.focusId).toBeNull();
     expect(model.tooLarge?.message).toBe(
-      'Too many to draw: the nearest 20 issues on c0’s chain are joined by 380 blocking relations.'
+      'Too many to draw: the nearest 33 issues on c0’s chain are joined by 1056 blocking relations.'
     );
     expect(model.tooLarge?.title).toBe('Its direct neighbours');
     const rows = model.tooLarge?.rows ?? [];
-    expect(rows).toHaveLength(19);
+    expect(rows).toHaveLength(32);
     expect(rows[0]).toEqual({
       id: 'c1',
       label: 'Backfill orders',
       kind: 'Issue',
-      count: '38',
+      count: '64',
       href: '/graph?chain=c1',
     });
   });
@@ -1682,18 +2034,27 @@ describe('status colours (architecture §8.2)', () => {
   test('milestone boxes: overdue red, at risk amber, never the accent', () => {
     const model = page({ level: 'milestone' });
     expect(model.nodes.map((n) => [n.id, n.tone])).toEqual([
+      // Paused, complete and empty work is faint.
+      ['ms-fjord-1', 'muted'],
       ['ms-atlas-2', 'danger'],
       ['ms-juniper-1', 'default'],
+      ['ms-atlas-1', 'muted'],
       ['ms-beacon-1', 'warning'],
+      ['ms-harbor-1', 'warning'],
+      ['ms-compass-1', 'warning'],
+      ['ms-garnet-1', 'warning'],
+      ['ms-ember-1', 'default'],
+      ['ms-delta-1', 'default'],
+      ['ms-garnet-2', 'muted'],
       ['ms-atlas-3', 'default'],
+      ['ms-harbor-2', 'default'],
+      ['ms-beacon-2', 'default'],
+      ['ms-juniper-2', 'default'],
+      ['ms-compass-2', 'default'],
+      ['ms-compass-3', 'default'],
     ]);
     const tones = [
-      ...model.nodes.map((n) => n.tone),
-      ...(model.isolated?.rows ?? []).flatMap((r) => [
-        r.tone,
-        r.contextTone,
-        r.dueTone,
-      ]),
+      ...model.nodes.flatMap((n) => [n.tone, n.readiness?.tone]),
       ...Object.values(model.details).flatMap((d) =>
         d.properties.map((p) => p.tone)
       ),
@@ -1706,30 +2067,49 @@ describe('status colours (architecture §8.2)', () => {
     expect(panelTones(model, 'ms-atlas-2')).toEqual([
       ['Due', 'danger'],
       ['Progress', 'warning'],
+      // Nothing outside Dual-write holds it up: Clear, in the green.
+      ['Readiness', 'success'],
       ['Risk reasons', 'warning'],
     ]);
-    // No target date is a missing input: amber, in the panel and the row.
-    expect(panelTones(model, 'ms-compass-3')[0]).toEqual(['Due', 'warning']);
-    const row = model.isolated?.rows.find((r) => r.id === 'ms-compass-3');
-    expect([row?.due, row?.dueTone]).toEqual(['No target date', 'warning']);
-    // At-risk rows carry the box's amber rule; a later date stays ink.
-    const harbor = model.isolated?.rows.find((r) => r.id === 'ms-harbor-1');
-    expect([harbor?.tone, harbor?.dueTone]).toEqual(['warning', 'default']);
+    // No target date is a missing input: amber in the panel.
+    expect(model.details['ms-compass-3']?.properties[0]).toEqual({
+      label: 'Due',
+      value: 'No target date',
+      tone: 'warning',
+    });
+    // An at-risk box carries the amber rule; its later date stays ink,
+    // and with no relation its Readiness row has no hue.
+    expect(model.nodes.find((n) => n.id === 'ms-harbor-1')?.tone).toBe(
+      'warning'
+    );
+    expect(panelTones(model, 'ms-harbor-1')).toEqual([
+      ['Progress', 'warning'],
+      ['Risk reasons', 'warning'],
+      ['Missing', 'warning'],
+    ]);
   });
 
   test('project panels: the next milestone’s date, progress, allocation', () => {
     const model = page({ level: 'project' });
     expect(model.nodes.map((n) => [n.id, n.tone])).toEqual([
       ['proj-atlas', 'danger'],
+      ['proj-harbor', 'warning'],
+      ['proj-delta', 'default'],
+      ['proj-fjord', 'muted'],
       ['proj-juniper', 'default'],
       ['proj-beacon', 'warning'],
+      ['proj-compass', 'warning'],
+      ['proj-ember', 'default'],
+      ['proj-garnet', 'warning'],
     ]);
     expect(panelTones(model, 'proj-atlas')).toEqual([
       ['Next milestone', 'danger'],
       ['Progress', 'warning'],
+      ['Readiness', 'success'],
       ['Allocation', 'info'],
     ]);
-    // Blocked allocation and a missing lead are amber.
+    // Blocked allocation and a missing lead are amber; Delta is on no
+    // relation, so its Readiness ("No dependencies") has no hue.
     expect(panelTones(model, 'proj-delta')).toEqual([
       ['Lead', 'warning'],
       ['Progress', 'warning'],
@@ -1742,6 +2122,8 @@ describe('status colours (architecture §8.2)', () => {
     expect(model.nodes.map((n) => [n.id, n.tone])).toEqual([
       ['iss-eng-10', 'danger'],
       ['iss-eng-12', 'danger'],
+      ['iss-eng-11', 'danger'],
+      ['iss-eng-13', 'danger'],
       ['iss-eng-23', 'default'],
       ['iss-eng-16', 'default'],
     ]);
@@ -1749,18 +2131,508 @@ describe('status colours (architecture §8.2)', () => {
       ['Assignee', 'warning'],
       ['Milestone', 'danger'],
     ]);
-    expect(
-      (model.isolated?.rows ?? []).map((r) => [
-        r.id,
-        r.tone,
-        r.contextTone,
-        r.dueTone,
-      ])
-    ).toEqual([
-      ['iss-eng-11', 'danger', 'default', 'danger'],
-      ['iss-eng-13', 'danger', 'warning', 'danger'],
-      // Closed: a muted row, its date and empty assignee quiet.
-      ['iss-eng-14', 'muted', 'default', 'default'],
+    // The two on no relation keep their own facts' hues.
+    expect(panelTones(model, 'iss-eng-11')).toEqual([['Milestone', 'danger']]);
+    expect(panelTones(model, 'iss-eng-13')).toEqual([
+      ['Assignee', 'warning'],
+      ['Milestone', 'danger'],
     ]);
+    // Closed: a muted box, its date and empty assignee quiet.
+    const closed = page({ level: 'issue', projectId: 'proj-atlas' });
+    expect(closed.nodes.find((n) => n.id === 'iss-eng-1')?.tone).toBe('muted');
+    expect(panelTones(closed, 'iss-eng-1')).toEqual([]);
+  });
+});
+
+// The graph highlights (architecture §2.10 "Readiness", §8.4 "Graph"):
+// readiness on every node, the per-highlight legends and idle readouts,
+// the readout words, the critical path the server names (the same walk
+// the canvas runs), Mermaid per highlight, and the box panel's rows, on
+// the demo workspace (spec §11's acceptance at the model level).
+describe('graph highlights', () => {
+  const { page } = fixture();
+  const byKey = (model: GraphPageModel, key: string) =>
+    model.nodes.find((n) => n.key === key || n.label === key);
+
+  test('readiness maps core facts: chip word, Status tone, counts, canStart for boxes', () => {
+    expect(READINESS_TONE).toEqual({
+      ready: 'success',
+      blocked: 'warning',
+      stuck: 'danger',
+      independent: 'default',
+      quiet: 'muted',
+    });
+    expect(nodeReadiness(node())).toEqual({
+      state: 'ready',
+      label: 'Ready',
+      tone: 'success',
+      blockedBy: 0,
+      unblocks: 0,
+    });
+    expect(
+      nodeReadiness(node({ readiness: 'blocked', blockedBy: 2, unblocks: 1 }))
+    ).toEqual({
+      state: 'blocked',
+      label: 'Blocked by 2',
+      tone: 'warning',
+      blockedBy: 2,
+      unblocks: 1,
+    });
+    // An issue on an open cycle is stuck; paused or done work is quiet.
+    expect(
+      nodeReadiness(
+        node({ readiness: 'blocked', blockedBy: 1, holdsCycle: true })
+      ).tone
+    ).toBe('danger');
+    expect(nodeReadiness(node({ active: false })).tone).toBe('muted');
+    expect(
+      nodeReadiness(node({ readiness: 'done', open: false, openIssues: 0 }))
+    ).toEqual({
+      state: 'done',
+      label: '',
+      tone: 'muted',
+      blockedBy: 0,
+      unblocks: 0,
+    });
+    // A clear box with none ready (a cycle inside) can start nothing.
+    const box = node({
+      kind: 'milestone',
+      openIssues: 2,
+      readyIssues: 0,
+      holdsCycle: true,
+    });
+    expect(nodeReadiness(box)).toEqual({
+      state: 'ready',
+      label: 'None ready',
+      tone: 'danger',
+      blockedBy: 0,
+      unblocks: 0,
+      canStart: false,
+    });
+    expect(nodeReadiness({ ...box, readyIssues: 1 }).canStart).toBe(true);
+    // On no relation at all: "No dependencies", neutral, so a graph of
+    // every issue is not a sea of green.
+    expect(nodeReadiness(node({ readiness: 'independent' }))).toEqual({
+      state: 'independent',
+      label: 'No dependencies',
+      tone: 'default',
+      blockedBy: 0,
+      unblocks: 0,
+    });
+    // Paused work stays quiet whatever its readiness.
+    expect(
+      nodeReadiness(node({ readiness: 'independent', active: false })).tone
+    ).toBe('muted');
+  });
+
+  test('an edge that no longer blocks is unblocked, whichever end is done; cross by level', () => {
+    // Into a closed issue: the blocker is open, so not resolved, but it no
+    // longer blocks anything.
+    expect(edgeKind(edge({ blocking: false, onRiskChain: true }))).toBe(
+      'resolved'
+    );
+    expect(crossesBoundary(edge({ crossProject: true }), 'issue')).toBe(true);
+    expect(crossesBoundary(edge({ crossProject: true }), 'project')).toBe(
+      false
+    );
+    // Every drawn edge says whether it crosses, whatever its kind: the
+    // Status and Critical path highlights dash it while it blocks.
+    const model = page({ level: 'issue', milestoneId: 'ms-atlas-2' });
+    const crossing = model.edges.filter((e) => e.cross === true);
+    expect(crossing.length).toBeGreaterThan(0);
+    expect(crossing.some((e) => e.kind !== 'cross')).toBe(true);
+    expect(model.edges.every((e) => typeof e.cross === 'boolean')).toBe(true);
+  });
+
+  test('/graph?chain=ENG-23: readiness, unblocks, the critical path through the focus', () => {
+    const model = page({ level: 'issue', issueId: 'ENG-23' });
+    expect(
+      model.nodes.map((n) => [n.key, n.readiness?.label, n.readiness?.unblocks])
+    ).toEqual([
+      ['ENG-23', 'Blocked by 1', 1],
+      ['ENG-12', 'Ready', 1],
+      ['OPS-20', 'Blocked by 1', 0],
+    ]);
+    // ENG-12 is Backlog and still dependency-ready, with its own chips.
+    expect(byKey(model, 'ENG-12')?.tags).toEqual(['UNASSIGNED', 'OVERDUE']);
+    expect(model.readouts).toEqual({
+      status: '1 ready · 2 blocked',
+      risk: '2 relations on a risk chain · no cycles',
+      critical:
+        'Critical path through ENG-23: 3 issues: ENG-12 → ENG-23 → OPS-20. Start with ENG-12 (ready).',
+    });
+    expect(model.ariaSummary).toBe(
+      'Blocking chain of ENG-23: 3 issues joined by 2 blocking relations, 2 on a risk chain and 0 unblocked; no cycles. ENG-23 is the focus. 1 ready, 2 blocked. Critical path: 3 issues: ENG-12, ENG-23, OPS-20.'
+    );
+    expect(model.pathWords).toEqual({ unit: ['issue', 'issues'] });
+    expect(model.legends.status.map((i) => `${i.label} — ${i.note}`)).toEqual([
+      'Ready — nothing open blocks it',
+      'Blocked — an open issue blocks it',
+      'Stuck — on a blocking cycle (it may run outside this graph)',
+      'In a cycle — waits on itself',
+      'Done or paused — closed, or in a paused project (Inactive)',
+      'Focus — the issue this chain is about',
+      'Blocks — the blocker is still open',
+      'Unblocked — one end is done: no longer blocking',
+      'Cycle — both ends wait',
+      'Cross-project — leaves its project',
+      'Reading — the box you point at, focus or tap',
+      'Waits on — what the box you point at waits on',
+      'Holds up — what waits on it',
+      'Ready next — ready once it is done',
+    ]);
+    expect(model.legends.status.map((i) => i.mark)).toEqual([
+      'node-ready',
+      'node-blocked',
+      'node-stuck',
+      'node-cycle',
+      'node-muted',
+      'node-focus',
+      'edge-default',
+      'edge-unblocked',
+      'edge-cycle',
+      'edge-cross',
+      'path-active',
+      'path-up',
+      'path-down',
+      'path-next',
+    ]);
+    expect(
+      model.legends.critical.map((i) => `${i.mark}: ${i.label} — ${i.note}`)
+    ).toEqual([
+      'node-chain: Critical path — numbered in order; each waits on the one before',
+      'node-faded: Off the path — faded',
+      'node-cycle: In a cycle — waits on itself',
+      'node-focus: Focus — the issue this chain is about',
+      'edge-chain: Critical path — the longest chain of open blockers, counted in issues',
+      'edge-default: Blocks — the blocker is still open',
+      'edge-cycle: Cycle — both ends wait',
+      'edge-resolved: Unblocked — one end is done',
+      'path-active: Reading — the box you point at, focus or tap',
+      'path-chain: Critical path — through the box you point at: the longest chain it is on',
+    ]);
+    // Risk is today's legend, then the paths.
+    expect(model.legends.risk.at(-1)).toEqual({
+      mark: 'path-next',
+      label: 'Ready next',
+      note: 'ready once it is done',
+    });
+  });
+
+  test('/graph?chain=ENG-26: a done blocker is drawn unblocked, nothing to number', () => {
+    const model = page({ level: 'issue', issueId: 'ENG-26' });
+    expect(model.edges.map((e) => [e.from, e.to, e.kind])).toEqual([
+      ['iss-eng-2', 'iss-eng-26', 'resolved'],
+    ]);
+    expect(byKey(model, 'ENG-26')?.readiness?.label).toBe('Ready');
+    expect(byKey(model, 'ENG-2')?.readiness?.state).toBe('done');
+    expect(model.readouts.critical).toBe(
+      'No open chain: nothing drawn waits on anything open.'
+    );
+    expect(model.receipts).toContain('1 blocking relation: 1 unblocked.');
+    expect(model.mermaid?.styles.critical).not.toContain('Critical path');
+  });
+
+  test('/graph: the workspace milestones, Tokens and type stuck', () => {
+    const model = page({ level: 'milestone' });
+    expect(
+      model.nodes
+        .filter((n) => n.readiness?.state !== 'independent')
+        .map((n) => [n.label, n.readiness?.label, n.readiness?.tone])
+    ).toEqual([
+      ['Dual-write', 'Clear', 'success'],
+      // Its open issues are ENG-70 ⇄ ENG-71 and OPS-20 (waiting on
+      // ENG-23): nothing in it can start, so it is red, with its word.
+      ['Tokens and type', 'Waiting on 1', 'danger'],
+      // Complete (and the empty Push notifications): faint, no word.
+      ['Schema cutover', '', 'muted'],
+      ['Search v2 beta', 'Waiting on 1', 'warning'],
+      ['Push notifications', '', 'muted'],
+      ['Read path switch', 'Waiting on 1', 'warning'],
+    ]);
+    // The other eleven are on no relation: neutral, no chip word drawn.
+    expect(
+      model.nodes.filter((n) => n.readiness?.state === 'independent')
+    ).toHaveLength(11);
+    expect(byKey(model, 'Tokens and type')?.tags).toContain('CYCLE INSIDE');
+    expect(byKey(model, 'Dual-write')?.readiness?.unblocks).toBe(2);
+    expect(model.readouts).toEqual({
+      // Push notifications has no issues: counted apart, never complete.
+      status:
+        '1 clear · 3 waiting · 11 with no dependencies · 1 complete · 1 with no issues · 38 open issues: 33 can start, 5 blocked',
+      risk: '3 edges on a risk chain · no cycles',
+      critical:
+        'Critical path: 3 milestones, each waiting on the one before: Dual-write → Search v2 beta → Tokens and type. Start with Dual-write (clear).',
+    });
+    expect(model.ariaSummary).toBe(
+      'Milestone dependency graph: 17 milestones in 9 projects, with 3 blocking edges, 3 on a risk chain and 2 across projects; no cycles. 1 clear, 3 waiting, 11 with no dependencies, 1 complete, 1 with no issues. Critical path: 3 milestones: Dual-write, Search v2 beta, Tokens and type.'
+    );
+    expect(model.pathWords).toEqual({
+      unit: ['milestone', 'milestones'],
+      waitsOn: 'Waits on {n}',
+      waitsOnNone: 'Nothing outside it holds it up',
+      waitsOnOutside: 'Waits on {n} outside this graph',
+      unblock: 'Finishing it would clear {n}: {names}',
+      next: 'Clear next',
+      done: 'Complete',
+    });
+    expect(model.legends.status.map((i) => `${i.label} — ${i.note}`)).toEqual([
+      'Clear — nothing outside it holds it up',
+      'No dependencies — it neither waits on nor holds up another milestone',
+      'Waiting — an open issue in it waits on another milestone',
+      'Stuck — nothing inside can start: a cycle inside holds it',
+      'In a cycle — they wait on each other',
+      'Complete or inactive — nothing open, or a paused project',
+      'Blocks — an open issue blocks one',
+      'Cycle — both ends wait',
+      'Cross-project — leaves its project',
+      'Count — issue relations on one edge',
+      'Reading — the box you point at, focus or tap',
+      'Waits on — what the box you point at waits on',
+      'Holds up — what waits on it, through box arrows',
+      'Clear next — clear once it is finished',
+      // The frames, last in the Nodes row: projects, the paused one hatched.
+      'Project — a frame of its milestones',
+      'Inactive — a hatched frame of paused work',
+    ]);
+    expect(model.legends.critical.map((i) => i.note)).toContain(
+      'the longest chain of open blockers, counted in milestones'
+    );
+    expect(model.legends.critical.some((i) => i.mark === 'edge-resolved')).toBe(
+      false
+    );
+  });
+
+  test('the box panel: Readiness and Open issues, toned by where the box stands', () => {
+    const model = page({ level: 'milestone' });
+    const rows = (id: string) =>
+      model.details[id]?.properties.filter(
+        (p) => p.label === 'Readiness' || p.label === 'Open issues'
+      );
+    expect(rows('ms-beacon-1')).toEqual([
+      {
+        label: 'Readiness',
+        value: 'Waiting on 1 milestone: Dual-write',
+        tone: 'warning',
+      },
+      { label: 'Open issues', value: '4 open · 3 can start · 1 blocked' },
+    ]);
+    expect(rows('ms-juniper-1')).toEqual([
+      {
+        label: 'Readiness',
+        value:
+          'Waiting on 1 milestone: Search v2 beta. None of its open issues can start: a cycle inside holds some of them',
+        tone: 'danger',
+      },
+      { label: 'Open issues', value: '3 open · 0 can start · 3 blocked' },
+    ]);
+    expect(rows('ms-atlas-2')?.[0]).toEqual({
+      label: 'Readiness',
+      value: 'Clear: nothing outside it holds it up',
+      tone: 'success',
+    });
+    // The rows follow Progress, before the risk reasons.
+    expect(
+      model.details['ms-beacon-1']?.properties.map((p) => p.label)
+    ).toEqual(expect.arrayContaining(['Progress', 'Readiness', 'Open issues']));
+    const labels =
+      model.details['ms-beacon-1']?.properties.map((p) => p.label) ?? [];
+    expect(labels.indexOf('Readiness')).toBe(labels.indexOf('Progress') + 1);
+    const initiative = page({ level: 'initiative' }).details['init-platform'];
+    expect(
+      initiative?.properties.find((p) => p.label === 'Open issues')?.value
+    ).toMatch(/^20 open · 16 can start · 4 blocked/);
+  });
+
+  test('/graph?level=initiative: a box cycle stays amber and is worded as box arrows', () => {
+    const model = page({ level: 'initiative' });
+    expect(
+      model.nodes.map((n) => [n.label, n.readiness?.label, n.readiness?.tone])
+    ).toEqual([
+      ['Platform reliability', 'Waiting on 1', 'warning'],
+      ['Customer growth', 'Waiting on 1', 'warning'],
+      ['No initiative', 'No dependencies', 'default'],
+    ]);
+    expect(model.readouts.critical).toBe(
+      'Critical path: 2 initiatives: Platform reliability + Customer growth. It runs through boxes that wait on each other (Platform reliability and Customer growth); the Issues level shows whether their issues form a real cycle.'
+    );
+    expect(model.readouts.critical).not.toContain('cannot finish');
+    expect(model.readouts.status).toBe(
+      '2 waiting · 1 with no dependencies · 41 open issues: 36 can start, 5 blocked'
+    );
+    expect(model.readouts.risk).toBe('no risk chains · 1 cycle');
+  });
+
+  test('/graph?project=proj-juniper: the deadlock is stuck and the path runs through it', () => {
+    const model = page({ level: 'issue', projectId: 'proj-juniper' });
+    for (const key of ['ENG-70', 'ENG-71']) {
+      const n = byKey(model, key);
+      expect([n?.readiness?.label, n?.readiness?.tone, n?.tags]).toEqual([
+        'Blocked by 1',
+        'danger',
+        ['CYCLE'],
+      ]);
+      expect(n?.readiness?.unblocks).toBe(1);
+    }
+    expect(model.readouts.critical).toBe(
+      'Critical path: 2 issues: ENG-70 + ENG-71. It runs through a cycle (ENG-70 and ENG-71 wait on each other), so it cannot finish until the cycle is broken.'
+    );
+    expect(model.readouts.status).toBe('4 blocked · 2 with no dependencies');
+  });
+
+  test('the server names the critical path the canvas draws, on every level', () => {
+    const scopes: GraphScope[] = [
+      { level: 'initiative' },
+      { level: 'project' },
+      { level: 'milestone' },
+      { level: 'issue' },
+      { level: 'project', initiativeId: 'init-growth' },
+      { level: 'milestone', initiativeId: 'init-platform' },
+      { level: 'issue', initiativeId: 'init-platform' },
+      { level: 'milestone', projectId: 'proj-atlas' },
+      { level: 'issue', projectId: 'proj-juniper' },
+      { level: 'issue', milestoneId: 'ms-atlas-2' },
+      { level: 'issue', issueId: 'ENG-23' },
+    ];
+    for (const scope of scopes) {
+      const model = page(scope);
+      const chain = longestChain(
+        longestChains(model.nodes, model.edges),
+        model.focusId
+      );
+      const ids = model.nodes.map((n) => n.id);
+      const classLine = (model.mermaid?.styles.critical ?? '')
+        .split('\n')
+        .find((line) => line.endsWith(' critical'));
+      const named =
+        classLine
+          ?.trim()
+          .split(' ')[1]
+          ?.split(',')
+          .map((n) => ids[Number(n.slice(1))]) ?? [];
+      expect([...named].sort(), JSON.stringify(scope)).toEqual(
+        [...(chain?.nodeIds ?? [])].sort()
+      );
+      if (chain !== null) {
+        expect(model.ariaSummary, JSON.stringify(scope)).toContain(
+          'Critical path: '
+        );
+      }
+    }
+  });
+
+  test('Mermaid: one body for every highlight, its styles per highlight', () => {
+    const model = page({ level: 'issue', issueId: 'ENG-23' });
+    const mermaid = model.mermaid;
+    expect(mermaid?.body.split('\n').slice(0, 4)).toEqual([
+      'flowchart LR',
+      '  n0["Typo tolerance<br/>ENG-23 · Dev Patel · Blocked by 1"]',
+      '  n1["Reconcile dual-write drift<br/>ENG-12 · Unassigned · Ready"]',
+      '  n2["Brand review sign-off<br/>OPS-20 · Grace Lin · Blocked by 1"]',
+    ]);
+    expect(mermaid?.styles.status).toContain('  class n1 ready\n');
+    expect(mermaid?.styles.risk).toContain('  linkStyle 0,1 stroke:#bd790a\n');
+    expect(mermaid?.styles.critical).toBe(
+      [
+        '  %% Critical path: n1 → n0 → n2 (3 issues)',
+        '  classDef critical stroke-width:3px',
+        '  classDef external stroke-dasharray:3 3,opacity:0.7',
+        '  classDef focus stroke-width:3px',
+        '  class n0,n1,n2 critical',
+        '  class n0 focus',
+        '  linkStyle 0,1 stroke-width:3px',
+        '',
+      ].join('\n')
+    );
+    // The selection purple is never a status, in any export.
+    for (const style of Object.values(mermaid?.styles ?? {})) {
+      expect(style).not.toContain('#9747ff');
+    }
+  });
+
+  test('path words per level', () => {
+    expect(pathWordsFor('issue')).toEqual({ unit: ['issue', 'issues'] });
+    expect(pathWordsFor('project').unit).toEqual(['project', 'projects']);
+    expect(pathWordsFor('initiative').next).toBe('Clear next');
+  });
+
+  test('nothing drawn: no readouts, no Mermaid; the legends are still there', () => {
+    const model = page({ level: 'issue', milestoneId: 'ms-garnet-2' });
+    expect(model.readouts).toEqual({ status: '', risk: '', critical: '' });
+    expect(model.mermaid).toBeNull();
+    expect(model.legends.status.length).toBeGreaterThan(0);
+  });
+});
+
+describe('review fixes: empty boxes, paused arrows, blockers with no box', () => {
+  const data = createFixtureWorkspace(TODAY);
+
+  test('a milestone with no issues reads "No issues", never "Complete"', () => {
+    const model = fixture().page({ level: 'milestone' });
+    // Push notifications (ms-garnet-2) has no issue in the mirror.
+    expect(
+      model.nodes.find((n) => n.id === 'ms-garnet-2')?.readiness?.state
+    ).toBe('empty');
+    expect(
+      model.details['ms-garnet-2']?.properties.filter((p) =>
+        ['Readiness', 'Open issues'].includes(p.label)
+      )
+    ).toEqual([
+      { label: 'Readiness', value: 'No issues', tone: 'default' },
+      { label: 'Open issues', value: 'None open' },
+    ]);
+    // Schema cutover is done: it has issues, none open.
+    expect(
+      model.details['ms-atlas-1']?.properties.find(
+        (p) => p.label === 'Readiness'
+      )?.value
+    ).toBe('Complete');
+    expect(model.readouts.status).toContain('1 complete · 1 with no issues');
+  });
+
+  test('blockers with no milestone are counted as issues, apart from the milestones', () => {
+    // ENG-18 (Atlas) and ENG-54 (Garnet) have no milestone; both now block
+    // ENG-16 in Read path switch, which already waits on Dual-write.
+    const model = fixture({
+      ...data,
+      relations: [
+        ...data.relations,
+        { id: 'rel-x1', blockerId: 'iss-eng-18', blockedId: 'iss-eng-16' },
+        { id: 'rel-x2', blockerId: 'iss-eng-54', blockedId: 'iss-eng-16' },
+      ],
+    }).page({ level: 'milestone' });
+    expect(
+      model.details['ms-atlas-3']?.properties.find(
+        (p) => p.label === 'Readiness'
+      )
+    ).toEqual({
+      label: 'Readiness',
+      value:
+        'Waiting on 1 milestone: Dual-write, and 2 issues with no milestone',
+      tone: 'warning',
+    });
+  });
+
+  test('a relation between two paused projects is an arrow between their drawn boxes', () => {
+    // Harbor paused too; Dashboards (paused Fjord) now blocks Public beta.
+    const model = fixture({
+      ...data,
+      projects: data.projects.map((p) =>
+        p.id === 'proj-harbor' ? { ...p, statusType: 'paused' } : p
+      ),
+      relations: [
+        ...data.relations,
+        { id: 'rel-x3', blockerId: 'iss-ops-8', blockedId: 'iss-eng-60' },
+      ],
+    }).page({ level: 'milestone' });
+    expect(model.edges.map((e) => `${e.from}>${e.to}`)).toContain(
+      'ms-fjord-1>ms-harbor-1'
+    );
+    // Its blocker is drawn, so nothing says "not drawn" or "outside".
+    expect(
+      model.details['ms-harbor-1']?.properties.find(
+        (p) => p.label === 'Readiness'
+      )?.value
+    ).toBe('Waiting on 1 milestone: Dashboards');
   });
 });

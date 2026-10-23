@@ -7,7 +7,13 @@ import {
   measureNode,
   wrapMono,
 } from '../src/graph/layout';
-import type { GraphLayout, LaidOutNode } from '../src/graph/types';
+import type {
+  GraphLayout,
+  GraphNodeData,
+  GraphNodeReadiness,
+  GraphReadinessState,
+  LaidOutNode,
+} from '../src/graph/types';
 import {
   ISSUE_EDGES,
   ISSUES,
@@ -219,6 +225,66 @@ describe('node metrics', () => {
     expect(long.labelLines[1].endsWith('…')).toBe(true);
     // Two label lines and a tag row make a taller box.
     expect(long.height).toBeGreaterThan(short.height);
+  });
+
+  test('the readiness chip leads the chips: a row of its own, a ready mark wider', () => {
+    const base: GraphNodeData = { id: 'n', label: 'Short', tone: 'default' };
+    const plain = measureNode(base);
+    const readiness = (
+      state: GraphReadinessState,
+      label: string
+    ): GraphNodeReadiness => ({
+      state,
+      label,
+      tone: 'default',
+      blockedBy: state === 'blocked' ? 2 : 0,
+      unblocks: 0,
+    });
+    // A node without tags gains one chip row.
+    const blocked = measureNode({
+      ...base,
+      readiness: readiness('blocked', 'Blocked by 2'),
+    });
+    expect(blocked.height).toBe(
+      plain.height + GRAPH_METRICS.tagsGap + GRAPH_METRICS.tagHeight
+    );
+    expect(blocked.width).toBe(plain.width);
+    // Beside tags it widens the row; a ready chip's square mark and its
+    // gap add their width.
+    const tags = ['UNASSIGNED', 'OVERDUE'];
+    const withTags = measureNode({ ...base, tags });
+    const asBlocked = measureNode({
+      ...base,
+      tags,
+      readiness: readiness('blocked', 'Ready'),
+    });
+    const asReady = measureNode({
+      ...base,
+      tags,
+      readiness: readiness('ready', 'Ready'),
+    });
+    expect(asBlocked.width).toBeGreaterThan(withTags.width);
+    expect(asReady.width - asBlocked.width).toBe(
+      GRAPH_METRICS.readyDot + GRAPH_METRICS.readyDotGap
+    );
+    expect(asReady.height).toBe(withTags.height);
+  });
+
+  test('a node without a readiness word is measured as before', () => {
+    for (const node of [...MILESTONES, ...ISSUES]) {
+      expect(
+        measureNode({
+          ...node,
+          readiness: {
+            state: 'done',
+            label: '',
+            tone: 'muted',
+            blockedBy: 0,
+            unblocks: 0,
+          },
+        })
+      ).toEqual(measureNode(node));
+    }
   });
 
   test('wraps by words and breaks a word wider than the line', () => {

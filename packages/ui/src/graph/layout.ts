@@ -1,6 +1,8 @@
 import { graphlib, layout as dagreLayout } from '@dagrejs/dagre';
 
+import { gridColumns, packGrid, packShelves, shelfWidth } from './pack';
 import type {
+  GraphClusterData,
   GraphDirection,
   GraphEdgeData,
   GraphEdgeKind,
@@ -13,8 +15,10 @@ import type {
 } from './types';
 
 // Pure layout for the dependency graph: node boxes sized from mono text
-// metrics, positions and edge routes from dagre (rankdir LR by default).
-// No DOM, no React, no randomness: the same input gives the same output on
+// metrics, positions and edge routes from dagre (rankdir LR by default),
+// or, given clusters, nested labelled frames whose linked items flow by
+// dagre and whose unlinked boxes pack into grids (layoutClustered). No
+// DOM, no React, no randomness: the same input gives the same output on
 // the server and the client, so the SVG hydrates without a diff.
 
 /**
@@ -43,6 +47,9 @@ export const GRAPH_METRICS = {
   tagHeight: 15,
   tagGap: 4,
   tagsGap: 7,
+  /** The square mark leading a ready node's readiness chip, and its gap. */
+  readyDot: 5,
+  readyDotGap: 4,
   minWidth: 168,
   maxWidth: 248,
   /** Weight label box. */
@@ -52,6 +59,53 @@ export const GRAPH_METRICS = {
 } as const;
 
 const M = GRAPH_METRICS;
+
+/**
+ * Cluster frame metrics shared with dependency-graph.module.css (.cluster,
+ * .clusterTitle): the title is 9px mono caps (0.1em tracking) on a 12px
+ * line, `titleTop` below the frame's top rule and `titleX` in from its
+ * left; the frame's content starts `padTop` down and `padX` in. The gaps
+ * space a frame's flow, grid and shelves, and the grid's cells.
+ */
+export const CLUSTER_METRICS = {
+  padX: 12,
+  padTop: 30,
+  padBottom: 12,
+  titleTop: 8,
+  titleX: 10,
+  titleAdvance: 9 * 0.7,
+  /** Title characters a frame widens for (a longer title is cut). */
+  titleMaxChars: 40,
+  /** Between a frame's flow, grid and shelves, and between shelved frames. */
+  gap: 20,
+  gridGapX: 16,
+  gridGapY: 12,
+  /** A grid of unlinked boxes aims at this width-to-height ratio. */
+  gridAspect: 3,
+  /** Shelves of unlinked frames aim at this width-to-height ratio. */
+  shelfAspect: 1.8,
+  /** How far an arrow between frames leaves and enters a box straight. */
+  lead: 28,
+  /**
+   * A flow holding frames may run this long along the direction, or
+   * flowSpread times the width its frames would take on shelves, before
+   * its frames go onto shelves instead (layoutFrame).
+   */
+  flowMax: 2400,
+  flowSpread: 1.25,
+  /**
+   * A flow over more items or links than these ranks with dagre's
+   * tight-tree instead of network-simplex: network-simplex costs grow
+   * fastest with a large, dense flow (one big milestone: about 5 s for
+   * 500 boxes and 800 arrows, against 0.5 s), and below these sizes it
+   * keeps its tighter ranks.
+   */
+  simplexItems: 120,
+  simplexLinks: 180,
+} as const;
+
+const C = CLUSTER_METRICS;
+const MARGIN = 24;
 const MAX_LABEL_LINES = 2;
 const ELLIPSIS = '…';
 const GROUP_PREFIX = '__group__:';
@@ -127,13 +181,33 @@ function tagWidth(tag: string): number {
   return Math.ceil(tag.length * M.tagAdvance + M.tagPadX * 2 + 2);
 }
 
-/** Rows a flowed set of tag chips needs inside `width`. */
-function tagRows(tags: readonly string[], width: number): number {
-  if (tags.length === 0) return 0;
+/**
+ * The widths of a node's chips in drawing order: the readiness chip first
+ * (when it has a word and is not independent, whose word is said but not
+ * drawn; a ready one leads with a square mark), then its tags. The chip is
+ * drawn under every highlight, so one layout fits all.
+ */
+function chipWidths(node: GraphNodeData): number[] {
+  const widths: number[] = [];
+  const readiness = node.readiness;
+  if (
+    readiness !== undefined &&
+    readiness.label !== '' &&
+    readiness.state !== 'independent'
+  ) {
+    const dot = readiness.state === 'ready' ? M.readyDot + M.readyDotGap : 0;
+    widths.push(tagWidth(readiness.label) + dot);
+  }
+  for (const tag of node.tags ?? []) widths.push(tagWidth(tag));
+  return widths;
+}
+
+/** Rows a flowed set of chips (their widths) needs inside `width`. */
+function tagRows(widths: readonly number[], width: number): number {
+  if (widths.length === 0) return 0;
   let rows = 1;
   let used = 0;
-  for (const tag of tags) {
-    const w = tagWidth(tag);
+  for (const w of widths) {
     const next = used === 0 ? w : used + M.tagGap + w;
     if (next > width && used > 0) {
       rows += 1;
@@ -155,16 +229,17 @@ export interface NodeMeasure {
 /**
  * The box a node needs: wide enough for its label on one line (clamped to
  * the min/max width), the label wrapped to two lines beyond that, one line
- * of sublabel, and the tag chips flowed under it.
+ * of sublabel, and the chips (readiness, then tags) flowed under it. The
+ * highlight never enters: every mode draws the same chips.
  */
 export function measureNode(node: GraphNodeData): NodeMeasure {
   const lead = node.status !== undefined ? M.glyph + M.glyphGap : 0;
   const chrome = (M.padX + M.border) * 2 + lead;
-  const tags = node.tags ?? [];
+  const chips = chipWidths(node);
   const sublabel = node.sublabel ?? '';
   let tagsRow = 0;
-  for (const tag of tags) {
-    tagsRow += (tagsRow === 0 ? 0 : M.tagGap) + tagWidth(tag);
+  for (const w of chips) {
+    tagsRow += (tagsRow === 0 ? 0 : M.tagGap) + w;
   }
   const natural = Math.max(
     node.label.length * M.labelAdvance,
@@ -184,7 +259,7 @@ export function measureNode(node: GraphNodeData): NodeMeasure {
     sublabel,
     Math.max(1, Math.floor(inner / M.subAdvance))
   );
-  const rows = tagRows(tags, inner);
+  const rows = tagRows(chips, inner);
   const height =
     (M.padY + M.border) * 2 +
     labelLines.length * M.labelLine +
@@ -302,6 +377,9 @@ export function layoutGraph(
   options: GraphLayoutOptions = {}
 ): GraphLayout {
   const direction: GraphDirection = options.direction ?? 'LR';
+  if (options.clusters !== undefined) {
+    return layoutClustered(nodes, edges, direction, options.clusters);
+  }
   const horizontal = direction === 'LR';
   const hasGroups = nodes.some(
     (node) => node.group !== undefined && node.group !== ''
@@ -487,5 +565,1053 @@ export function layoutGraph(
     nodes: placed.map(({ cx: _cx, cy: _cy, ...node }) => node),
     edges: laidEdges,
     groups,
+  };
+}
+
+/* ---- clustered layout ------------------------------------------------------- */
+
+// Item keys inside a frame: a node or a child frame (NUL-separated so no
+// id can collide with the other kind).
+const NODE_ITEM = 'n\u0000';
+const FRAME_ITEM = 'f\u0000';
+// A frame's ports: where edges leaving or entering it attach in its own
+// dagre run, so what they connect drifts to the frame's far or near side.
+const PORT_OUT = '\u0000out';
+const PORT_IN = '\u0000in';
+/**
+ * dagre edge weights in a frame's flow, all whole numbers: a link pulls
+ * LINK_PULL per edge it lays out (twice that for a risk or cycle edge), an
+ * item's edge to its frame's port LINK_PULL, and the edges that only rank
+ * a port beyond the flow PORT_PULL, a hundredth of a link. dagre's
+ * network-simplex ranker pivots while a cut value is below zero, and a sum
+ * of fractional weights can leave one at -2e-16 that never reaches zero,
+ * so a fraction here can loop forever (a 9-issue project did, blocking the
+ * server's render); whole weights keep every cut value exact.
+ */
+const LINK_PULL = 100;
+const PORT_PULL = 1;
+
+const nodeItem = (id: string): string => `${NODE_ITEM}${id}`;
+const frameItem = (id: string): string => `${FRAME_ITEM}${id}`;
+const isNodeItem = (key: string): boolean => key.startsWith(NODE_ITEM);
+
+/** Item pairs that one frame's dagre run lays out an edge between. */
+interface FrameLink {
+  from: string;
+  to: string;
+  /**
+   * How hard it pulls, in edges laid out (a risk or cycle edge counts
+   * twice); dagre's weight is this times LINK_PULL.
+   */
+  pull: number;
+  /** The node edge's weight label ('' between frames or for weight 1). */
+  text: string;
+}
+
+/**
+ * One cluster frame, or the top level (`id` null), while laying out:
+ * what it holds, the links its own dagre run lays out (edges whose
+ * lowest common frame it is) and the items holding an end of an edge
+ * that leaves or enters it; then, bottom-up, its size and where each of
+ * its items sits inside its content box.
+ */
+interface Frame {
+  id: string | null;
+  data: GraphClusterData | null;
+  /** Position in the given clusters (the top level: -1), for order. */
+  index: number;
+  parent: Frame | null;
+  /** 0 for a top-level frame; the top level itself is -1. */
+  depth: number;
+  children: Frame[];
+  nodes: string[];
+  links: Map<string, FrameLink>;
+  outs: Set<string>;
+  ins: Set<string>;
+  width: number;
+  height: number;
+  /** Item key → its top-left inside the content box. */
+  at: Map<string, { x: number; y: number }>;
+  /** Link key → its dagre route (and label point) inside the content box. */
+  routes: Map<string, { points: Point[]; label: Point | null }>;
+  /** Item key → its dagre routes to the out port and from the in port. */
+  ports: Map<string, PortRoutes>;
+  /** Items in reading order: the flow by rank, the grid, the shelves. */
+  sequence: string[];
+  /** The content box's absolute top-left, once placed. */
+  originX: number;
+  originY: number;
+}
+
+function newFrame(
+  id: string | null,
+  data: GraphClusterData | null,
+  index: number,
+  parent: Frame | null
+): Frame {
+  return {
+    id,
+    data,
+    index,
+    parent,
+    depth: parent === null ? -1 : parent.depth + 1,
+    children: [],
+    nodes: [],
+    links: new Map(),
+    outs: new Set(),
+    ins: new Set(),
+    width: 0,
+    height: 0,
+    at: new Map(),
+    routes: new Map(),
+    ports: new Map(),
+    sequence: [],
+    originX: 0,
+    originY: 0,
+  };
+}
+
+/**
+ * The frame tree for `clusters`: `frameOf(id)` gives a cluster's frame,
+ * creating it and its ancestors on first use, so only clusters that hold
+ * a node become frames. An unknown id, a missing parent or a parent chain
+ * that loops back ends at the top level.
+ */
+function frameTree(clusters: readonly GraphClusterData[]): {
+  top: Frame;
+  frameOf: (id: string | undefined) => Frame;
+} {
+  const top = newFrame(null, null, -1, null);
+  const indexOf = new Map<string, number>();
+  clusters.forEach((cluster, i) => {
+    if (!indexOf.has(cluster.id)) indexOf.set(cluster.id, i);
+  });
+  const frames = new Map<string, Frame>();
+  const frameOf = (id: string | undefined): Frame => {
+    if (id === undefined) return top;
+    const known = frames.get(id);
+    if (known !== undefined) return known;
+    if (!indexOf.has(id)) return top;
+    // The chain of not-yet-made frames from `id` up to a made one.
+    const chain: number[] = [];
+    const seen = new Set<string>();
+    let current: string | undefined = id;
+    while (
+      current !== undefined &&
+      indexOf.has(current) &&
+      !frames.has(current) &&
+      !seen.has(current)
+    ) {
+      seen.add(current);
+      const index: number = indexOf.get(current) ?? 0;
+      chain.push(index);
+      current = clusters[index]?.parent;
+    }
+    let parent =
+      current !== undefined && !seen.has(current)
+        ? (frames.get(current) ?? top)
+        : top;
+    for (let k = chain.length - 1; k >= 0; k -= 1) {
+      const index = chain[k];
+      const data = clusters[index];
+      const frame = newFrame(data.id, data, index, parent);
+      parent.children.push(frame);
+      frames.set(data.id, frame);
+      parent = frame;
+    }
+    return frames.get(id) ?? top;
+  };
+  return { top, frameOf };
+}
+
+/** The lowest frame holding both `a` and `b`. */
+function commonFrame(a: Frame, b: Frame): Frame {
+  let x = a;
+  let y = b;
+  while (x.depth > y.depth && x.parent !== null) x = x.parent;
+  while (y.depth > x.depth && y.parent !== null) y = y.parent;
+  while (x !== y && x.parent !== null && y.parent !== null) {
+    x = x.parent;
+    y = y.parent;
+  }
+  return x;
+}
+
+/**
+ * Walks from a node's own frame up to (not into) `stop`, calling `visit`
+ * with each frame and the item of that frame that holds the node (the
+ * node itself in its own frame, then the child frame it is inside).
+ */
+function climb(
+  home: Frame,
+  nodeId: string,
+  stop: Frame,
+  visit: (frame: Frame, item: string) => void
+): string {
+  let frame = home;
+  let item = nodeItem(nodeId);
+  while (frame !== stop && frame.parent !== null) {
+    visit(frame, item);
+    item = frameItem(frame.id ?? '');
+    frame = frame.parent;
+  }
+  return item;
+}
+
+/**
+ * The dagre routes of an item's edges to its frame's out port and from its
+ * in port (content-box coordinates, so they may run past the content box
+ * where the port sits a rank beyond it). An arrow between frames follows
+ * them out of and into each frame it crosses, so it runs round the other
+ * items there the way dagre routed it, not behind them.
+ */
+interface PortRoutes {
+  out: Point[] | null;
+  in: Point[] | null;
+}
+
+/** One frame's flow: dagre over some of its items, normalised to 0,0. */
+interface Flow {
+  at: Map<string, { x: number; y: number }>;
+  routes: Map<string, { points: Point[]; label: Point | null }>;
+  ports: Map<string, PortRoutes>;
+  width: number;
+  height: number;
+  /** The items by rank (their centre along the direction), then across. */
+  order: string[];
+  /**
+   * The flow was not laid out: its longest chain alone is longer than
+   * runFlow's `maxLength` (flowChain). Nothing is placed, the size along
+   * the direction is that chain's length, and `order` is the items by the
+   * chain's ranks.
+   */
+  tooLong: boolean;
+}
+
+/**
+ * A lower bound on how long dagre lays the items of `g` out along the
+ * direction, and the items in the order of their ranks. dagre's acyclic
+ * step reverses the edges a depth-first walk finds closing a cycle (from
+ * the sources first, then from every node, out-edges in insertion order:
+ * @dagrejs/dagre 3's dfs acyclicer, mirrored here so the chains are the
+ * ones it ranks); every item on a chain of the result gets a rank of its
+ * own, and ranks sit `ranksep` apart, so the flow is at least as long as
+ * its longest chain's item sizes plus the gaps. The port nodes only start
+ * or end chains and are left out. O(V + E), against dagre's run, which
+ * on a workspace frame over many project frames took seconds only to be
+ * discarded for shelves (layoutFrame).
+ */
+function flowChain(
+  g: InstanceType<typeof graphlib.Graph>,
+  items: readonly string[],
+  sizeOf: (key: string) => { width: number; height: number },
+  horizontal: boolean,
+  ranksep: number
+): { length: number; order: string[] } {
+  const visited = new Set<string>();
+  const onStack = new Set<string>();
+  const reversed = new Set<string>();
+  const edgeId = (v: string, w: string) => `${v}\u0001${w}`;
+  const walk = (start: string): void => {
+    if (visited.has(start)) return;
+    visited.add(start);
+    onStack.add(start);
+    const stack: { v: string; out: { v: string; w: string }[]; i: number }[] = [
+      { v: start, out: g.outEdges(start) ?? [], i: 0 },
+    ];
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1];
+      if (top.i >= top.out.length) {
+        onStack.delete(top.v);
+        stack.pop();
+        continue;
+      }
+      const edge = top.out[top.i];
+      top.i += 1;
+      if (onStack.has(edge.w)) {
+        reversed.add(edgeId(edge.v, edge.w));
+      } else if (!visited.has(edge.w)) {
+        visited.add(edge.w);
+        onStack.add(edge.w);
+        stack.push({ v: edge.w, out: g.outEdges(edge.w) ?? [], i: 0 });
+      }
+    }
+  };
+  for (const v of g.sources()) walk(v);
+  for (const v of g.nodes()) walk(v);
+
+  const isItem = new Set(items);
+  const preds = new Map<string, string[]>();
+  const indegree = new Map<string, number>(items.map((key) => [key, 0]));
+  for (const edge of g.edges()) {
+    if (!isItem.has(edge.v) || !isItem.has(edge.w) || edge.v === edge.w) {
+      continue;
+    }
+    const back = reversed.has(edgeId(edge.v, edge.w));
+    const from = back ? edge.w : edge.v;
+    const to = back ? edge.v : edge.w;
+    const list = preds.get(to) ?? [];
+    list.push(from);
+    preds.set(to, list);
+    indegree.set(to, (indegree.get(to) ?? 0) + 1);
+  }
+  const succs = new Map<string, string[]>();
+  for (const [to, list] of preds) {
+    for (const from of list) {
+      const next = succs.get(from) ?? [];
+      next.push(to);
+      succs.set(from, next);
+    }
+  }
+  // Kahn's order, sources in item order.
+  const queue = items.filter((key) => (indegree.get(key) ?? 0) === 0);
+  const length = new Map<string, number>();
+  const rank = new Map<string, number>();
+  let longest = 0;
+  for (let head = 0; head < queue.length; head += 1) {
+    const key = queue[head];
+    const size = sizeOf(key);
+    let before = -ranksep;
+    let rk = 0;
+    for (const from of preds.get(key) ?? []) {
+      before = Math.max(before, length.get(from) ?? 0);
+      rk = Math.max(rk, (rank.get(from) ?? 0) + 1);
+    }
+    const own = before + ranksep + (horizontal ? size.width : size.height);
+    length.set(key, own);
+    rank.set(key, rk);
+    longest = Math.max(longest, own);
+    for (const to of succs.get(key) ?? []) {
+      const left = (indegree.get(to) ?? 0) - 1;
+      indegree.set(to, left);
+      if (left === 0) queue.push(to);
+    }
+  }
+  const index = new Map(items.map((key, i) => [key, i]));
+  const order = [...items].sort((a, b) => {
+    const byRank = (rank.get(a) ?? 0) - (rank.get(b) ?? 0);
+    return byRank !== 0 ? byRank : (index.get(a) ?? 0) - (index.get(b) ?? 0);
+  });
+  return { length: longest, order };
+}
+
+/**
+ * Runs dagre over `items` (keys with their sizes) and the `links` between
+ * them, with a zero-size port after the `outs` and one before the `ins`
+ * (so what connects out of the frame drifts to its far side and what
+ * connects in to its near side; the ports themselves are not kept).
+ * Positions and routes come back shifted so the items' box starts at 0,0.
+ * When the flow's longest chain alone (flowChain) is longer than
+ * `maxLength` along the direction, dagre is not run and the flow comes
+ * back `tooLong`.
+ */
+function runFlow(
+  items: readonly string[],
+  links: readonly [string, FrameLink][],
+  outs: ReadonlySet<string>,
+  ins: ReadonlySet<string>,
+  sizeOf: (key: string) => { width: number; height: number },
+  direction: GraphDirection,
+  maxLength = Infinity
+): Flow {
+  const flow: Flow = {
+    at: new Map(),
+    routes: new Map(),
+    ports: new Map(),
+    width: 0,
+    height: 0,
+    order: [],
+    tooLong: false,
+  };
+  if (items.length === 0) return flow;
+  const horizontal = direction === 'LR';
+  const g = new graphlib.Graph({ multigraph: false });
+  const simplex =
+    items.length <= C.simplexItems && links.length <= C.simplexLinks;
+  const ranksep = horizontal ? 64 : 52;
+  g.setGraph({
+    rankdir: direction,
+    ranksep,
+    nodesep: horizontal ? 22 : 28,
+    edgesep: 14,
+    marginx: 0,
+    marginy: 0,
+    ranker: simplex ? 'network-simplex' : 'tight-tree',
+  });
+  g.setDefaultEdgeLabel(() => ({}));
+  for (const key of items) g.setNode(key, sizeOf(key));
+  for (const [, link] of links) {
+    g.setEdge(link.from, link.to, {
+      weight: link.pull * LINK_PULL,
+      minlen: 1,
+      width:
+        link.text === ''
+          ? 0
+          : Math.ceil(link.text.length * M.weightAdvance + M.weightPadX * 2),
+      height: link.text === '' ? 0 : M.weightHeight,
+      labelpos: 'c',
+    });
+  }
+  const port = { width: 1, height: 1 };
+  // Every item that leads nowhere else in the flow also gets a feather-
+  // weight edge to the out port, and every item nothing in the flow leads
+  // to one from the in port: that ranks the ports beyond the whole flow
+  // (not merely beside their own items), so the routes dagre gives the
+  // arrows leaving or entering the frame run round every item in it. The
+  // tiny weight keeps those edges from pulling items along the direction.
+  // Only in a flow small enough for network-simplex: in a big one they
+  // add an edge per item and dagre's crossing pass then costs most of a
+  // second more (600 boxes and 850 arrows in one milestone: 0.86 s
+  // against 0.5 s), so there the ports sit beside their own items.
+  const feathered = simplex;
+  const hasOut = new Set<string>();
+  const hasIn = new Set<string>();
+  for (const [, link] of links) {
+    hasOut.add(link.from);
+    hasIn.add(link.to);
+  }
+  const feather = { weight: PORT_PULL, minlen: 1, width: 0, height: 0 };
+  if (outs.size > 0) {
+    g.setNode(PORT_OUT, port);
+    for (const key of outs) {
+      g.setEdge(key, PORT_OUT, {
+        weight: LINK_PULL,
+        minlen: 1,
+        width: 0,
+        height: 0,
+      });
+    }
+    for (const key of items) {
+      if (feathered && !outs.has(key) && !hasOut.has(key)) {
+        g.setEdge(key, PORT_OUT, feather);
+      }
+    }
+  }
+  if (ins.size > 0) {
+    g.setNode(PORT_IN, port);
+    for (const key of ins) {
+      g.setEdge(PORT_IN, key, {
+        weight: LINK_PULL,
+        minlen: 1,
+        width: 0,
+        height: 0,
+      });
+    }
+    for (const key of items) {
+      if (feathered && !ins.has(key) && !hasIn.has(key)) {
+        g.setEdge(PORT_IN, key, feather);
+      }
+    }
+  }
+  if (Number.isFinite(maxLength)) {
+    const chain = flowChain(g, items, sizeOf, horizontal, ranksep);
+    if (chain.length > maxLength) {
+      flow.tooLong = true;
+      flow.order = chain.order;
+      if (horizontal) flow.width = Math.ceil(chain.length);
+      else flow.height = Math.ceil(chain.length);
+      return flow;
+    }
+  }
+  dagreLayout(g);
+
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  const boxes = new Map<
+    string,
+    { x: number; y: number; cx: number; cy: number }
+  >();
+  for (const key of items) {
+    const box = g.node(key) as DagreNode;
+    const size = sizeOf(key);
+    const x = Math.round(box.x - size.width / 2);
+    const y = Math.round(box.y - size.height / 2);
+    boxes.set(key, { x, y, cx: box.x, cy: box.y });
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + size.width);
+    maxY = Math.max(maxY, y + size.height);
+  }
+  const raw = new Map<string, DagreEdge | undefined>();
+  for (const [key, link] of links) {
+    const route = g.edge(link.from, link.to) as DagreEdge | undefined;
+    raw.set(key, route);
+    for (const p of route?.points ?? []) {
+      minX = Math.min(minX, p.x);
+      minY = Math.min(minY, p.y);
+      maxX = Math.max(maxX, p.x);
+      maxY = Math.max(maxY, p.y);
+    }
+  }
+  const shiftX = Math.floor(minX);
+  const shiftY = Math.floor(minY);
+  for (const [key, box] of boxes) {
+    flow.at.set(key, { x: box.x - shiftX, y: box.y - shiftY });
+  }
+  for (const [key, route] of raw) {
+    flow.routes.set(key, {
+      points: (route?.points ?? []).map((p) => ({
+        x: r(p.x - shiftX),
+        y: r(p.y - shiftY),
+      })),
+      label:
+        route?.x === undefined || route.y === undefined
+          ? null
+          : { x: route.x - shiftX, y: route.y - shiftY },
+    });
+  }
+  const shifted = (route: DagreEdge | undefined): Point[] | null =>
+    route === undefined
+      ? null
+      : (route.points ?? []).map((p) => ({
+          x: r(p.x - shiftX),
+          y: r(p.y - shiftY),
+        }));
+  for (const key of outs) {
+    if (!boxes.has(key)) continue;
+    const route = g.edge(key, PORT_OUT) as DagreEdge | undefined;
+    flow.ports.set(key, { out: shifted(route), in: null });
+  }
+  for (const key of ins) {
+    if (!boxes.has(key)) continue;
+    const route = g.edge(PORT_IN, key) as DagreEdge | undefined;
+    const known = flow.ports.get(key);
+    flow.ports.set(key, { out: known?.out ?? null, in: shifted(route) });
+  }
+  flow.width = Math.ceil(maxX - shiftX);
+  flow.height = Math.ceil(maxY - shiftY);
+  const along = (b: { cx: number; cy: number }) =>
+    Math.round(horizontal ? b.cx : b.cy);
+  const across = (b: { cx: number; cy: number }) => (horizontal ? b.cy : b.cx);
+  flow.order = [...boxes.entries()]
+    .sort(([ka, a], [kb, b]) => {
+      if (along(a) !== along(b)) return along(a) - along(b);
+      if (across(a) !== across(b)) return across(a) - across(b);
+      return ka < kb ? -1 : 1;
+    })
+    .map(([key]) => key);
+  return flow;
+}
+
+/**
+ * Lays one frame's own items out (its child frames already have their
+ * sizes): the items on a link or a port flow by dagre along `direction`,
+ * the remaining nodes pack into a grid under the flow (open ones first,
+ * done and empty ones last, otherwise in input order) and the remaining frames onto
+ * shelves under that. When frames in the flow would make it longer along
+ * the direction than C.flowMax or C.flowSpread times what the frames
+ * would take on shelves (many arrows between frames chain them into one
+ * very long row), every child frame goes onto the shelves instead, the
+ * linked ones first in their flow order, and only the frame's own nodes
+ * flow; arrows between those frames are then drawn without a dagre
+ * route. Sets the frame's size (with its border, title strip and padding
+ * for a cluster), item positions, routes and reading order.
+ */
+function layoutFrame(
+  frame: Frame,
+  measures: ReadonlyMap<string, NodeMeasure>,
+  done: ReadonlySet<string>,
+  direction: GraphDirection
+): void {
+  const horizontal = direction === 'LR';
+  const childOf = new Map(
+    frame.children.map((child) => [frameItem(child.id ?? ''), child])
+  );
+  const sizeOf = (key: string): { width: number; height: number } => {
+    if (isNodeItem(key)) {
+      const measure = measures.get(key.slice(NODE_ITEM.length));
+      return { width: measure?.width ?? 0, height: measure?.height ?? 0 };
+    }
+    const child = childOf.get(key);
+    return { width: child?.width ?? 0, height: child?.height ?? 0 };
+  };
+  const items = [...frame.nodes.map(nodeItem), ...childOf.keys()];
+  const linked = new Set<string>([...frame.outs, ...frame.ins]);
+  for (const link of frame.links.values()) {
+    linked.add(link.from);
+    linked.add(link.to);
+  }
+
+  // The flow: dagre over the linked items, unless that chains frames
+  // into a row too long to read, when only the nodes flow. A flow whose
+  // longest chain alone already passes the cap is never laid out: dagre
+  // would spend seconds on a workspace frame over many project frames
+  // for a drawing the cap then throws away.
+  const flowItems = items.filter((key) => linked.has(key));
+  const links = [...frame.links];
+  const frameSizes = frame.children.map((child) => ({
+    width: child.width,
+    height: child.height,
+  }));
+  const cap = Math.max(
+    C.flowMax,
+    shelfWidth(frameSizes, C.shelfAspect) * C.flowSpread
+  );
+  const flowsFrames = flowItems.some((key) => !isNodeItem(key));
+  let flow = runFlow(
+    flowItems,
+    links,
+    frame.outs,
+    frame.ins,
+    sizeOf,
+    direction,
+    flowsFrames ? cap : Infinity
+  );
+  let shelvedLinked: string[] = [];
+  if (
+    flowsFrames &&
+    (flow.tooLong || (horizontal ? flow.width : flow.height) > cap)
+  ) {
+    shelvedLinked = flow.order.filter((key) => !isNodeItem(key));
+    const outs = new Set([...frame.outs].filter(isNodeItem));
+    const ins = new Set([...frame.ins].filter(isNodeItem));
+    for (const [, link] of links) {
+      const fromNode = isNodeItem(link.from);
+      const toNode = isNodeItem(link.to);
+      if (fromNode && !toNode) outs.add(link.from);
+      if (!fromNode && toNode) ins.add(link.to);
+    }
+    flow = runFlow(
+      flowItems.filter(isNodeItem),
+      links.filter(([, link]) => isNodeItem(link.from) && isNodeItem(link.to)),
+      outs,
+      ins,
+      sizeOf,
+      direction
+    );
+  }
+  for (const [key, at] of flow.at) frame.at.set(key, at);
+  for (const [key, route] of flow.routes) frame.routes.set(key, route);
+  for (const [key, ports] of flow.ports) frame.ports.set(key, ports);
+
+  // The grid: the nodes on no link, open before done (and empty).
+  const loose = frame.nodes.map(nodeItem).filter((key) => !linked.has(key));
+  const gridKeys = [
+    ...loose.filter((key) => !done.has(key.slice(NODE_ITEM.length))),
+    ...loose.filter((key) => done.has(key.slice(NODE_ITEM.length))),
+  ];
+  const gridSizes = gridKeys.map(sizeOf);
+  const mean = {
+    width:
+      gridSizes.reduce((sum, size) => sum + size.width, 0) /
+      Math.max(1, gridSizes.length),
+    height:
+      gridSizes.reduce((sum, size) => sum + size.height, 0) /
+      Math.max(1, gridSizes.length),
+  };
+  const grid = packGrid(
+    gridSizes,
+    gridColumns(gridSizes.length, mean, C.gridGapX, C.gridAspect, flow.width),
+    C.gridGapX,
+    C.gridGapY
+  );
+
+  // The shelves: the child frames on no link (after any linked ones the
+  // flow gave up on, in their flow order).
+  const shelfKeys = [
+    ...shelvedLinked,
+    ...[...childOf.keys()].filter((key) => !linked.has(key)),
+  ];
+  const shelfSizes = shelfKeys.map(sizeOf);
+  const shelves = packShelves(
+    shelfSizes,
+    shelfWidth(shelfSizes, C.shelfAspect, Math.max(flow.width, grid.width)),
+    C.gap,
+    C.gap
+  );
+
+  // Flow, grid and shelves stacked, each a gap below the one before.
+  let y = flow.height;
+  const below = (height: number, count: number): number => {
+    if (count === 0) return y;
+    const top = y > 0 ? y + C.gap : 0;
+    y = top + height;
+    return top;
+  };
+  const gridTop = below(grid.height, gridKeys.length);
+  gridKeys.forEach((key, i) => {
+    const at = grid.positions[i];
+    frame.at.set(key, { x: at.x, y: gridTop + at.y });
+  });
+  const shelfTop = below(shelves.height, shelfKeys.length);
+  shelfKeys.forEach((key, i) => {
+    const at = shelves.positions[i];
+    frame.at.set(key, { x: at.x, y: shelfTop + at.y });
+  });
+  frame.sequence = [...flow.order, ...gridKeys, ...shelfKeys];
+
+  const contentWidth = Math.max(flow.width, grid.width, shelves.width);
+  if (frame.data === null) {
+    frame.width = contentWidth;
+    frame.height = y;
+    return;
+  }
+  const title = Math.ceil(
+    Math.min(frame.data.label.length, C.titleMaxChars) * C.titleAdvance +
+      C.titleX * 2
+  );
+  frame.width = Math.max(contentWidth + C.padX * 2, title);
+  frame.height = y + C.padTop + C.padBottom;
+}
+
+/** A box's top-left corner and size. */
+type Box = { x: number; y: number; width: number; height: number };
+
+/**
+ * A point on a box's side for an arrow between frames: `out` the side
+ * facing along the direction (where a blocker's arrow leaves), `in` the
+ * side facing back (where a waiting box's arrow enters); and the point
+ * `C.lead` further out, so the curve leaves and enters straight like a
+ * dagre route does.
+ */
+function anchor(
+  box: Box,
+  end: 'out' | 'in',
+  horizontal: boolean
+): [Point, Point] {
+  const sign = end === 'out' ? 1 : -1;
+  if (horizontal) {
+    const x = end === 'out' ? box.x + box.width : box.x;
+    const y = box.y + box.height / 2;
+    return [
+      { x: r(x), y: r(y) },
+      { x: r(x + sign * C.lead), y: r(y) },
+    ];
+  }
+  const x = box.x + box.width / 2;
+  const y = end === 'out' ? box.y + box.height : box.y;
+  return [
+    { x: r(x), y: r(y) },
+    { x: r(x), y: r(y + sign * C.lead) },
+  ];
+}
+
+/**
+ * The points of `middle` that keep a forward arrow moving on along the
+ * direction between `first` and `last`; one that would turn it back (a
+ * port waypoint behind the lead-out point, say) would kink the curve.
+ */
+function onward(
+  first: Point,
+  middle: readonly Point[],
+  last: Point,
+  horizontal: boolean
+): Point[] {
+  const along = (p: Point) => (horizontal ? p.x : p.y);
+  const kept: Point[] = [];
+  let previous = along(first);
+  for (const p of middle) {
+    if (along(p) > previous && along(p) < along(last)) {
+      kept.push(p);
+      previous = along(p);
+    }
+  }
+  return kept;
+}
+
+/**
+ * The clustered layout (GraphLayoutOptions.clusters): frames laid out
+ * bottom-up, each over its own items only (layoutFrame), then placed
+ * top-down from the margin. An edge between two nodes of one frame keeps
+ * its dagre route; one between frames is a curve from its blocker's far
+ * side through the route its two frames got in their lowest common
+ * frame's run into the waiting node's near side. Nodes come in reading
+ * order, frames parents first. Deterministic like layoutGraph.
+ */
+function layoutClustered(
+  nodes: readonly GraphNodeData[],
+  edges: readonly GraphEdgeData[],
+  direction: GraphDirection,
+  clusters: readonly GraphClusterData[]
+): GraphLayout {
+  const horizontal = direction === 'LR';
+  if (nodes.length === 0) {
+    return {
+      width: 0,
+      height: 0,
+      direction,
+      nodes: [],
+      edges: [],
+      groups: [],
+      clustered: true,
+    };
+  }
+  const { top, frameOf } = frameTree(clusters);
+  const measures = new Map<string, NodeMeasure>();
+  const home = new Map<string, Frame>();
+  const done = new Set<string>();
+  for (const node of nodes) {
+    if (measures.has(node.id)) continue;
+    measures.set(node.id, measureNode(node));
+    const frame = frameOf(node.cluster);
+    frame.nodes.push(node.id);
+    home.set(node.id, frame);
+    const state = node.readiness?.state;
+    if (state === 'done' || state === 'empty') done.add(node.id);
+  }
+
+  // Each kept edge's lowest common frame and link there, plus the ports
+  // of every frame it leaves or enters on the way.
+  const kept: {
+    edge: GraphEdgeData;
+    key: string;
+    frame: Frame;
+    link: string;
+    /** The frames it leaves (innermost first) and the item it leaves from. */
+    outWay: { frame: Frame; item: string }[];
+    /** The frames it enters (innermost first) and the item it enters. */
+    inWay: { frame: Frame; item: string }[];
+  }[] = [];
+  const seen = new Set<string>();
+  for (const edge of edges) {
+    const fromHome = home.get(edge.from);
+    const toHome = home.get(edge.to);
+    if (fromHome === undefined || toHome === undefined) continue;
+    const key = edgeKey(edge.from, edge.to);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const common = commonFrame(fromHome, toHome);
+    const outWay: { frame: Frame; item: string }[] = [];
+    const inWay: { frame: Frame; item: string }[] = [];
+    const from = climb(fromHome, edge.from, common, (frame, item) => {
+      frame.outs.add(item);
+      outWay.push({ frame, item });
+    });
+    const to = climb(toHome, edge.to, common, (frame, item) => {
+      frame.ins.add(item);
+      inWay.push({ frame, item });
+    });
+    const linkKey = `${from}\u0001${to}`;
+    const pull = edge.kind === 'risk' || edge.kind === 'cycle' ? 2 : 1;
+    const link = common.links.get(linkKey);
+    const weight = edge.weight ?? 1;
+    if (link === undefined) {
+      common.links.set(linkKey, {
+        from,
+        to,
+        pull,
+        text:
+          isNodeItem(from) && isNodeItem(to) && weight > 1
+            ? String(weight)
+            : '',
+      });
+    } else {
+      link.pull += pull;
+    }
+    kept.push({ edge, key, frame: common, link: linkKey, outWay, inWay });
+  }
+
+  // Bottom-up sizes (children in cluster order), then top-down places.
+  const sizeUp = (frame: Frame): void => {
+    frame.children.sort((a, b) => a.index - b.index);
+    for (const child of frame.children) sizeUp(child);
+    layoutFrame(frame, measures, done, direction);
+  };
+  sizeUp(top);
+  const boxes = new Map<string, { x: number; y: number }>();
+  const framed = new Map<Frame, LaidOutGroup>();
+  const groups: LaidOutGroup[] = [];
+  const order: string[] = [];
+  const place = (frame: Frame, originX: number, originY: number): void => {
+    frame.originX = originX;
+    frame.originY = originY;
+    for (const key of frame.sequence) {
+      const at = frame.at.get(key) ?? { x: 0, y: 0 };
+      const x = originX + at.x;
+      const y = originY + at.y;
+      if (isNodeItem(key)) {
+        const id = key.slice(NODE_ITEM.length);
+        boxes.set(id, { x, y });
+        order.push(id);
+        continue;
+      }
+      const child = frame.children.find(
+        (c) => c.id === key.slice(FRAME_ITEM.length)
+      );
+      if (child === undefined || child.data === null) continue;
+      framed.set(child, {
+        id: child.data.id,
+        label: child.data.label,
+        x,
+        y,
+        width: child.width,
+        height: child.height,
+        kind: 'cluster',
+        depth: child.depth,
+        muted: child.data.muted === true,
+        external: child.data.external === true,
+      });
+      place(child, x + C.padX, y + C.padTop);
+    }
+  };
+  place(top, MARGIN, MARGIN);
+  // Frames in cluster order, each before the frames inside it (children
+  // are already sorted by cluster order).
+  const collect = (frame: Frame): void => {
+    for (const child of frame.children) {
+      const group = framed.get(child);
+      if (group !== undefined) groups.push(group);
+      collect(child);
+    }
+  };
+  collect(top);
+
+  const placed: LaidOutNode[] = order.map((id) => {
+    const measure = measures.get(id);
+    const at = boxes.get(id) ?? { x: 0, y: 0 };
+    return {
+      id,
+      x: at.x,
+      y: at.y,
+      width: measure?.width ?? 0,
+      height: measure?.height ?? 0,
+      rank: 0,
+      labelLines: measure?.labelLines ?? [''],
+      sublabelLine: measure?.sublabelLine ?? '',
+    };
+  });
+  // Ranks: the distinct centres along the direction, numbered.
+  const along = (n: LaidOutNode) =>
+    Math.round(horizontal ? n.x + n.width / 2 : n.y + n.height / 2);
+  const centres = [...new Set(placed.map(along))].sort((a, b) => a - b);
+  const rankOf = new Map(centres.map((c, i) => [c, i]));
+  for (const n of placed) n.rank = rankOf.get(along(n)) ?? 0;
+  const byId = new Map(placed.map((n) => [n.id, n]));
+
+  // A port route's points in page coordinates, held inside the frame's
+  // border (2px in from it): a port ranked beyond the content (it is
+  // ranked after the whole flow, runFlow) then sits in the frame's padding,
+  // so the arrow runs out to it in the port's free lane, clear of the last
+  // boxes' corners, and never out through the border or into a neighbour.
+  const portWay = (frame: Frame, route: Point[] | null): Point[] => {
+    if (route === null || frame.data === null) return [];
+    const left = 2 - C.padX;
+    const right = frame.width - C.padX - 2;
+    const top = 2 - C.padTop;
+    const bottom = frame.height - C.padTop - 2;
+    return route.map((p) => ({
+      x: r(frame.originX + Math.min(right, Math.max(left, p.x))),
+      y: r(frame.originY + Math.min(bottom, Math.max(top, p.y))),
+    }));
+  };
+  const laidEdges: LaidOutEdge[] = [];
+  for (const { edge, key, frame, link, outWay, inWay } of kept) {
+    const route = frame.routes.get(link);
+    const shift = (p: Point): Point => ({
+      x: r(p.x + frame.originX),
+      y: r(p.y + frame.originY),
+    });
+    const routed = (route?.points ?? []).map(shift);
+    const weight = edge.weight ?? 1;
+    const fromBox = byId.get(edge.from);
+    const toBox = byId.get(edge.to);
+    if (fromBox === undefined || toBox === undefined) continue;
+    const exact = home.get(edge.from) === frame && home.get(edge.to) === frame;
+    let points: Point[];
+    if (exact) {
+      points = routed;
+    } else {
+      // A backward arrow (its waiting box lies before its blocker along
+      // the direction: a cycle between frames, or shelved frames) leaves
+      // the blocker's near side and enters the waiting box's far side, as
+      // dagre draws a reversed edge, instead of looping round both boxes.
+      const along = (b: Box) =>
+        horizontal ? b.x + b.width / 2 : b.y + b.height / 2;
+      const backward = along(toBox) < along(fromBox);
+      const [start, leave] = anchor(
+        fromBox,
+        backward ? 'in' : 'out',
+        horizontal
+      );
+      const [end, enter] = anchor(toBox, backward ? 'out' : 'in', horizontal);
+      // A forward arrow follows dagre's route to the out port of each frame
+      // it leaves (innermost first) and from the in port of each it enters
+      // (outermost first), so it passes the other boxes and frames in them
+      // instead of cutting straight behind them; the route's end on the
+      // item itself is left out (the anchors replace it).
+      if (backward) {
+        points = [start, leave, ...routed.slice(1, -1), enter, end];
+      } else {
+        const out = outWay.flatMap(({ frame: f, item }) =>
+          portWay(f, f.ports.get(item)?.out?.slice(1, -1) ?? null)
+        );
+        const into = [...inWay]
+          .reverse()
+          .flatMap(({ frame: f, item }) =>
+            portWay(f, f.ports.get(item)?.in?.slice(1, -1) ?? null)
+          );
+        const middle = [...out, ...routed.slice(1, -1), ...into];
+        points = [
+          start,
+          leave,
+          ...onward(leave, middle, enter, horizontal),
+          enter,
+          end,
+        ];
+      }
+    }
+    if (points.length < 2) continue;
+    const tip = points[points.length - 1];
+    const before = points[points.length - 2];
+    const labelWidth = Math.ceil(
+      String(weight).length * M.weightAdvance + M.weightPadX * 2
+    );
+    let at: Point | null = null;
+    if (weight > 1) {
+      const labelPoint =
+        exact && route?.label !== null && route?.label !== undefined
+          ? shift(route.label)
+          : points[Math.floor(points.length / 2)];
+      at = onCurve(points, labelPoint);
+    }
+    laidEdges.push({
+      key,
+      from: edge.from,
+      to: edge.to,
+      kind: edge.kind,
+      weight,
+      points,
+      path: basisPath(points),
+      arrow: arrowPath(before, tip),
+      label:
+        at !== null
+          ? {
+              x: Math.round(at.x - labelWidth / 2),
+              y: Math.round(at.y - M.weightHeight / 2),
+              width: labelWidth,
+              height: M.weightHeight,
+            }
+          : null,
+    });
+  }
+  laidEdges.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind]);
+
+  // The canvas covers everything drawn, plus the margin on the far sides.
+  let width = top.width + MARGIN * 2;
+  let height = top.height + MARGIN * 2;
+  for (const n of placed) {
+    width = Math.max(width, n.x + n.width + MARGIN);
+    height = Math.max(height, n.y + n.height + MARGIN);
+  }
+  for (const grp of groups) {
+    width = Math.max(width, grp.x + grp.width + MARGIN);
+    height = Math.max(height, grp.y + grp.height + MARGIN);
+  }
+  for (const e of laidEdges) {
+    for (const p of e.points) {
+      width = Math.max(width, p.x + MARGIN);
+      height = Math.max(height, p.y + MARGIN);
+    }
+  }
+  return {
+    width: Math.ceil(width),
+    height: Math.ceil(height),
+    direction,
+    nodes: placed,
+    edges: laidEdges,
+    groups,
+    clustered: true,
   };
 }
