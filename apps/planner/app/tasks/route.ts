@@ -7,10 +7,22 @@ import type { NextRequest } from 'next/server';
    has already sent a URL that holds a key to the same URL without it, so
    this Location can never carry one. A page-level redirect() under (app)
    would stream under its loading.tsx as a client-side refresh with status
-   200 (architecture §8.1). The Location is relative, so it names no host. */
+   200 (architecture §8.1). The Location is relative, so it names no host.
+   Every method gets the same 307, as the next.config.ts redirect it
+   replaced did; a 307 keeps the method, so the request lands on /issues
+   unchanged. */
 export function GET(request: NextRequest): Response {
   return new Response(null, {
     status: 307,
     headers: { Location: `/issues${request.nextUrl.search}` },
   });
 }
+
+export {
+  GET as DELETE,
+  GET as HEAD,
+  GET as OPTIONS,
+  GET as PATCH,
+  GET as POST,
+  GET as PUT,
+};

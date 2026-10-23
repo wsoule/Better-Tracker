@@ -5,7 +5,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { NextRequest } from 'next/server';
 
-import { GET as tasksRoute } from '../app/tasks/route';
+import * as tasksModule from '../app/tasks/route';
 import { KEY_TEXT_REFUSAL } from '../lib/key-text';
 import nextConfig from '../next.config';
 import * as proxyModule from '../proxy';
@@ -220,11 +220,29 @@ describe('/tasks', () => {
         '/issues?project=proj-atlas&state=all',
       ],
     ]) {
-      const response = tasksRoute(
+      const response = tasksModule.GET(
         new NextRequest(`http://localhost:3360${from}`)
       );
       expect(response.status).toBe(307);
       expect(response.headers.get('location')).toBe(to);
     }
+  });
+
+  test('every method gets the same 307, as the redirect it replaced did', () => {
+    // A next.config.ts redirect answers every method; a route handler
+    // answers only the methods it exports (Next adds HEAD and OPTIONS,
+    // and gives the rest 405).
+    const methods = ['DELETE', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'];
+    for (const method of methods) {
+      const handler = (tasksModule as Record<string, unknown>)[method];
+      expect(handler).toBe(tasksModule.GET);
+    }
+    const response = tasksModule.GET(
+      new NextRequest('http://localhost:3360/tasks?state=all', {
+        method: 'POST',
+      })
+    );
+    expect(response.status).toBe(307);
+    expect(response.headers.get('location')).toBe('/issues?state=all');
   });
 });
