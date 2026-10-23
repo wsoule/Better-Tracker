@@ -43,6 +43,7 @@ const STATUS_RANK: Readonly<Record<UiStatus, number>> = {
   at_risk: 1,
   missing: 2,
   on_track: 3,
+  open: 3,
   done: 4,
 };
 

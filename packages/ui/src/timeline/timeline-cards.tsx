@@ -16,6 +16,12 @@ import { formatDay } from './dates';
 import { describeMilestone } from './describe';
 import { applyOverrides } from './layout';
 import styles from './timeline-cards.module.css';
+import {
+  barDueTone,
+  laneSublabelTone,
+  receiptsTone,
+  undatedTone,
+} from './tones';
 import type { TimelineBar, TimelineGroup } from './types';
 
 // The phone (≤ 900px) fallback, after the competitors Matrix cards: one
@@ -108,9 +114,11 @@ function TimelineCardsImpl({
           </header>
           {group.lanes.map((lane) => {
             const bars = sorted.get(lane.id) ?? [];
-            // An inactive lane is drawn in greys: no accent mark, receipts
-            // or date, whatever its milestones' status.
+            // An inactive lane is drawn in greys: no status hue in its
+            // marks, receipts or dates, whatever its milestones' status.
             const loud = lane.muted !== true;
+            const subTone = laneSublabelTone(lane);
+            const noDateTone = undatedTone(loud);
             return (
               <article
                 key={lane.id}
@@ -134,10 +142,9 @@ function TimelineCardsImpl({
                     <span
                       className={cx(
                         styles.cardSub,
-                        lane.sublabelTone === 'accent'
-                          ? styles.cardSubAccent
-                          : undefined
+                        subTone === undefined ? undefined : styles.cardSubToned
                       )}
+                      data-tone={subTone}
                     >
                       {lane.sublabel}
                     </span>
@@ -148,10 +155,8 @@ function TimelineCardsImpl({
                 ) : (
                   <ul className={styles.rows}>
                     {bars.map((bar) => {
-                      const metaLoud =
-                        loud &&
-                        (bar.missing !== undefined || bar.status === 'overdue');
-                      const dueLoud = loud && bar.status === 'overdue';
+                      const metaTone = receiptsTone(bar, loud);
+                      const dueTone = barDueTone(bar, loud);
                       return (
                         <li key={bar.id}>
                           <button
@@ -182,9 +187,11 @@ function TimelineCardsImpl({
                               <span
                                 className={cx(
                                   styles.rowMeta,
-                                  metaLoud ? styles.rowMetaAccent : undefined
+                                  metaTone === 'default'
+                                    ? undefined
+                                    : styles.rowMetaToned
                                 )}
-                                data-tone={metaLoud ? 'accent' : 'default'}
+                                data-tone={metaTone}
                               >
                                 {cardReceipts(bar)}
                               </span>
@@ -192,9 +199,11 @@ function TimelineCardsImpl({
                             <span
                               className={cx(
                                 styles.rowDue,
-                                dueLoud ? styles.rowDueAccent : undefined
+                                dueTone === 'default'
+                                  ? undefined
+                                  : styles.rowDueToned
                               )}
-                              data-tone={dueLoud ? 'accent' : 'default'}
+                              data-tone={dueTone}
                             >
                               {formatDay(bar.end)}
                             </span>
@@ -225,7 +234,17 @@ function TimelineCardsImpl({
                               {chip.statusLabel}
                             </span>
                           </span>
-                          <span className={styles.rowDue}>No date</span>
+                          <span
+                            className={cx(
+                              styles.rowDue,
+                              noDateTone === 'default'
+                                ? undefined
+                                : styles.rowDueToned
+                            )}
+                            data-tone={noDateTone}
+                          >
+                            No date
+                          </span>
                         </button>
                       </li>
                     ))}

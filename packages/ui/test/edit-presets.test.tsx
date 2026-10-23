@@ -79,7 +79,7 @@ describe('AssigneePicker', () => {
     { id: 'u-ben', name: 'Ben Okafor', keywords: ['ben@northwind.test'] },
   ];
 
-  test('square initials, "You", Unassigned in the accent', async () => {
+  test('square initials, "You", Unassigned in the warning hue', async () => {
     const onChange = mock((_id: string | null) => undefined);
     render(
       <AssigneePicker
@@ -92,7 +92,7 @@ describe('AssigneePicker', () => {
     const button = screen.getByRole('button', {
       name: 'Assignee: Unassigned',
     });
-    expect(button.querySelector('[data-tone="accent"]')?.textContent).toBe(
+    expect(button.querySelector('[data-tone="warning"]')?.textContent).toBe(
       'Unassigned'
     );
     fireEvent.click(button);
@@ -166,6 +166,57 @@ describe('PriorityPicker', () => {
       />
     );
     expect(screen.getByRole('button', { name: 'Priority: None' })).toBeTruthy();
+  });
+
+  // The face's tone follows the value it shows, pending included: a list
+  // cell's red "Urgent" (priorityTones) never colours a pending "High",
+  // and a pending "Urgent" is red at once.
+  test('a level’s tone colours the face while that level is shown', async () => {
+    let finish: () => void = () => undefined;
+    function Host() {
+      const [value, setValue] = useState<TaskPriority>(1);
+      return (
+        <PriorityPicker
+          value={value}
+          priorityTones={{ 1: 'danger' }}
+          onChange={(next) =>
+            new Promise<void>((resolve) => {
+              finish = () => {
+                setValue(next);
+                resolve();
+              };
+            })
+          }
+        />
+      );
+    }
+    render(<Host />);
+    const face = (name: string) =>
+      within(screen.getByRole('button', { name: `Priority: ${name}` }))
+        .getByText(name)
+        .getAttribute('data-tone');
+    expect(face('Urgent')).toBe('danger');
+    fireEvent.click(screen.getByRole('button', { name: 'Priority: Urgent' }));
+    fireEvent.change(combobox(), { target: { value: 'high' } });
+    await act(async () => {
+      fireEvent.keyDown(combobox(), { key: 'Enter' });
+      await Promise.resolve();
+    });
+    // Saving: the face shows High, untoned, before the host has it.
+    expect(face('High')).toBeNull();
+    await act(async () => {
+      finish();
+      await Promise.resolve();
+    });
+    expect(face('High')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Priority: High' }));
+    fireEvent.change(combobox(), { target: { value: 'urg' } });
+    await act(async () => {
+      fireEvent.keyDown(combobox(), { key: 'Enter' });
+      await Promise.resolve();
+    });
+    // Saving Urgent: red already.
+    expect(face('Urgent')).toBe('danger');
   });
 });
 

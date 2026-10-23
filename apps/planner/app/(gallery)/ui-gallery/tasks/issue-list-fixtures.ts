@@ -1,4 +1,5 @@
 import type {
+  TaskChipData,
   TaskGroupProgress,
   TaskPriority,
   TaskStateKind,
@@ -29,7 +30,9 @@ export interface MilestoneFixture {
   statusLabel: string;
   dueLabel: string;
   daysLeftLabel: string;
-  /** accent when overdue (as My week draws it); none otherwise. */
+  /** The due date's status tone (architecture §8.2, as My week draws
+      it): danger overdue, warning undated or due today or tomorrow; none
+      otherwise. */
   dueTone?: UiTone;
   progress: TaskGroupProgress;
   weight: number;
@@ -61,6 +64,11 @@ export interface IssueFixture {
   priority: TaskPriority;
   due?: string;
   dueTone?: UiTone;
+  /** The toned date's word under it ("Overdue", "Tomorrow"), as the
+      planner's. */
+  dueNote?: string;
+  /** Row chips, as the planner's (Blocked: the filled amber chip). */
+  chips?: TaskChipData[];
   note?: { text: string; tone?: UiTone };
 }
 
@@ -80,8 +88,8 @@ export const ISSUE_MILESTONES: MilestoneFixture[] = [
     statusLabel: 'Overdue',
     dueLabel: 'Oct 20',
     daysLeftLabel: '2 days overdue',
-    dueTone: 'accent',
-    progress: { done: 4, total: 9, tone: 'accent' },
+    dueTone: 'danger',
+    progress: { done: 4, total: 9, tone: 'danger' },
     weight: 2,
     next: true,
     notLoaded: 209,
@@ -154,7 +162,8 @@ export const ISSUES: IssueFixture[] = [
     stateId: 'st-progress',
     priority: 2,
     due: 'Oct 20',
-    dueTone: 'accent',
+    dueTone: 'danger',
+    dueNote: 'Overdue',
   },
   {
     id: 'eng-14',
@@ -166,6 +175,9 @@ export const ISSUES: IssueFixture[] = [
     stateId: 'st-todo',
     priority: 1,
     due: 'Oct 23',
+    dueTone: 'warning',
+    dueNote: 'Tomorrow',
+    chips: [{ label: 'Blocked', tone: 'warning', filled: true }],
   },
   {
     id: 'eng-15',
@@ -178,7 +190,7 @@ export const ISSUES: IssueFixture[] = [
     priority: 3,
     note: {
       text: 'Not moved · Linear refused: Garnet mobile app does not include OPS',
-      tone: 'accent',
+      tone: 'danger',
     },
   },
   {

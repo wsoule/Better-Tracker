@@ -32,8 +32,11 @@ function ActivityLabel({
 
 /**
  * The task's history as a ledger: the date in the mono voice, a square
- * mark on a 1px rail (ink by default, accent for what needs action, hollow
- * grey for noise), then what happened and a sentence of context. Items
+ * mark on a 1px rail (ink by default, hollow grey for noise, otherwise
+ * filled in its tone: accent something new, success green, info blue,
+ * warning amber, danger red), then what happened and a sentence of
+ * context; the label takes the tone's text colour when it needs action
+ * (accent, warning, danger). Items
  * render in the order given (hosts pass newest first). With `limit`, the
  * rest hide behind a "Show all N" button.
  */

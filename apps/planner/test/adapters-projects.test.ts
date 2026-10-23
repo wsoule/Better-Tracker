@@ -11,6 +11,7 @@ import {
   allocationCell,
   barMark,
   buildProjectsPage,
+  dueTone,
   filterProjectGroups,
   parseProjectFilter,
   parseProjectsSearch,
@@ -129,15 +130,35 @@ describe('barMark and progressTone', () => {
     expect(barMark(bar({ status: 'empty' })).status).toBe('missing');
   });
 
-  test('progress is accent only when overdue or behind pace', () => {
+  test('progress is danger when overdue, warning when behind pace', () => {
     expect(progressTone(bar())).toBe('default');
-    expect(progressTone(bar({ status: 'overdue' }))).toBe('accent');
+    // Complete reads as done; an inactive project's is muted whatever its
+    // status (the one definition for the register and My week).
+    expect(progressTone(bar({ status: 'complete' }))).toBe('success');
+    expect(progressTone(bar({ status: 'overdue' }), true)).toBe('muted');
+    expect(progressTone(bar({ status: 'overdue' }))).toBe('danger');
+    expect(
+      progressTone(
+        bar({ status: 'overdue', reasons: ['behind_pace', 'stalled'] })
+      )
+    ).toBe('danger');
     expect(
       progressTone(bar({ status: 'at_risk', reasons: ['behind_pace'] }))
-    ).toBe('accent');
+    ).toBe('warning');
     expect(progressTone(bar({ status: 'at_risk', reasons: ['stalled'] }))).toBe(
       'default'
     );
+  });
+
+  test('a due date is danger overdue, a warning today, tomorrow or undated', () => {
+    expect(dueTone('overdue', -3, false)).toBe('danger');
+    expect(dueTone('on_track', 0, false)).toBe('warning');
+    expect(dueTone('at_risk', 1, false)).toBe('warning');
+    expect(dueTone('on_track', 2, false)).toBe('default');
+    expect(dueTone('unscheduled', null, true)).toBe('warning');
+    // A complete milestone is never late or due.
+    expect(dueTone('complete', 0, false)).toBe('default');
+    expect(dueTone(null, null, false)).toBe('default');
   });
 });
 
@@ -171,7 +192,7 @@ describe('allocationCell', () => {
           ],
         })
       )
-    ).toEqual({ label: 'Allocating 2', tone: 'default' });
+    ).toEqual({ label: 'Allocating 2', tone: 'info' });
     expect(allocationCell(plan())).toEqual({
       label: 'Nothing to do',
       tone: 'default',
@@ -193,7 +214,12 @@ describe('allocationCell', () => {
     ).toEqual({
       label: 'Blocked',
       detail: 'Project has no lead',
-      tone: 'accent',
+      tone: 'warning',
+      // The filled chip it always was, now an amber slab.
+      filled: true,
+      // The reason is the point of the cell: it opts into the amber too
+      // (RegisterCell toneSub); every other line under a value stays muted.
+      toneDetail: true,
     });
     expect(
       allocationCell(
@@ -206,12 +232,14 @@ describe('allocationCell', () => {
     ).toEqual({
       label: 'Blocked',
       detail: 'Next milestone is missing: done means…, issues',
-      tone: 'accent',
+      tone: 'warning',
+      filled: true,
+      toneDetail: true,
     });
     // Without a recorded reason the chip still says Blocked.
     expect(
       allocationCell(plan({ outcome: 'blocked', blockReason: null }))
-    ).toEqual({ label: 'Blocked', tone: 'accent' });
+    ).toEqual({ label: 'Blocked', tone: 'warning', filled: true });
   });
 });
 
@@ -340,7 +368,41 @@ describe('buildProjectsPage', () => {
     expect(row('proj-1').linearStatus).toBe('Building');
     expect(row('proj-2').linearStatus).toBe('In Progress');
     expect(row('proj-4').linearStatus).toBe('Paused');
+    // The Linear status chip (architecture §8.2): started is info.
+    expect(row('proj-1').linearStatusTone).toBe('info');
+    // An inactive project's row carries no status colour (§2.8): paused
+    // (inactive by default) is grey, not amber.
     expect(row('proj-4').linearStatusTone).toBe('muted');
+  });
+
+  test('a paused project the workspace counts as active keeps its amber', () => {
+    const active = buildProjectsPage({
+      timeline: timeline([
+        [lane({ projectId: 'proj-p', statusType: 'paused', active: true })],
+      ]),
+      statusNames: new Map(),
+    });
+    expect(active.groups[0]?.rows[0]?.linearStatusTone).toBe('warning');
+  });
+
+  test('an active project not started yet keeps the ink chip, not the grey', () => {
+    // Grey means inactive (§8.2), and a planned or backlog project that
+    // the workspace counts as active is not.
+    const page = buildProjectsPage({
+      timeline: timeline([
+        [
+          lane({ projectId: 'proj-b', statusType: 'backlog' }),
+          lane({ projectId: 'proj-q', statusType: 'planned' }),
+        ],
+      ]),
+      statusNames: new Map(),
+    });
+    expect(page.groups[0]?.rows.map((r) => [r.id, r.linearStatusTone])).toEqual(
+      [
+        ['proj-b', 'default'],
+        ['proj-q', 'default'],
+      ]
+    );
   });
 
   test('describes the next milestone with lib/format wording', () => {
@@ -349,7 +411,7 @@ describe('buildProjectsPage', () => {
       name: 'Dual-write',
       href: '/timeline?milestone=ms-1',
       dueLabel: 'Oct 28 · in 7 days',
-      dueTone: 'muted',
+      dueTone: 'default',
       status: 'on_track',
       statusLabel: 'On track',
       done: 1,
@@ -357,8 +419,11 @@ describe('buildProjectsPage', () => {
       progressTone: 'default',
       muted: false,
     });
-    expect(row('proj-2').next?.progressTone).toBe('accent');
+    // Behind pace: the progress is a warning.
+    expect(row('proj-2').next?.progressTone).toBe('warning');
     expect(row('proj-3').next?.dueLabel).toBe('No target date');
+    // Undated: the missing date is a warning.
+    expect(row('proj-3').next?.dueTone).toBe('warning');
     expect(row('proj-3').next?.status).toBe('missing');
     expect(row('proj-5').next).toBeNull();
   });
@@ -369,14 +434,14 @@ describe('buildProjectsPage', () => {
       dueTone: 'muted',
       status: 'overdue',
       statusLabel: 'Overdue · inactive project',
-      progressTone: 'default',
+      progressTone: 'muted',
       muted: true,
     });
   });
 
   test('marks leads, tones and filter tags', () => {
     expect(row('proj-3').lead).toBeNull();
-    expect(row('proj-3').rowTone).toBe('accent');
+    expect(row('proj-3').rowTone).toBe('warning');
     expect(row('proj-4').rowTone).toBe('muted');
     expect(row('proj-1').rowTone).toBe('default');
     expect(row('proj-2').tags).toEqual(['blocked', 'at_risk']);

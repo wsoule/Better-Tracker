@@ -132,7 +132,7 @@ const issueList = (
                   priority: 2,
                   priorityLabel: 'High',
                   assignee: null,
-                  assigneeTone: 'accent',
+                  assigneeTone: 'warning',
                   milestone: 'Dual-write',
                   milestoneProject: 'Atlas',
                   pending: true,

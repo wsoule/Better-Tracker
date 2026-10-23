@@ -63,7 +63,7 @@ const GROUPS: TimelineGroup[] = [
         id: 'p-ledger',
         label: 'Ledger API',
         sublabel: 'No lead',
-        sublabelTone: 'accent',
+        sublabelTone: 'warning',
         bars: [
           {
             id: 'm-v2',
@@ -767,11 +767,12 @@ describe('phone cards and empty state', () => {
       [...card.querySelectorAll('button [data-tone]')].map((el) =>
         el.getAttribute('data-tone')
       );
-    // Receipts line, then the due date.
+    // Receipts line, then the due date: overdue is danger (red) on a live
+    // lane, plain on an inactive one (§8.2).
     expect(tones(muted)).toEqual(['default', 'default']);
-    expect(tones(live)).toEqual(['accent', 'accent']);
+    expect(tones(live)).toEqual(['danger', 'danger']);
     // The inactive lane's mark is the grey hollow square, still named with
-    // its status; the live lane keeps the accent mark.
+    // its status; the live lane keeps the overdue mark.
     const markOf = (card: Element) => card.querySelector('[role="img"]');
     expect(markOf(muted)?.hasAttribute('data-muted')).toBe(true);
     expect(markOf(muted)?.getAttribute('aria-label')).toBe('Overdue');

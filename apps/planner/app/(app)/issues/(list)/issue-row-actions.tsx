@@ -330,6 +330,11 @@ export function RowMenu({
   );
 }
 
+/** The priority cell's Urgent face in red, as the plain Urgent cell
+    (architecture §8.2 "priority"), taken from the value the face shows so
+    a pending High never wears the old Urgent's red. */
+const URGENT_TONE = { 1: 'danger' } as const;
+
 /**
  * A meta cell as a picker (one issue, PATCH /api/issues/[id]): the
  * milestone (the move picker), the assignee, the status (the issue's own
@@ -390,6 +395,7 @@ export function issueCell({
         <PriorityPicker
           label={`${row.key} priority`}
           appearance="cell"
+          priorityTones={URGENT_TONE}
           value={row.priority}
           onChange={(priority: Priority) => onSave(facts.id, { priority })}
         />
@@ -496,7 +502,8 @@ function AssigneeCell({
       value={facts.assigneeId}
       valueLabel={row.assignee ?? undefined}
       meId={viewerId}
-      placeholderTone={row.assigneeTone === 'accent' ? 'accent' : 'muted'}
+      placeholder={row.unassignedLabel}
+      placeholderTone={row.assigneeTone === 'warning' ? 'warning' : 'muted'}
       loading={options === null && optionsState.error === null}
       error={optionsState.error}
       onRetry={optionsState.retry}

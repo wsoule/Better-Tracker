@@ -58,6 +58,10 @@ export interface PickerOption {
   group?: string;
   /** Listed but not choosable (skipped by the arrow keys). */
   disabled?: boolean;
+  /** The trigger face's text colour while this option is the value shown
+      (pending included), from the data-tone hook: a status tone such as
+      danger for "Urgent" in a list cell. Default: the trigger's own. */
+  tone?: UiTone;
 }
 
 /**
@@ -116,7 +120,8 @@ interface PickerBaseProps {
   options: readonly PickerOption[];
   /** Trigger face when nothing is chosen ("Unassigned"). */
   placeholder?: string;
-  /** accent = needs action ("Unassigned"); muted (default) = quiet. */
+  /** The empty face's colour: a status tone when the emptiness is a status
+      (warning "Unassigned"), muted (default) = quiet, default = ink. */
   placeholderTone?: UiTone;
   /** The search box's placeholder ("Assign to…"). */
   searchPlaceholder?: string;
@@ -253,6 +258,9 @@ export interface PriorityPickerProps extends PickerPresetBaseProps {
   onChange: (priority: TaskPriority) => SaveResult;
   /** Names of the five levels (Linear's by default). */
   priorityLabels?: Partial<Record<TaskPriority, string>>;
+  /** A level's face colour while it is the value shown (the list cell's
+      danger "Urgent", architecture §8.2 "priority"); none by default. */
+  priorityTones?: Partial<Record<TaskPriority, UiTone>>;
 }
 
 /** A label for LabelPicker. */

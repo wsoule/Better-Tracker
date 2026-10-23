@@ -3,7 +3,9 @@
    toolbar), holding one square chip per set filter in the chip voice:
    the field as a mono key, "is", then the values in the reading voice,
    chips joined by a mono "and". A chip naming something the host cannot
-   find draws its frame and values in the accent (needs action). The
+   find draws its frame and values in amber (a missing input, architecture
+   §8.2; the TEXT colour for both, as a status Chip), beside its words
+   ("Not found"). The
    padding inside the frame is --view-toolbar-gutter (18px, the block
    chrome's), shared with the toolbar. */
 
@@ -69,7 +71,7 @@
 }
 
 .chip[data-unknown='true'] {
-  border-color: var(--accent);
+  border-color: var(--amber-ink);
 }
 
 /* A chip whose face is the host's picker: the trigger carries 4px of the
@@ -127,7 +129,7 @@
 }
 
 .summary[data-unknown='true'] {
-  color: var(--accent-ink);
+  color: var(--amber-ink);
 }
 
 /* The host's picker trigger around the face: it takes the chip's voice

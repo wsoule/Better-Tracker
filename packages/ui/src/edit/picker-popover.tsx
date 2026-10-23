@@ -558,7 +558,9 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
     <span
       className={cx(
         styles.placeholder,
-        placeholderTone === 'accent' ? styles.accent : undefined,
+        placeholderTone !== 'default' && placeholderTone !== 'muted'
+          ? styles.toned
+          : undefined,
         placeholderTone === 'default' ? styles.plain : undefined
       )}
       data-tone={placeholderTone}
@@ -589,6 +591,9 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
         placeholderFace
       );
   } else if (current !== undefined) {
+    // The shown option's own tone (an Urgent face in red), so a pending
+    // value never wears the previous value's colour.
+    const tone = current.tone;
     face = (
       <>
         {current.mark !== undefined ? (
@@ -596,7 +601,16 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
             <PickerMarkView mark={current.mark} />
           </span>
         ) : null}
-        <span className={styles.faceText} dir="auto">
+        <span
+          className={cx(
+            styles.faceText,
+            tone !== undefined && tone !== 'default' && tone !== 'muted'
+              ? styles.toned
+              : undefined
+          )}
+          data-tone={tone}
+          dir="auto"
+        >
           {current.label}
         </span>
       </>

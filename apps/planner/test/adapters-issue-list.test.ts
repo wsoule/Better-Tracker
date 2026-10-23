@@ -30,6 +30,8 @@ import {
   groupMenuOptions,
   type IssueListPageInput,
   issueListChips,
+  issueDueNote,
+  issueDueTone,
   issueListColumns,
   issueListGraphHref,
   issueListHref,
@@ -712,9 +714,11 @@ describe('the page model', () => {
     });
   });
 
-  // Tones as main draws the same states (My week, the projects register):
-  // overdue dates and progress, Blocked, Holds up and a next milestone's
-  // "Unassigned" in the accent; a date due soon is plain.
+  // Tones as the other screens draw the same states (architecture §8.2:
+  // My week, the projects register, the issue page): an overdue date and
+  // progress red, Blocked and Holds up filled amber chips, an open
+  // unassigned issue's "Needs assignee" amber, an issue's own date due
+  // tomorrow amber, each toned date with its word under it.
   test('the default view: tier dividers, milestone groups, toned rows', () => {
     const page = pageOf({});
     expect(page.sections.map((s) => s.label)).toEqual([
@@ -732,19 +736,23 @@ describe('the page model', () => {
       status: 'overdue',
       tags: ['Next'],
       count: 4,
-      dueTone: 'accent',
+      dueTone: 'danger',
       daysLeftLabel: '3 days overdue',
-      progress: { done: 0, total: 4, tone: 'accent' },
+      progress: { done: 0, total: 4, tone: 'danger' },
       droppable: true,
     });
     const eng12 = dualWrite?.rows.find((r) => r.key === 'ENG-12');
     expect(eng12).toMatchObject({
       href: '/issues?issue=ENG-12',
       assignee: null,
-      assigneeTone: 'accent',
+      assigneeTone: 'warning',
+      unassignedLabel: 'Needs assignee',
       due: 'Oct 20',
-      dueTone: 'accent',
-      chips: [{ label: 'Holds up Search v2 beta', tone: 'accent' }],
+      dueTone: 'danger',
+      dueNote: 'Overdue',
+      chips: [
+        { label: 'Holds up Search v2 beta', tone: 'warning', filled: true },
+      ],
     });
     const upcoming = page.sections[1]?.groups ?? [];
     expect(upcoming[0]?.tags).toEqual(['Next', '↑5']);
@@ -753,17 +761,18 @@ describe('the page model', () => {
     );
     expect(
       upcoming.flatMap((g) => g.rows).find((r) => r.key === 'ENG-70')?.chips
-    ).toEqual([{ label: 'Blocked', tone: 'accent' }]);
+    ).toEqual([{ label: 'Blocked', tone: 'warning', filled: true }]);
     const unplanned = page.sections[2]?.groups ?? [];
     expect(unplanned.map((g) => [g.eyebrow, g.title])).toEqual([
       ['Atlas billing migration', 'No milestone'],
       ['Garnet mobile app', 'No milestone'],
       [undefined, 'No project'],
     ]);
-    // ENG-54 is due tomorrow: plain, as My week draws a date not yet due.
+    // ENG-54 is due tomorrow: amber, as the issue page draws its date.
     const eng54 = unplanned[1]?.rows.find((r) => r.key === 'ENG-54');
     expect(eng54?.due).toBe('Oct 23');
-    expect(eng54?.dueTone).toBeUndefined();
+    expect(eng54?.dueTone).toBe('warning');
+    expect(eng54?.dueNote).toBe('Tomorrow');
     expect(page.columns).toEqual(['assignee', 'state', 'priority', 'due']);
     expect(page.storageKey).toBe(
       'milestone-planner:issues:collapsed:milestone'
@@ -773,18 +782,18 @@ describe('the page model', () => {
   });
 
   // As My week and the projects register (progressTone): more work left
-  // than time left tones the progress too, not only an overdue date.
-  test('a behind-pace milestone draws its progress in the accent', () => {
+  // than time left tones the progress amber, not only an overdue date red.
+  test('a behind-pace milestone draws its progress in amber', () => {
     const page = pageOf({});
     const upcoming = page.sections[1]?.groups ?? [];
     const byTitle = (title: string) => upcoming.find((g) => g.title === title);
     // At risk, behind pace: the progress is toned; the date is not due yet.
     expect(byTitle('Search v2 beta')).toMatchObject({
       status: 'at_risk',
-      progress: { done: 3, total: 7, tone: 'accent' },
+      progress: { done: 3, total: 7, tone: 'warning' },
     });
     expect(byTitle('Search v2 beta')?.dueTone).toBeUndefined();
-    expect(byTitle('Guided setup')?.progress?.tone).toBe('accent');
+    expect(byTitle('Guided setup')?.progress?.tone).toBe('warning');
     // At risk only for being stalled: the progress itself says nothing.
     expect(byTitle('Offline mode')).toMatchObject({ status: 'at_risk' });
     expect(byTitle('Offline mode')?.progress?.tone).toBeUndefined();
@@ -800,15 +809,106 @@ describe('the page model', () => {
       muted: true,
       daysLeftLabel: 'Inactive project',
     });
-    // Muted draws it grey; no accent on its progress.
-    expect(fjord?.progress?.tone).toBeUndefined();
+    // Muted draws it grey: the inactive progress tone, no status hue.
+    expect(fjord?.progress?.tone).toBe('muted');
     expect(fjord?.statusLabel?.endsWith(' · inactive project')).toBe(true);
     expect(fjord?.dueTone).toBeUndefined();
     for (const row of fjord?.rows ?? []) {
       expect(row.dueTone).toBeUndefined();
+      expect(row.dueNote).toBeUndefined();
       expect(row.assigneeTone).toBeUndefined();
+      expect(row.unassignedLabel).toBeUndefined();
       expect(row.chips).toBeUndefined();
     }
+  });
+
+  // One rule for "Unassigned" on every screen (§8.2 "Assignee", as the
+  // milestone drawer, the graph register and the issue page): amber
+  // wherever the issue is open and its project active (or it has none),
+  // in any milestone and in triage too; grey in an inactive project or
+  // once closed. The amber one says "Needs assignee", so the two never
+  // differ by hue alone.
+  test('an open unassigned issue of an active project needs a person, in any milestone', () => {
+    const rows = pageOf({ state: 'all' })
+      .sections.flatMap((s) => s.groups)
+      .flatMap((g) => g.rows);
+    const tone = (key: string) => {
+      const row = rows.find((r) => r.key === key);
+      expect({ key, found: row !== undefined }).toEqual({ key, found: true });
+      return [row?.assignee, row?.assigneeTone, row?.unassignedLabel];
+    };
+    const needs = [null, 'warning', 'Needs assignee'];
+    const quiet = [null, undefined, undefined];
+    // ENG-12 in Atlas's next milestone, ENG-17 in a later one, ENG-33 in
+    // triage, OPS-31 in triage with no project.
+    expect(tone('ENG-12')).toEqual(needs);
+    expect(tone('ENG-17')).toEqual(needs);
+    expect(tone('ENG-33')).toEqual(needs);
+    expect(tone('OPS-31')).toEqual(needs);
+    // OPS-9 in the inactive Fjord analytics, ENG-14 closed (a duplicate).
+    expect(tone('OPS-9')).toEqual(quiet);
+    expect(tone('ENG-14')).toEqual(quiet);
+  });
+
+  // The rest of §8.2's due-date and progress rules on the list: an undated
+  // milestone's "No target date" is amber (a missing input), a complete
+  // milestone's progress green with an ink date, and the group lines
+  // ("Missing: …", "No lead", "Allocation stopped: …") the table draws in
+  // amber.
+  test('an undated milestone is amber, a complete one green, the group lines amber', () => {
+    const upcoming = pageOf({}).sections[1]?.groups ?? [];
+    expect(upcoming.find((g) => g.title === 'Localization')).toMatchObject({
+      status: 'missing',
+      dueLabel: 'No target date',
+      dueTone: 'warning',
+      missingLabel: 'Missing: target date',
+    });
+    const all = pageOf({ state: 'all' }).sections.flatMap((s) => s.groups);
+    const done = all.find((g) => g.title === 'Schema cutover');
+    expect(done).toMatchObject({
+      status: 'done',
+      daysLeftLabel: 'Complete',
+      progress: { tone: 'success' },
+    });
+    expect(done?.dueTone).toBeUndefined();
+    const projects = pageOf({ group: 'project' }).sections.flatMap(
+      (s) => s.groups
+    );
+    expect(
+      projects.find((g) => g.title === 'Delta exports')?.missingLabel
+    ).toBe('Allocation stopped: Project has no lead');
+    // Inactive projects carry neither a group line nor a toned row.
+    const fjord = projects.find((g) => g.title === 'Fjord analytics');
+    expect(fjord?.missingLabel).toBeUndefined();
+    for (const row of fjord?.rows ?? []) {
+      expect([row.chips, row.dueTone, row.assigneeTone]).toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ]);
+    }
+  });
+
+  test('an issue’s own due date: red overdue, amber today or tomorrow, else plain', () => {
+    expect(issueDueTone('2026-10-21', TODAY, false)).toBe('danger');
+    expect(issueDueTone('2026-10-22', TODAY, false)).toBe('warning');
+    expect(issueDueTone('2026-10-23', TODAY, false)).toBe('warning');
+    expect(issueDueTone('2026-10-24', TODAY, false)).toBe('default');
+    // A closed issue or one in an inactive project is never loud.
+    expect(issueDueTone('2026-10-21', TODAY, true)).toBe('default');
+    expect(issueDueTone('2026-10-23', TODAY, true)).toBe('default');
+  });
+
+  // The word under a toned date, so red and amber are never the only
+  // difference (architecture §8.2 "due date"): only where there is a tone.
+  test('a toned due date says its state in a word', () => {
+    expect(issueDueNote('2026-10-19', TODAY, false)).toBe('Overdue');
+    expect(issueDueNote('2026-10-21', TODAY, false)).toBe('Overdue');
+    expect(issueDueNote('2026-10-22', TODAY, false)).toBe('Today');
+    expect(issueDueNote('2026-10-23', TODAY, false)).toBe('Tomorrow');
+    expect(issueDueNote('2026-10-24', TODAY, false)).toBeUndefined();
+    expect(issueDueNote('2026-10-21', TODAY, true)).toBeUndefined();
+    expect(issueDueNote('2026-10-23', TODAY, true)).toBeUndefined();
   });
 
   test('empty milestones of a named project are drop targets with the right sentence', () => {

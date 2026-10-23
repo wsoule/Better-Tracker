@@ -692,6 +692,7 @@ export interface RowOverlay {
       | 'milestoneProject'
       | 'assignee'
       | 'assigneeTone'
+      | 'unassignedLabel'
       | 'state'
       | 'stateKind'
       | 'priority'
@@ -719,7 +720,9 @@ export function rowOverlay(change: IssueChange): RowOverlay {
   }
   if (patch.assigneeId !== undefined) {
     values.assignee = patch.assigneeId === null ? null : change.label;
+    // In flight, no hue (the neutral hatch): a plain "Unassigned".
     values.assigneeTone = undefined;
+    values.unassignedLabel = undefined;
   }
   if (patch.state !== undefined) {
     values.state = patch.state.name;
@@ -1100,17 +1103,30 @@ export function notChangedIds(result: IssueBulkResult): string[] {
     .map((o) => o.issueId);
 }
 
+/** A row's "Not moved · …" / "Not saved · …" note and its tone
+    (architecture §8.2): always danger (red), whether Linear refused, the
+    write failed or the issue was skipped (its team lacks the status, or a
+    rate limit stopped the run before it), so "Not saved" is red wherever
+    it appears, as in the error toast above the rows. */
+export interface FailureNote {
+  text: string;
+  tone: 'danger';
+}
+
 /** "Not moved · …" / "Not saved · …": the note a row keeps when its change
     did not happen, by row id. */
 export function failureNotes(
   result: IssueBulkResult,
   change: IssueChange
-): Map<string, string> {
+): Map<string, FailureNote> {
   const lead = change.patch.move !== undefined ? 'Not moved' : 'Not saved';
-  const notes = new Map<string, string>();
+  const notes = new Map<string, FailureNote>();
   for (const outcome of result.outcomes) {
     if (outcome.status === 'failed' || outcome.status === 'skipped') {
-      notes.set(outcome.issueId, `${lead} · ${clause(outcome.message)}`);
+      notes.set(outcome.issueId, {
+        text: `${lead} · ${clause(outcome.message)}`,
+        tone: 'danger',
+      });
     }
   }
   return notes;

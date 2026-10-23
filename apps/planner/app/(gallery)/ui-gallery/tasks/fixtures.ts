@@ -23,7 +23,7 @@ export const WEEK_STATS: StatCell[] = [
     label: 'Overdue milestones',
     value: 1,
     note: 'Atlas · cutover rehearsal',
-    tone: 'accent',
+    tone: 'danger',
     href: '/timeline?milestone=m-atlas-cutover',
   },
   {
@@ -37,6 +37,7 @@ export const WEEK_STATS: StatCell[] = [
     label: 'At risk in your projects',
     value: 1,
     note: 'Beacon · public beta',
+    tone: 'warning',
   },
 ];
 
@@ -59,8 +60,8 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
         statusLabel: 'Overdue',
         dueLabel: 'Oct 19',
         daysLeftLabel: '2 days overdue',
-        dueTone: 'accent',
-        progress: { done: 4, total: 7, tone: 'accent' },
+        dueTone: 'danger',
+        progress: { done: 4, total: 7, tone: 'danger' },
         rows: [
           {
             id: 'atl-142',
@@ -73,7 +74,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
             priority: 1,
             priorityLabel: 'Urgent',
             due: 'Oct 19',
-            dueTone: 'accent',
+            dueTone: 'danger',
           },
           {
             id: 'atl-151',
@@ -86,7 +87,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
             priority: 2,
             priorityLabel: 'High',
             due: 'Oct 19',
-            dueTone: 'accent',
+            dueTone: 'danger',
             chips: [NEW_CHIP],
           },
           {
@@ -100,7 +101,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
             priority: 3,
             priorityLabel: 'Medium',
             due: 'Oct 19',
-            dueTone: 'accent',
+            dueTone: 'danger',
             chips: [NEW_CHIP],
           },
         ],
@@ -114,7 +115,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
         statusLabel: 'At risk',
         dueLabel: 'Oct 23',
         daysLeftLabel: '2 days left',
-        progress: { done: 3, total: 7, tone: 'accent' },
+        progress: { done: 3, total: 7, tone: 'warning' },
         rows: [
           {
             id: 'bea-88',
@@ -231,7 +232,7 @@ export const WEEK_SECTIONS: TaskSectionData[] = [
         status: 'missing',
         statusLabel: 'Missing input',
         dueLabel: 'No target date',
-        dueTone: 'accent',
+        dueTone: 'warning',
         progress: { done: 1, total: 4 },
         rows: [
           {
@@ -289,7 +290,7 @@ export const DEADLINES: DeadlineGroup[] = [
   {
     id: 'overdue',
     label: 'Overdue',
-    tone: 'accent',
+    tone: 'danger',
     items: [
       {
         id: 'm-atlas-cutover',
@@ -306,6 +307,7 @@ export const DEADLINES: DeadlineGroup[] = [
   {
     id: 'tomorrow',
     label: 'Tomorrow',
+    tone: 'warning',
     items: [
       {
         id: 'm-cobalt-export',
@@ -393,7 +395,7 @@ export interface ProjectFixture {
   total: number;
   lead: string | null;
   allocation: string;
-  allocationTone: 'default' | 'muted' | 'accent';
+  allocationTone: 'default' | 'muted' | 'info' | 'warning';
   active: boolean;
 }
 
@@ -411,7 +413,7 @@ export const PROJECTS: ProjectFixture[] = [
     total: 7,
     lead: 'Pat Okafor',
     allocation: 'Allocating 2',
-    allocationTone: 'default',
+    allocationTone: 'info',
     active: true,
   },
   {
@@ -427,7 +429,7 @@ export const PROJECTS: ProjectFixture[] = [
     total: 4,
     lead: null,
     allocation: 'Blocked: no lead',
-    allocationTone: 'accent',
+    allocationTone: 'warning',
     active: true,
   },
   {
@@ -459,7 +461,7 @@ export const PROJECTS: ProjectFixture[] = [
     total: 9,
     lead: 'Sam Reyes',
     allocation: 'Allocating 1',
-    allocationTone: 'default',
+    allocationTone: 'info',
     active: true,
   },
   {

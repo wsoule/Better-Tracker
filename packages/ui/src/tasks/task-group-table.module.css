@@ -330,8 +330,9 @@
   color: var(--foreground);
 }
 
-/* An input the group lacks ("Missing: done means…"), under its title, in
-   the checklist's "missing" voice. */
+/* An input the group lacks ("Missing: done means…", "No lead",
+   "Allocation stopped: …"), under its title, in the checklist's "missing"
+   voice: amber, a missing input (architecture §8.2). */
 .missing {
   margin: 0;
   padding: 0 18px 10px calc(var(--task-indent) + var(--task-lead));
@@ -341,7 +342,7 @@
   font-weight: 600;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--accent-ink);
+  color: var(--amber-ink);
 }
 
 /* The line belongs to the header: the header's rule moves under it. */
@@ -521,7 +522,9 @@
 }
 
 /* What is happening to the row ("Moving to Dual-write…") or why a change
-   did not happen ("Not moved · …", the accent: needs action). */
+   did not happen ("Not moved · …"): muted, or in its tone's TEXT colour
+   (the planner's danger red for every change that did not happen;
+   data-tone gives --tone-ink). */
 .note {
   margin-left: 12px;
   font-family: var(--font-mono);
@@ -532,8 +535,8 @@
   color: var(--muted);
 }
 
-.note[data-tone='accent'] {
-  color: var(--accent-ink);
+.note[data-tone]:not([data-tone='default'], [data-tone='muted']) {
+  color: var(--tone-ink);
 }
 
 /* Lead and trailing cells sit above the stretched title link, so their
@@ -604,13 +607,6 @@
   color: var(--foreground);
 }
 
-/* An Urgent priority picker reads like the plain Urgent cell (the value
-   in the accent, as on My week); the column qualifier keeps it above the
-   rule before it wherever it sits. */
-.cell[data-control][data-column='priority'][data-priority='1'] {
-  color: var(--accent-ink);
-}
-
 .cell {
   display: flex;
   align-items: center;
@@ -646,8 +642,25 @@
   text-overflow: ellipsis;
 }
 
-.accentText {
-  color: var(--accent-ink);
+/* A due date with a tone (data-tone: danger overdue, warning due soon or
+   undated) in the tone's TEXT colour. */
+.toneText {
+  color: var(--tone-ink);
+}
+
+/* A due date with its state in a word under it ("Oct 21" over
+   "Overdue", row.dueNote), both in the date's voice and tone; the two
+   lines fit the row's height. Beside each other on a stacked card. */
+.dueValue {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+/* Urgent priority's label, beside the red bars (architecture §8.2). */
+.urgentText {
+  color: var(--red-ink);
 }
 
 .mutedText {
@@ -656,8 +669,8 @@
 
 /* The assignee: initials in the system's square and the name, in the
    project cell's voice; "Unassigned" beside the same square, dashed and
-   empty, in its tone (muted, or the accent when the issue needs a
-   person). */
+   empty, in its tone (muted, or amber, warning, when the issue needs a
+   person; data-tone gives --tone-ink). */
 .person {
   display: inline-flex;
   align-items: center;
@@ -679,8 +692,8 @@
   color: var(--muted);
 }
 
-.person[data-tone='accent'] {
-  color: var(--accent-ink);
+.person[data-tone]:not([data-tone='default'], [data-tone='muted']) {
+  color: var(--tone-ink);
 }
 
 .avatarEmpty {
@@ -808,6 +821,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
@@ -921,6 +938,10 @@
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);
@@ -1104,6 +1125,12 @@
 
   .milestone {
     max-width: 240px;
+  }
+
+  /* "Oct 21 Overdue" on one line of the card's meta. */
+  .dueValue {
+    flex-direction: row;
+    gap: 6px;
   }
 
   /* No dragging on a stacked list: the grip column goes, and the lead is

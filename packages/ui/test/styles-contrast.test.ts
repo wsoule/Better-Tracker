@@ -3,8 +3,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 // Text contrast of the colour tokens (WCAG AA: 4.5:1 for small text, and
-// the mono labels are 9.5–10.5px), computed from tokens.css itself, and a
-// guard that every hover flood swaps the text tokens with the paper/ink.
+// the mono labels are 9.5–10.5px; 3:1 for marks, outlines and bars),
+// computed from tokens.css itself, and a guard that every hover flood swaps
+// the text tokens with the paper/ink.
 
 const srcDir = path.join(import.meta.dir, '..', 'src');
 const tokensCss = readFileSync(
@@ -48,6 +49,61 @@ const dark = {
   ...Object.fromEntries(tokenBlock("html[data-theme='dark']")),
 };
 const lightTokens = Object.fromEntries(light);
+
+/** The `--name: rgba(r, g, b, a)` declaration in the block that starts so. */
+function rgbaToken(
+  selectorStart: string,
+  name: string
+): [number, number, number, number] {
+  const at = tokensCss.indexOf(selectorStart);
+  const open = tokensCss.indexOf('{', at);
+  const body = tokensCss.slice(open + 1, tokensCss.indexOf('}', open));
+  const match = new RegExp(
+    `${name}:\\s*rgba\\(\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\s*\\)`
+  ).exec(body);
+  expect(match).not.toBeNull();
+  const [r, g, b, alpha] = (match ?? []).slice(1).map(Number);
+  return [r ?? 0, g ?? 0, b ?? 0, alpha ?? 0];
+}
+
+/** An rgba wash composited over a solid hex, as a hex. */
+function over(base: string, [r, g, b, alpha]: readonly number[]): string {
+  return `#${[r, g, b]
+    .map((channel, i) => {
+      const under = Number.parseInt(base.slice(1 + i * 2, 3 + i * 2), 16);
+      const mixed = Math.round(
+        under * (1 - (alpha ?? 0)) + (channel ?? 0) * (alpha ?? 0)
+      );
+      return mixed.toString(16).padStart(2, '0');
+    })
+    .join('')}`;
+}
+
+/** The --tint hover wash over the paper, per theme. */
+const tint = {
+  light: over(
+    lightTokens['--paper'] ?? '',
+    rgbaToken(':root:where(:not([data-bt-ui-scoped]))', '--tint')
+  ),
+  dark: over(
+    dark['--paper'] ?? '',
+    rgbaToken("html[data-theme='dark']", '--tint')
+  ),
+};
+
+/** The chrome's hatch line (the sidebar, block titlebars) over the paper,
+    per theme: darker than the tint in light (#f0f0f0), and the sidebar's
+    status marks sit on it. */
+const hatch = {
+  light: over(
+    lightTokens['--paper'] ?? '',
+    rgbaToken(':root:where(:not([data-bt-ui-scoped]))', '--hatch')
+  ),
+  dark: over(
+    dark['--paper'] ?? '',
+    rgbaToken("html[data-theme='dark']", '--hatch')
+  ),
+};
 
 describe('text tokens meet 4.5:1 in both themes', () => {
   for (const [theme, t] of [
@@ -159,6 +215,186 @@ describe('the issue list keeps its text readable', () => {
   }
 });
 
+// The status hues (owner decision 2026-10-22, architecture §8.2): each has a
+// MARK colour (--<hue>), a TEXT colour (--<hue>-ink), the text colour for an
+// ink hover flood (--<hue>-ink-inverse) and the text ON its fill (--on-<hue>).
+const TEXT_HUES = ['red', 'amber', 'green', 'blue'] as const;
+const MARK_HUES = [...TEXT_HUES, 'grey'] as const;
+
+describe('status hues meet WCAG in both themes', () => {
+  /** "name a:b x.xx" for every pair below `min`, so a failure names it. */
+  function below(
+    min: number,
+    pairs: [string, string, string, string][]
+  ): string[] {
+    return pairs
+      .map(([fgName, fg, bgName, bg]) => ({
+        label: `${fgName} on ${bgName}`,
+        ratio: contrast(fg, bg),
+      }))
+      .filter(({ ratio }) => !(ratio >= min))
+      .map(({ label, ratio }) => `${label} ${ratio.toFixed(2)}`);
+  }
+
+  for (const [theme, t] of [
+    ['light', lightTokens],
+    ['dark', dark],
+  ] as const) {
+    const paper = t['--paper'] ?? '';
+    const ink = t['--ink'] ?? '';
+    const wash = tint[theme];
+    const line = hatch[theme];
+    const token = (name: string): string => t[name] ?? '(missing)';
+
+    test(`${theme}: status text is 4.5:1 on the paper and the tint`, () => {
+      const pairs = TEXT_HUES.flatMap(
+        (hue): [string, string, string, string][] => [
+          [`--${hue}-ink`, token(`--${hue}-ink`), 'paper', paper],
+          [`--${hue}-ink`, token(`--${hue}-ink`), 'tint', wash],
+        ]
+      );
+      expect(below(4.5, pairs)).toEqual([]);
+    });
+
+    test(`${theme}: status text on an ink flood is 4.5:1`, () => {
+      const pairs = TEXT_HUES.map((hue): [string, string, string, string] => [
+        `--${hue}-ink-inverse`,
+        token(`--${hue}-ink-inverse`),
+        'ink',
+        ink,
+      ]);
+      expect(below(4.5, pairs)).toEqual([]);
+    });
+
+    test(`${theme}: status marks are 3:1 on the paper, the tint, the hatch and a flood`, () => {
+      if (theme === 'light') expect(line).toBe('#f0f0f0');
+      const pairs = MARK_HUES.flatMap(
+        (hue): [string, string, string, string][] => [
+          [`--${hue}`, token(`--${hue}`), 'paper', paper],
+          [`--${hue}`, token(`--${hue}`), 'tint', wash],
+          [`--${hue}`, token(`--${hue}`), 'hatch', line],
+          [`--${hue}`, token(`--${hue}`), 'ink', ink],
+        ]
+      );
+      expect(below(3, pairs)).toEqual([]);
+    });
+
+    // An accent (purple) flood turns every mark white (--on-accent), so
+    // the mark needs --on-accent at 3:1 on the purple.
+    test(`${theme}: a mark on the accent flood is 3:1`, () => {
+      expect(
+        below(3, [
+          ['--on-accent', token('--on-accent'), '--accent', token('--accent')],
+        ])
+      ).toEqual([]);
+    });
+
+    test(`${theme}: text on a status fill is 4.5:1`, () => {
+      const pairs = TEXT_HUES.map((hue): [string, string, string, string] => [
+        `--on-${hue}`,
+        token(`--on-${hue}`),
+        `--${hue}`,
+        token(`--${hue}`),
+      ]);
+      expect(below(4.5, pairs)).toEqual([]);
+    });
+  }
+
+  // A hatched (missing-input) timeline bar names what is missing in amber
+  // text on its hatch, whose darkest line is --hairline-faint over the
+  // paper (#d9d9d9 light, #444444 dark): --amber-ink-strong is the amber
+  // step that reads there.
+  test('the strong amber text is 4.5:1 on the hatch and its wash', () => {
+    const hatchLight = over(
+      lightTokens['--paper'] ?? '',
+      rgbaToken(':root:where(:not([data-bt-ui-scoped]))', '--hairline-faint')
+    );
+    const hatchDark = over(
+      dark['--paper'] ?? '',
+      rgbaToken("html[data-theme='dark']", '--hairline-faint')
+    );
+    expect(hatchLight).toBe('#d9d9d9');
+    const pairs: [string, number][] = [
+      [
+        'light on the hatch',
+        contrast(lightTokens['--amber-ink-strong'] ?? '', hatchLight),
+      ],
+      [
+        'light on the paper',
+        contrast(
+          lightTokens['--amber-ink-strong'] ?? '',
+          lightTokens['--paper'] ?? ''
+        ),
+      ],
+      [
+        'dark on the hatch',
+        contrast(dark['--amber-ink-strong'] ?? '', hatchDark),
+      ],
+    ];
+    expect(
+      pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([label]) => label)
+    ).toEqual([]);
+  });
+
+  // The on-track mark is only a 1px hollow edge (StatusMark, the timeline
+  // bar's outline), so 3:1 is not enough for it to read on the black
+  // paper: --green holds 4.5:1 on the paper in both themes (dark steps it
+  // to #1c9444, 4.90:1, where the light #16853c is 4.07:1).
+  test('the 1px on-track edge is 4.5:1 on the paper in both themes', () => {
+    const pairs: [string, number][] = [
+      [
+        'light',
+        contrast(lightTokens['--green'] ?? '', lightTokens['--paper'] ?? ''),
+      ],
+      ['dark', contrast(dark['--green'] ?? '', dark['--paper'] ?? '')],
+    ];
+    expect(
+      pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([label]) => label)
+    ).toEqual([]);
+  });
+
+  test('no status hue is the purple accent', () => {
+    for (const t of [lightTokens, dark]) {
+      const purples = [t['--accent'], t['--accent-ink'], t['--accent-hover']];
+      for (const hue of MARK_HUES) {
+        expect(purples).not.toContain(t[`--${hue}`]);
+      }
+      for (const hue of TEXT_HUES) {
+        expect(purples).not.toContain(t[`--${hue}-ink`]);
+      }
+    }
+  });
+});
+
+describe('the data-tone hook', () => {
+  // The tones and the tokens each one maps to (tokens.css, TONE HOOK).
+  const HOOK: Record<string, [string, string]> = {
+    muted: ['--grey', '--muted'],
+    accent: ['--accent', '--accent-ink'],
+    danger: ['--red', '--red-ink'],
+    warning: ['--amber', '--amber-ink'],
+    success: ['--green', '--green-ink'],
+    info: ['--blue', '--blue-ink'],
+  };
+
+  test('every tone defines --tone, --tone-ink and --on-tone', () => {
+    const flat = tokensCss.replace(/\s+/g, ' ');
+    for (const [tone, [mark, text]] of Object.entries(HOOK)) {
+      const head = `:where([data-tone='${tone}']) {`;
+      const at = flat.indexOf(head);
+      expect([tone, at >= 0]).toEqual([tone, true]);
+      const body = flat.slice(at + head.length, flat.indexOf('}', at));
+      expect(body).toContain(`--tone: var(${mark});`);
+      expect(body).toContain(`--tone-ink: var(${text});`);
+      expect(body).toContain('--on-tone:');
+    }
+    // A bare data-tone (default) leaves the surrounding ink alone.
+    expect(flat).toContain(
+      ':where([data-tone]) { --tone: var(--foreground); --tone-ink: currentcolor;'
+    );
+  });
+});
+
 /** Every CSS file under src. */
 function cssFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -168,8 +404,75 @@ function cssFiles(dir: string): string[] {
   });
 }
 
+/**
+ * The rules of a stylesheet as [selector, body] pairs, innermost first
+ * (an @media wrapper is skipped; the rules inside it are returned).
+ */
+function cssRules(css: string): [string, string][] {
+  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => [
+    (match[1] ?? '').trim(),
+    match[2] ?? '',
+  ]);
+}
+
+describe('coloured floods swap the status mark hues', () => {
+  // A block that fills with a colour and retints the ink for its contents
+  // (`--foreground: var(--on-accent)` on the purple hover flood or the
+  // accent chip, `var(--on-red)` on the graph's overdue box) must turn the
+  // status MARK hues to that ink too: a red, amber, green or grey mark is
+  // under 3:1 on the purple or the red, and the mark's shape stays to say
+  // the status. The swap may sit in the block itself or in a rule that
+  // extends its selector (`.accent .mark`); the graph's node glyph reads
+  // its hues through --glyph-<hue> (and its grey through those same
+  // variables, so --glyph-ink stands in for grey there).
+  test('every on-colour flood swaps --red, --amber, --green and --grey', () => {
+    const missing: string[] = [];
+    for (const file of cssFiles(srcDir)) {
+      const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+      const rules = cssRules(css);
+      for (const [selector, body] of rules) {
+        if (!/--foreground:\s*var\(--on-[\w-]+\)/.test(body)) continue;
+        const group = rules
+          .filter(
+            ([other]) =>
+              other === selector ||
+              [' ', '.', ':'].some((next) => other.startsWith(selector + next))
+          )
+          .map(([, groupBody]) => groupBody)
+          .join('\n');
+        for (const hue of ['red', 'amber', 'green', 'grey']) {
+          const glyph = hue === 'grey' ? '--glyph-ink' : `--glyph-${hue}`;
+          if (!new RegExp(`(--${hue}|${glyph}):`).test(group)) {
+            missing.push(
+              `${path.relative(srcDir, file)} ${selector}: --${hue}`
+            );
+          }
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test('the sidebar item hover turns the marks white', () => {
+    const css = readFileSync(
+      path.join(srcDir, 'shell', 'app-shell.module.css'),
+      'utf8'
+    ).replace(/\/\*[\s\S]*?\*\//g, '');
+    const body = cssRules(css).find(
+      ([selector]) => selector === ".item:not([aria-current='page']):hover"
+    )?.[1];
+    expect(body).toBeDefined();
+    for (const hue of ['red', 'amber', 'green', 'grey']) {
+      expect([hue, body ?? '']).toEqual([
+        hue,
+        expect.stringContaining(`--${hue}: var(--on-accent);`),
+      ]);
+    }
+  });
+});
+
 describe('hover floods swap the text tokens', () => {
-  test('a block that floods with ink also swaps accent and dim text', () => {
+  test('a block that floods with ink also swaps accent, status and dim text', () => {
     const missing: string[] = [];
     for (const file of cssFiles(srcDir)) {
       const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
@@ -180,6 +483,10 @@ describe('hover floods swap the text tokens', () => {
           '--accent-ink',
           '--accent-ink-hover',
           '--grey-2-ink',
+          '--red-ink',
+          '--amber-ink',
+          '--green-ink',
+          '--blue-ink',
         ]) {
           if (!new RegExp(`${name}:`).test(body)) {
             missing.push(`${path.relative(srcDir, file)}: ${name}`);

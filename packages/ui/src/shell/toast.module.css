@@ -42,7 +42,7 @@
 
 /* 2px eats into the padding so an error is the same size as an info. */
 .error {
-  border: 2px solid var(--accent);
+  border: 2px solid var(--red); /* failed: the red status hue */
   padding: 10px 7px 13px 13px;
 }
 
@@ -67,7 +67,7 @@
 }
 
 .error .label {
-  color: var(--accent-ink);
+  color: var(--red-ink);
 }
 
 .message {
@@ -130,7 +130,7 @@
   left: 13px;
   right: 13px;
   bottom: 4px;
-  background: var(--accent);
+  background: var(--red);
 }
 
 .toast[data-paused='true'] .timer {

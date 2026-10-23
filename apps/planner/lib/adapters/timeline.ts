@@ -30,6 +30,9 @@ import type {
 
 import { dueLabel, formatDate, plural } from '../format';
 import { graphHref, initiativeGraphHref } from './graph-scope';
+// The one due-date and progress tone definition (architecture §8.2
+// "Status colours"), shared with the projects register and My week.
+import { dueTone, progressTone } from './projects';
 import { assessmentMark, blockedReasonLine } from './status';
 
 // The timeline page's core → ui mapping (architecture §8.4 Timeline, §8.3
@@ -261,13 +264,14 @@ export function toUndatedChip(bar: CoreBar): TimelineUndated {
 }
 
 /**
- * The mono line under a project name: the lead, "No lead" in the accent,
- * a deactivated lead in the accent, and "Inactive · <lead>" for projects
- * outside the active statuses (drawn muted, never loud).
+ * The mono line under a project name: the lead; "No lead" and a
+ * deactivated lead in the warning tone (amber: allocation is stopped,
+ * §8.2); and "Inactive · <lead>" for projects outside the active statuses
+ * (drawn muted, never loud).
  */
 export function laneSublabel(lane: CoreLane): {
   sublabel: string;
-  tone: 'default' | 'accent';
+  tone: UiTone;
 } {
   const lead = lane.leadName ?? (lane.leadId === null ? null : 'Unknown lead');
   if (!lane.active) {
@@ -276,9 +280,9 @@ export function laneSublabel(lane: CoreLane): {
       tone: 'default',
     };
   }
-  if (lead === null) return { sublabel: 'No lead', tone: 'accent' };
+  if (lead === null) return { sublabel: 'No lead', tone: 'warning' };
   if (lane.allocation?.blockReason === 'lead_inactive') {
-    return { sublabel: `${lead} · deactivated`, tone: 'accent' };
+    return { sublabel: `${lead} · deactivated`, tone: 'warning' };
   }
   return { sublabel: lead, tone: 'default' };
 }
@@ -525,6 +529,10 @@ export interface TimelineBanner {
   id: TimelineBannerId;
   /** Mono key: NO LEAD, NO DATE, UNPLANNED, BLOCKED. */
   label: string;
+  /** The row's status tone (§8.2), for its key: warning for every
+      banner (a missing input, unplanned issues that are never allocated,
+      a blocked project), so the block's left rule is amber too. */
+  tone: UiTone;
   count: number;
   /** One sentence with the count. */
   text: string;
@@ -555,6 +563,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'no_lead',
       label: 'No lead',
+      tone: 'warning',
       count: noLead.length,
       text:
         noLead.length === 1
@@ -573,6 +582,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'no_date',
       label: 'No date',
+      tone: 'warning',
       count: noDate.length,
       text:
         noDate.length === 1
@@ -594,6 +604,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'unplanned',
       label: 'Unplanned',
+      tone: 'warning',
       count: unplanned.count,
       text:
         unplanned.count === 1
@@ -635,6 +646,7 @@ export function buildTimelineBanners(
     out.push({
       id: 'blocked',
       label: 'Blocked',
+      tone: 'warning',
       count: blocked.length,
       text: `Allocation is stopped in ${plural(blocked.length, 'project')} until the missing input is fixed.`,
       items: blocked.map((project) => {
@@ -744,7 +756,8 @@ export interface DrawerIssue {
   state: string;
   stateKind: WorkflowStateType;
   open: boolean;
-  /** null renders "Unassigned" (accent while the issue is open). */
+  /** null renders "Unassigned" (warning, amber, while the issue is open
+      in an active project). */
   assignee: string | null;
   /** Identifiers of the open issues blocking this one. */
   blockedBy: string[];
@@ -763,7 +776,8 @@ export interface DrawerNext {
   /** "Allocation stopped · Project has no lead", "Read path switch is
       next", or null when there is nothing to add. */
   note: string | null;
-  tone: 'default' | 'accent';
+  /** warning (amber) when allocation is stopped, else default. */
+  tone: UiTone;
 }
 
 export interface DrawerLimits {
@@ -791,7 +805,8 @@ export interface MilestoneDrawerModel {
   /**
    * The milestone of an inactive project (§2.8): never loud. No overdue
    * strip, a grey status mark (its label still names the status), and no
-   * accent on the risk lines, due date, progress or issue rows.
+   * status hue on the risk lines, due date or issue rows (its progress
+   * is the muted grey).
    */
   muted: boolean;
   status: {
@@ -805,20 +820,25 @@ export interface MilestoneDrawerModel {
     value: string | null;
     /** "Oct 18 · 3 days overdue", "No target date". */
     label: string;
+    /** dueTone (§8.2): danger overdue, warning with no target date or due
+        today or tomorrow, else default; default in an inactive project. */
     tone: UiTone;
   };
   lead: {
     id: string | null;
-    /** null renders "No lead" in the accent. */
+    /** null renders "No lead" in the warning tone (amber). */
     name: string | null;
-    /** DEACTIVATED_LEAD_NOTE for a lead Linear deactivated (accent). */
+    /** DEACTIVATED_LEAD_NOTE for a lead Linear deactivated (warning). */
     note: string | null;
   };
   progress: {
     done: number;
     total: number;
     canceled: number;
-    tone: 'default' | 'accent';
+    /** progressTone (§8.2): danger overdue, warning behind pace, success
+        complete, muted in an inactive project, default (the ink fill)
+        otherwise. */
+    tone: UiTone;
   };
   weight: { value: number | null; label: string };
   isNext: boolean;
@@ -892,7 +912,8 @@ export const DEACTIVATED_LEAD_NOTE =
 /**
  * The "Next milestone" cell (§2.6, §2.8). For the project's next
  * milestone it says when allocation will not hand its issues out (an
- * inactive project, or a blocked one with the reason, in the accent), so
+ * inactive project, or a blocked one with the reason, in the warning
+ * tone), so
  * a stopped project is visible from the milestone itself. For any other
  * milestone it names the one that is next.
  */
@@ -913,7 +934,7 @@ export function nextMilestoneCell(
       return {
         value: 'Yes',
         note: `Allocation stopped · ${BLOCK_REASON_LABEL[allocation.blockReason]}`,
-        tone: 'accent',
+        tone: 'warning',
       };
     }
     return { value: 'Yes', note: null, tone: 'default' };
@@ -1104,11 +1125,15 @@ export function buildMilestoneDrawer(input: {
         today,
         assessment.status
       ),
-      tone:
-        !muted &&
-        (milestone.targetDate === null || assessment.status === 'overdue')
-          ? 'accent'
-          : 'default',
+      // The shared due-date tone; an inactive project's date is never
+      // loud (§2.8).
+      tone: muted
+        ? 'default'
+        : dueTone(
+            assessment.status,
+            assessment.daysLeft,
+            milestone.targetDate === null
+          ),
     },
     lead: {
       id: project.leadId,
@@ -1119,12 +1144,7 @@ export function buildMilestoneDrawer(input: {
       done: progress.completed,
       total: progress.scope,
       canceled: progress.canceled,
-      tone:
-        !muted &&
-        (assessment.status === 'overdue' ||
-          assessment.reasons.includes('behind_pace'))
-          ? 'accent'
-          : 'default',
+      tone: progressTone(assessment, muted),
     },
     weight: {
       value: detail.meta?.weight ?? null,

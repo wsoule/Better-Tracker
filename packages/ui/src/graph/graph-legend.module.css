@@ -68,13 +68,20 @@
   background: var(--background);
 }
 
+/* A host's own emphasis (GraphNodeTone accent): never a status. */
 .nodeAccent {
   border: 2px solid var(--accent);
 }
 
+/* The status hues, as the graph draws them (§8.2): at risk / needs action
+   a 2px amber rule, overdue the red flood. */
+.nodeWarning {
+  border: 2px solid var(--amber);
+}
+
 .nodeOverdue {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--red);
+  background: var(--red);
 }
 
 .nodeExternal {
@@ -99,7 +106,7 @@
   content: '';
   position: absolute;
   inset: -4px;
-  border: 1px dashed var(--accent);
+  border: 1px dashed var(--red);
 }
 
 .nodeCycle {
@@ -121,9 +128,12 @@
   fill: currentcolor;
 }
 
-.edgeRisk,
+.edgeRisk {
+  color: var(--amber);
+}
+
 .edgeCycle {
-  color: var(--accent);
+  color: var(--red);
 }
 
 .edgeCycle .edgeLine {

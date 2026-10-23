@@ -75,6 +75,7 @@ export default async function HomePage({
         <div className="block">
           <Notice
             label="LINEAR DID NOT FINISH"
+            tone="danger"
             role="alert"
             action={
               <span className={styles.noticeActions}>
@@ -101,7 +102,7 @@ export default async function HomePage({
     <div className="page">
       {errorMessage !== null ? (
         <div className="block">
-          <Notice label="SIGN-IN DID NOT FINISH" role="alert">
+          <Notice label="SIGN-IN DID NOT FINISH" tone="danger" role="alert">
             {errorMessage}
           </Notice>
         </div>

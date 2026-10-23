@@ -90,8 +90,9 @@
   outline-offset: 0;
 }
 
+/* A refused value is an error: the red status hue (architecture §8.2). */
 .input[aria-invalid='true'] {
-  border-color: var(--accent);
+  border-color: var(--red);
 }
 
 .error {

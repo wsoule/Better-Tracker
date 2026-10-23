@@ -15,7 +15,8 @@ export type ButtonSize = 'sm' | 'md';
 
 interface ButtonCommonProps {
   /** primary = ink slab, secondary = 2px outline, quiet = bare mono label,
-   * danger = accent outline (the system has no red: danger is the accent). */
+   * danger = red outline (a risky or irreversible write, e.g. "Assign in
+   * Linear now"; the accent never means risk). */
   variant?: ButtonVariant;
   size?: ButtonSize;
   /** Leading icon, e.g. a 14px lucide icon (strokeWidth 1.5). */
@@ -48,12 +49,23 @@ export interface ButtonAsLinkProps extends ButtonCommonProps {
 
 export type ButtonProps = ButtonAsButtonProps | ButtonAsLinkProps;
 
-/** default = ink outline, muted = grey idle chip, accent = filled with the accent
- * ("needs action"), inverse = ink fill (the stronger claim). */
-export type ChipTone = 'default' | 'muted' | 'accent' | 'inverse';
+/** default = ink outline, muted = grey idle chip, accent = filled with the
+ * accent (new, unread), inverse = ink fill (the stronger claim), and a
+ * status tone (danger, warning, success, info) = the same outlined chip with
+ * its border and text in the tone's hue, or with `filled` a slab of the hue
+ * (docs/architecture.md §8.2). */
+export type ChipTone = UiTone | 'inverse';
 
 export interface ChipProps {
   tone?: ChipTone;
+  /**
+   * A status tone (danger, warning, success, info) drawn as a filled slab
+   * of the hue with its `--on-<hue>` text instead of the outline: for the
+   * chips that state the stronger claim (blocked, live, failed, assigned,
+   * sent), which were filled chips before the status hues. Ignored for
+   * default, muted, accent and inverse.
+   */
+  filled?: boolean;
   /** Optional leading status mark; needs statusLabel for assistive tech. */
   status?: UiStatus;
   statusLabel?: string;
@@ -154,8 +166,11 @@ export interface NavTabsProps {
 export interface ProgressRuleProps {
   done: number;
   total: number;
-  /** accent when the progress itself needs action (behind pace, overdue). */
-  tone?: 'default' | 'accent';
+  /** The fill (and the receipt's colour): default = ink; danger when the
+   * milestone is overdue, warning when it is behind pace, success once
+   * complete, muted in an inactive project; accent stays available for a
+   * fill that is not a status. */
+  tone?: UiTone;
   /** Visible label; defaults to "done/total". Pass null to hide it. */
   label?: string | null;
   /** Accessible name, e.g. "Cutover rehearsal progress". */
@@ -166,8 +181,12 @@ export interface NoticeProps {
   /** Mono key before the copy, e.g. "BLOCKED", "DEMO DATA". */
   label?: string;
   children: ReactNode;
-  /** accent = 2px accent rule (default); default = 1px ink hairline. */
-  tone?: 'accent' | 'default';
+  /** The frame and the key's colour. accent = 2px accent rule (the
+   * default: demo data, plain notes); default = 1px ink hairline (read
+   * only, not found); muted = the same hairline with a grey key; a status
+   * tone = the 2px rule and the key in its hue (danger for errors and
+   * failures, warning for blocked or a missing input, success, info). */
+  tone?: UiTone;
   /** status (polite) for updates, alert for errors. Omit for static copy. */
   role?: 'status' | 'alert';
   /** Trailing control, e.g. a quiet Button. */
@@ -209,7 +228,9 @@ export interface StatCell {
   /** Rendered in mono numerals. */
   value: ReactNode;
   note?: string;
-  /** accent = needs action (value + note in the accent); muted = quiet. */
+  /** The value and note's colour: a status tone for a status count
+   * (overdue milestones = danger, at risk = warning), accent for new /
+   * unread, muted = quiet. */
   tone?: UiTone;
   /** Makes the cell a link (Gr8r stat cards navigate to the filtered list). */
   href?: string;
@@ -247,6 +268,10 @@ export type TaskColumnId =
 export interface TaskChipData {
   label: string;
   tone?: ChipTone;
+  /** A status tone drawn as the filled slab of its hue (Chip `filled`):
+      for the stronger claims that were filled chips before the status
+      hues, such as Blocked (architecture §8.2 "Chips keep their shape"). */
+  filled?: boolean;
 }
 
 export interface TaskRowData {
@@ -275,15 +300,23 @@ export interface TaskRowData {
   /** Short due label, e.g. "Oct 23". */
   due?: string;
   dueTone?: UiTone;
+  /** The due date's state in a word ("Overdue", "Tomorrow"), printed under
+      the date in its voice and tone (beside it on a stacked card), so a
+      toned date never says its state by colour alone. Ignored without
+      `due`. */
+  dueNote?: string;
   chips?: TaskChipData[];
   /** The assignee column's name, beside its initials square; null (or
       absent) reads "Unassigned" beside the same square, dashed and
       empty. */
   assignee?: string | null;
-  /** The "Unassigned" placeholder's tone: accent when the issue needs a
-      person (unassigned in a next milestone: needs action); muted by
-      default. */
+  /** The "Unassigned" placeholder's tone: warning (amber) when the issue
+      needs a person (open, in an active project); muted by default. */
   assigneeTone?: UiTone;
+  /** The words for no assignee, default "Unassigned". Give a toned
+      placeholder its own words ("Needs assignee"), so its hue repeats a
+      word instead of being the only difference. */
+  unassignedLabel?: string;
   /** The milestone column's name ("Dual-write"); null (or absent) reads
       "No milestone", muted. */
   milestone?: string | null;
@@ -298,14 +331,18 @@ export interface TaskRowData {
       ("Moving to Dual-write…"). */
   pending?: boolean;
   /** A short line after the title: what is happening to the row, or why
-      a change did not happen ("Not moved · …", tone accent). */
+      a change did not happen ("Not moved · …": danger, as every "Not
+      saved"). Any tone but default and muted draws the line in its TEXT
+      colour. */
   note?: { text: string; tone?: UiTone };
 }
 
 export interface TaskGroupProgress {
   done: number;
   total: number;
-  tone?: 'default' | 'accent';
+  /** ProgressRule's tone: danger overdue, warning behind pace, success
+   * complete, default otherwise. */
+  tone?: UiTone;
 }
 
 export interface TaskGroupData {
@@ -325,8 +362,8 @@ export interface TaskGroupData {
   dueTone?: UiTone;
   progress?: TaskGroupProgress;
   /** Drawn quietly (e.g. a paused project's milestone): the status mark in
-   * greys, and the due date and progress never in the accent, whatever
-   * dueTone and progress.tone say. */
+   * greys, and the due date and progress never in a status hue or the
+   * accent, whatever dueTone and progress.tone say. */
   muted?: boolean;
   /** The rows shown (in order). May be fewer than `count`. */
   rows: TaskRowData[];
@@ -338,9 +375,9 @@ export interface TaskGroupData {
   mark?: PickerMark;
   /** Small square tokens after the title ("Next", "↑2"). */
   tags?: string[];
-  /** A mono line under the heading, in the accent (as the checklist draws
-   * a missing input): an input the group is missing ("Missing: done
-   * means…"). */
+  /** A mono line under the heading, in amber (as the checklist draws a
+   * missing input, architecture §8.2): an input the group is missing
+   * ("Missing: done means…", "No lead"). */
   missingLabel?: string;
   /** A footer row after the rows ("Showing 12 of 212") with host actions
    * ("Show more", "Only this milestone"). Drawn while the group is open. */
@@ -506,7 +543,7 @@ export interface FilterChipData {
    * "3 projects". Read after "is". */
   summary: string;
   /** A value the host does not know ("Not found"): the summary is drawn in
-   * the accent (needs action), its chip framed in it. */
+   * amber (a missing input), its chip framed in it. */
   unknown?: boolean;
   /** Wraps the chip's face in the host's picker, so a click on the chip
    * reopens its values (the face becomes the picker's trigger). Without
@@ -586,7 +623,8 @@ export interface DeadlineGroup {
   id: string;
   /** Today / Tomorrow / This week / Overdue. */
   label: string;
-  /** accent for the group that needs action (Overdue). */
+  /** The label's colour: danger for Overdue (when it holds something),
+   * warning for Today / Tomorrow when they hold something. */
   tone?: UiTone;
   items: DeadlineItem[];
 }
@@ -633,8 +671,11 @@ export interface RegisterProps {
 }
 
 interface RegisterRowCommonProps {
-  /** accent = 2px accent left rule (the row needs action). */
-  tone?: 'default' | 'accent' | 'muted';
+  /** A 2px left rule in the tone's hue for a row that needs attention
+   * (warning: allocation blocked, unassigned issues; danger: overdue,
+   * failed); muted steps the whole row back to grey (inactive); accent
+   * keeps the purple rule for something new. */
+  tone?: UiTone;
   /** Ink fill, like a selected tab. */
   selected?: boolean;
   children: ReactNode;
@@ -680,7 +721,15 @@ export interface RegisterCellProps {
   variant?: 'name' | 'value' | 'mono';
   /** Mono line under the value. */
   sub?: ReactNode;
+  /** The value's colour: accent for new, a status tone for a status
+   * ("Blocked" warning, "Failed" danger), muted for quiet. The sub line
+   * stays muted unless `toneSub` is set. */
   tone?: UiTone;
+  /** The sub line takes the tone too (any tone but default and muted).
+   * Only for a line that is the status's reason and the point of the
+   * cell, e.g. a blocked project's "Project has no lead" under BLOCKED;
+   * a plain detail under a coloured value stays muted. */
+  toneSub?: boolean;
   align?: 'start' | 'end';
   children?: ReactNode;
 }

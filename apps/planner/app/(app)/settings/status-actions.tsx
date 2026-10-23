@@ -202,7 +202,7 @@ function DigestBlock({
         ]}
       >
         {digest.items.map((item) => (
-          <RegisterRow key={item.id} tone={item.tone}>
+          <RegisterRow key={item.id} tone={item.rowTone}>
             <RegisterCell
               label="What"
               variant="name"
@@ -211,14 +211,14 @@ function DigestBlock({
               <Link href={item.href}>{item.title}</Link>
             </RegisterCell>
             <RegisterCell label="Why">
-              <Chip tone={item.tone === 'accent' ? 'accent' : 'default'}>
+              <Chip tone={item.tone} filled={item.chipFilled}>
                 {item.kindLabel}
               </Chip>
             </RegisterCell>
             <RegisterCell
               label="Due"
               variant="mono"
-              tone={item.tone}
+              tone={item.dueTone}
               sub={item.dueNote ?? undefined}
             >
               {item.due ?? 'Whole project'}

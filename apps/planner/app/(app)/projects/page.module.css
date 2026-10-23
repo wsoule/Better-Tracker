@@ -79,8 +79,10 @@
   overflow-wrap: anywhere;
 }
 
-.accentText {
-  color: var(--accent-ink);
+/* A due date with a status tone (data-tone: danger overdue, warning due
+   soon or undated) in the tone's TEXT colour. */
+.toneText {
+  color: var(--tone-ink);
 }
 
 .dash {

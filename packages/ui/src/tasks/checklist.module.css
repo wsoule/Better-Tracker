@@ -25,12 +25,17 @@
   align-self: start;
 }
 
+/* Met is the filled ink square, as before the status hues and like a
+   done milestone: a met item is a settled fact, and a column of green
+   squares would drown the one item that needs action. Missing is the only
+   hue: a hollow amber square (the MARK token, 3:1 on the paper and a
+   flood) beside the word "Missing" (a missing input is a warning). */
 .met .mark {
   background: var(--foreground);
 }
 
 .missing .mark {
-  border-color: var(--accent);
+  border-color: var(--amber);
 }
 
 .main {
@@ -63,7 +68,16 @@
 }
 
 .missing .state {
-  color: var(--accent-ink);
+  color: var(--amber-ink);
+}
+
+/* Forced colours drop backgrounds: a met mark keeps a fill. */
+@media (forced-colors: active) {
+  .met .mark {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border-color: CanvasText;
+  }
 }
 
 @media (width <= 768px) {

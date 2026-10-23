@@ -5,14 +5,38 @@ import type { ComponentType, ReactNode } from 'react';
 // models onto these shapes in a thin adapter.
 
 /**
- * Status in the Analytics Mark idiom: filled vs hollow, ink vs accent.
- * done = filled ink, on_track = hollow ink, at_risk = 2px accent outline,
- * overdue = filled accent, missing = hatched (an input is missing).
+ * Status in the Analytics Mark idiom (filled vs hollow vs hatched squares),
+ * coloured by the status hues (docs/architecture.md §8.2): done = filled
+ * ink (never green: a green fill reads as the red one without red-green
+ * vision), on_track = hollow green, at_risk = 2px amber outline, overdue =
+ * filled red, missing = hatched grey (an input is missing), open = hollow
+ * ink (open work that makes no status claim of its own, such as an issue
+ * box on the graph, whose status is its milestone's).
  */
-export type UiStatus = 'done' | 'on_track' | 'at_risk' | 'overdue' | 'missing';
+export type UiStatus =
+  | 'done'
+  | 'on_track'
+  | 'at_risk'
+  | 'overdue'
+  | 'missing'
+  | 'open';
 
-/** Text emphasis: default ink, muted grey, or the accent ("needs action"). */
-export type UiTone = 'default' | 'muted' | 'accent';
+/**
+ * A status colour (owner decision 2026-10-22, docs/architecture.md §8.2):
+ * danger = red (overdue, failed, urgent), warning = amber (at risk,
+ * blocked, unassigned, a missing input), success = green (on track, done,
+ * met, succeeded), info = blue (in progress, running, live).
+ */
+export type SemanticTone = 'danger' | 'warning' | 'success' | 'info';
+
+/**
+ * The colour of a piece of text, a chip, a notice, a count or a fill:
+ * default ink, muted grey (inactive, nothing to do), accent (the brand
+ * purple: new, unread, selected; never a status), or a status tone.
+ * Components emit it as `data-tone`, which gives their CSS --tone (mark),
+ * --tone-ink (text) and --on-tone (tokens.css, TONE HOOK).
+ */
+export type UiTone = 'default' | 'muted' | 'accent' | SemanticTone;
 
 export interface UiLinkProps {
   href: string;

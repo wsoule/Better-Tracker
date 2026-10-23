@@ -19,6 +19,7 @@ import StatusMark from '../components/status-mark';
 import { PickerMarkView } from '../edit/picker-mark';
 import { Link } from '../lib/link';
 import { isTypingTarget, useMediaQuery } from '../shell/dom';
+import type { UiTone } from '../types';
 import { Checkbox } from './checkbox';
 import { Chip } from './chip';
 import { cx } from './class-names';
@@ -118,6 +119,12 @@ function columnsAtWidth(
 const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
 
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+
+// Whether a due date's tone colours its text (the tone's --tone-ink via
+// data-tone): every tone but default (ink) and muted (its own grey class).
+function hasTextTone(tone: UiTone | undefined): boolean {
+  return tone !== undefined && tone !== 'default' && tone !== 'muted';
+}
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -858,9 +865,11 @@ function Group({
       ? `${group.eyebrow}, ${group.title}`
       : group.title;
   const countId = `${listId}-count`;
-  // A muted group is never loud: no accent on its date or progress.
+  // A muted group (an inactive project's milestone) is never loud: its
+  // date carries no tone and its progress is the inactive grey.
   const muted = group.muted === true;
-  const dueAccent = !muted && group.dueTone === 'accent';
+  const dueTone = muted ? 'default' : (group.dueTone ?? 'default');
+  const dueToned = hasTextTone(dueTone);
   const count = group.count ?? group.rows.length;
   const drop =
     drag !== null && drag.drop !== null && drag.drop.groupId === group.id
@@ -996,9 +1005,9 @@ function Group({
             <span
               className={cx(
                 styles.groupDue,
-                dueAccent ? styles.accentText : undefined
+                dueToned ? styles.toneText : undefined
               )}
-              data-tone={muted ? 'default' : (group.dueTone ?? 'default')}
+              data-tone={dueTone}
             >
               <span className="srOnly">Due </span>
               {group.dueLabel}
@@ -1006,7 +1015,7 @@ function Group({
                 <span
                   className={cx(
                     styles.daysLeft,
-                    dueAccent ? styles.accentText : undefined
+                    dueToned ? styles.toneText : undefined
                   )}
                 >
                   {group.daysLeftLabel}
@@ -1019,7 +1028,7 @@ function Group({
               <ProgressRule
                 done={group.progress.done}
                 total={group.progress.total}
-                tone={muted ? 'default' : group.progress.tone}
+                tone={muted ? 'muted' : group.progress.tone}
                 aria-label={`${group.title} progress`}
               />
             </span>
@@ -1241,7 +1250,11 @@ function Row({
           {row.chips !== undefined && row.chips.length > 0 ? (
             <span className={styles.chips}>
               {row.chips.map((chip) => (
-                <Chip key={chip.label} tone={chip.tone ?? 'default'}>
+                <Chip
+                  key={chip.label}
+                  tone={chip.tone ?? 'default'}
+                  filled={chip.filled}
+                >
                   {chip.label}
                 </Chip>
               ))}
@@ -1266,7 +1279,6 @@ function Row({
               className={styles.cell}
               data-column={column}
               data-control=""
-              data-priority={column === 'priority' ? row.priority : undefined}
               data-repeats-heading={
                 column === 'project' && projectRepeatsHeading ? '' : undefined
               }
@@ -1352,7 +1364,7 @@ function CellValue({
         <span
           className={cx(
             styles.glyphValue,
-            row.priority === 1 ? styles.accentText : undefined
+            row.priority === 1 ? styles.urgentText : undefined
           )}
           data-priority={row.priority}
         >
@@ -1360,27 +1372,41 @@ function CellValue({
           <span className={styles.metaText}>{row.priorityLabel}</span>
         </span>
       );
-    case 'due':
-      return (
-        <span
-          className={cx(
-            styles.metaText,
-            row.dueTone === 'accent' ? styles.accentText : undefined,
-            row.dueTone === 'muted' ? styles.mutedText : undefined
-          )}
-          data-tone={row.dueTone ?? 'default'}
-        >
+    case 'due': {
+      const dueClass = cx(
+        styles.metaText,
+        hasTextTone(row.dueTone) ? styles.toneText : undefined,
+        row.dueTone === 'muted' ? styles.mutedText : undefined
+      );
+      const tone = row.dueTone ?? 'default';
+      const date = (
+        <span className={dueClass} data-tone={tone}>
           {row.due ?? '—'}
         </span>
       );
+      // "Oct 21" over "Overdue": the word says what the hue says.
+      return row.due === undefined || row.dueNote === undefined ? (
+        date
+      ) : (
+        <span className={styles.dueValue}>
+          {date}
+          <span className={dueClass} data-tone={tone}>
+            {row.dueNote}
+          </span>
+        </span>
+      );
+    }
     case 'assignee': {
       const name = row.assignee ?? '';
       // Initials in the system's square; nobody is the same square,
-      // dashed and empty, beside "Unassigned" in its tone.
+      // dashed and empty, beside "Unassigned" (or the row's own words
+      // for it) in its tone.
       return name === '' ? (
         <span className={styles.person} data-tone={row.assigneeTone ?? 'muted'}>
           <span className={styles.avatarEmpty} aria-hidden="true" />
-          <span className={styles.personName}>Unassigned</span>
+          <span className={styles.personName}>
+            {row.unassignedLabel ?? 'Unassigned'}
+          </span>
         </span>
       ) : (
         <span className={styles.person}>

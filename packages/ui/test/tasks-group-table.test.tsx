@@ -65,7 +65,7 @@ const SECTIONS: TaskSectionData[] = [
         statusLabel: 'Overdue',
         dueLabel: 'Oct 19',
         daysLeftLabel: '2 days overdue',
-        dueTone: 'accent',
+        dueTone: 'danger',
         progress: { done: 4, total: 7 },
         rows: [
           row('a-1', {
@@ -458,7 +458,10 @@ describe('TaskGroupTable without the issue list props', () => {
     // The props week-issues.tsx passes: sections, columns, a label, a
     // heading level, a storage key, the empty message, onOpenRow and the
     // open row. The snapshot was taken before selection, drag and the
-    // slots were added; none of them may change this markup.
+    // slots were added; none of them may change this markup. It was
+    // re-taken once when the status colours came in (architecture §8.2):
+    // the overdue date's data-tone is danger, StatusMark carries
+    // data-status and a muted group's progress rule is the inactive grey.
     const sections: TaskSectionData[] = [
       ...SECTIONS,
       {
@@ -473,15 +476,15 @@ describe('TaskGroupTable without the issue list props', () => {
             statusLabel: 'Overdue · inactive project',
             dueLabel: 'Oct 16',
             daysLeftLabel: 'Inactive project',
-            dueTone: 'accent',
-            progress: { done: 0, total: 2, tone: 'accent' },
+            dueTone: 'danger',
+            progress: { done: 0, total: 2, tone: 'danger' },
             muted: true,
             rows: [
               row('f-1', {
                 href: '/week?issue=F-1',
                 externalHref: 'https://linear.app/x/issue/F-1',
                 externalLabel: 'Open F-1 in Linear',
-                dueTone: 'accent',
+                dueTone: 'danger',
               }),
             ],
           },
@@ -675,7 +678,7 @@ describe('TaskGroupTable review additions', () => {
     expect(view.queryByText('Nothing in this section')).toBeNull();
   });
 
-  test('a muted group is never loud: grey mark, no accent date or progress', () => {
+  test('a muted group is never loud: grey mark, no status date, grey progress', () => {
     const view = renderTable({
       sections: [
         {
@@ -690,8 +693,8 @@ describe('TaskGroupTable review additions', () => {
               statusLabel: 'Overdue · inactive project',
               dueLabel: 'Oct 16',
               daysLeftLabel: 'Inactive project',
-              dueTone: 'accent',
-              progress: { done: 0, total: 2, tone: 'accent' },
+              dueTone: 'danger',
+              progress: { done: 0, total: 2, tone: 'danger' },
               muted: true,
               rows: [row('f-1')],
             },
@@ -701,8 +704,8 @@ describe('TaskGroupTable review additions', () => {
               status: 'overdue',
               statusLabel: 'Overdue',
               dueLabel: 'Oct 19',
-              dueTone: 'accent',
-              progress: { done: 1, total: 2, tone: 'accent' },
+              dueTone: 'danger',
+              progress: { done: 1, total: 2, tone: 'danger' },
               rows: [row('a-1')],
             },
           ],
@@ -725,15 +728,15 @@ describe('TaskGroupTable review additions', () => {
       [...el.querySelectorAll('[data-tone]')].map((n) =>
         n.getAttribute('data-tone')
       );
-    // The due date, then the progress rule.
-    expect(tones(quiet)).toEqual(['default', 'default']);
+    // The due date (ink), then the progress rule (the inactive grey).
+    expect(tones(quiet)).toEqual(['default', 'muted']);
     const loud = header('loud');
     expect(
       within(loud as HTMLElement)
         .getByRole('img', { name: 'Overdue' })
         .hasAttribute('data-muted')
     ).toBe(false);
-    expect(tones(loud)).toEqual(['accent', 'accent']);
+    expect(tones(loud)).toEqual(['danger', 'danger']);
   });
 });
 
@@ -1043,7 +1046,7 @@ describe('TaskGroupTable group and row additions', () => {
             }),
             row('p-2', {
               done: true,
-              note: { text: 'Not moved · Linear refused', tone: 'accent' },
+              note: { text: 'Not moved · Linear refused', tone: 'danger' },
             }),
           ],
         },
@@ -1133,7 +1136,7 @@ describe('TaskGroupTable group and row additions', () => {
     const note = within(done as HTMLElement).getByText(
       'Not moved · Linear refused'
     );
-    expect(note.getAttribute('data-tone')).toBe('accent');
+    expect(note.getAttribute('data-tone')).toBe('danger');
   });
 
   test('assignee and milestone columns', () => {
@@ -1154,7 +1157,7 @@ describe('TaskGroupTable group and row additions', () => {
                 }),
                 row('r-2', {
                   assignee: null,
-                  assigneeTone: 'accent',
+                  assigneeTone: 'warning',
                   milestone: null,
                 }),
               ],
@@ -1178,7 +1181,7 @@ describe('TaskGroupTable group and row additions', () => {
     expect(unassigned?.textContent).toBe('Assignee: Unassigned');
     expect(
       unassigned?.querySelector('[data-tone]')?.getAttribute('data-tone')
-    ).toBe('accent');
+    ).toBe('warning');
     expect(cell('Issue r-2', 'milestone')?.textContent).toBe(
       'Milestone: No milestone'
     );
@@ -1484,5 +1487,147 @@ describe('TaskGroupTable drag', () => {
     } finally {
       window.matchMedia = original;
     }
+  });
+});
+
+// The issue list's status places in the status hues (architecture §8.2):
+// the row's chips, note, assignee and due date carry their tone as
+// data-tone, and the stylesheet draws each tone from the hook (--tone,
+// --tone-ink) or the hue's TEXT token; selection and the drop frame stay
+// the purple.
+describe('TaskGroupTable status colours on the issue list', () => {
+  const srcDir = path.join(import.meta.dir, '..', 'src', 'tasks');
+  const tableCss = readFileSync(
+    path.join(srcDir, 'task-group-table.module.css'),
+    'utf8'
+  );
+  const chipsCss = readFileSync(
+    path.join(srcDir, 'filter-chips.module.css'),
+    'utf8'
+  );
+  /** The declarations of the first rule whose selector is exactly `selector`. */
+  function body(css: string, selector: string): string {
+    const flat = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const at = flat.indexOf(`\n${selector} {`);
+    expect({ selector, found: at >= 0 }).toEqual({ selector, found: true });
+    return flat.slice(at, flat.indexOf('}', at));
+  }
+
+  test('a row emits its chips, note, assignee and due date tones', () => {
+    const view = renderTable({
+      columns: ['assignee', 'due'],
+      sections: [
+        {
+          id: 's',
+          groups: [
+            {
+              id: 'g',
+              title: 'Dual-write',
+              rows: [
+                row('r-1', {
+                  chips: [
+                    { label: 'Blocked', tone: 'warning', filled: true },
+                    { label: 'Holds up Beta', tone: 'warning', filled: true },
+                  ],
+                  assignee: null,
+                  assigneeTone: 'warning',
+                  unassignedLabel: 'Needs assignee',
+                  dueTone: 'danger',
+                  dueNote: 'Overdue',
+                  note: { text: 'Not moved · skipped', tone: 'danger' },
+                }),
+                row('r-2', { dueTone: 'warning', due: 'Oct 23' }),
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    const first = view.getByRole('link', { name: 'Issue r-1' }).closest('li');
+    const blocked = within(first as HTMLElement)
+      .getByText('Blocked')
+      .closest('[data-tone]');
+    expect(blocked?.getAttribute('data-tone')).toBe('warning');
+    expect(blocked?.hasAttribute('data-filled')).toBe(true);
+    const holds = within(first as HTMLElement)
+      .getByText('Holds up Beta')
+      .closest('[data-tone]');
+    expect(holds?.hasAttribute('data-filled')).toBe(true);
+    expect(
+      within(first as HTMLElement)
+        .getByText('Not moved · skipped')
+        .getAttribute('data-tone')
+    ).toBe('danger');
+    const cell = (li: Element | null, column: string) =>
+      li?.querySelector(`[data-column="${column}"] [data-tone]`);
+    expect(cell(first, 'assignee')?.getAttribute('data-tone')).toBe('warning');
+    expect(cell(first, 'due')?.getAttribute('data-tone')).toBe('danger');
+    // The words repeat the hues: the amber placeholder has its own words
+    // and the red date its state under it, in the same tone.
+    const firstCell = (column: string) =>
+      first?.querySelector(`[data-column="${column}"]`);
+    expect(firstCell('assignee')?.textContent).toBe('Assignee: Needs assignee');
+    expect(firstCell('due')?.textContent).toBe('Due: Oct 23Overdue');
+    expect(
+      within(first as HTMLElement)
+        .getByText('Overdue')
+        .getAttribute('data-tone')
+    ).toBe('danger');
+    const second = view.getByRole('link', { name: 'Issue r-2' }).closest('li');
+    expect(cell(second, 'due')?.getAttribute('data-tone')).toBe('warning');
+    // No note, no second line; no label, the plain "Unassigned".
+    expect(second?.querySelector('[data-column="due"]')?.textContent).toBe(
+      'Due: Oct 23'
+    );
+  });
+
+  test('the stylesheet draws each status place in its hue, never the accent', () => {
+    // A toned note and "Unassigned" take the tone's TEXT colour (any tone
+    // but default and muted), only where a data-tone is set.
+    expect(
+      body(
+        tableCss,
+        ".note[data-tone]:not([data-tone='default'], [data-tone='muted'])"
+      )
+    ).toContain('color: var(--tone-ink);');
+    expect(
+      body(
+        tableCss,
+        ".person[data-tone]:not([data-tone='default'], [data-tone='muted'])"
+      )
+    ).toContain('color: var(--tone-ink);');
+    // The group's "Missing: …" line is amber (a missing input).
+    expect(body(tableCss, '.missing')).toContain('color: var(--amber-ink);');
+    // The plain Urgent label is red; a priority picker's face takes its
+    // colour from the option it shows (PickerOption.tone), never from the
+    // host row, so no cell rule keys on the row's priority.
+    expect(body(tableCss, '.urgentText')).toContain('color: var(--red-ink);');
+    expect(tableCss).not.toContain('[data-priority');
+    // A filter value the planner cannot find: amber frame and values.
+    expect(body(chipsCss, ".chip[data-unknown='true']")).toContain(
+      'border-color: var(--amber-ink);'
+    );
+    expect(body(chipsCss, ".summary[data-unknown='true']")).toContain(
+      'color: var(--amber-ink);'
+    );
+    // No status place is left in the purple.
+    for (const selector of [
+      ".note[data-tone='accent']",
+      ".person[data-tone='accent']",
+    ]) {
+      expect(tableCss).not.toContain(selector);
+    }
+  });
+
+  test('selection, the drop frame and the in-flight hatch keep their look', () => {
+    expect(body(tableCss, ".row[data-selected='true']::before")).toContain(
+      'border-left: 2px solid var(--accent);'
+    );
+    expect(body(tableCss, ".group[data-drop='ok']::after")).toContain(
+      'border: 2px solid var(--accent);'
+    );
+    const pending = body(tableCss, ".row[data-pending='true']");
+    expect(pending).toContain('var(--hatch)');
+    expect(pending).not.toMatch(/--(red|amber|green|blue|accent)/);
   });
 });

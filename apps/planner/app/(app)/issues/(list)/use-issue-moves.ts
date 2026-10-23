@@ -29,6 +29,7 @@ import {
 import {
   bulkConfirm,
   bulkResultToast,
+  type FailureNote,
   failureNotes,
   type IssueChange,
   ISSUE_MOVE_MAX,
@@ -251,7 +252,7 @@ export function useIssueMoves({
   const [overlays, setOverlays] = useState<ReadonlyMap<string, Overlay>>(
     () => new Map()
   );
-  const [notes, setNotes] = useState<ReadonlyMap<string, string>>(
+  const [notes, setNotes] = useState<ReadonlyMap<string, FailureNote>>(
     () => new Map()
   );
   const [busy, setBusy] = useState<string | null>(null);
@@ -630,10 +631,9 @@ export function useIssueMoves({
                 note: { text: pending.overlay.note },
               };
             }
+            // "Not moved · …" / "Not saved · …" in red, failed or skipped.
             const note = notes.get(row.id);
-            return note === undefined
-              ? row
-              : { ...row, note: { text: note, tone: 'accent' as const } };
+            return note === undefined ? row : { ...row, note };
           }),
         })),
       }));

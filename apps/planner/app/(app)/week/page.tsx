@@ -155,12 +155,16 @@ export default async function WeekPage({
                         key={item.id}
                         href={item.href}
                         rowLabel={item.rowLabel}
-                        tone="accent"
+                        tone={item.tone}
                       >
                         <RegisterCell variant="name" sub={item.detail}>
                           {item.projectName}
                         </RegisterCell>
-                        <RegisterCell variant="mono" tone="accent" align="end">
+                        <RegisterCell
+                          variant="mono"
+                          tone={item.tone}
+                          align="end"
+                        >
                           {item.flag}
                         </RegisterCell>
                       </RegisterRow>

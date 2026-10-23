@@ -37,6 +37,7 @@ function Harness() {
       >
         <AlertStrip
           label="Overdue"
+          tone="danger"
           action={{ label: 'Reschedule', onClick: () => undefined }}
         >
           Overdue by 3 days.

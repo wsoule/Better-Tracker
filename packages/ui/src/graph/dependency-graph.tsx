@@ -194,8 +194,10 @@ function neighbour(
 /**
  * A dependency graph drawn as a technical figure: hairline boxes with mono
  * labels, blockers on the left (or top), 1px edges with small arrowheads,
- * accent for risk, dashes for cycles and project crossings, grey for what
- * is already resolved.
+ * the status hues for risk (amber chains, dashed red cycles, a red flood
+ * for overdue, a 2px rule in the node's tone), dashes for project
+ * crossings, grey for what is already resolved. The purple accent is never
+ * a status here: it is the hover flood and the keyboard focus.
  *
  * - Hover or focus a node: its upstream chain (everything it transitively
  *   waits on) stays lit and the rest dims. With nothing hovered, the
@@ -708,9 +710,16 @@ export function DependencyGraph({
                     : lit.has(box.id)
                       ? 'lit'
                       : 'dim';
+              // A status tone (or a host's accent) draws the 2px rule in
+              // its hue through the data-tone hook (tokens.css); muted
+              // keeps its own faint look.
+              const tone =
+                node.tone === 'default' || node.tone === 'muted'
+                  ? undefined
+                  : node.tone;
               const classes = cx(
                 styles.node,
-                node.tone === 'accent' && styles.toneAccent,
+                tone !== undefined && styles.toned,
                 node.tone === 'muted' && styles.toneMuted,
                 node.external === true && styles.external,
                 overdue && styles.overdueNode,
@@ -759,7 +768,7 @@ export function DependencyGraph({
                             key={tag}
                             className={cx(
                               styles.tag,
-                              tag === 'UNASSIGNED' && styles.tagAccent
+                              tag === 'UNASSIGNED' && styles.tagWarning
                             )}
                           >
                             {tag}
@@ -802,6 +811,7 @@ export function DependencyGraph({
                     key={box.id}
                     type="button"
                     className={classes}
+                    data-tone={tone}
                     style={position}
                     tabIndex={box.id === tabStop ? 0 : -1}
                     aria-pressed={selected}
@@ -826,6 +836,7 @@ export function DependencyGraph({
                     <Link
                       href={node.href}
                       className={classes}
+                      data-tone={tone}
                       aria-label={name}
                       title={node.label}
                     >
@@ -838,6 +849,7 @@ export function DependencyGraph({
                 <div
                   key={box.id}
                   className={classes}
+                  data-tone={tone}
                   style={position}
                   tabIndex={box.id === tabStop ? 0 : -1}
                   role="group"

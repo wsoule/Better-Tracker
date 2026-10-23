@@ -57,6 +57,7 @@ import type {
   IssueRowFacts,
   MilestoneMenuData,
 } from './issue-moves';
+import { dueTone, progressTone } from './projects';
 import {
   assessmentMark,
   blockedReasonLine,
@@ -936,24 +937,56 @@ function notices(input: IssueListPageInput): IssueListNotice[] {
 }
 
 /**
- * An issue's own due date, coloured the way My week colours a date
- * (architecture §8.2): overdue in the accent, otherwise plain. A closed
- * issue, or one of an inactive project, is never coloured.
+ * An issue's own due date, coloured the way the issue page colours it
+ * (architecture §8.2 "due date"): danger (red) overdue, warning (amber)
+ * due today or tomorrow, otherwise plain. A closed issue, or one of an
+ * inactive project, is never coloured.
  */
 export function issueDueTone(
   dueDate: string,
   today: string,
   quiet: boolean
-): 'default' | 'accent' {
+): 'default' | 'danger' | 'warning' {
   if (quiet) return 'default';
-  return diffDays(dueDate, today) < 0 ? 'accent' : 'default';
+  const left = diffDays(dueDate, today);
+  if (left < 0) return 'danger';
+  return left <= 1 ? 'warning' : 'default';
 }
 
-// One list row, toned the way main's lists tone the same states: Blocked
-// and Holds up as accent chips (the projects register's Blocked), an
-// unassigned issue in a next milestone with the accent "Unassigned" (the
-// assignee picker's default), an overdue due date in the accent (My
-// week). Inactive projects' rows carry no tone at all. The milestone cell
+/**
+ * The word printed under a toned due date ("Overdue", "Today",
+ * "Tomorrow"), so the row's red or amber repeats a word instead of
+ * carrying the state by colour alone (architecture §8.2 "due date"; the
+ * issue page's note under the date says the same). Short enough for the
+ * 88px due column; undefined wherever issueDueTone gives no tone.
+ */
+export function issueDueNote(
+  dueDate: string,
+  today: string,
+  quiet: boolean
+): string | undefined {
+  if (quiet) return undefined;
+  const left = diffDays(dueDate, today);
+  if (left < 0) return 'Overdue';
+  if (left === 0) return 'Today';
+  return left === 1 ? 'Tomorrow' : undefined;
+}
+
+/** The assignee cell's words for nobody where the issue needs a person
+    (the amber case): the hue then repeats a word, not only "Unassigned". */
+export const ISSUE_LIST_NEEDS_ASSIGNEE = 'Needs assignee';
+
+// One list row, toned the way the other screens tone the same states
+// (architecture §8.2): Blocked and Holds up as filled amber chips (the
+// projects register's filled BLOCKED); an open unassigned issue of an
+// active project (or of none) with an amber "Needs assignee", the same
+// rule as the drawer, the graph register and the issue page (the words
+// differ from the grey "Unassigned" so the hue is never alone); its own
+// due date red when overdue and amber when due today or tomorrow, with
+// "Overdue" / "Today" / "Tomorrow" under it (the issue page). A closed
+// issue's or an inactive project's row has no status tone: no chips, a
+// grey "Unassigned", an ink date; its state and priority glyphs keep
+// their hues, as in the drawer and on the issue page. The milestone cell
 // names the milestone, then its project (muted, cut first), unless the
 // grouping or the sections already name the project.
 function toRow(
@@ -970,13 +1003,14 @@ function toRow(
     row.projectId === null ? undefined : refs.projects[row.projectId];
   const chips: TaskRowData['chips'] = [];
   if (live && row.blockedBy > 0)
-    chips.push({ label: 'Blocked', tone: 'accent' });
+    chips.push({ label: 'Blocked', tone: 'warning', filled: true });
   if (live && row.holdsUpMilestoneId !== null) {
     const held = refs.milestones[row.holdsUpMilestoneId];
     chips.push({
       label:
         held === undefined ? 'Holds up a milestone' : `Holds up ${held.name}`,
-      tone: 'accent',
+      tone: 'warning',
+      filled: true,
     });
   }
   const assignee =
@@ -988,6 +1022,7 @@ function toRow(
     row.dueDate === null
       ? undefined
       : issueDueTone(row.dueDate, today, dueQuiet);
+  const needsAssignee = live && row.assigneeId === null;
   return {
     id: row.id,
     key: row.identifier,
@@ -1002,14 +1037,16 @@ function toRow(
     priorityLabel: PRIORITY_LABEL[row.priority],
     due: row.dueDate === null ? undefined : formatDate(row.dueDate, today),
     dueTone: dueToneValue === 'default' ? undefined : dueToneValue,
+    dueNote:
+      row.dueDate === null
+        ? undefined
+        : issueDueNote(row.dueDate, today, dueQuiet),
     assignee:
       row.assigneeId !== null && assignee === null
         ? 'Unknown person'
         : assignee,
-    assigneeTone:
-      live && row.assigneeId === null && row.unassignedInNext
-        ? 'accent'
-        : undefined,
+    assigneeTone: needsAssignee ? 'warning' : undefined,
+    unassignedLabel: needsAssignee ? ISSUE_LIST_NEEDS_ASSIGNEE : undefined,
     milestone: milestone === undefined ? null : milestone.name,
     milestoneProject:
       milestone === undefined || projectNamed
@@ -1121,11 +1158,11 @@ function budgetFooter(
 }
 
 // The heading data of a milestone group (or an empty milestone target),
-// toned as My week's milestone groups: the date in the accent when the
-// milestone is overdue or undated (a missing input), the progress in the
-// accent when it is overdue or behind pace (more work left than time
-// left, the projects register's progressTone); an inactive project's
-// group is muted and carries neither.
+// toned as My week's milestone groups with the shared rules (architecture
+// §8.2): the date by dueTone (red overdue, amber undated or due today or
+// tomorrow), the progress by progressTone (red overdue, amber behind pace,
+// green complete); an inactive project's group is muted and carries
+// neither (the table draws its progress in the inactive grey).
 function milestoneHeading(
   milestoneId: string,
   refs: IssueListRefs,
@@ -1141,11 +1178,14 @@ function milestoneHeading(
   if (milestone.isNext && !muted) tags.push('Next');
   const weight = weightTag(milestone.weight);
   if (weight !== null) tags.push(weight);
-  const overdue = milestone.status === 'overdue';
-  const loudDue =
-    !muted && !complete && (overdue || milestone.targetDate === null);
-  const behindPace = milestone.reasons.includes('behind_pace');
-  const progressTone = !muted && (overdue || behindPace) ? 'accent' : undefined;
+  const due = muted
+    ? 'default'
+    : dueTone(
+        milestone.status,
+        milestone.daysLeft,
+        milestone.targetDate === null
+      );
+  const progress = progressTone(milestone, muted);
   return {
     eyebrow: project?.name,
     title: milestone.name,
@@ -1163,11 +1203,11 @@ function milestoneHeading(
         : milestone.daysLeft === null
           ? undefined
           : daysLeftText(milestone.daysLeft),
-    dueTone: loudDue ? 'accent' : undefined,
+    dueTone: due === 'default' ? undefined : due,
     progress: {
       done: milestone.progress.completed,
       total: milestone.progress.scope,
-      tone: progressTone,
+      tone: progress === 'default' ? undefined : progress,
     },
     tags: tags.length === 0 ? undefined : tags,
     missingLabel:

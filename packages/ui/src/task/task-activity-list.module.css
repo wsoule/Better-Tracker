@@ -1,5 +1,6 @@
 /* A hairline ledger: a mono date column, then a 1px rail threaded through
-   square marks (the Mark idiom: filled ink, filled accent, hollow grey). */
+   square marks (the Mark idiom: filled ink, filled in a tone, hollow
+   grey). */
 
 .list {
   display: flex;
@@ -53,9 +54,14 @@
   background: var(--foreground);
 }
 
-.accent .mark {
-  border-color: var(--accent);
-  background: var(--accent);
+/* A toned item's mark is filled in its MARK colour (data-tone --tone). */
+.accent .mark,
+.danger .mark,
+.warning .mark,
+.success .mark,
+.info .mark {
+  border-color: var(--tone);
+  background: var(--tone);
 }
 
 .muted .mark {
@@ -78,8 +84,12 @@
   overflow-wrap: anywhere;
 }
 
-.accent .label {
-  color: var(--accent-ink);
+/* What needs action also colours its label (the tone's TEXT colour);
+   success and info keep the ink label beside their coloured mark. */
+.accent .label,
+.danger .label,
+.warning .label {
+  color: var(--tone-ink);
 }
 
 .muted .label {

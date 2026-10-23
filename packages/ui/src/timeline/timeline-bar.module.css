@@ -1,10 +1,16 @@
 /* A milestone bar in the Matrix drawing style: a 28px hairline box whose
-   fill says the status in the system's own marks (DESIGN.md §3): overdue =
-   accent fill, at risk = 2px accent rule, on track = ink rule on paper,
-   done = ink fill, missing input = hatched. A 45° square diamond marks the
-   due date at the bar's end. Stacking (inside the chart body): bars 2,
-   diamonds and handle 3, the live tip 4; the sticky lane column (5) and
-   header (6) cover them while scrolling. */
+   fill says the status in the system's own marks (DESIGN.md §3), coloured
+   with the status hues (docs/architecture.md §8.2 "Status colours"; the
+   MARK tokens --red/--amber/--green/--grey are 3:1 on the paper, the tint
+   and a flood): overdue = red fill, at risk = 2px amber rule, on track =
+   1px green rule on paper, done = ink fill (ink, not green, so it never
+   reads as the red fill without red-green vision), missing input =
+   hatched with a grey rule, an inactive lane = grey. The shape says the
+   status as well
+   as the hue, and the bar's accessible name says it in words. A 45° square
+   diamond marks the due date at the bar's end in the same mark. Stacking
+   (inside the chart body): bars 2, diamonds and handle 3, the live tip 4;
+   the sticky lane column (5) and header (6) cover them while scrolling. */
 
 .item {
   position: absolute;
@@ -102,7 +108,7 @@
 
 .missingLine {
   font-weight: 700;
-  color: var(--accent-ink);
+  color: var(--amber-ink);
 }
 
 .cue {
@@ -119,31 +125,34 @@
 /* ---- status --------------------------------------------------------- */
 
 .on_track {
-  border-color: var(--border);
+  border-color: var(--green);
 }
 
 /* 2px is emphasis: at risk is the state that asks for action before the
    date. The padding gives the extra pixel back so text does not shift. */
 .at_risk {
-  border: 2px solid var(--accent);
+  border: 2px solid var(--amber);
   padding: 0 11px 0 8px;
 }
 
 .at_risk .progress {
-  color: var(--accent-ink);
+  color: var(--amber-ink);
   font-weight: 700;
 }
 
+/* The filled statuses: every word on the red fill takes its own text
+   token (--on-red, 4.5:1 on the hue in both themes); the ink fill takes
+   the paper. */
 .overdue {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
+  border-color: var(--red);
+  background: var(--red);
+  color: var(--on-red);
 }
 
 .overdue .progress,
 .overdue .cue,
 .overdue .missingLine {
-  color: var(--on-accent);
+  color: var(--on-red);
 }
 
 .done {
@@ -158,7 +167,7 @@
 }
 
 /* Missing input (rubric-invalid): the blueprint hatch at mark strength,
-   a muted rule, and the missing line in the accent. */
+   a muted rule, and the missing line in the warning (amber) text. */
 .missing {
   border-color: var(--muted);
   background-color: var(--background);
@@ -171,15 +180,26 @@
   );
 }
 
-/* An inactive project: greys only, never loud. */
+/* On the hatch (#d9d9d9 at its darkest in the light theme) --amber-ink is
+   3.96:1, under the 4.5:1 small text needs, so the missing line takes the
+   darker amber step (tokens.css: 5.40:1 on the hatch, 4.84:1 under the
+   hover wash; in the dark theme the plain amber text, 5.16:1 on the dark
+   hatch). */
+.missing .missingLine {
+  color: var(--amber-ink-strong);
+}
+
+/* An inactive project: greys only, never loud (the inactive mark grey
+   for the rule, no status hue in its words). */
 .muted {
-  border-color: var(--grey-3);
+  border-color: var(--grey);
   background: var(--background);
   color: var(--muted);
 }
 
 .muted .progress,
-.muted .tag {
+.muted .tag,
+.muted .missingLine {
   color: var(--grey-2-ink);
 }
 
@@ -198,7 +218,10 @@
    would make an on-track bar look done or overdue, so the status fill is
    kept and only washed. The wash is layered over the opaque paper (never
    swapped for it): --tint is translucent, and a see-through bar would show
-   the grid, the TODAY rule and the connectors running behind it. */
+   the grid, the TODAY rule and the connectors running behind it. The red
+   fill keeps its hue unwashed (the dark theme's lighter wash would take
+   the white label under 4.5:1) and takes an ink edge instead; the ink
+   fill lifts to the soft ink. */
 @media (hover: hover) and (width >= 901px) {
   .bar:hover {
     background-image: linear-gradient(var(--tint), var(--tint));
@@ -214,13 +237,12 @@
   }
 
   .overdue:hover {
-    border-color: var(--accent-hover);
-    background-color: var(--accent-hover);
+    border-color: var(--foreground);
     background-image: none;
   }
 
   .overdue:hover .label {
-    color: var(--on-accent);
+    color: var(--on-red);
   }
 
   .missing:hover {
@@ -277,15 +299,16 @@
 }
 
 .d_on_track {
+  border-color: var(--green);
   background: var(--background);
 }
 
 .d_at_risk {
-  border: 2px solid var(--accent);
+  border: 2px solid var(--amber);
 }
 
 .d_overdue {
-  background: var(--accent);
+  background: var(--red);
   border-color: var(--background);
 }
 
@@ -301,7 +324,7 @@
 }
 
 .d_muted {
-  border-color: var(--grey-3);
+  border-color: var(--grey);
 }
 
 /* ---- label outside a narrow bar ------------------------------------- */
@@ -423,6 +446,55 @@
    the dark theme's off-white flood would fall under 3:1 at 9.5px. */
 .tipNote {
   color: var(--muted-inverse);
+}
+
+/* Forced colours drop backgrounds (gradients included): the filled bars
+   and diamonds keep a fill in the system's text colour, with their words
+   in the canvas colour, so done and overdue still read as filled, and the
+   missing diamond keeps its hatching (as StatusMark does). The hatched
+   bar is left to the system: full-strength lines would cross its name,
+   and its MISSING line and accessible name say it. */
+@media (forced-colors: active) {
+  .overdue,
+  .done {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background: CanvasText;
+    color: Canvas;
+  }
+
+  .overdue .label,
+  .overdue .progress,
+  .overdue .cue,
+  .overdue .tag,
+  .overdue .missingLine,
+  .done .label,
+  .done .progress,
+  .done .cue,
+  .done .tag,
+  .done .missingLine {
+    color: Canvas;
+  }
+
+  .d_overdue,
+  .d_done {
+    forced-color-adjust: none;
+    border-color: Canvas;
+    background: CanvasText;
+  }
+
+  .d_missing {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background-color: Canvas;
+    background-image: repeating-linear-gradient(
+      -45deg,
+      CanvasText 0,
+      CanvasText 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

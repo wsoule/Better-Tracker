@@ -256,7 +256,11 @@ function toRow(issue: IssueFixture, pending: Map<string, string>): TaskRowData {
   const project = ISSUE_PROJECTS.find((p) => p.id === issue.projectId);
   const milestone = ISSUE_MILESTONES.find((m) => m.id === issue.milestoneId);
   const assignee = personName(issue.assigneeId);
-  const inNext = milestone?.next === true && project?.active === true;
+  // An open issue of an active project needs a person (as the planner's).
+  const live =
+    project?.active === true &&
+    state.kind !== 'completed' &&
+    state.kind !== 'canceled';
   const note = pending.get(issue.id);
   return {
     id: issue.id,
@@ -272,13 +276,17 @@ function toRow(issue: IssueFixture, pending: Map<string, string>): TaskRowData {
     due: issue.due,
     // An inactive project's rows carry no tone at all (as the planner's).
     dueTone: project?.active === true ? issue.dueTone : undefined,
+    dueNote: project?.active === true ? issue.dueNote : undefined,
     assignee,
-    assigneeTone: assignee === null && inNext ? 'accent' : undefined,
+    assigneeTone: assignee === null && live ? 'warning' : undefined,
+    unassignedLabel: assignee === null && live ? 'Needs assignee' : undefined,
     milestone:
       milestone === undefined
         ? null
         : `${projectName(milestone.projectId)} › ${milestone.name}`,
     done: state.kind === 'completed' || state.kind === 'canceled',
+    // Only an active project's open issue is loud (as the planner's).
+    chips: project?.active === true ? issue.chips : undefined,
     pending: note !== undefined,
     note: note !== undefined ? { text: note } : issue.note,
   };
@@ -845,7 +853,8 @@ export function IssueListGallery({
           people={ISSUE_PEOPLE}
           meId={ME_ID}
           value={issue.assigneeId}
-          placeholderTone={row.assigneeTone === 'accent' ? 'accent' : 'muted'}
+          placeholder={row.unassignedLabel}
+          placeholderTone={row.assigneeTone === 'warning' ? 'warning' : 'muted'}
           onChange={(assigneeId) =>
             send([issue.id], { kind: 'assignee', assigneeId })
           }
@@ -856,6 +865,7 @@ export function IssueListGallery({
       return (
         <PriorityPicker
           appearance="cell"
+          priorityTones={{ 1: 'danger' }}
           value={issue.priority}
           onChange={(priority) =>
             send([issue.id], { kind: 'priority', priority })

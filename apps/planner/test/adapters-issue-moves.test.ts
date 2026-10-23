@@ -991,12 +991,23 @@ describe('toasts', () => {
       duration: 12_000,
     });
     expect(notChangedIds(partial)).toEqual(['iss-ops-1', 'iss-ops-2']);
+    // Skipped (its team lacks the status) and refused are both red, as
+    // the "Partly saved" / "Not saved" error toast (architecture §8.2).
     expect([...failureNotes(partial, TO_PUSH)]).toEqual([
       [
         'iss-ops-1',
-        'Not moved · Operations has no In Review status; OPS-1 was left as it was',
+        {
+          text: 'Not moved · Operations has no In Review status; OPS-1 was left as it was',
+          tone: 'danger',
+        },
       ],
-      ['iss-ops-2', 'Not moved · Linear refused: you cannot edit OPS-2'],
+      [
+        'iss-ops-2',
+        {
+          text: 'Not moved · Linear refused: you cannot edit OPS-2',
+          tone: 'danger',
+        },
+      ],
     ]);
   });
 
@@ -1031,6 +1042,27 @@ describe('toasts', () => {
       action: 'select',
       duration: 12_000,
     });
+    // The row the rate limit skipped is noted in red, as the toast.
+    expect([
+      ...failureNotes(
+        result({
+          outcomes,
+          stopped: {
+            code: 'rate_limited',
+            retryAt: '2026-10-22T15:05:00.000Z',
+          },
+        }),
+        TO_PUSH
+      ),
+    ]).toEqual([
+      [
+        'iss-eng-55',
+        {
+          text: 'Not moved · Not attempted: Linear’s rate limit was reached',
+          tone: 'danger',
+        },
+      ],
+    ]);
     expect(
       bulkResultToast(
         result({ outcomes, stopped: { code: 'not_signed_in', retryAt: null } }),

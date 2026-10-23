@@ -364,7 +364,7 @@ initiative), one project, one milestone, or one issue's blocking **chain**.
   `unplacedRelations`; ends in one unit make no edge; otherwise the edge unit(b)
   → unit(w) gets `weight` += 1 and `onRiskChain` ||= `risky(b)` (risk is **per
   relation** at every aggregate level, so drilling from a project edge to its
-  milestone edges keeps the accent consistent; before 2026-10-22 a milestone
+  milestone edges keeps the risk chain consistent; before 2026-10-22 a milestone
   edge was a risk whenever its blocker milestone held any risk). Nodes: the
   units of open issues under the container (in the workspace: in active
   projects) plus both ends of every edge; `external` = the unit is not under the
@@ -437,11 +437,23 @@ initiative), one project, one milestone, or one issue's blocking **chain**.
   `{ scope (resolved), nodes, edges, cycles (node ids in walk order), fallback, unplacedRelations, unrelatedIssues, chain }`.
 - `toMermaid(graph)` emits `flowchart LR` with stable sanitized ids (`n0`, `n1`,
   …), quoted labels (label `<br/>` sublabel), `-->` for open edges, `-.->` for
-  resolved, `|n|` weights, `classDef`s for risk/cycle/external and an accent
-  `linkStyle` for risk-chain edges. `isRiskNode(node)`: issue and milestone
-  nodes when unassigned, overdue or waiting on either; project and initiative
-  nodes when active and overdue or at risk. A chain adds
-  `classDef focus stroke-width:3px` on its focus and, when cut, the comment
+  resolved, `|n|` weights, `classDef`s for overdue (`stroke:#d92d20`, 2px), risk
+  (`stroke:#bd790a`, 2px), cycle (`stroke:#d92d20`, dashed `5 3`) and external,
+  and a `linkStyle` in `#bd790a` for risk-chain edges. The two hexes are the
+  light theme's status MARK colours (`--red` for overdue and a cycle, `--amber`
+  for risk, §8.2 "Status colours"), which also hold 3:1 on Mermaid's default
+  node fills (`#bd790a` is 3.05:1 on `#ececff` and 4.59:1 on the dark
+  `#1f2020`); the purple accent is not a status and never appears in the Mermaid
+  text. `isOverdueNode(node)` (an active node that is overdue itself, or a
+  project or initiative whose status is overdue: the nodes the canvas floods
+  red) is classed `overdue` first, and such a node is never also `risk`.
+  `isRiskNode(node)`, only in an active project (a paused project's work is
+  never loud, §2.8, and gets neither class): issue and milestone nodes when
+  unassigned, overdue or waiting on either; project and initiative nodes when
+  overdue or at risk. That is wider than the canvas's amber rule (§8.2 "graph
+  node"), which shows the waiting only on the amber risk-chain edges, so the
+  export also rules in amber an issue or milestone that waits on risk. A chain
+  adds `classDef focus stroke-width:3px` on its focus and, when cut, the comment
   `%% Showing the nearest {kept} of {kept + hidden} issues on this chain` before
   the classes.
 
@@ -794,6 +806,7 @@ export function resolveGraphScope(
   raw: unknown
 ): GraphScopeResolution;
 export function toMermaid(graph: DependencyGraph): string;
+export function isOverdueNode(node: GraphNode): boolean;
 export function isRiskNode(node: GraphNode): boolean;
 // views.ts
 export function buildWeekView(input: {
@@ -1942,9 +1955,12 @@ Two references, one rule: **layout and interaction from Gr8r Studio
 they behave (sidebar shell, topbar, command palette, grouped task lists, Gantt
 timeline, slide-over drawer, projects register, phone tab bar). Analytics
 decides how everything looks (paper/ink/one purple accent, hairlines, mono
-labels, hatched chrome, zero radius, no shadows). Gr8r's rounded cards, shadows,
-indigo accent and semantic hues are **not** used. Gr8r is a reference only;
-nothing is imported from it.
+labels, hatched chrome, zero radius, no shadows). Gr8r's rounded cards, shadows
+and indigo accent are **not** used; its idea of status hues is, for status and
+risk only (owner decision 2026-10-22, design doc §12: "keep the current look;
+status colours", §8.2 "Status colours"). A full restyle in Gr8r's own look was
+tried and declined; it is kept on the branch `claude/ui-reskin` for reference
+only. Gr8r is a reference only; nothing is imported from it.
 
 ### 8.1 Routes
 
@@ -2171,26 +2187,30 @@ binding):
   issue); the rest are listed under the canvas as "N initiatives (projects,
   milestones, issues) have no blocking relations", a small register per level
   (initiatives: name / projects / target; projects: name / lead, "No lead" in
-  the accent when active / next milestone; milestones: name / project / due;
-  issues: name / assignee / due; an inactive project's rows are muted and never
-  accent: no accent date, lead or "Unassigned"), collapsed behind "Show N" when
-  longer than six (again at each scope: moving between levels does not carry it
-  open) and cut at 100 rows with "Showing 100 of N. Narrow the graph to see the
-  rest." Initiative rows open `/graph?initiative=<id>`, project rows
-  `/graph?project=<id>`, milestone rows `/timeline?milestone=<id>`, issue rows
-  the issue's slide-over on the graph (`?issue=<key>`, §8.5; they opened Linear
-  before the owner decision of 2026-10-21); opening a listed issue does not move
-  it onto the canvas. The receipts and the block meta count drawn vs listed ("4
-  of 14 milestones"), and Copy Mermaid copies the drawn graph. Slide-over
-  details are built only for drawn nodes and listed rows. The server lays the
-  drawn graph out once (`layoutGraph`, passed to `DependencyGraph` as `layout`),
-  so the browser never runs dagre.
+  amber when active / next milestone; milestones: name / project / due; issues:
+  name / assignee / due, "Unassigned" in amber in an active project; due dates
+  follow `dueTone` (§8.2: red overdue, amber due today or tomorrow or undated,
+  ink later), an issue's date red when its milestone is overdue; a row whose box
+  is overdue or needs action carries that box's 2px rule, red or amber; an
+  inactive project's rows are muted and never take a status hue: no coloured
+  date, lead or "Unassigned"), collapsed behind "Show N" when longer than six
+  (again at each scope: moving between levels does not carry it open) and cut at
+  100 rows with "Showing 100 of N. Narrow the graph to see the rest." Initiative
+  rows open `/graph?initiative=<id>`, project rows `/graph?project=<id>`,
+  milestone rows `/timeline?milestone=<id>`, issue rows the issue's slide-over
+  on the graph (`?issue=<key>`, §8.5; they opened Linear before the owner
+  decision of 2026-10-21); opening a listed issue does not move it onto the
+  canvas. The receipts and the block meta count drawn vs listed ("4 of 14
+  milestones"), and Copy Mermaid copies the drawn graph. Slide-over details are
+  built only for drawn nodes and listed rows. The server lays the drawn graph
+  out once (`layoutGraph`, passed to `DependencyGraph` as `layout`), so the
+  browser never runs dagre.
 - `/graph` draws at most 200 boxes and 300 arrows (`GRAPH_DRAW_LIMITS` in
   `lib/adapters/graph-scope.ts`, about 0.45 s of layout; core stays uncapped
   except a chain's 150 issues, so the timeline's connectors keep every milestone
   edge). Past either limit the page builds no node data, details, layout or
   Mermaid: a quiet hairline "Too large" notice (a size limit, not a risk, so no
-  accent) says how many boxes and arrows it would need, and a "Narrow to"
+  status hue) says how many boxes and arrows it would need, and a "Narrow to"
   register (name / kind / on edges, at most 50 rows, most boxes first, ties in
   node order) offers the workspace's initiatives (its projects without
   initiatives), an initiative's projects or a project's milestones at the same
@@ -2216,15 +2236,15 @@ binding):
 - `/graph` emphasis: an inactive project's work is never loud. Initiative,
   project and milestone boxes of inactive projects are muted with `INACTIVE`;
   issue boxes of inactive projects keep the default tone, with no `OVERDUE`
-  chip. Otherwise milestone boxes take the accent only when at risk or overdue
-  (a later milestone's unassigned issues are normal; they keep the `UNASSIGNED`
-  chip); project and initiative boxes when their (most severe) next milestone is
-  at risk or overdue (no `UNASSIGNED` chip: they always hold some later
-  unassigned work; an active project without a lead gets `NO LEAD`); issue boxes
-  when open and unassigned or overdue. Boxes above the issue level holding an
-  issue loop get `CYCLE INSIDE`. The same holds in the register and the panels:
-  an inactive project's milestone or issue row, and its panel's properties and
-  Overdue strip, say the same facts without the accent.
+  chip. Otherwise milestone boxes take a status tone only when at risk (amber)
+  or overdue (red) (a later milestone's unassigned issues are normal; they keep
+  the `UNASSIGNED` chip); project and initiative boxes when their (most severe)
+  next milestone is at risk or overdue (no `UNASSIGNED` chip: they always hold
+  some later unassigned work; an active project without a lead gets `NO LEAD`);
+  issue boxes when open and unassigned or overdue. Boxes above the issue level
+  holding an issue loop get `CYCLE INSIDE`. The same holds in the register and
+  the panels: an inactive project's milestone or issue row, and its panel's
+  properties and Overdue strip, say the same facts without a status hue.
 - `/runs/[id]` answers the not-found page for an unknown id; already-assigned
   skips are collapsed into one count per project.
 - The run and settings registers stack into cards by their own width
@@ -2256,19 +2276,20 @@ Tokens (`--paper`, `--ink`, `--background`, `--foreground`, `--border`,
 `--muted`, `--accent #9747ff`, `--accent-hover #7f36f0`, `--on-accent`,
 `--accent-ink`, `--accent-ink-hover`, `--accent-ink-inverse`, `--ink-soft`,
 `--grey-2..4`, `--grey-2-ink`, `--hairline-faint`, `--hatch`, `--tint`, the
-`*-inverse` set), light + dark via `html[data-theme]` with the pre-paint theme
-script (`data-theme="system"` follows the OS through `prefers-color-scheme`, for
-a host with no theme script; the ui README), Geist + JetBrains Mono via
-`next/font/google`, body weight 300, zero radius, no shadows (overlays separate
-with a 1px ink border and a scrim derived from `--ink`, never blur), 1px
-hairlines collapsed with `-1px` margins, 2px only for emphasis, the hatched
-chrome titlebar (`.block` / `.blockBar` …), accent registration marks on the
-chrome, the grid tab strip (selected = ink fill, hover = accent flood), register
-rows whose hover swaps paper and ink tokens locally, the `Mark` square idiom,
-the 2px-accent explain panel, mono uppercase micro-labels with positive
-tracking, `:focus-visible` accent outline, hover floods gated behind
-`@media (hover: hover) and (min-width: 901px)`, and a designed
-`prefers-reduced-motion` state. Motion uses the Analytics curves
+`*-inverse` set, and the status hues below: `--red`, `--amber`, `--green`,
+`--blue`, `--grey`, each `-ink`, `-ink-inverse` and `--on-*`), light + dark via
+`html[data-theme]` with the pre-paint theme script (`data-theme="system"`
+follows the OS through `prefers-color-scheme`, for a host with no theme script;
+the ui README), Geist + JetBrains Mono via `next/font/google`, body weight 300,
+zero radius, no shadows (overlays separate with a 1px ink border and a scrim
+derived from `--ink`, never blur), 1px hairlines collapsed with `-1px` margins,
+2px only for emphasis, the hatched chrome titlebar (`.block` / `.blockBar` …),
+accent registration marks on the chrome, the grid tab strip (selected = ink
+fill, hover = accent flood), register rows whose hover swaps paper and ink
+tokens locally, the `Mark` square idiom, the 2px-accent explain panel, mono
+uppercase micro-labels with positive tracking, `:focus-visible` accent outline,
+hover floods gated behind `@media (hover: hover) and (min-width: 901px)`, and a
+designed `prefers-reduced-motion` state. Motion uses the Analytics curves
 (`--ease-out-quint` for drawers, `--ease-out-expo` for growth). Empty states
 (`.empty`, `EmptyState`) explain in the body face (sans 300, `--muted`,
 DESIGN.md §14.5: mono is for labels), with an optional short mono key above a
@@ -2278,19 +2299,133 @@ A timeline bar's sticky label is capped to the part of the bar still visible
 beside the lane column (the bar's end less the chart's scroll offset), so the
 receipts drop out and the name stays readable rather than sliding under it.
 
-Status uses only the system's own marks (no new hues — DESIGN.md §3):
+**Status colours** (owner decision 2026-10-22, design doc §12). The look above
+stays exactly as it is; only colour changes, and only where something carries a
+status or a risk. Red is overdue and failed; amber is at risk, blocked,
+unassigned and a missing input; green is on track and done; blue is in progress;
+grey is inactive. They colour the status marks, dates, timeline bars, chips,
+alerts, the graph and the rubric. The purple accent never means a status or a
+risk any more: it stays for the brand (block keys, registration marks, the
+default notice frame), selection and focus, links and follow-ups, new or unread,
+hover floods on controls, and the timeline's today.
 
-| status                               | mark                         |
-| ------------------------------------ | ---------------------------- |
-| complete                             | filled ink square            |
-| on_track                             | hollow ink square            |
-| at_risk                              | hollow accent square (2px)   |
-| overdue                              | filled accent square         |
-| unscheduled / empty / rubric-invalid | hatched square, muted border |
+- **Tokens** (`tokens.css`, light block, then the two identical dark blocks).
+  Each hue has a MARK colour `--<hue>` (fills, outlines, rules, bars, glyphs:
+  3:1 or more on the paper, on the `--tint` wash, on the chrome's `--hatch` line
+  where the sidebar's marks sit, and on the ink of a hover flood, so a mark
+  never swaps in an ink flood), a TEXT colour `--<hue>-ink` (4.5:1 on the paper
+  and the tint), `--<hue>-ink-inverse` (text on an ink hover flood, 4.5:1 on the
+  ink) and `--on-<hue>` (text on a `--<hue>` fill, 4.5:1). Grey text is
+  `--muted`; `--grey` is the inactive mark only. `--amber-ink-strong` (`#7a4800`
+  light, `#f0b232` dark) is the amber text on a hatched bar, where `--amber-ink`
+  falls under 4.5:1 (5.40:1 on the hatch's `#d9d9d9`).
 
-Where Gr8r uses a coloured status dot, priority bars, or a red/green number, the
-planner uses these marks, mono labels, and the accent only for "needs action"
-(overdue, unassigned, blocked, missing input).
+  | hue   | light mark / text / inverse   | dark mark / text / inverse    | on fill              |
+  | ----- | ----------------------------- | ----------------------------- | -------------------- |
+  | red   | `#d92d20` `#c4261d` `#ff7a70` | `#dc3326` `#ff7a70` `#c4261d` | white                |
+  | amber | `#bd790a` `#965a00` `#f0b232` | `#b87800` `#f0b232` `#965a00` | black                |
+  | green | `#16853c` `#167a37` `#4cc76f` | `#1c9444` `#4cc76f` `#167a37` | white / black (dark) |
+  | blue  | `#2b6be6` `#1d58c9` `#6aa5ff` | `#2f6fe8` `#6aa5ff` `#1d58c9` | white                |
+  | grey  | `#888888` (mark only)         | `#6e6e6e` (mark only)         | —                    |
+
+  Dark `--green` steps lighter than the light theme's (`#1c9444`: 4.90:1 on
+  `#0f0f0f`, 3.34:1 on the `#ededed` flood) so the 1px on-track edge holds 4.5:1
+  on the black paper rather than fading at 4.07:1; ink then sits on its fill
+  (`--on-green` `#000000`, 5.37:1; white would be 3.91:1). Light `--amber` is
+  `#bd790a` so the at-risk mark's 2px edge holds 3:1 on the light hatch line
+  `#f0f0f0` (3.12:1; 3.56:1 on white, 3.18:1 on the tint). A purple flood is
+  different: no status hue holds 3:1 on `#9747ff`, so a block that floods with
+  the accent and retints its ink to `--on-accent` (a sidebar item's hover, the
+  accent chip) turns every mark hue white too (`--red`, `--amber`, `--green`,
+  `--grey` to `--on-accent`, 4.51:1), as the ink did before the status hues; the
+  mark's shape still says the status (done and overdue share the filled white
+  square there, as they did before; the mark's label and the item at rest tell
+  them apart). `test/styles-contrast.test.ts` checks every pair in both themes
+  (the hatch included), that every block that floods to ink also swaps
+  `--red-ink`, `--amber-ink`, `--green-ink` and `--blue-ink` to their inverse
+  (as it swaps `--accent-ink`), and that every block that retints its ink to an
+  `--on-<colour>` also swaps the mark hues.
+
+- **Tones in code**: `UiTone = 'default' | 'muted' | 'accent' | SemanticTone`,
+  `SemanticTone = 'danger' | 'warning' | 'success' | 'info'`
+  (`packages/ui/src/types.ts`); `ChipTone` adds `'inverse'`. A component emits
+  its tone as `data-tone`, and the hook in `tokens.css` gives that element
+  `--tone` (MARK colour), `--tone-ink` (TEXT colour) and `--on-tone`: danger →
+  red, warning → amber, success → green, info → blue, muted → `--grey` /
+  `--muted`, accent → `--accent` / `--accent-ink`, default → ink /
+  `currentcolor`. The values resolve on the toned element, so a flood on it or
+  on an ancestor recolours its text. Components colour themselves from these,
+  not from one rule per tone.
+- **The shapes stay; colour is never the only cue.** Every status keeps its
+  shape and its words (a visible label, an `aria-label` or a tooltip): a status
+  hue only repeats what the mark's fill, outline or hatching and the words
+  already say. Done and overdue share a shape (the filled square), so they must
+  differ in lightness, not only in hue: done stays the ink fill, since a green
+  fill is as light as the red one (1.02:1) and the two would read the same to
+  someone without red-green vision or in greyscale. Forced-colours mode keeps
+  the filled marks filled (in `CanvasText`).
+- **Chips keep their shape.** A status chip that was a filled chip before the
+  status hues (the accent or ink fill: blocked, live, a failed run, assigned,
+  failed, sent, the digest's overdue / invalid / stopped items, the graph's
+  flags) stays filled, as a slab of the hue with its `--on-<hue>` text
+  (`Chip filled`); an outlined one stays outlined, its border and text in the
+  hue.
+
+| what                                                                     | value                                                                                                                           | tone                                         | drawn as (the current look)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| milestone status (`StatusMark`)                                          | complete                                                                                                                        | default                                      | filled ink square, as before: never green, because a green fill has the red fill's lightness and done and overdue would be the same filled square without red-green vision or in greyscale; done's words and chips ("Complete", "Succeeded") are green                                                                                                                                                                                                                                                                                    |
+|                                                                          | on track                                                                                                                        | success                                      | hollow square, 1px green edge                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+|                                                                          | at risk                                                                                                                         | warning                                      | hollow square, 2px amber edge                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+|                                                                          | overdue                                                                                                                         | danger                                       | filled red square                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+|                                                                          | unscheduled, empty, on track but rubric-invalid (`missing`)                                                                     | muted                                        | hatched square, grey edge; the missing input is named in amber text where it is shown                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+|                                                                          | any status of an inactive project (`muted`)                                                                                     | muted                                        | hollow square, 1px `--grey` edge; no status hue anywhere in that row. Its shape is on track's, and grey and green are close in lightness (1.33:1 light, 1.30:1 dark; no grey that holds 3:1 as a mark gets past about 1.6:1), so the words carry the state: the mark's label adds "· inactive project", the row's text is muted and its Linear status chip names the project's status (PAUSED in the demo)                                                                                                                                |
+|                                                                          | open (an issue box on the graph: its status is its milestone's)                                                                 | default                                      | hollow square, 1px ink edge (never the on-track green)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| timeline bar, its due-date diamond and the "Milestones" summary marks    | as the milestone status                                                                                                         | same                                         | the mark's shape at bar size: overdue red fill (label in `--on-red`), complete ink fill (label in the paper), at risk a 2px amber outline, on track a 1px green outline, missing hatched with a grey edge and its "MISSING: …" line in `--amber-ink-strong` (the amber step that reads on the hatch), inactive grey                                                                                                                                                                                                                       |
+| timeline legend                                                          | the five statuses                                                                                                               | as above                                     | the same marks as the bars                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| timeline today line and TODAY chip                                       |                                                                                                                                 | accent                                       | unchanged purple                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| timeline banners                                                         | no lead, no date, unplanned, blocked                                                                                            | warning                                      | amber key on each row and the block's single 2px left rule in amber; the 1px frame stays ink                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| lane sublabel                                                            | NO LEAD, a deactivated lead                                                                                                     | warning                                      | amber text (chart lane and phone card); never on an inactive lane                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| dependency arrow                                                         | on a risk chain (the blocker is unassigned or overdue, or waits on one)                                                         | warning                                      | amber line; the timeline's 1px connectors take the amber TEXT colour (`--amber-ink`), which holds 3:1 where they cross the weekend columns and group bands                                                                                                                                                                                                                                                                                                                                                                                |
+| rubric item (`Checklist`)                                                | met / missing (no date, no "done means…", no lead, no issues)                                                                   | default / warning                            | filled ink square, as before and like done (a column of green squares would drown the one item that needs action) / hollow amber square and the word "Missing" in amber: the only hue in the list                                                                                                                                                                                                                                                                                                                                         |
+| risk reason                                                              | unassigned open issues, stalled, behind pace                                                                                    | warning                                      | amber text or chip                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| warning kind                                                             | overdue / at risk, invalid due soon, allocation blocked                                                                         | danger / warning                             | chip in the hue (filled for overdue, invalid due soon and allocation stopped, as before; outlined for at risk); those three also get the 2px rule in the hue (at risk keeps a plain row); the due date is coloured by the date alone (`dueTone`, as wherever a date is coloured: red overdue, amber today, tomorrow or undated, ink later), never by the row                                                                                                                                                                              |
+| allocation (projects register)                                           | allocating N                                                                                                                    | info                                         | blue outline chip                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+|                                                                          | nothing to do                                                                                                                   | default                                      | ink chip                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|                                                                          | blocked (no lead, lead inactive, next milestone invalid)                                                                        | warning                                      | filled amber chip (the filled chip it always was), a 2px amber row rule and the reason line under it in amber (the one cell that opts its mono line into the tone: `RegisterCell toneSub`, set by the adapter's `toneDetail`)                                                                                                                                                                                                                                                                                                             |
+|                                                                          | no open milestone, inactive, not evaluated                                                                                      | muted                                        | grey chip                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| needs attention (My week)                                                | blocked, N unassigned                                                                                                           | warning                                      | 2px amber row rule, amber flag                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| issue and milestone alerts (`AlertStrip`)                                | overdue / blocked, holds up, stalled, unassigned                                                                                | danger / warning                             | 2px frame and key in the hue; the follow-up link stays purple; a strip without a tone is warning (never the purple)                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| issue state (`StateGlyph`)                                               | triage, backlog, canceled / todo / in progress / done                                                                           | muted / default / info / success             | grey circles / ink ring / blue half disc / green disc with a tick; the state name stays ink                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| priority (`PriorityGlyph`)                                               | urgent / high, medium, low, none                                                                                                | danger / default                             | red bars and the label "Urgent" in red text / ink bars over ghost bars; a priority picker in a list cell takes the colour from the level its face shows (`PickerOption.tone`), so a pending "High" is never red and a pending "Urgent" is red at once                                                                                                                                                                                                                                                                                     |
+| due date                                                                 | overdue / due today or tomorrow / later / an undated milestone (a missing input) / an issue with no due date                    | danger / warning / default / warning / muted | text colour; on the Issues list a toned date carries its state in a word under it ("Overdue", "Today", "Tomorrow", the same tone), so the red and the amber are never the only difference                                                                                                                                                                                                                                                                                                                                                 |
+| progress (`ProgressRule`)                                                | overdue / behind pace / complete / inactive / otherwise                                                                         | danger / warning / success / muted / default | fill and receipt; default stays the ink fill                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Assignee "Unassigned"                                                    | open in a loud (active) project, or in no project, in any milestone and in triage / closed, or in an inactive project           | warning / muted                              | text (the picker's empty face); the same rule on every screen (Issues list, milestone drawer, graph register, issue page); the Issues list, which has no alert strip to word it, says "Needs assignee" in the amber case, so its amber and grey differ in words too                                                                                                                                                                                                                                                                       |
+| run status                                                               | running / succeeded / partly failed / failed                                                                                    | info / success / warning / danger            | chip (outlined for running and succeeded, filled for partly failed and failed, as before); a failed or partly failed run's row gets the 2px rule in its hue                                                                                                                                                                                                                                                                                                                                                                               |
+| allocation mode                                                          | dry run / live                                                                                                                  | default / info                               | outlined ink chip / filled blue chip                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| run issue outcome                                                        | would assign / assigned / failed / not written, skipped                                                                         | default / success / danger / muted           | chip: assigned and failed filled (green and red slabs, as before), the others outlined                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| run detail numbers                                                       | assigned / failed / blocked projects / not written, skipped                                                                     | success / danger / warning / muted           | value and note (only when the count is not zero; a zero is grey)                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| digest status (Settings → Notifications)                                 | sent / sending / preview / failed, undeliverable                                                                                | success / info / muted / danger              | chip (sent, failed and undeliverable filled, as before; sending and preview outlined); a failed or undeliverable digest's row gets the 2px red rule and its error in red text                                                                                                                                                                                                                                                                                                                                                             |
+| issue activity (allocation history)                                      | assigned by a live run / assigned but the comment failed / the write failed / would assign, skipped, not written                | success / warning / danger / muted           | the ledger's square mark filled in the hue; the label also in the hue for warning and danger (success keeps the ink label)                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Linear project status                                                    | backlog, planned / started / paused / completed / canceled                                                                      | default / info / warning / success / muted   | outlined chip (backlog and planned stay ink: grey means inactive); always muted for an inactive project                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| settings status                                                          | working access, a sync that went through, installed / not installed, never synced / revoked, sync failed / no webhook yet, demo | success / warning / danger / muted           | value text; the mono line under a value stays muted (as under every coloured register value), except a failed sync's error, which is why the row is red and takes the red too (as a failed digest's error and a blocked project's reason do; `toneDetail`); on Setup, "Reinstall needed" is a red notice and "First sync pending" an amber one                                                                                                                                                                                            |
+| My week numbers                                                          | overdue milestones / at risk / new to you, open issues                                                                          | danger / warning / default                   | value and note, only when the count is not zero (new to you is not a status and stays ink)                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| upcoming deadlines groups                                                | Overdue / Today, Tomorrow (when they hold something) / This week                                                                | danger / warning / default                   | label text; the dates under the label stay ink (the label already says it for the whole group), so this list is the one place a due date is not coloured by `dueTone`                                                                                                                                                                                                                                                                                                                                                                     |
+| graph node                                                               | overdue / at risk, unassigned / closed or inactive                                                                              | danger / warning / muted                     | overdue: red flood (its `UNASSIGNED` chip inverts to a paper chip with red text); at risk, unassigned: 2px amber rule; closed or inactive: faint, grey mark; the status mark in its hue, an issue box's open mark in ink; selection (ink fill), hover (purple flood) and focus unchanged; Copy Mermaid classes the red-flooded nodes `overdue` (2px red edge) and core's other risk nodes `risk` (2px amber; `isRiskNode`, §2.10, which also takes an issue or milestone that waits on risk, shown on the canvas only by its amber edges) |
+| graph edge                                                               | risk chain / cycle                                                                                                              | warning / danger                             | amber line / dashed red line (and a dashed red outline round each box in a cycle)                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| sidebar count (`ShellNavItem.countTone`)                                 | a count that needs action, e.g. blocked projects                                                                                | warning (any status tone)                    | the accent count's square chip in the hue (black on amber); hover inverts it like the accent count                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Issues row chips                                                         | Blocked (open blockers), Holds up <milestone>                                                                                   | warning                                      | filled amber chip, the projects register's filled BLOCKED (never in an inactive project)                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Issues "Not moved · …" / "Not saved · …" row note                        | the write failed, Linear refused it, or it was skipped (its team lacks the status, a rate limit stopped the run)                | danger                                       | mono text in red after the title: an unsaved change is red wherever "Not saved" appears (the error toast above the rows, its key)                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Issues filter chip                                                       | a value the planner cannot find ("Not found")                                                                                   | warning                                      | the chip's 1px frame and its values in amber (the TEXT colour, as a status chip)                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Issues group line under the heading                                      | "Missing: …", "No lead", "Allocation stopped: …"                                                                                | warning                                      | amber mono line (the checklist's "missing" voice)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| Issues tier dividers                                                     | Overdue / Upcoming / No milestone / Inactive projects                                                                           | default                                      | ink mono caps divider, like My week's THIS WEEK / LATER: each milestone group under "Overdue" already says it with its filled red square, its red "N days overdue" date and its red progress, so the list colours that status once, on the group (the deadlines list colours its "Overdue" label because its dates stay ink)                                                                                                                                                                                                              |
+| Issues selection and drop target                                         | a selected row, its checkbox, a group a drag may land on, the Filter count                                                      | accent                                       | 2px purple rule at the row's edge / purple fill / 2px purple frame: selection, not a status                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Issues row in flight                                                     | a change is being sent                                                                                                          | default                                      | the neutral loading hatch, no hue                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| "New — given to you because…"                                            |                                                                                                                                 | accent                                       | filled purple chip (new, unread)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| errors (`Notice role="alert"`, error toasts, "Not saved" / "Error" keys) |                                                                                                                                 | danger                                       | 2px red frame, red key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| risky change notice                                                      | "Live allocation" and "Live warnings" before saving, "First sync pending"                                                       | warning                                      | 2px amber frame, amber key                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| refused input                                                            | a field the form or the server refused, a description past its length limit                                                     | danger                                       | 2px red border (date, title and text fields: a red border), red error line or count                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| risky write (`Button variant="danger"`)                                  | "Assign in Linear now"                                                                                                          | danger                                       | red outline and text; hover and press flood red                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| demo-data and read-only notices                                          |                                                                                                                                 | accent / default                             | unchanged: 2px purple frame / 1px ink hairline                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ### 8.3 Layout and interaction (from Gr8r Studio)
 
@@ -2357,16 +2492,17 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   actions, and a 2px accent rule along its bottom edge while busy),
   `FilterChips` (a 1px-framed strip that collapses into the toolbar: square
   chips with the field as a mono key, "is", then the values, joined by a mono
-  "and"; a value the planner cannot find in the accent, as needing action; Clear
-  all; a removed chip hands focus to its neighbour, Clear all to "+ Filter") and
-  `BulkBar` (fixed at the bottom centre while rows are selected and drawn like
-  the toasts: paper in a 1px ink frame, no shadow, no radius; "{n} SELECTED" in
-  the mono key voice, spoken through a polite status that stays mounted while
-  nothing is selected so the first selection is heard; the host's mono actions,
-  ✕, an inline confirm strip, busy and limit notes, focus back on the action
-  after a busy spell, Esc clears) complete it; menus are `PickerPopover` with
-  `searchable={false}`. Details in `packages/ui/README.md`.
-- **Toasts**: bottom-right stack, 1px ink border (2px accent for errors), mono
+  "and"; a value the planner cannot find in amber, a missing input, with "NOT
+  FOUND" in its words; Clear all; a removed chip hands focus to its neighbour,
+  Clear all to "+ Filter") and `BulkBar` (fixed at the bottom centre while rows
+  are selected and drawn like the toasts: paper in a 1px ink frame, no shadow,
+  no radius; "{n} SELECTED" in the mono key voice, spoken through a polite
+  status that stays mounted while nothing is selected so the first selection is
+  heard; the host's mono actions, ✕, an inline confirm strip, busy and limit
+  notes, focus back on the action after a busy spell, Esc clears) complete it;
+  menus are `PickerPopover` with `searchable={false}`. Details in
+  `packages/ui/README.md`.
+- **Toasts**: bottom-right stack, 1px ink border (2px red for errors), mono
   label + one sentence, an optional action (the Issues page's Undo),
   auto-dismiss after 4 s (or the toast's own `duration`: 8 s for an Undo),
   `aria-live="polite"` (a toast's `announce` replaces its sentence there only,
@@ -2407,9 +2543,10 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   `completed/scope` with a 1px progress rule, status mark), "THIS WEEK" (always
   shown once anything is open) and "LATER" dividers, rows with identifier
   (mono), title (opens the issue slide-over, `?issue=<key>`, §8.5; a separate ↗
-  icon beside it opens the issue in Linear), state, priority label, and the
-  accent chip "NEW — GIVEN TO YOU BECAUSE YOU LEAD <PROJECT>" (an empty THIS
-  WEEK says "Nothing of yours is due this week."); a final "No milestone"
+  icon beside it opens the issue in Linear), state, priority label ("Urgent" in
+  red beside its red bars), due date (red overdue, amber due today or tomorrow),
+  and the accent chip "NEW — GIVEN TO YOU BECAUSE YOU LEAD <PROJECT>" (an empty
+  THIS WEEK says "Nothing of yours is due this week."); a final "No milestone"
   divider with one group per project (`PROJECT › Issues without a milestone`,
   linking to `/timeline?project=`; a completed or canceled project has no lane,
   so its group is not a link), then "Issues without a project or milestone". "At
@@ -2419,29 +2556,35 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   its reason. Inactive projects (§2.8) are never loud here: the person's issues
   in them stay in the list, under "LATER", their group drawn quietly (grey mark
   named "<status> · inactive project", "Inactive project" for the days left, no
-  accent), but THIS WEEK, the this-week counts (receipts, the Open issues note,
-  the sidebar's My week count), "Overdue milestones", "At risk in your
-  projects", the deadlines and "Needs attention" leave them out; the two stats
-  add "+1 in an inactive project" and the empty "Needs attention" names the
-  inactive project it left out. The two columns sit side by side only while the
-  content area (not the viewport) is at least 1040px wide; below that the
-  deadlines and attention panels stack under the list. The grouped table stacks
-  its rows (key and title, then state · priority · due) by its own width, under
-  720px (a container query, not the viewport's 900px: beside the deadlines a
-  901–1100px window leaves the table 550–750px); a group heading keeps the mark,
-  `PROJECT ›`, milestone and count on one line (the project ellipsizes first,
-  the milestone wraps in place), and a row's ↗ stays on its title's last line.
-  Right column (Gr8r "Upcoming deadlines"): milestones the user leads or has
-  issues in, grouped Overdue / Today / Tomorrow / This week (up to 6 days out;
-  "Overdue" takes the accent only when it holds something); and "Needs
+  status colour on its date and a grey progress fill), but THIS WEEK, the
+  this-week counts (receipts, the Open issues note, the sidebar's My week
+  count), "Overdue milestones", "At risk in your projects", the deadlines and
+  "Needs attention" leave them out; the two stats add "+1 in an inactive
+  project" and the empty "Needs attention" names the inactive project it left
+  out. The two columns sit side by side only while the content area (not the
+  viewport) is at least 1040px wide; below that the deadlines and attention
+  panels stack under the list. The grouped table stacks its rows (key and title,
+  then state · priority · due) by its own width, under 720px (a container query,
+  not the viewport's 900px: beside the deadlines a 901–1100px window leaves the
+  table 550–750px); a group heading keeps the mark, `PROJECT ›`, milestone and
+  count on one line (the project ellipsizes first, the milestone wraps in
+  place), and a row's ↗ stays on its title's last line. Right column (Gr8r
+  "Upcoming deadlines"): milestones the user leads or has issues in, grouped
+  Overdue / Today / Tomorrow / This week (up to 6 days out; "Overdue" is red and
+  "Today" / "Tomorrow" amber, each only when it holds something); and "Needs
   attention" for projects the user leads that are blocked (reason) or have
-  unassigned next-milestone issues. Everyone gets a person picker (`?user=<id>`,
-  honoured on the server for anyone signed in, only for people in the mirror).
-  Beside it, one quiet link to the Issues page: "All my issues"
-  (`/issues?assignee=me`) on your own week, "All of <first name>'s issues"
-  (`/issues?assignee=<id>`) on someone else's (`WeekPageModel.allIssuesHref` and
-  `allIssuesLabel`); it lists the same open issues in the weight order, without
-  the This week / Later split and with inactive projects last.
+  unassigned next-milestone issues, each row with a 2px amber rule and its flag
+  ("BLOCKED", "2 UNASSIGNED") in amber. The stats colour a non-zero status
+  number: Overdue milestones red, At risk amber (New to you and Open issues are
+  not statuses and stay ink). A group's due date follows the due-date rule (red
+  overdue, amber due today or tomorrow or undated) and its progress the progress
+  rule. Everyone gets a person picker (`?user=<id>`, honoured on the server for
+  anyone signed in, only for people in the mirror). Beside it, one quiet link to
+  the Issues page: "All my issues" (`/issues?assignee=me`) on your own week,
+  "All of <first name>'s issues" (`/issues?assignee=<id>`) on someone else's
+  (`WeekPageModel.allIssuesHref` and `allIssuesLabel`); it lists the same open
+  issues in the weight order, without the This week / Later split and with
+  inactive projects last.
 - **Issues** (Gr8r's Tasks page in the Analytics look; owner request 2026-10-22,
   "every issue in one list"; `app/(app)/issues/(list)/`,
   `lib/adapters/issue-list.ts`): every issue the person can see, filtered,
@@ -2465,13 +2608,13 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     applies 250 ms after typing stops, its first change pushed and the rest
     replaced (one history entry per search, so Back leaves it); Show more
     replaces. While the server answers, the old list stays at full contrast (no
-    fade: a fade would drop the accent and muted text under 4.5:1), marked by
-    `aria-busy`, a progress cursor and the toolbar's 2px accent progress rule.
-    The island follows the address bar (Back, Forward, a tab or sidebar link),
-    skipping the URLs it wrote and keeping a half-typed search while the URL
-    still means the view shown. Changing a filter starts the row budget over;
-    removing a project from the project filter drops that project's milestones
-    from the milestone filter (`withFilterValues`).
+    fade: a fade would drop the status, accent and muted text under 4.5:1),
+    marked by `aria-busy`, a progress cursor and the toolbar's 2px accent
+    progress rule. The island follows the address bar (Back, Forward, a tab or
+    sidebar link), skipping the URLs it wrote and keeping a half-typed search
+    while the URL still means the view shown. Changing a filter starts the row
+    budget over; removing a project from the project filter drops that project's
+    milestones from the milestone filter (`withFilterValues`).
   - **Header**: "Issues", "Every issue across {n} projects.", and a receipts
     line (sans, muted, as on My week): "{all} open issues · {unplanned} without
     a milestone · {blocked} blocked · {at risk} at risk" with the default
@@ -2523,16 +2666,16 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     sent while the push is pending would cancel it, and Back would skip the
     unfiltered list).
   - **Chips** (`FilterChips`): one per set field in URL order, "{Field} is
-    {values}" ("3 projects" from three values on; "Not found", the chip in the
-    accent, for an id the planner lacks), then one per quick filter ("Issue is
-    blocked"), joined by "and"; the default status reads "Status is open" and
-    removing it means every status (`state=all`), which then reads "Status is
-    any" (counted in the badge; its × goes back to open issues), so closed
-    issues never come in without a chip saying so. Choosing a field in the
-    Filter menu adds a pending "{Field} is …" chip with its picker open (it goes
-    away if closed with nothing chosen); clicking a chip reopens its
-    multi-select picker, which stays open while values toggle, each toggle
-    applied at once. The pickers that list workspace data fetch
+    {values}" ("3 projects" from three values on; "Not found", the chip's frame
+    and values in amber, a missing input, for an id the planner lacks), then one
+    per quick filter ("Issue is blocked"), joined by "and"; the default status
+    reads "Status is open" and removing it means every status (`state=all`),
+    which then reads "Status is any" (counted in the badge; its × goes back to
+    open issues), so closed issues never come in without a chip saying so.
+    Choosing a field in the Filter menu adds a pending "{Field} is …" chip with
+    its picker open (it goes away if closed with nothing chosen); clicking a
+    chip reopens its multi-select picker, which stays open while values toggle,
+    each toggle applied at once. The pickers that list workspace data fetch
     `GET /api/issues/options` on first open (`use-issue-list-options.ts`,
     refetched when the page renders a newer mirror version; a failure offers
     Retry) and are filtered by the page, at most 200 options then a disabled
@@ -2560,31 +2703,43 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     Overdue / Upcoming / No milestone / Inactive projects. Milestone groups
     carry the status mark, the project eyebrow, the milestone (linking to its
     timeline drawer), "Next" and "↑2" tags, the count of every match, the due
-    date and countdown, the whole milestone's progress and the mono accent
-    "Missing: …" line when it fails the rubric (an overdue or undated
-    milestone's date, and the progress of one that is overdue or behind pace, in
-    the accent, as on My week; the list's milestone refs carry the assessment's
-    risk reasons for this); a project's "No milestone" and "No project" groups;
-    project groups (the next milestone's mark or "No open milestone", the first
-    initiative as eyebrow, "Lead: <name>", the same accent line saying "No lead"
-    or "Allocation stopped: <why>" on an active project); initiative groups
-    ("{n} projects"); people ("<name> (you)" first, "· deactivated", Unassigned
-    last, avatar marks); statuses by name across teams; all five priorities;
-    "All issues". Rows: the mono key, the title (opens the slide-over, §8.5; the
-    ↗ opens Linear), the accent "Blocked" (open blockers) and "Holds up
-    <milestone>" chips (the projects register's Blocked), the assignee
-    ("Unassigned" in the accent when it is in its active project's next
-    milestone), the state and priority glyphs, and the issue's own due date (in
-    the accent when overdue, as My week colours a date); a closed issue is
-    struck through, and an inactive project's rows carry no tone at all. A group
-    showing fewer rows than it holds ends with "Showing 12 of 212" (or "212
-    issues not shown") · **Show more** (+500 rows, up to 2,000, then "Narrow the
-    filter to see the rest.") · **Only this milestone** (project, person,
-    priority, "Only In progress issues", …: that group's own filter in place of
-    the field's value). With one to five projects in the project filter (grouped
-    by milestone) their open milestones are listed even when empty: "No open
-    issues here yet." when the milestone has none ("… Drag issues here, or use
-    Move to milestone." for someone who can move), else "None of its 3 open
+    date and countdown, the whole milestone's progress and the mono amber
+    "Missing: …" line when it fails the rubric (the date by the due-date rule,
+    red overdue, amber undated or due today or tomorrow, and the progress by the
+    progress rule, red overdue, amber behind pace, green complete, as on My
+    week, §8.2; the list's milestone refs carry the assessment's risk reasons
+    for this; none of it in an inactive project, whose progress is the grey
+    fill); a project's "No milestone" and "No project" groups; project groups
+    (the next milestone's mark or "No open milestone", the first initiative as
+    eyebrow, "Lead: <name>", the same amber line saying "No lead" or "Allocation
+    stopped: <why>" on an active project); initiative groups ("{n} projects");
+    people ("<name> (you)" first, "· deactivated", Unassigned last, avatar
+    marks); statuses by name across teams; all five priorities; "All issues".
+    Rows: the mono key, the title (opens the slide-over, §8.5; the ↗ opens
+    Linear), the filled amber "Blocked" (open blockers) and "Holds up
+    <milestone>" chips (the projects register's filled amber BLOCKED), the
+    assignee (an open issue of an active project, or of none, in any milestone
+    and in triage, reads "Needs assignee" in amber, the same rule as the
+    milestone drawer, the graph register and the issue page; otherwise a grey
+    "Unassigned"), the state glyph (in progress blue, done green) and the
+    priority glyph ("Urgent" red, label and bars, in the cell and its picker,
+    the picker's face coloured by the level it shows, pending included), and the
+    issue's own due date (red overdue, amber due today or tomorrow, as on the
+    issue page, with "Overdue" / "Today" / "Tomorrow" under it in the same tone,
+    beside it on a phone card); a closed issue is struck through. A closed
+    issue's or an inactive project's row has no status tone: no chips, a grey
+    "Unassigned", an ink date with no word; its state and priority glyphs keep
+    their hues, as in the drawer and on the issue page. The tier dividers stay
+    ink (§8.2). Selection, the drop target's frame, focus and the links stay
+    purple; a row with a change in flight keeps the neutral loading hatch. A
+    group showing fewer rows than it holds ends with "Showing 12 of 212" (or
+    "212 issues not shown") · **Show more** (+500 rows, up to 2,000, then
+    "Narrow the filter to see the rest.") · **Only this milestone** (project,
+    person, priority, "Only In progress issues", …: that group's own filter in
+    place of the field's value). With one to five projects in the project filter
+    (grouped by milestone) their open milestones are listed even when empty: "No
+    open issues here yet." when the milestone has none ("… Drag issues here, or
+    use Move to milestone." for someone who can move), else "None of its 3 open
     issues match these filters. · Only this milestone". Nothing matching at all:
     "No open issues match these filters." (or "No issues …" with an explicit
     status) and Clear filters.
@@ -2679,16 +2834,17 @@ planner uses these marks, mono labels, and the accent only for "needs action"
       the new value at once over the loading hatch (never a spinner; the text
       keeps its contrast) with "Moving to Push notifications…" (or "Saving…"),
       and stay where they are; unchanged, skipped and failed rows are back at
-      once, the failed and skipped ones noted "Not moved · {reason}" (mono, in
-      the accent) until the selection changes or the next change; changed rows
-      wait for the refresh started after the answer, which places them. Keyboard
-      focus that was in a row when its change was sent (a row key's picker, the
-      "…" menu, a cell picker) comes back once the refresh has placed the rows:
-      to that row's title where it now is, else to the row that took its place,
-      else to the group's toggle; a bulk change gives it back to the bar's
-      action that sent it (the bar blurs it while busy). A picker a row key
-      opened returns focus to the row's title on Esc or a choice, not to the "…"
-      button.
+      once, the failed and skipped ones noted "Not moved · {reason}" (mono, red
+      whether the write failed, Linear refused it or it was skipped, as the
+      error toast's "Not saved" key, `failureNotes`) until the selection changes
+      or the next change; changed rows wait for the refresh started after the
+      answer, which places them. Keyboard focus that was in a row when its
+      change was sent (a row key's picker, the "…" menu, a cell picker) comes
+      back once the refresh has placed the rows: to that row's title where it
+      now is, else to the row that took its place, else to the group's toggle; a
+      bulk change gives it back to the bar's action that sent it (the bar blurs
+      it while busy). A picker a row key opened returns focus to the row's title
+      on Esc or a choice, not to the "…" button.
     - **Toasts** (`bulkResultToast`, one action each): "Moved 2 issues to Garnet
       mobile app › Push notifications." ("Moved ENG-12 to …"; "Assigned …",
       "Unassigned …", "Set … to In Review.", "Set … to High priority.") with
@@ -2723,31 +2879,48 @@ planner uses these marks, mono labels, and the accent only for "needs action"
       row reads), M, A, S, P, Esc.
 - **Timeline** (Gr8r Timeline in the Matrix drawing style): banners first (no
   lead / no date / unplanned / blocked, each a count that expands to a list), as
-  one compact block: a 1px hairline frame with a single 2px accent rule on its
+  one compact block: a 1px hairline frame with a single 2px amber rule on its
   left, one ~40px row per banner on 1px rules (mono key and count, one sentence,
-  a quiet Show / Hide), banners at zero left out. A toolbar: project search,
-  zoom **Weeks / Months** (segmented tab strip), **Today** (scrolls to today),
-  filters (initiative; **Show All / Active / At risk** as one segmented control,
-  since at risk only ever keeps active lanes), **Dependencies** toggle, and a
-  quiet **Open as graph** after the filters (below). It is one row from about a
-  1431px window with the sidebar open, so 1440 keeps one row (1366 before "Open
-  as graph" joined it in the graphs-at-every-level change; the search gives up
+  a quiet Show / Hide), banners at zero left out. Every banner is a warning
+  (§8.2 "Status colours"; `TimelineBanner.tone`, emitted as `data-tone`): a
+  missing lead or date, open issues that are never allocated, a blocked project;
+  the tone colours each row's key amber. A toolbar: project search, zoom **Weeks
+  / Months** (segmented tab strip), **Today** (scrolls to today), filters
+  (initiative; **Show All / Active / At risk** as one segmented control, since
+  at risk only ever keeps active lanes), **Dependencies** toggle, and a quiet
+  **Open as graph** after the filters (below). It is one row from about a 1431px
+  window with the sidebar open, so 1440 keeps one row (1366 before "Open as
+  graph" joined it in the graphs-at-every-level change; the search gives up
   width, 220 → 80px, before anything wraps, and the initiative select is capped
   at 200px with an ellipsis so a long initiative name cannot push it or the link
   over the zoom control); narrower, the Show control wraps under it. The
   receipts line counts overdue and at-risk milestones in active projects only
   and says how many projects are inactive ("9 projects (1 inactive) · …"). The
   chart: a sticky left column of lanes grouped by initiative (lane = project
-  name, lead or `NO LEAD` in accent), a two-row sticky header (month names;
-  day/week ticks in mono 9.5px; weekends shaded with `--tint`), today as a 1px
-  accent vertical rule, a "Milestones" summary row with a diamond (45°-rotated
-  square mark) at each due date like Gr8r, bars per milestone (start → due date)
-  with a diamond at the end, styled by status (overdue accent fill; at risk 2px
-  accent border; on track ink border; complete ink fill; rubric-invalid hatched
-  with "MISSING: …"), a `NEXT` tag on each lane's next milestone, `↑2` for a
-  weight override. With Dependencies on, milestone-level edges are drawn as 1px
-  curved connectors between bars (accent when on a risk chain), like Gr8r's
-  dependency arrows. Anyone with Linear write access drags a bar's right edge to
+  name, lead or `NO LEAD` in the warning amber, as is a deactivated lead), a
+  two-row sticky header (month names; day/week ticks in mono 9.5px; weekends
+  shaded with `--tint`), today as a 1px accent vertical rule with the accent
+  TODAY flag (the purple stays for today), a "Milestones" summary row with a
+  diamond (45°-rotated square mark) at each due date like Gr8r, bars per
+  milestone (start → due date) with a diamond at the end, styled by status in
+  the status hues (§8.2): overdue red fill (words `--on-red`); at risk 2px amber
+  border (its progress in amber text); on track 1px green border on paper;
+  complete ink fill (words in the paper; never green, so it never reads as the
+  red fill without red-green vision); rubric-invalid hatched with a grey rule
+  and "MISSING: …" in amber text (`--amber-ink-strong` on the hatch); an
+  inactive lane grey, its words never in a hue. The diamond, the summary marks
+  and the legend's mini bars repeat the bar's shape and hue; forced-colours mode
+  keeps the filled ones filled (`CanvasText`). Hovering the red fill keeps it
+  and gives it an ink edge (a wash would take the white label under 4.5:1 in the
+  dark theme), the ink fill lifts to the soft ink, and the others keep the
+  `--tint` wash. Undated milestones are hatched chips at the lane's end whose
+  "No date" is amber (a missing input) on an active lane. A `NEXT` tag on each
+  lane's next milestone, `↑2` for a weight override. With Dependencies on,
+  milestone-level edges are drawn as 1px curved connectors between bars (amber
+  when on a risk chain, in the amber text colour so the 1px line holds 3:1
+  across the weekend columns; dashed when the waiting milestone is due before
+  its blocker), like Gr8r's dependency arrows. A re-date that fails says "NOT
+  SAVED" in red. Anyone with Linear write access drags a bar's right edge to
   re-date (snaps to days, date tooltip, Esc cancels, PATCH on drop, optimistic
   with rollback + toast); keyboard: focus the handle, ←/→ ±1 day, ↵ commit.
   Clicking a bar opens the slide-over drawer. Below 900px: per-project cards.
@@ -2816,17 +2989,31 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     notice. A lane focused by `?project=` is scrolled into the page too (chart
     and phone card).
   - The drawer's "Next milestone" cell says what that means for allocation: on
-    the project's next milestone, "Allocation stopped · <reason>" in the accent
-    when the project is blocked (or a quiet "Inactive project" note); on any
-    other milestone, which one is next. A deactivated lead is loud in the Lead
-    cell and named as deactivated in the met "Project lead" check.
+    the project's next milestone, "Allocation stopped · <reason>" in the warning
+    amber when the project is blocked (or a quiet "Inactive project" note); on
+    any other milestone, which one is next. A deactivated lead is amber in the
+    Lead cell and named as deactivated in the met "Project lead" check.
+  - The drawer's status colours (§8.2): the Overdue strip is `tone="danger"`
+    (2px red frame, red key; Reschedule stays a purple link); the status's risk
+    lines ("Open issues unassigned · More work left than time left", "Missing:
+    …") are amber; the due date takes the shared `dueTone`
+    (`lib/adapters/projects.ts`: red overdue, amber with no target date or due
+    today or tomorrow); the progress rule the shared `progressTone` (red
+    overdue, amber behind pace, green complete, grey in an inactive project, the
+    ink fill otherwise); "No lead" (text, the lead select's rule and text, and
+    its note), a missing "done means…" ("Not set") and an open issue's
+    "Unassigned" and "Blocked by" are amber; a "done means…" over its limit is
+    red (an error). The rubric checklist is ink met (as done) / amber missing.
   - An inactive (muted) lane is never loud anywhere: its bars, its phone card
     rows (grey hollow marks) and the "Milestones" summary diamonds (a day with
     only inactive milestones is drawn in greys; a shared day takes the active
     lanes' status); it is in no banner, receipt count or At risk filter. Its
     milestones' drawer is quiet too: no overdue strip, a grey status mark named
-    "<status> · inactive project", and no accent on the risk lines, due date,
-    progress or the issues' "Unassigned" / "Blocked by".
+    "<status> · inactive project", no status hue on the risk lines, due date or
+    the issues' "Unassigned" / "Blocked by", and a grey (muted) progress fill.
+    On the chart its bars, diamonds and summary marks take the inactive grey
+    (`--grey`), and its "MISSING: …" line, NO LEAD and undated "No date" carry
+    no hue.
   - A complete milestone is never overdue: wherever its date is printed with a
     countdown (`dueLabel` in `lib/format.ts`: the drawer, the register, the
     graph's details and rows) it reads "Oct 1 · complete", never "Oct 1 · 20
@@ -2834,7 +3021,10 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   - A phone card row whose mark is hatched (missing input) and that carries its
     "Missing: …" line leaves the status label out of its receipts, so an empty
     milestone reads "0/0 · Missing: issues", not "No issues yet · 0/0 · Missing:
-    issues".
+    issues". A row's receipts take a status tone (`receiptsTone` in
+    `packages/ui/src/timeline/tones.ts`): red when overdue, amber when at risk
+    or missing an input; its due date is red when overdue, and an undated row's
+    "No date" is amber. An inactive lane's rows carry no hue.
   - `PATCH /api/milestones/[id]` needs at least one of `targetDate`
     (`YYYY-MM-DD` or null), `weight` (integer or null), `doneMeans` (string or
     null), no other keys; it applies the date first, then weight, then "done
@@ -2846,19 +3036,23 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     drawer's and the drag's "Not saved" toast offers as "Allow edits"
     (`notSavedToast` in `lib/api-client.ts`).
 - **Projects** (Gr8r Projects page, register form): one row per non-completed
-  project grouped by initiative: name + initiative, Linear status (mono chip),
-  next milestone (name, due, status mark), next-milestone progress bar
-  (`completed/scope`), lead or `NO LEAD`, allocation state chip (`ALLOCATING n`
-  / `BLOCKED` filled accent with the reason as a mono line under it, worded as
-  on the timeline's Blocked banner and My week's "Needs attention": "Project has
-  no lead", "Next milestone is missing: done means…" / `NOTHING TO DO` /
-  `NO OPEN MILESTONE` / `INACTIVE`), links to its timeline lane (the row),
-  graph, issues (`/issues?project=<id>`) and Linear. Each initiative block's bar
-  carries a **Graph** accent link (accessible name "Dependency graph of
-  <group>") to `/graph?initiative=<id|none>`, or `/graph?level=project` when the
-  viewer has no initiatives; a row's Graph link is its project's issue graph
+  project grouped by initiative: name + initiative, Linear status (mono chip:
+  blue started, amber paused, green completed, ink backlog / planned, grey
+  canceled, always grey for an inactive project), next milestone (name, due in
+  the due-date colour, status mark), next-milestone progress bar
+  (`completed/scope`, in the progress colour), lead or `NO LEAD` (amber in an
+  active project), allocation state chip (`ALLOCATING n` blue outline /
+  `BLOCKED` filled amber with the reason as a mono line under it, also amber,
+  and a 2px amber rule on the row, worded as on the timeline's Blocked banner
+  and My week's "Needs attention": "Project has no lead", "Next milestone is
+  missing: done means…" / `NOTHING TO DO` ink / `NO OPEN MILESTONE` / `INACTIVE`
+  grey), links to its timeline lane (the row), graph, issues
+  (`/issues?project=<id>`) and Linear. Each initiative block's bar carries a
+  **Graph** accent link (accessible name "Dependency graph of <group>") to
+  `/graph?initiative=<id|none>`, or `/graph?level=project` when the viewer has
+  no initiatives; a row's Graph link is its project's issue graph
   (`/graph?project=<id>`). An inactive project's next milestone is drawn in
-  greys (grey mark, muted date, ink progress). Search + status filter (All /
+  greys (grey mark, muted date, grey progress). Search + status filter (All /
   Blocked / At risk = an active project's next milestone at risk or overdue /
   Inactive) in a toolbar, mirrored to `?q=` and `?filter=` so a filtered
   register can be linked; the register also follows the URL when it changes
@@ -2899,13 +3093,30 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     bar is titled by the level (Initiatives, Projects, Milestones, Issues) or
     "Chain".
   - **Canvas.** SVG laid out with `@dagrejs/dagre` (rankdir LR) once on the
-    server, hairline boxes with mono labels; risk chains in accent, cycles
-    dashed accent, cross edges dashed ink (crossing a project at the issue and
-    milestone levels, a first initiative at the project level, never at the
-    initiative level), resolved edges faint; weights as mono counts; externals
-    (outside the container, one hop) dashed and muted (an overdue external keeps
-    its dashes in the paper colour on the accent flood); hover/focus highlights
-    the upstream chain; click a box → its slide-over; "Copy Mermaid" copies
+    server, hairline boxes with mono labels, in the status hues (§8.2 "Status
+    colours"): an overdue box floods red (`--red`, its text and marks in
+    `--on-red`; its `UNASSIGNED` chip inverts to a paper chip with red text, so
+    amber never sits on red); a box that needs action (an unassigned issue, an
+    at-risk milestone, a project or initiative whose next milestone is at risk)
+    carries a 2px amber rule, and one that is overdue a 2px red rule
+    (`GraphNodeTone` `warning` / `danger`, drawn through `data-tone`); a closed
+    or inactive box is faint, its status mark in grey. Each status mark keeps
+    its shape (done filled ink, on track hollow green, at risk a 2px amber
+    outline, overdue filled red, a missing input hatched grey); an issue box's
+    open mark is the plain hollow ink square (`UiStatus` `open`: an issue makes
+    no status claim of its own, its milestone does); forced colours keep the
+    filled marks filled. `UNASSIGNED` is a filled amber chip; the other chips
+    stay ink. Risk chains in amber, cycles dashed red (and a dashed red outline
+    around each box in the cycle), cross edges dashed ink (crossing a project at
+    the issue and milestone levels, a first initiative at the project level,
+    never at the initiative level), resolved edges faint; weights as mono counts
+    (a risk or cycle count in the hue's text colour); externals (outside the
+    container, one hop) dashed and muted (an overdue external keeps its dashes
+    in the paper colour on the red flood). The purple is never a status here: it
+    is the hover flood, keyboard focus and Copy Mermaid's confirmation (a
+    refused copy is outlined red); selection stays the ink fill, where the
+    status marks and the amber chip keep their hues. Hover/focus highlights the
+    upstream chain; click a box → its slide-over; "Copy Mermaid" copies
     `toMermaid` of the drawn graph. Nodes with no blocking relation are listed
     under the canvas, not drawn (§8.1). Sublabels: an initiative "4 projects ·
     <target date | no target date>", a project its lead or "No lead", a
@@ -2923,30 +3134,39 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     issue level (which has no externals) leaves out External; a chain: the issue
     legend without External plus "Focus — the issue this chain is about". Inside
     an initiative or a project, the aggregate legends add "External — outside
-    this initiative / this project".
+    this initiative / this project". Swatches draw the canvas's own hues:
+    Overdue the red flood (`node-overdue`), At risk / Needs action the 2px amber
+    rule (`node-warning`), In a cycle the dashed red outline, Risk chain amber,
+    Cycle dashed red, Inactive / Closed / Complete the faint box.
   - **Panels** (the same slide-over; links in this order, a link to the page
     itself left out). An initiative: breadcrumb "Initiative" ("Projects with no
     initiative"), its status mark, Target date, Projects ("5 projects · 1
     inactive"), Open issues ("20 open · 7 unassigned"), At risk (the active
     projects' next milestones at risk or overdue, "Atlas billing migration ›
-    Dual-write (overdue)", accent); links "Projects in X", "Milestones in X",
-    "Issues in X", "Open as list" (`/issues?initiative=<id|none>`, its projects'
-    issues on the Issues page by the same first-initiative rule), "Open on the
-    timeline" (`/timeline?initiative=`); no Linear link (the mirror keeps no
-    initiative URL). A project: breadcrumb its first initiative ("Project"
-    without initiatives), the next milestone's mark (or "No open milestone"),
-    Linear status, Lead ("No lead" accent when active), Next milestone,
-    Progress, Allocation (the register's cell), Initiatives when it is in
-    several ("Platform reliability · also in Customer growth"), Scope for an
+    Dual-write (overdue)", red when any is overdue, else amber); links "Projects
+    in X", "Milestones in X", "Issues in X", "Open as list"
+    (`/issues?initiative=<id|none>`, its projects' issues on the Issues page by
+    the same first-initiative rule), "Open on the timeline"
+    (`/timeline?initiative=`); no Linear link (the mirror keeps no initiative
+    URL). A project: breadcrumb its first initiative ("Project" without
+    initiatives), the next milestone's mark (or "No open milestone"), Linear
+    status, Lead ("No lead" amber when active), Next milestone (its date in
+    `dueTone`), Progress (amber while open issues are unassigned), Allocation
+    (the register's cell, in its chip's tone: blue allocating, amber blocked,
+    grey inactive / no open milestone / not evaluated), Initiatives when it is
+    in several ("Platform reliability · also in Customer growth"), Scope for an
     external ("Outside <container>: it blocks or waits on a project here");
     links "Milestones of P", "Issues of P", "Open as list"
     (`/issues?project=<id>`), "Lane on the timeline", "Project in Linear". A
     milestone: today's panel plus "Milestones of <project>"
     (`?project=&level=milestone&node=<id>`) after "Issues of this milestone",
     "Open as list" (`/issues?milestone=<id>`, the same issues on the Issues
-    page) before "Open on the timeline", and Scope for an external. An issue box
-    opens the issue slide-over (`?issue=`, §8.5). The "Waits on" / "Blocks"
-    lists select neighbours at every level.
+    page) before "Open on the timeline", and Scope for an external; its Overdue
+    strip is red, Due follows `dueTone`, and "No lead", unassigned progress,
+    risk reasons and missing inputs are amber (none of it in an inactive
+    project). An issue box opens the issue slide-over (`?issue=`, §8.5). The
+    "Waits on" / "Blocks" lists select neighbours at every level; a neighbour
+    that is overdue or needs action carries its box's 2px red or amber rule.
   - **Arrival.** `?node=<id>` (initiative, project or milestone levels only, and
     not while `?issue=` is open) selects that box, keeps it drawn, opens its
     panel and scrolls it into view; the page remounts the client island per
@@ -2968,18 +3188,38 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     same level (the initiative level at the project level) with the fallback
     notice, never the not-found page, the same for every id; no Initiatives tab
     and no initiative crumb.
-- **Runs**: register of runs (mode chip DRY RUN / LIVE, trigger, counts); detail
-  lists assigned / would assign / failed / stale / skipped / blocked grouped by
-  project with reasons. Everyone signed in gets "Preview (dry run)" above the
-  log and, while allocation is live, "Run now" behind a second click; in dry run
-  the note says anyone can switch allocation live in Settings → Modes and that
-  the switch is audited. There is no list of who may run; a Linear guest gets
-  the read-only notice instead of the buttons (owner decision 2026-10-22). An
-  issue's activity names a hand-started run "Manual run".
+- **Runs**: register of runs (mode chip DRY RUN outlined ink / LIVE filled blue,
+  status chip running outlined blue / succeeded outlined green / partly failed
+  filled amber / failed filled red, trigger, counts with a non-zero Failed in
+  red and Blocked in amber; a failed or partly failed run's row, or one whose
+  writes failed, gets the 2px rule in its hue); detail lists assigned / would
+  assign / failed / stale / skipped / blocked grouped by project with reasons
+  (outcome chips: would assign outlined ink, assigned filled green, failed
+  filled red, not written and skipped outlined grey; a Linear error in red text;
+  a blocked project's notice is amber, the run's own error notice red). Everyone
+  signed in gets "Preview (dry run)" above the log and, while allocation is
+  live, "Run now" behind a second click; in dry run the note says anyone can
+  switch allocation live in Settings → Modes and that the switch is audited.
+  There is no list of who may run; a Linear guest gets the read-only notice
+  instead of the buttons (owner decision 2026-10-22). An issue's activity names
+  a hand-started run "Manual run".
 - **Settings** (Gr8r settings layout): a left sub-nav of sections (Modes,
   Watchers, Schedule, Status, Notifications, Audit) beside the section content;
   rows per setting; mode switches use the Matrix switch idiom (13px square glyph
-  that fills accent).
+  that fills accent). Turning a mode live shows an amber "Live allocation" /
+  "Live warnings" notice until it is saved. A refused number or timezone keeps a
+  2px red border and a red error line. Status colours its values, and the mono
+  line under them only for a failed sync's error (Working and a sync that went
+  through green; Not installed and a never-run sync amber; Revoked and a failed
+  sync red, the failure's error line red too; demo data and no webhook yet
+  grey), and today's digest preview gives each item a chip in its warning kind's
+  hue (Overdue a filled red chip, invalid due soon and allocation stopped filled
+  amber, At risk an amber outline), with the 2px rule in that hue for all but At
+  risk; its Due column takes the due-date colour (`dueTone`), as the other
+  coloured dates do (My week's Upcoming deadlines colours its group labels
+  instead). Notifications: Sent filled green, Sending outlined blue, Preview
+  outlined grey, Failed and Undeliverable filled red (row rule and error text
+  red).
 
 Fixture mode shows a permanent accent-bordered "DEMO DATA — NOT CONNECTED TO
 LINEAR" strip at the top of the content column.
@@ -3017,19 +3257,24 @@ LINEAR" strip at the top of the content column.
   `buildIssueTaskModel` maps the result to crumbs (project →
   `/timeline?project=`, milestone → `/timeline?milestone=`), status, alert
   strips, read-only facts, description, comments, relations, activity and the
-  edit options. Alerts (accent): **Overdue** (its milestone), **Blocked** (the
-  open blockers), **Holds up** (at-risk or overdue milestones waiting on it),
-  both with a Graph action to the issue's own blocking chain
+  edit options. Alerts (`AlertStrip` tones): **Overdue** (its milestone; red),
+  **Blocked** (the open blockers), **Holds up** (at-risk or overdue milestones
+  waiting on it), both with a Graph action to the issue's own blocking chain
   (`/graph?chain=<KEY>`; Blocked linked its milestone's issue graph before
   graphs at every level, owner decision 2026-10-22), **Stalled** (with the
   milestone's countdown) and **Unassigned** (in the next milestone: who the next
   live run gives it to, or why allocation is stopped — no lead, a deactivated
-  lead, the milestone failing the rubric). Closed issues and issues of inactive
-  projects (§2.8) get none, and an inactive project's issue is quiet throughout
-  (grey milestone mark named "<status> · inactive project", no accent on the
-  assignee, due date or time in state). The "Blocked by" heading carries a
-  **Graph** link to the same chain (`chainHref`, accessible name "Blocking chain
-  of <KEY> as a graph") whenever the issue blocks or waits on an issue the
+  lead, the milestone failing the rubric). Blocked, Holds up, Stalled and
+  Unassigned are amber. Closed issues and issues of inactive projects (§2.8) get
+  none, and an inactive project's issue is quiet throughout (grey milestone mark
+  named "<status> · inactive project", no status colour on the assignee, due
+  date or time in state). Otherwise "Unassigned" (and the assignee picker's
+  empty face) is amber, as are a missing or deactivated lead and a stalled time
+  in state with its note; the due date and its countdown are red when overdue
+  and amber due today or tomorrow; an open blocker nobody holds reads
+  "Unassigned" in amber in the relation lists. The "Blocked by" heading carries
+  a **Graph** link to the same chain (`chainHref`, accessible name "Blocking
+  chain of <KEY> as a graph") whenever the issue blocks or waits on an issue the
   planner holds, before the "+ Add" picker; when nothing blocks the issue the
   link heads "Blocks" instead, never an empty "Nothing blocks this task."
   section; a guest gets it too, alone (the graph only reads). A slide-over drawn
@@ -3046,9 +3291,10 @@ LINEAR" strip at the top of the content column.
   into HTML. Comments are oldest first, a bot's or integration's muted, with
   "First 200 · more in Linear" when Linear holds more. Activity lists the
   allocation run entries about the issue (identical repeats, such as the same
-  dry-run plan every day, folded into the newest with "Seen in N runs") and the
-  created / started / completed / canceled / moved-to-state instants, newest
-  first.
+  dry-run plan every day, folded into the newest with "Seen in N runs"; a live
+  assignment's mark is green, one whose comment failed amber, a failed write
+  red, plans and skips grey) and the created / started / completed / canceled /
+  moved-to-state instants, newest first.
 - **Who.** Every signed-in person sees it (a Linear guest only the issues of
   their teams, §2.13). With `canEdit` the values are the `@better-tracker/ui`
   edit controls: `InlineTextField` (title, in the heading), `StatePicker`

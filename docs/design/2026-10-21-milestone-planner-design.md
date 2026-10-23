@@ -435,3 +435,28 @@ based on those and easily group things and move them to milestones and stuff."
   (including what allocation will now do), and Undo. A milestone group's menu raises
   or lowers its weight, which changes only the order on screen. Settings → Audit
   shows a bulk change as one line per field ("2 issues · milestone").
+
+### 2026-10-22 — keep the current look; status colours
+
+Decided by the product owner after comparing the current look side by side with
+a restyle in Gr8r Studio's own look (rounded panels, warm greys, soft shadows),
+in their words: "I like the left for the ui, just needs color updates." The
+restyle was declined; it is kept on the branch `claude/ui-reskin` for reference
+only. This refines the "risk color" of §7.1 and §7.2; nothing else changes.
+
+- **The look stays exactly as it is**: layout, spacing, type (Geist with the
+  mono uppercase labels), black hairlines, no radius, the hatching, the
+  numbered block chrome and the ink floods on hover. Only colour changes, and
+  only where something carries a status or a risk.
+- **Status colours**: red for overdue and failed; amber for at risk, blocked and
+  unassigned; green for on track and done; blue for in progress; grey for
+  inactive. They apply to the status marks, dates, timeline bars, chips,
+  alerts and the graph.
+- **Purple stays for the brand, selection and links**, and stops meaning risk
+  ("needs action" used to be the purple). The purple still marks what is new or
+  unread, the selected thing, focus, and today.
+- **Never by colour alone.** Every status keeps its shape (filled, hollow,
+  outlined or hatched square) and its words, so the screens read the same to
+  someone who cannot tell the colours apart, in either theme. Coloured text
+  reads at 4.5:1 and coloured marks at 3:1 on their real background, light and
+  dark.

@@ -101,12 +101,14 @@ import '@better-tracker/ui/styles.css';
 `--foreground`, `--border`, `--muted`, `--accent`, `--accent-hover`,
 `--on-accent`, `--accent-ink`, `--accent-ink-hover`, `--accent-ink-inverse`,
 `--ink-soft`, `--grey-2..4`, `--grey-2-ink`, `--hairline-faint`, `--hatch`,
-`--tint`, the `*-inverse` set, `--font-sans`, `--font-mono`, the easing curves),
-a small reset, and the shared classes the components use by name (`.block`,
-`.blockBar`, `.blockKey`, `.blockTitle`, `.blockMeta`, `.srOnly`, `.skipLink`,
-`.page`, `.key`, `.label`, `.muted`, `.mono`, `.accentLink`, `.button`,
-`.buttonPrimary`, `.input`, `.select`, `.textarea`, `.notice`, `.hatched`,
-`.empty`). Everything else is in CSS modules.
+`--tint`, the `*-inverse` set, the status hues `--red`, `--amber`, `--green`,
+`--blue`, `--grey` with their `-ink`, `-ink-inverse` and `--on-*` steps,
+`--font-sans`, `--font-mono`, the easing curves), the `data-tone` hook, a small
+reset, and the shared classes the components use by name (`.block`, `.blockBar`,
+`.blockKey`, `.blockTitle`, `.blockMeta`, `.srOnly`, `.skipLink`, `.page`,
+`.key`, `.label`, `.muted`, `.mono`, `.accentLink`, `.button`, `.buttonPrimary`,
+`.input`, `.select`, `.textarea`, `.notice`, `.hatched`, `.empty`). Everything
+else is in CSS modules.
 
 ### Page mode (default)
 
@@ -155,8 +157,25 @@ value in both themes). Purple **text** uses `--accent-ink` (a lighter purple in
 dark, where `#9747ff` is only 4.25:1 on the paper), `--accent-ink-hover` when
 hovered or focused, and `--accent-ink-inverse` on a `--foreground` hover flood;
 dim grey text uses `--grey-2-ink` (`--grey-2` is 3.2:1 on white, so it stays for
-separators, furniture and disabled controls). A component that floods a row with
-ink swaps these along with `--background` and `--foreground`:
+separators, furniture and disabled controls). The purple never means a status.
+
+Status has its own hues (see "Status vocabulary"): `--red`, `--amber`,
+`--green`, `--blue` and `--grey` are MARK colours (fills, outlines, bars,
+glyphs; 3:1 on the paper, the tint, the chrome's hatch line and a flood's ink,
+so they never swap in an ink flood; inside a purple flood that retints the ink
+to `--on-accent`, such as the sidebar item hover or the accent `Chip`, the block
+also turns `--red`, `--amber`, `--green` and `--grey` to `--on-accent`, since no
+hue holds 3:1 on the purple; dark `--green` steps lighter to `#1c9444` so a 1px
+on-track edge holds 4.9:1 on the black paper, and ink rather than white sits on
+its fill), `--red-ink`, `--amber-ink`, `--green-ink` and `--blue-ink` are their
+TEXT colours (4.5:1), `--<hue>-ink-inverse` the text on an ink flood, and
+`--on-<hue>` the text on a fill. Rather than naming a hue, a component puts
+`data-tone` on the element and uses the hook's `--tone` (mark), `--tone-ink`
+(text) and `--on-tone`, which `tokens.css` defines for every `UiTone`.
+
+A component that floods a row with ink swaps the text tokens along with
+`--background` and `--foreground` (`test/styles-contrast.test.ts` checks every
+such block):
 
 ```css
 .row:hover {
@@ -164,6 +183,10 @@ ink swaps these along with `--background` and `--foreground`:
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
 }
 ```
@@ -267,28 +290,59 @@ anchors for `/api/*`).
 
 ## Status vocabulary
 
-Status uses only the system's own marks, never new hues:
+Status keeps the system's square marks and colours them with the status hues
+(owner decision 2026-10-22; the full table is in `docs/architecture.md` §8.2
+"Status colours"). The shape always differs too, and the label is always there
+for assistive tech, so colour is never the only cue:
 
-| `UiStatus` | mark                                          |
-| ---------- | --------------------------------------------- |
-| `done`     | filled ink square                             |
-| `on_track` | hollow ink square                             |
-| `at_risk`  | hollow accent square (2px)                    |
-| `overdue`  | filled accent square                          |
-| `missing`  | hatched square (an input is missing)          |
-| `muted`    | prop on `StatusMark`: hollow grey, any status |
+| `UiStatus` | mark                                                     |
+| ---------- | -------------------------------------------------------- |
+| `done`     | filled ink square (never green: see below)               |
+| `on_track` | hollow square, 1px green edge                            |
+| `at_risk`  | hollow square, 2px amber edge                            |
+| `overdue`  | filled red square                                        |
+| `missing`  | hatched grey square (an input is missing)                |
+| `open`     | hollow square, 1px ink edge (no status claim of its own) |
+| `muted`    | prop on `StatusMark`: hollow, `--grey` edge, any status  |
+
+Done and overdue share the filled square, so they differ in lightness as well as
+hue: done stays ink, because a green fill is as light as the red one and the two
+would look the same without red-green vision or in greyscale. Green is the
+on-track edge and done's words.
 
 The other shared vocabularies:
 
-- `UiTone`: `default` (ink), `muted` (grey), `accent` ("needs action").
+- `UiTone`: `default` (ink), `muted` (grey: inactive, nothing to do), `accent`
+  (the purple: new, unread, selected; never a status) and the `SemanticTone`s
+  `danger` (red: overdue, failed, urgent), `warning` (amber: at risk, blocked,
+  unassigned, a missing input), `success` (green: on track, done's words,
+  succeeded) and `info` (blue: in progress, running). Components emit it as
+  `data-tone`. `Chip`, `Notice`, `AlertStrip` (default `warning`: an alert is
+  always a status, never the purple), `ProgressRule`, `RegisterRow` (a 2px left
+  rule), `RegisterCell` (the value only; the mono `sub` line under it stays
+  muted unless `toneSub` opts it in, for a reason line that is the point: a
+  blocked project's reason, a failed sync's error) and `StatsStrip` draw every
+  tone; `Button variant="danger"` is red. `Checklist` (the rubric) keeps a met
+  item the filled ink square, like done, so a missing item's hollow amber square
+  and "Missing" are the only hue in the list.
 - `TaskStateKind` (Linear's state types): `triage`, `backlog`, `unstarted`,
-  `started`, `completed`, `canceled`, drawn by `StateGlyph`.
+  `started`, `completed`, `canceled`, drawn by `StateGlyph` (in progress blue,
+  done green, triage / backlog / canceled grey, todo ink).
 - `TaskPriority`: `0` none, `1` urgent, `2` high, `3` medium, `4` low, drawn by
-  `PriorityGlyph`.
-- `ChipTone`: `default`, `muted`, `accent`, `inverse`.
-- Graph: `GraphNodeTone` (`default`, `accent`, `muted`), `GraphNodeTag`
-  (`UNASSIGNED`, `OVERDUE`, `CYCLE` or any string), `GraphEdgeKind` (`default`,
-  `risk`, `cycle`, `cross`, `resolved`).
+  `PriorityGlyph` (urgent in red).
+- `ChipTone`: any `UiTone` (a status tone is the ink chip's outline and text in
+  the hue; with `filled` a slab of the hue with its `--on-<hue>` text, for the
+  chips that were filled before the status hues), or `inverse`.
+- `ShellNavItem.countTone`: `accent` (new, unread) or a status tone (e.g.
+  `warning` for blocked projects) turns the count into a square chip in that
+  colour.
+- Graph: `GraphNodeTone` (any `UiTone`: `danger` / `warning` / `success` /
+  `info` draw a 2px rule in the hue, `muted` a faint box with its status mark in
+  grey, `accent` a purple rule for a host's own emphasis, never a status),
+  `GraphNodeTag` (`UNASSIGNED` a filled amber chip, inverted on the red flood;
+  `OVERDUE` floods the box red, `CYCLE` a dashed red outline, or any string),
+  `GraphEdgeKind` (`default`, `risk` amber, `cycle` dashed red, `cross`,
+  `resolved`). `GraphLegendMark` adds `node-warning` (the amber rule).
 - `ToastKind`: `info`, `error`. A `ToastInput` may carry `announce` (what the
   live region says in place of the visible sentence) and `onClose` (called once
   when the toast leaves the stack, however it goes).
@@ -351,21 +405,27 @@ Issues page). With none of them it renders exactly what it rendered before (a
 DOM snapshot of My week's props guards that).
 
 - **Data.** Columns `assignee` (the initials square and the name; `null` reads
-  "Unassigned" beside the same square, dashed and empty, toned by
-  `assigneeTone`: `muted` by default, `accent` when the issue needs a person)
-  and `milestone` (the milestone's name, then `milestoneProject` muted after " ·
-  " and cut first, the full "Project › Milestone" as its tooltip; `null` reads
-  "No milestone", muted). Rows: `done` (the title muted and struck through),
-  `pending` (the loading hatch under the row, `aria-busy`; the text keeps its
-  contrast) and `note` (a mono line after the title: "Moving to Dual-write…", or
-  "Not moved · …" in the accent). Groups: `count` (every match; the header and
-  section count it, `rows` may hold fewer), `mark` (a state, priority or avatar
-  glyph in the status mark's place), `tags` (square mono tokens: "Next", "↑2"),
-  `missingLabel` (a mono accent line under the heading, the checklist's
-  "missing" voice), `footer` ("Showing 12 of 212" in the empty line's mono voice
-  with host actions as accent links; a group with no rows and a footer shows
-  only the footer, not the empty line), `emptyLabel`, `droppable`. A section
-  without `label` draws no divider.
+  "Unassigned", or the row's `unassignedLabel` ("Needs assignee"), beside the
+  same square, dashed and empty, toned by `assigneeTone`: `muted` by default,
+  `warning` (amber) when the issue needs a person; give a toned placeholder its
+  own words so its hue is never the only difference), `due` (`dueTone`, plus
+  `dueNote`, the state in a word under the date in its voice and tone, "Overdue"
+  / "Tomorrow", beside it on a stacked card) and `milestone` (the milestone's
+  name, then `milestoneProject` muted after " · " and cut first, the full
+  "Project › Milestone" as its tooltip; `null` reads "No milestone", muted).
+  Rows: `done` (the title muted and struck through), `pending` (the loading
+  hatch under the row, `aria-busy`; the text keeps its contrast) and `note` (a
+  mono line after the title: "Moving to Dual-write…" muted, or "Not moved · …"
+  in its tone's text colour: the planner sends `danger`, red, for every change
+  that did not happen). Row `chips` take any `ChipTone` and `filled` (the
+  Blocked chip is the filled amber slab, as on the projects register). Groups:
+  `count` (every match; the header and section count it, `rows` may hold fewer),
+  `mark` (a state, priority or avatar glyph in the status mark's place), `tags`
+  (square mono tokens: "Next", "↑2"), `missingLabel` (a mono amber line under
+  the heading, the checklist's "missing" voice), `footer` ("Showing 12 of 212"
+  in the empty line's mono voice with host actions as accent links; a group with
+  no rows and a footer shows only the footer, not the empty line), `emptyLabel`,
+  `droppable`. A section without `label` draws no divider.
 - **`dropColumns`** (column ids, first to give way first): a table too narrow
   for its columns beside a readable title (260px) steps down at 1160, 1000 and
   860px of its own width, each step dropping as few of these as it needs
@@ -432,14 +492,15 @@ legend row meets its toolbar): one square chip per filter ("{FIELD} is
 {summary}": the field a mono key, the values in the reading voice, a mono "and"
 between), a named × each, the host's add control and Clear all (`clearDisabled`
 while the filters are the default); `renderEditor(face)` wraps a chip's face in
-the host's picker; `unknown` draws the chip's frame and values in the accent
-(needs action). Both strips pad their content by `--view-toolbar-gutter`
-(default 18px, the block chrome's; 14px on phones); a host may set it on an
-ancestor. Neither renders anything when there is nothing to show (`FilterChips`
-with no chips; `BulkBar` at 0 keeps only its empty, visually hidden live
-region). A chip removed while its × has focus hands focus to the next chip (its
-face's picker, else its ×), else the previous one; Clear all hands it to the add
-control; a host whose last chip can go places focus itself.
+the host's picker; `unknown` draws the chip's frame and values in amber (a
+missing input, beside its words "Not found"). Both strips pad their content by
+`--view-toolbar-gutter` (default 18px, the block chrome's; 14px on phones); a
+host may set it on an ancestor. Neither renders anything when there is nothing
+to show (`FilterChips` with no chips; `BulkBar` at 0 keeps only its empty,
+visually hidden live region). A chip removed while its × has focus hands focus
+to the next chip (its face's picker, else its ×), else the previous one; Clear
+all hands it to the add control; a host whose last chip can go places focus
+itself.
 
 `BulkBar` is the fixed toolbar at the bottom centre, drawn like the toasts:
 paper in a 1px ink frame, no shadow, no radius (above the shell's tab bar on
@@ -513,15 +574,18 @@ would, with the value voice's hairline frame on hover) and `bar` (a mono action
 on the bulk bar's paper that floods the accent on hover and is ink-filled while
 its popover is open). A multiple picker whose groups each hold one choice (Sort,
 Group) takes `marks="tick"`: the single picker's trailing tick instead of
-checkbox squares. `anchorPoint={{ x, y }}` opens the popover at a viewport point
-instead of under its trigger (a context menu at the pointer; a phone keeps its
-sheet). `returnFocus={() => element}` sends focus there instead of to the
-trigger when the picker closes on Esc, a choice or a close button (a picker a
-host's single-key shortcut opened from a row's title goes back to that title);
-Tab and an outside click are unchanged. A disabled option wraps, so a menu's
-note or a reason can be a whole sentence. `useModKeyLabel()` is "⌘" on Apple
-platforms and "Ctrl" elsewhere (the server renders "Ctrl"), for a host's own
-shortcut rows.
+checkbox squares. A `PickerOption.tone` colours the trigger's face text (from
+the `data-tone` hook) while that option is the value shown, a pending one
+included; `PriorityPicker` takes it per level as `priorityTones` (a list cell's
+`{ 1: 'danger' }`: "Urgent" red the moment it is picked, a pending "High" never
+red). `anchorPoint={{ x, y }}` opens the popover at a viewport point instead of
+under its trigger (a context menu at the pointer; a phone keeps its sheet).
+`returnFocus={() => element}` sends focus there instead of to the trigger when
+the picker closes on Esc, a choice or a close button (a picker a host's
+single-key shortcut opened from a row's title goes back to that title); Tab and
+an outside click are unchanged. A disabled option wraps, so a menu's note or a
+reason can be a whole sentence. `useModKeyLabel()` is "⌘" on Apple platforms and
+"Ctrl" elsewhere (the server renders "Ctrl"), for a host's own shortcut rows.
 
 ## Browser behaviour hosts should know about
 

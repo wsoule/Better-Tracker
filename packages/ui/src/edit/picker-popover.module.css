@@ -235,12 +235,20 @@
   color: var(--muted);
 }
 
-.placeholder.accent {
-  color: var(--accent-ink);
+/* A placeholder with a tone (accent, or a status: warning "Unassigned")
+   takes the tone's TEXT colour from data-tone. */
+.placeholder.toned {
+  color: var(--tone-ink);
 }
 
 .placeholder.plain {
   color: inherit;
+}
+
+/* The shown option's status tone (PickerOption.tone: a red "Urgent" in a
+   list cell), in the tone's TEXT colour from data-tone. */
+.faceText.toned {
+  color: var(--tone-ink);
 }
 
 /* Multiple values as small square tokens in the chip voice. */
@@ -488,6 +496,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
@@ -635,7 +647,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent-ink);
+  color: var(--red-ink); /* failed: the red status hue */
 }
 
 .errorText {

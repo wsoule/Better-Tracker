@@ -1,19 +1,28 @@
 import type { ReactNode } from 'react';
 
-import type { UiStatus } from '../types';
+import type { UiStatus, UiTone } from '../types';
 
 // Prop vocabulary of the graph family: a dependency graph as plain data.
 // Hosts map their own model (the planner's core DependencyGraph, Dispatch's
 // blockedBy tasks) onto these shapes in a thin adapter; nothing here knows
 // about Linear, milestones or issues.
 
-/** Node emphasis: ink hairline, the accent ("needs action"), or faint. */
-export type GraphNodeTone = 'default' | 'accent' | 'muted';
+/**
+ * Node emphasis in the status tones (docs/architecture.md §8.2): an ink
+ * hairline (default), faint (muted: closed or inactive work, its status
+ * mark in the inactive grey), or a 2px rule in the tone's status hue:
+ * danger (red: overdue), warning (amber: at risk, unassigned, needs
+ * action), success (green) or info (blue). `accent` draws the rule in the
+ * purple for a host's own emphasis; it is never a status (the graph keeps
+ * the purple for selection, hover and keyboard focus).
+ */
+export type GraphNodeTone = UiTone;
 
 /**
  * Flags drawn on a node as mono chips. OVERDUE also floods the node with
- * the accent; CYCLE adds the dashed accent outline. Any other string is
- * shown as a plain chip.
+ * the red status hue; CYCLE adds the dashed red outline (drawn from the
+ * tag); UNASSIGNED is a filled amber chip. Any other string is shown as a
+ * plain chip.
  */
 export type GraphNodeTag = 'UNASSIGNED' | 'OVERDUE' | 'CYCLE' | (string & {});
 
@@ -43,8 +52,9 @@ export interface GraphNodeData {
  * How an edge is drawn. One kind per edge; when several apply, hosts pick
  * in this precedence: resolved > cycle > risk > cross > default.
  * - default: 1px ink, the blocker blocks the waiting node
- * - risk: accent, part of a chain ending in an unassigned/overdue blocker
- * - cycle: dashed accent, both ends wait on each other
+ * - risk: amber (the warning hue), part of a chain ending in an
+ *   unassigned/overdue blocker
+ * - cycle: dashed red (the danger hue), both ends wait on each other
  * - cross: dashed ink, crosses a project (or owner) boundary
  * - resolved: --grey-3, the blocker is already closed
  */
@@ -122,7 +132,7 @@ export interface GraphLayout {
   direction: GraphDirection;
   /** Nodes in focus order: by rank, then across the rank. */
   nodes: LaidOutNode[];
-  /** Edges in paint order: resolved first, accent kinds last (on top). */
+  /** Edges in paint order: resolved first, risk and cycle last (on top). */
   edges: LaidOutEdge[];
   groups: LaidOutGroup[];
 }
@@ -188,10 +198,15 @@ export interface DependencyGraphProps {
   className?: string;
 }
 
-/** What a legend swatch draws. */
+/**
+ * What a legend swatch draws: `node-warning` the 2px amber rule (at risk,
+ * needs action), `node-overdue` the red flood, `node-cycle` the dashed red
+ * outline; `node-accent` the 2px purple rule of a host's own emphasis.
+ */
 export type GraphLegendMark =
   | 'node'
   | 'node-accent'
+  | 'node-warning'
   | 'node-overdue'
   | 'node-external'
   | 'node-cycle'
