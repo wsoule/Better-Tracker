@@ -4260,115 +4260,119 @@ links and follow-ups, new or unread, progress and the timeline's today.
     shows on the locked box when it has focus: a hover (the `--surface-2` fill),
     a focus preview (the tint and the ring), a lock (the tint, the ring and the
     ticks) and a focused lock (the tint, the focus ring and the ticks) each look
-    different. In forced colours the locked box keeps the 4px double
-    `CanvasText` rule of the box being read and its ticks in `Highlight`
-    (`forced-color-adjust: none` on the ticks alone), apart from a box pointed
-    at (the double rule alone) and the solid `Highlight` ring of what it waits
-    on. While a box is locked, pointing at or focusing another one moves nothing
-    (a hovered box off the lock's paths gets only Gr8r's `--surface-2` hover
-    fill and a thin neutral ring, 1px `--control-border` 2px out, so it still
-    reads as clickable; a box on them keeps its 2px path ring under the pointer,
-    which the ring used to replace, turning a downstream box's `--text` ring
-    purple; no state is set, so a locked graph does not re-render on hover);
-    panning by drag (from the background, or from a box past 8px of travel; a
-    drag that starts on a box also drops the trace its press's focus gave it, so
-    a pan never leaves a box lit with no lock), the wheel or a trackpad,
-    zooming, Fit and switching the highlight never drop or move it (under
-    Critical path the lock shows the longest chain through it, switching to
-    Critical path then leaves the frame where it is instead of scrolling to step
-    1, and the step control walks that chain; a box on no open chain leaves the
-    control on the chain at rest; a walked step lights over the lock until a
-    press, Escape or the background drops the walk). A **second click** (tap,
-    Enter) on the locked box **opens** it, whatever a click opened before: the
-    issue slide-over for an issue, the box panel otherwise, the lock kept.
-    Opening is idempotent, never a toggle (the planner's `open`, apart from the
-    panel rows' toggling `select`): a box already open stays open, so arriving
-    from a timeline or issue link with its panel open (`?node=`, `?issue=`), a
-    third click, Open pressed twice or a double-click on Open all leave it open
-    (each used to close it, 2026-10-23 review); closing is the panel's × and
-    Escape. When the box has a graph to drill into, a mouse's second click waits
-    out the double-click window (`DOUBLE_CLICK_MS`, 500 ms: Windows and macOS
-    count two clicks up to about 500 ms apart as a double-click, so 300 ms let a
-    slow one open the slide-over on its way down) and a tap's the double-tap
-    window (`DOUBLE_PRESS_MS`, 300 ms), so a double-click never opens it on the
-    way, while a key, and the strip's Open, open at once. The locked box carries
-    an **action strip** attached to the box, at its zoomed place but its own
-    size (`data-graph-lock-strip`, ui `lockStripPlace`): a small floating bar in
-    the step control's look (`--surface`, a 1px `--border`, `--r` corners and
-    `--shadow-pop`, since it floats over the drawing) holding Gr8r's buttons in
-    sentence case, 26px tall and at least 26px wide (32px on a coarse pointer,
-    which keeps the height so the strip covers no more of the box under it):
-    **Open** the one primary (the `--accent` fill, `--on-accent` words), **Open
-    graph** a secondary (bordered `--surface`, `--text` words, the small button
-    shadow; the drill-down, below; left out when the box has none) and an ×
-    **Unlock** ghost icon button (`--text-2`, `--surface-2` on hover). It hangs
-    4px outside the box (room for the path and focus rings), under it, over it,
-    beside it on the right or beside it on the left, in that order of
-    preference, on a side the box's own arrows do not use when beside it (left
-    to right: blockers come in on the left, what it holds up leaves on the
-    right, and the strip's surface would hide the start of the path the reader
-    locked on). A place counts only when the strip fits whole in what of the
-    frame shows on screen: the frame's own visible part (less a host panel's
-    cover), clipped to the visual viewport and kept 4px clear of the bars fixed
-    over the page's edges (`data-ui-edge-bar="top"` / `"bottom"`: the shell's
-    sticky top bar and a phone's fixed tab bar, where the strip used to sit
-    under the tab bar with no button tappable, 2026-10-23 review), and when it
-    meets nothing it must not cover: the critical path's step control over the
-    frame's bottom-left corner (it used to be drawn over it, z-index 4 over 3,
-    hiding ‹ and › there). Of the places that count, the one covering the least
-    of the words nearby wins (other boxes' words and frame titles,
-    `data-graph-words`, less 2px of leading, measured once per lock and zoom: in
-    a dense drawing the gap between two rows, 12 to 22px, is narrower than the
-    strip), the earlier on a tie; with none, the one most on screen (a box half
-    out of the frame's corner may then cover the step control rather than hang
-    off screen). Under or over the box it is slid across to stay inside the
-    visible frame, beside it up or down, never off the box's side and never on
-    the box itself. Measured on the showcase's issue level (50 locks centred in
-    the frame, the strip hiding at least 40% of another line's glyphs): 2 → 0 at
-    100%, 10 → 3 at 83% and 24 → 7 at 58% (frame titles 5 → 1 and 9 → 2), the
-    rest where every side covers some words. It is placed again on every scroll
-    of the frame or the page, every resize of the window or the visual viewport
-    and whenever the step control comes or goes, straight on the element, which
-    finds the canvas and the frame from itself (a lock from the URL draws it in
-    the graph's first render, before the graph's refs are attached, and it was
-    never placed again: it stayed under the box whatever the scroll). It follows
-    the boxes in the DOM, so Tab from the box reaches Open, Open graph and
-    Unlock. The **readout** leads with "Locked on <name>" (the lead-in semibold
-    in `--accent-ink`) and the same three as small inline buttons, 24px tall
-    ("Open" the primary, "Open its graph" a secondary, "Unlock" a ghost), then
-    the box's paths. **Unlock**: Escape (one Escape for the lock; a host panel's
-    own Escape waits for the next; from anywhere on the page, not only from
-    inside the graph, since a drag on the background leaves focus on the page,
-    unless an open panel, a menu or a text field nearer to the key takes it
-    first), a click or tap on the background (not the end of a pan, which
-    swallows its click), Unlock on the strip or in the readout, or locking
-    another box (a click on another box moves the lock). A screen reader hears
-    the lock once, in a polite status line ("Locked on ENG-23 Typo tolerance.",
-    "Unlocked."; the readout stays plain), and the box exposes it
-    (`aria-pressed` on a button box, which meant the selection before;
-    `aria-current` on a link or plain box). The key help names Enter, Shift +
-    Enter ("opens its graph (the box itself when it has none)": on a box with no
-    graph it locks and opens the box, as a double-click does there; it used to
-    do nothing), Tab and Escape, and the touch gestures. While a box is locked a
-    new selection from a panel (a "Waits on" row, a drawer's link to another
-    issue) moves the lock to it, so the canvas lights what the panel shows. The
-    lock never moves a box or lays anything out again. **In the URL**:
-    `?lock=<id>` (an issue by its identifier, `lockParam`; read by id, else by
-    identifier in any case, `lockedNodeId`), written in place with `?highlight=`
-    (`addressHref`, the lock before the highlight, `withLockParam` keeping its
-    place), so a reload, Back and Forward and a shared link keep it and a lock
-    leaves no history entry of its own; dropped when the box is not drawn;
-    carried on the graph's own links (level tabs, trail, panel and
-    narrower-graph links: `carryLock`), where the next graph keeps it only if it
-    draws that box; never on a drill-down link. The first paint centres the
-    locked box (before the focus and the selection). The island reads and writes
-    the URL only while it is its own page (`scopeQuery`: Back and Forward render
-    the page being left with the arriving entry's URL, and its writes used to
-    wipe that entry's `?lock=`). **Touch** (`pointerType` touch only, not
-    width): a tap locks (it used to trace without locking), a second tap on the
-    locked box opens it, two taps within 300 ms drill down, a tap on the
-    background or Escape unlocks; the focus a tap gives a box in Chromium never
-    traces on its own, and a tap after an unlock is never half of a double tap.
+    different. The hover fill never reaches the locked box (its rule leaves out
+    `.locked`, as it does a selected or overdue box), so the lock keeps its tint
+    with the pointer still on it, right after the click that made it (it showed
+    the grey hover fill there, 2026-10-23 review). In forced colours the locked
+    box keeps the 4px double `CanvasText` rule of the box being read and its
+    ticks in `Highlight` (`forced-color-adjust: none` on the ticks alone), apart
+    from a box pointed at (the double rule alone) and the solid `Highlight` ring
+    of what it waits on. While a box is locked, pointing at or focusing another
+    one moves nothing (a hovered box off the lock's paths gets only Gr8r's
+    `--surface-2` hover fill and a thin neutral ring, 1px `--control-border` 2px
+    out, so it still reads as clickable; a box on them keeps its 2px path ring
+    under the pointer, which the ring used to replace, turning a downstream
+    box's `--text` ring purple; no state is set, so a locked graph does not
+    re-render on hover); panning by drag (from the background, or from a box
+    past 8px of travel; a drag that starts on a box also drops the trace its
+    press's focus gave it, so a pan never leaves a box lit with no lock), the
+    wheel or a trackpad, zooming, Fit and switching the highlight never drop or
+    move it (under Critical path the lock shows the longest chain through it,
+    switching to Critical path then leaves the frame where it is instead of
+    scrolling to step 1, and the step control walks that chain; a box on no open
+    chain leaves the control on the chain at rest; a walked step lights over the
+    lock until a press, Escape or the background drops the walk). A **second
+    click** (tap, Enter) on the locked box **opens** it, whatever a click opened
+    before: the issue slide-over for an issue, the box panel otherwise, the lock
+    kept. Opening is idempotent, never a toggle (the planner's `open`, apart
+    from the panel rows' toggling `select`): a box already open stays open, so
+    arriving from a timeline or issue link with its panel open (`?node=`,
+    `?issue=`), a third click, Open pressed twice or a double-click on Open all
+    leave it open (each used to close it, 2026-10-23 review); closing is the
+    panel's × and Escape. When the box has a graph to drill into, a mouse's
+    second click waits out the double-click window (`DOUBLE_CLICK_MS`, 500 ms:
+    Windows and macOS count two clicks up to about 500 ms apart as a
+    double-click, so 300 ms let a slow one open the slide-over on its way down)
+    and a tap's the double-tap window (`DOUBLE_PRESS_MS`, 300 ms), so a
+    double-click never opens it on the way, while a key, and the strip's Open,
+    open at once. The locked box carries an **action strip** attached to the
+    box, at its zoomed place but its own size (`data-graph-lock-strip`, ui
+    `lockStripPlace`): a small floating bar in the step control's look
+    (`--surface`, a 1px `--border`, `--r` corners and `--shadow-pop`, since it
+    floats over the drawing) holding Gr8r's buttons in sentence case, 26px tall
+    and at least 26px wide (32px on a coarse pointer, which keeps the height so
+    the strip covers no more of the box under it): **Open** the one primary (the
+    `--accent` fill, `--on-accent` words), **Open graph** a secondary (bordered
+    `--surface`, `--text` words, the small button shadow; the drill-down, below;
+    left out when the box has none) and an × **Unlock** ghost icon button
+    (`--text-2`, `--surface-2` on hover). It hangs 4px outside the box (room for
+    the path and focus rings), under it, over it, beside it on the right or
+    beside it on the left, in that order of preference, on a side the box's own
+    arrows do not use when beside it (left to right: blockers come in on the
+    left, what it holds up leaves on the right, and the strip's surface would
+    hide the start of the path the reader locked on). A place counts only when
+    the strip fits whole in what of the frame shows on screen: the frame's own
+    visible part (less a host panel's cover), clipped to the visual viewport and
+    kept 4px clear of the bars fixed over the page's edges
+    (`data-ui-edge-bar="top"` / `"bottom"`: the shell's sticky top bar and a
+    phone's fixed tab bar, where the strip used to sit under the tab bar with no
+    button tappable, 2026-10-23 review), and when it meets nothing it must not
+    cover: the critical path's step control over the frame's bottom-left corner
+    (it used to be drawn over it, z-index 4 over 3, hiding ‹ and › there). Of
+    the places that count, the one covering the least of the words nearby wins
+    (other boxes' words and frame titles, `data-graph-words`, less 2px of
+    leading, measured once per lock and zoom: in a dense drawing the gap between
+    two rows, 12 to 22px, is narrower than the strip), the earlier on a tie;
+    with none, the one most on screen (a box half out of the frame's corner may
+    then cover the step control rather than hang off screen). Under or over the
+    box it is slid across to stay inside the visible frame, beside it up or
+    down, never off the box's side and never on the box itself. Measured on the
+    showcase's issue level (50 locks centred in the frame, the strip hiding at
+    least 40% of another line's glyphs): 2 → 0 at 100%, 10 → 3 at 83% and 24 → 7
+    at 58% (frame titles 5 → 1 and 9 → 2), the rest where every side covers some
+    words. It is placed again on every scroll of the frame or the page, every
+    resize of the window or the visual viewport and whenever the step control
+    comes or goes, straight on the element, which finds the canvas and the frame
+    from itself (a lock from the URL draws it in the graph's first render,
+    before the graph's refs are attached, and it was never placed again: it
+    stayed under the box whatever the scroll). It follows the boxes in the DOM,
+    so Tab from the box reaches Open, Open graph and Unlock. The **readout**
+    leads with "Locked on <name>" (the lead-in semibold in `--accent-ink`) and
+    the same three as small inline buttons, 24px tall ("Open" the primary, "Open
+    its graph" a secondary, "Unlock" a ghost), then the box's paths. **Unlock**:
+    Escape (one Escape for the lock; a host panel's own Escape waits for the
+    next; from anywhere on the page, not only from inside the graph, since a
+    drag on the background leaves focus on the page, unless an open panel, a
+    menu or a text field nearer to the key takes it first), a click or tap on
+    the background (not the end of a pan, which swallows its click), Unlock on
+    the strip or in the readout, or locking another box (a click on another box
+    moves the lock). A screen reader hears the lock once, in a polite status
+    line ("Locked on ENG-23 Typo tolerance.", "Unlocked."; the readout stays
+    plain), and the box exposes it (`aria-pressed` on a button box, which meant
+    the selection before; `aria-current` on a link or plain box). The key help
+    names Enter, Shift + Enter ("opens its graph (the box itself when it has
+    none)": on a box with no graph it locks and opens the box, as a double-click
+    does there; it used to do nothing), Tab and Escape, and the touch gestures.
+    While a box is locked a new selection from a panel (a "Waits on" row, a
+    drawer's link to another issue) moves the lock to it, so the canvas lights
+    what the panel shows. The lock never moves a box or lays anything out again.
+    **In the URL**: `?lock=<id>` (an issue by its identifier, `lockParam`; read
+    by id, else by identifier in any case, `lockedNodeId`), written in place
+    with `?highlight=` (`addressHref`, the lock before the highlight,
+    `withLockParam` keeping its place), so a reload, Back and Forward and a
+    shared link keep it and a lock leaves no history entry of its own; dropped
+    when the box is not drawn; carried on the graph's own links (level tabs,
+    trail, panel and narrower-graph links: `carryLock`), where the next graph
+    keeps it only if it draws that box; never on a drill-down link. The first
+    paint centres the locked box (before the focus and the selection). The
+    island reads and writes the URL only while it is its own page (`scopeQuery`:
+    Back and Forward render the page being left with the arriving entry's URL,
+    and its writes used to wipe that entry's `?lock=`). **Touch** (`pointerType`
+    touch only, not width): a tap locks (it used to trace without locking), a
+    second tap on the locked box opens it, two taps within 300 ms drill down, a
+    tap on the background or Escape unlocks; the focus a tap gives a box in
+    Chromium never traces on its own, and a tap after an unlock is never half of
+    a double tap.
   - **Drill down** (owner request 2026-10-23: "when I double click on the graph
     item, it should take me to that items graph so I can quickly drill down"). A
     **double-click** on a box (a double tap, Shift + Enter, or its strip's and

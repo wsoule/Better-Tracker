@@ -746,18 +746,19 @@ or middle click still opens the link.
   highlight. While a node is locked, pointing at or focusing another moves
   nothing (CSS gives a hovered box off the lock's paths the `--surface-2` hover
   fill and a thin neutral ring, 1px `--control-border` 2px out, a box on them
-  keeps its path ring, and no state is set, so a locked graph does not re-render
-  on hover). A second press on the locked node opens it (`onSelect`, else its
-  link; a node that opens nothing is unlocked instead). `onSelect` may be called
-  again for the node already open (a third click, Open pressed twice), so a host
-  must open, never toggle (the planner's panel used to close). A mouse's second
-  click waits out `DOUBLE_CLICK_MS` (500 ms, the longest common double-click
-  time) and a tap's `DOUBLE_PRESS_MS` (300 ms) when the node has a `drillHref`,
-  so a double-click never opens it on the way, and a key opens at once. The
-  locked node gets its own mark (`data-locked`, `data-lock-mark`: four rounded
-  2px accent corner ticks inside the box, over the tint and ring of the node
-  being read, never a ring of its own, so the keyboard focus ring still shows on
-  it and a focus preview, a lock and a focused lock look different; in forced
+  keeps its path ring, the locked box itself keeps its accent tint under the
+  pointer, and no state is set, so a locked graph does not re-render on hover).
+  A second press on the locked node opens it (`onSelect`, else its link; a node
+  that opens nothing is unlocked instead). `onSelect` may be called again for
+  the node already open (a third click, Open pressed twice), so a host must
+  open, never toggle (the planner's panel used to close). A mouse's second click
+  waits out `DOUBLE_CLICK_MS` (500 ms, the longest common double-click time) and
+  a tap's `DOUBLE_PRESS_MS` (300 ms) when the node has a `drillHref`, so a
+  double-click never opens it on the way, and a key opens at once. The locked
+  node gets its own mark (`data-locked`, `data-lock-mark`: four rounded 2px
+  accent corner ticks inside the box, over the tint and ring of the node being
+  read, never a ring of its own, so the keyboard focus ring still shows on it
+  and a focus preview, a lock and a focused lock look different; in forced
   colours the double rule of the node being read plus `Highlight` ticks) and an
   action strip riding the box (`data-graph-lock-strip`: a small floating
   `--surface` bar with `--r` corners and `--shadow-pop` holding Gr8r buttons in

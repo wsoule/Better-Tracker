@@ -839,7 +839,9 @@ div.node {
 }
 
 /* Gr8r's hover: the --surface-2 fill, nothing else moves. A tinted
-   overdue box keeps its tint, and a selected one its own fill. While a
+   overdue box keeps its tint, a selected one its own fill, and the locked
+   box its accent tint, so a lock reads as a lock (tint, ring and ticks)
+   with the pointer still on it, right after the click that made it. While a
    box is locked (data-locked on the graph) the lock keeps the paths:
    another box under the pointer also gets a thin neutral ring (1px
    --control-border, 2px out), so it still reads as clickable without
@@ -847,7 +849,7 @@ div.node {
    path ring under the pointer (the thin ring would replace it), and a
    focused box its focus ring. */
 @media (hover: hover) and (width >= 901px) {
-  .node:not(.selected, .overdueNode):hover {
+  .node:not(.selected, .overdueNode, .locked):hover {
     background: var(--surface-2);
   }
 

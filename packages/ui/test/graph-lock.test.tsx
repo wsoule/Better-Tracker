@@ -1311,9 +1311,9 @@ describe('the lock’s look (dependency-graph.module.css)', () => {
   test('while locked a hover only fills a box and rings it thinly, never moves the trace', () => {
     // Gr8r's hover is the --surface-2 fill, the same locked or not: it is
     // never a flood, so it needs no lock guard.
-    expect(rule(sheet, '.node:not(.selected, .overdueNode):hover')).toBe(
-      'background: var(--surface-2);'
-    );
+    expect(
+      rule(sheet, '.node:not(.selected, .overdueNode, .locked):hover')
+    ).toBe('background: var(--surface-2);');
     expect(sheet).not.toContain(':where(.graph:not([data-locked]))');
     // A box off the locked box's paths also gets a thin neutral ring; one
     // on them keeps its 2px ring under the pointer, a focused one its
@@ -1324,6 +1324,32 @@ describe('the lock’s look (dependency-graph.module.css)', () => {
         ':where(.graph[data-locked]) .node:not(.locked, .lit, .down, .chain, :focus-visible):hover'
       )
     ).toBe('outline: 1px solid var(--control-border); outline-offset: 2px;');
+  });
+
+  test('the locked box keeps its accent tint under the pointer', () => {
+    // The click that locks a box leaves the pointer on it: the hover fill
+    // must not replace the tint there, or the lock reads as a hovered box
+    // with a ring. The tint is the box being read's rule (the locked box
+    // is always the box being read); no hover rule may reach the locked
+    // box's background.
+    expect(rule(sheet, '.node.pointed:not(.selected, .overdueNode)')).toBe(
+      'background: linear-gradient(var(--accent-soft), var(--accent-soft)) var(--surface);'
+    );
+    const hovers = [
+      ...sheet.matchAll(/([^{}]*:hover[^{}]*)\{([^}]*)\}/g),
+    ].filter(([, , body]) => /background/.test(body ?? ''));
+    const nodeHovers = hovers
+      .map(([, selector]) => (selector ?? '').trim())
+      .filter((selector) => selector.includes('.node'));
+    expect(nodeHovers).toEqual([
+      '.node:not(.selected, .overdueNode, .locked):hover',
+    ]);
+    // And the locked box is the box being read, so it carries .pointed.
+    const { container } = renderChain();
+    click(nodeEl(container, 'ENG-23'));
+    const box = nodeEl(container, 'ENG-23');
+    expect(box.getAttribute('data-locked')).toBe('');
+    expect(box.getAttribute('data-pointed')).toBe('');
   });
 
   test('the strip is Gr8r: a floating bar of sentence-case buttons, Open the primary', () => {

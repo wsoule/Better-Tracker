@@ -242,7 +242,10 @@ describe('DependencyGraph colours (dependency-graph.module.css)', () => {
   });
 
   test('hover is Gr8r’s --surface-2 fill, never the accent flood', () => {
-    const hover = rule(sheet, '.node:not(.selected, .overdueNode):hover');
+    const hover = rule(
+      sheet,
+      '.node:not(.selected, .overdueNode, .locked):hover'
+    );
     expect(hover).toBe('background: var(--surface-2);');
     // The one accent fill is the lock strip's Open, the primary button.
     expect(sheet.match(/background: var\(--accent\);/g)).toHaveLength(1);
