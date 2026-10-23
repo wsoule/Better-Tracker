@@ -13,6 +13,7 @@ export {
   DEFAULT_APP_NAME,
   DEFAULT_DAILY_LEASE_MINUTES,
   type EngineEnv,
+  fixtureDatasetFromEnv,
   isFixtureEnv,
   loadEngineConfigFromEnv,
 } from './config';

@@ -4,6 +4,7 @@
 // once instead of failing one variable per restart.
 
 import { isValidTimeZone } from '@better-tracker/core';
+import type { FixtureDataset } from '@better-tracker/linear';
 import { parseEncryptionKey } from '@better-tracker/store';
 
 import type { EngineConfig } from './types';
@@ -52,13 +53,26 @@ function read(env: EngineEnv, name: string): string | null {
 }
 
 /**
- * Whether `LINEAR_FIXTURE` turns on demo mode. Accepts `1`/`true` (on) and
- * `0`/`false`/unset (off); anything else is reported by
- * loadEngineConfigFromEnv, and reads as off here.
+ * Which demo workspace `LINEAR_FIXTURE` selects, or null for real mode:
+ * `1`/`true` the base workspace (`createFixtureStore`), `showcase` the
+ * larger showcase (`createShowcaseStore`), `0`/`false`/unset neither, in
+ * any case. Anything else is reported by loadEngineConfigFromEnv, and
+ * reads as real mode here.
+ */
+export function fixtureDatasetFromEnv(env: EngineEnv): FixtureDataset | null {
+  const value = read(env, 'LINEAR_FIXTURE')?.toLowerCase();
+  if (value === '1' || value === 'true') return 'base';
+  if (value === 'showcase') return 'showcase';
+  return null;
+}
+
+/**
+ * Whether `LINEAR_FIXTURE` turns on demo mode, with either demo workspace
+ * (fixtureDatasetFromEnv). Every "is this demo mode" check goes through
+ * this, so `showcase` is demo mode everywhere `1` is.
  */
 export function isFixtureEnv(env: EngineEnv): boolean {
-  const value = read(env, 'LINEAR_FIXTURE')?.toLowerCase();
-  return value === '1' || value === 'true';
+  return fixtureDatasetFromEnv(env) !== null;
 }
 
 // Splits a comma-separated list, dropping blanks and repeats.
@@ -121,7 +135,8 @@ export function retiredEnvVariables(env: EngineEnv): string[] {
 
 /**
  * Builds the EngineConfig from the environment and validates every variable
- * the engine reads. Demo mode (`LINEAR_FIXTURE=1`) needs nothing: APP_URL
+ * the engine reads. Demo mode (`LINEAR_FIXTURE=1`, or `showcase` for the
+ * larger demo workspace) needs nothing: APP_URL
  * defaults to http://localhost:3000 and OAuth is off. Otherwise APP_URL,
  * TOKEN_ENCRYPTION_KEY, LINEAR_CLIENT_ID and LINEAR_CLIENT_SECRET are
  * required. Throws one Error listing every missing or invalid variable.
@@ -133,9 +148,11 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
   const fixtureRaw = read(env, 'LINEAR_FIXTURE')?.toLowerCase() ?? null;
   if (
     fixtureRaw !== null &&
-    !['1', 'true', '0', 'false'].includes(fixtureRaw)
+    !['1', 'true', '0', 'false', 'showcase'].includes(fixtureRaw)
   ) {
-    problems.push('LINEAR_FIXTURE must be 1 (demo mode) or 0');
+    problems.push(
+      'LINEAR_FIXTURE must be 1 (demo mode), showcase (demo mode with the larger showcase workspace) or 0'
+    );
   }
 
   const appName = read(env, 'APP_NAME') ?? DEFAULT_APP_NAME;

@@ -28,7 +28,8 @@
   and no edit controls. Every new write path must call it; do not add any other
   permission distinction.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
-  workspace). Tests never call real Linear or Slack.
+  workspace; `LINEAR_FIXTURE=showcase` serves the large showcase workspace, made
+  for the live demo). Tests never call real Linear or Slack.
 - UI: layout and interaction follow Gr8r Studio (sidebar shell, command palette,
   grouped lists, Gantt timeline, slide-over drawer); the visual language follows
   the wsoule/Analytics `competitors-site` design system (tokens in

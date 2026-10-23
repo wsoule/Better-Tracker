@@ -329,8 +329,17 @@ Optional: `APP_NAME`, `LOG_LEVEL` (`debug` / `info` / `warn` / `error`),
 `SESSION_DAYS` (default 30) and `TICK_TIMEOUT_MINUTES` (default 10, at most 14).
 `PM_EMAILS` is no longer used (there is no PM role, design §12): remove it. A
 service that still has it boots normally and logs one warning saying so. **Never
-set `LINEAR_FIXTURE` in production**: it switches to the fictional demo
-workspace. `PGLITE_DIR` is not used when `DATABASE_URL` is set.
+set `LINEAR_FIXTURE` in production**: either value (`1`, or `showcase` for the
+large showcase workspace) switches to a fictional demo workspace. `PGLITE_DIR`
+is not used when `DATABASE_URL` is set.
+
+A public demo deployment is the one exception: it sets `LINEAR_FIXTURE` on both
+services (planner and worker; each builds its own in-memory copy), `1` for the
+small scenario workspace or `showcase` for the large one. The graph draws every
+issue, and the showcase's whole-workspace issue level (406 boxes, 247 arrows) is
+well inside the 700-box and 1,000-arrow draw limits, so visitors' edits do not
+tip it into "Too many to draw" (`docs/architecture.md` §4 "Showcase demo
+workspace").
 
 **Migrations run on boot.** Each service applies pending migrations when it
 starts, and every worker run applies them too. A Postgres advisory lock
@@ -574,8 +583,9 @@ More items from the research to confirm along the way:
 
 ## Appendix: running locally against real Linear
 
-Demo mode needs nothing (`LINEAR_FIXTURE=1`, see `README.md`). To try the real
-integration locally:
+Demo mode needs nothing (`LINEAR_FIXTURE=1`, or `LINEAR_FIXTURE=showcase` for
+the large showcase workspace, see `README.md`). To try the real integration
+locally:
 
 1. Register `http://localhost:3000/api/auth/linear/callback` on the Linear app.
 2. Copy `.env.example` to `apps/planner/.env.local` and fill it in. `*.local`

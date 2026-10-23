@@ -43,6 +43,12 @@ cd apps/planner && LINEAR_FIXTURE=1 ./node_modules/.bin/next dev
 # open http://localhost:3000 and pick a demo user
 ```
 
+`LINEAR_FIXTURE=showcase` serves a much larger version of the same fictional
+workspace (21 projects, about 400 issues and 250 blocking relations), made for
+the live demo; `1` is the small scenario workspace the tests pin. The graph
+draws all of it at every level (see `docs/architecture.md` §4 "Showcase demo
+workspace", "Draw budget").
+
 ## Layout
 
 ```

@@ -13,7 +13,11 @@ import { useState } from 'react';
 import { DependencyGraph } from '../src/graph/dependency-graph';
 import { GraphLegend } from '../src/graph/graph-legend';
 import { layoutGraph } from '../src/graph/layout';
-import type { DependencyGraphProps, GraphLayout } from '../src/graph/types';
+import type {
+  DependencyGraphProps,
+  GraphLayout,
+  LaidOutGroup,
+} from '../src/graph/types';
 import { MILESTONE_EDGES, MILESTONES } from './graph-fixture';
 
 afterEach(cleanup);
@@ -779,6 +783,124 @@ describe('DependencyGraph: a host layout and a focus node', () => {
       unstub();
       restore();
     }
+  });
+
+  test('with nothing to centre on, a big graph opens where its flow starts', () => {
+    // dagre's empty corner: every box sits 1000px down, so (0, 0) would
+    // show the frame empty until Fit.
+    const base = layoutGraph(MILESTONES, MILESTONE_EDGES);
+    const layout: GraphLayout = {
+      ...base,
+      height: base.height + 1000,
+      nodes: base.nodes.map((n) => ({ ...n, y: n.y + 1000 })),
+    };
+    const restore = sizeViewport(300, 200);
+    try {
+      const { container } = renderGraph({ layout });
+      const viewport = viewportOf(container);
+      expect(viewport.scrollLeft).toBe(0);
+      expect(viewport.scrollTop).toBeGreaterThanOrEqual(1000 - 16);
+      const top = viewport.scrollTop;
+      // The first layer's boxes show whole in the frame.
+      const whole = layout.nodes.filter(
+        (n) => n.x + n.width <= 300 && n.y >= top && n.y + n.height <= top + 200
+      );
+      expect(whole.length).toBeGreaterThan(0);
+      expect(whole.every((n) => n.rank === 0)).toBe(true);
+      // The band starts at a box: its first box sits just under the top.
+      const first = Math.min(...whole.map((n) => n.y));
+      expect(Math.abs(first - top - 16)).toBeLessThanOrEqual(0.5);
+    } finally {
+      restore();
+    }
+  });
+
+  // A framed layout (owner decision 2026-10-23: every item drawn, framed by
+  // parent) packs its frames from the top-left: the first frame, holding
+  // the first box in reading order, is where it opens. Two frames of the
+  // fixture's boxes placed by hand: the first holds nodes 0 and 1 at
+  // `firstY` and `firstY + 100`, the second the other ten in one column
+  // from `restY`, 90px apart, so a later band always holds more boxes.
+  function framedLayout(firstY: number, restY: number): GraphLayout {
+    const base = layoutGraph(MILESTONES, MILESTONE_EDGES);
+    const first: LaidOutGroup = {
+      id: 'first',
+      label: 'First',
+      kind: 'cluster',
+      depth: 0,
+      x: 24,
+      y: 24,
+      width: 600,
+      height: firstY + 200,
+    };
+    const rest: LaidOutGroup = {
+      id: 'rest',
+      label: 'Rest',
+      kind: 'cluster',
+      depth: 0,
+      x: 24,
+      y: restY - 20,
+      width: 600,
+      height: 10 * 90 + 40,
+    };
+    const nodes = base.nodes.map((n, i) => ({
+      ...n,
+      x: 36,
+      y: i < 2 ? firstY + i * 100 : restY + (i - 2) * 90,
+    }));
+    return {
+      ...base,
+      width: 648,
+      height: rest.y + rest.height + 24,
+      nodes,
+      edges: [],
+      groups: [first, rest],
+      clustered: true,
+    };
+  }
+
+  test('a framed graph opens on its first frame, not on a fuller later band', () => {
+    // The second frame's band holds 3 whole boxes, the first frame's 2:
+    // the first frame shows its boxes at the origin, so nothing moves.
+    const layout = framedLayout(60, 420);
+    const restore = sizeViewport(700, 300);
+    try {
+      const { container } = renderGraph({ layout });
+      expect(viewportOf(container).scrollLeft).toBe(0);
+      expect(viewportOf(container).scrollTop).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a first frame with its boxes below the fold opens on them', () => {
+    // The first frame's two boxes sit 1000px down inside it; a band of the
+    // later frame would show three whole boxes, but the first frame's band
+    // (both of its boxes, 16px under the top) is where it opens.
+    const layout = framedLayout(1000, 1470);
+    const restore = sizeViewport(700, 300);
+    try {
+      const { container } = renderGraph({ layout });
+      const viewport = viewportOf(container);
+      expect(viewport.scrollLeft).toBe(0);
+      expect(viewport.scrollTop).toBe(1000 - 16);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a graph that fits its frame, or a frame with no size, scrolls nothing', () => {
+    const restore = sizeViewport(4000, 4000);
+    try {
+      const { container } = renderGraph();
+      expect(viewportOf(container).scrollLeft).toBe(0);
+      expect(viewportOf(container).scrollTop).toBe(0);
+    } finally {
+      restore();
+    }
+    // No size (not laid out yet): nothing to place a box against.
+    const { container } = renderGraph();
+    expect(viewportOf(container).scrollTop).toBe(0);
   });
 
   test('a focus or selection that is not drawn scrolls nothing', () => {

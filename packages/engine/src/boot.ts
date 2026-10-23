@@ -1,7 +1,8 @@
 // createEngineFromEnv (§7.1, §10): builds the same engine for the web app
-// and the worker from environment variables. Demo mode (LINEAR_FIXTURE=1)
-// runs entirely in memory over the fictional fixture workspace; real mode
-// talks to Linear through stored OAuth tokens.
+// and the worker from environment variables. Demo mode (LINEAR_FIXTURE=1,
+// or LINEAR_FIXTURE=showcase for the larger showcase workspace) runs
+// entirely in memory over a fictional demo workspace; real mode talks to
+// Linear through stored OAuth tokens.
 
 import {
   defaultSettings,
@@ -9,7 +10,8 @@ import {
   todayIn,
 } from '@better-tracker/core';
 import {
-  createFixtureStore,
+  createDemoStore,
+  demoMilestoneMeta,
   type FetchLike,
   FIXTURE_APP_USER_ID,
   FIXTURE_INSTALLER_USER_ID,
@@ -34,7 +36,7 @@ import { randomBytes } from 'node:crypto';
 import {
   DEFAULT_PGLITE_DIR,
   type EngineEnv,
-  isFixtureEnv,
+  fixtureDatasetFromEnv,
   loadEngineConfigFromEnv,
   RETIRED_ENV_VARIABLES,
   retiredEnvVariables,
@@ -74,15 +76,17 @@ function read(env: EngineEnv, name: string): string | undefined {
 /**
  * Seeds demo mode: the fake installation (acting as FIXTURE_APP_USER_ID,
  * installed by FIXTURE_INSTALLER_USER_ID), settings (watchers = the
- * fixture's watchers, dry run, preview) and the fixture's "done
- * means…"/weight meta, each only where nothing is saved yet, then a full
- * sync from the fixture workspace.
+ * fixture's watchers, dry run, preview) and the demo workspace's "done
+ * means…"/weight meta (`milestoneMeta`, the base fixture's by default;
+ * both demo workspaces share the installation, people and watchers), each
+ * only where nothing is saved yet, then a full sync from the workspace.
  */
 export async function seedDemoWorkspace(input: {
   engine: Engine;
   store: Store;
   defaultTimezone: string;
   now: () => Date;
+  milestoneMeta?: readonly (typeof FIXTURE_MILESTONE_META)[number][];
 }): Promise<void> {
   const { store } = input;
   const workspaceId = FIXTURE_WORKSPACE.id;
@@ -117,7 +121,7 @@ export async function seedDemoWorkspace(input: {
   const saved = new Set(
     (await store.listMilestoneMeta(workspaceId)).map((meta) => meta.milestoneId)
   );
-  for (const meta of FIXTURE_MILESTONE_META) {
+  for (const meta of input.milestoneMeta ?? FIXTURE_MILESTONE_META) {
     if (saved.has(meta.milestoneId)) continue;
     await store.upsertMilestoneMeta(workspaceId, {
       milestoneId: meta.milestoneId,
@@ -139,7 +143,8 @@ export async function createEngineFromEnv(
   options: CreateEngineFromEnvOptions = {}
 ): Promise<Engine> {
   const config = loadEngineConfigFromEnv(env);
-  const fixture = isFixtureEnv(env);
+  const dataset = fixtureDatasetFromEnv(env);
+  const fixture = dataset !== null;
   const now = options.now ?? ((): Date => new Date());
   const logger =
     options.logger ?? createLogger({ name: 'engine', level: logLevel(env) });
@@ -166,9 +171,11 @@ export async function createEngineFromEnv(
   try {
     await store.migrate();
     let linear: LinearProvider;
-    let fixtureStore: FixtureStore | null = null;
-    if (fixture) {
-      fixtureStore = createFixtureStore(todayIn(config.defaultTimezone, now()));
+    if (dataset !== null) {
+      const fixtureStore: FixtureStore = createDemoStore(
+        todayIn(config.defaultTimezone, now()),
+        dataset
+      );
       fixtureStore.now = now;
       linear = createFixtureLinearProvider(fixtureStore);
       if (providedKey === undefined && pgliteDir !== undefined) {
@@ -208,16 +215,18 @@ export async function createEngineFromEnv(
       now,
       fetch: options.fetch,
     });
-    if (fixtureStore !== null) {
+    if (dataset !== null) {
       await seedDemoWorkspace({
         engine,
         store,
         defaultTimezone: config.defaultTimezone,
         now,
+        milestoneMeta: demoMilestoneMeta(dataset),
       });
     }
     logger.info('engine ready', {
       mode: engine.mode,
+      ...(dataset === null ? {} : { demoWorkspace: dataset }),
       channel: channel.name,
       appUrl: config.appUrl,
     });

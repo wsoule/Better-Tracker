@@ -166,7 +166,7 @@ export function processStopSignal(
 }
 
 /**
- * Demo mode (LINEAR_FIXTURE=1) never uses DATABASE_URL (architecture §7.1)
+ * Demo mode (LINEAR_FIXTURE=1 or showcase) never uses DATABASE_URL (§7.1)
  * and, without PGLITE_DIR, keeps everything in memory: every run starts
  * from a fresh database, so the "once per day" claim cannot carry over to
  * the next process. Says so instead of letting it surprise an operator.

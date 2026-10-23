@@ -36,6 +36,7 @@ import type {
   GraphClusterData,
   GraphEdgeKind,
   GraphHighlight,
+  GraphLayout,
   GraphNodeData,
   GraphNodeTone,
   LaidOutEdge,
@@ -71,6 +72,97 @@ function coveredPart(viewport: HTMLElement, width: number): number {
   return viewport.clientWidth - covered >= MIN_UNCOVERED
     ? Math.round(covered)
     : 0;
+}
+
+/**
+ * The boxes a framed drawing opens on: those of the top-level frame that
+ * holds the first box in reading order (layoutGraph lists a clustered
+ * layout's boxes frame by frame, and packs the frames from the top-left),
+ * or, when that box sits in no frame, the loose boxes at the top level.
+ */
+function firstFrameNodes(layout: GraphLayout): readonly LaidOutNode[] {
+  const first = layout.nodes[0];
+  if (first === undefined) return [];
+  const within = (n: LaidOutNode, g: LaidOutGroup) =>
+    n.x >= g.x &&
+    n.y >= g.y &&
+    n.x + n.width <= g.x + g.width &&
+    n.y + n.height <= g.y + g.height;
+  const tops = layout.groups.filter(
+    (g) => g.kind === 'cluster' && (g.depth ?? 0) === 0
+  );
+  const frame = tops.find((g) => within(first, g));
+  return frame === undefined
+    ? layout.nodes.filter((n) => !tops.some((g) => within(n, g)))
+    : layout.nodes.filter((n) => within(n, frame));
+}
+
+/**
+ * Where a graph with nothing to centre on (no focus, no selection) opens,
+ * as frame scroll offsets at zoom `k`. dagre leaves empty space around a
+ * layered drawing, so a big graph scrolled to (0, 0) can show no box at
+ * all. Blockers sit left of what waits (above it, top-down), so the flow
+ * starts at the drawing's first layer: the frame stays at the start of
+ * the flow axis and slides along the other axis to the band, starting at
+ * a box, where the most boxes of that first frame-length show whole (the
+ * earliest such band on a tie). A framed drawing (`clustered`) opens on
+ * its first frame instead, which the packing puts at the top-left: it
+ * stays at (0, 0) while that frame shows a box whole there, and otherwise
+ * slides to the band of that frame's own boxes, never to a later frame.
+ * Null, so nothing moves, when the frame has no size, the drawing fits it
+ * across, or no box fits its flow length.
+ */
+function openingScroll(
+  layout: GraphLayout,
+  horizontal: boolean,
+  frameWidth: number,
+  frameHeight: number,
+  k: number
+): { left: number; top: number } | null {
+  const flowLength = horizontal ? frameWidth : frameHeight;
+  const crossLength = horizontal ? frameHeight : frameWidth;
+  if (flowLength <= 0 || crossLength <= 0) return null;
+  let crossExtent = 0;
+  for (const n of layout.nodes) {
+    crossExtent = Math.max(
+      crossExtent,
+      (horizontal ? n.y + n.height : n.x + n.width) * k
+    );
+  }
+  if (crossExtent <= crossLength) return null;
+  const framed = layout.clustered === true;
+  // The candidate boxes whole along the flow from its start, as
+  // cross-axis spans.
+  const spans: { start: number; end: number }[] = [];
+  for (const n of framed ? firstFrameNodes(layout) : layout.nodes) {
+    const start = (horizontal ? n.y : n.x) * k;
+    const end = start + (horizontal ? n.height : n.width) * k;
+    const flowEnd = (horizontal ? n.x + n.width : n.y + n.height) * k;
+    if (flowEnd <= flowLength) spans.push({ start, end });
+  }
+  if (spans.length === 0) return null;
+  // The first frame already shows a box whole at the origin.
+  if (framed && spans.some((s) => s.end <= crossLength)) return null;
+  // Each band starts just above (left of) one of those boxes.
+  let best = Number.POSITIVE_INFINITY;
+  let bestCount = 0;
+  for (const band of spans) {
+    const offset = Math.max(0, band.start - FIT_PADDING);
+    let count = 0;
+    for (const s of spans) {
+      if (s.start >= offset && s.end <= offset + crossLength) count += 1;
+    }
+    if (count > bestCount || (count === bestCount && offset < best)) {
+      best = offset;
+      bestCount = count;
+    }
+  }
+  // No box fits across the frame whole: show the start of the first one.
+  if (bestCount === 0) {
+    best = Math.max(0, Math.min(...spans.map((s) => s.start)) - FIT_PADDING);
+  }
+  const cross = Math.round(best);
+  return horizontal ? { left: 0, top: cross } : { left: cross, top: 0 };
 }
 
 const EDGE_WORDS: Record<GraphEdgeKind, string> = {
@@ -643,13 +735,28 @@ export function DependencyGraph({
   // not hidden under its own panel and what it waits on, to its left,
   // stays in view. Only the frame scrolls, never the page, with no
   // animation; it happens once, so later selections never move the
-  // drawing under the reader.
+  // drawing under the reader. With neither, it opens where the flow starts,
+  // or on its first frame when framed (openingScroll), so a big graph never
+  // opens on dagre's empty corner or in the middle of a later frame.
   const centredRef = useRef(false);
   const centreId = focusId ?? selectedId;
   useIsomorphicLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (centredRef.current || !hasNodes || viewport === null) return;
     centredRef.current = true;
+    if (centreId === null) {
+      const start = openingScroll(
+        layout,
+        horizontal,
+        viewport.clientWidth - reserveRef.current,
+        viewport.clientHeight,
+        zoomRef.current
+      );
+      if (start === null) return;
+      viewport.scrollLeft = start.left;
+      viewport.scrollTop = start.top;
+      return;
+    }
     const box =
       centreId === null
         ? undefined
@@ -667,7 +774,7 @@ export function DependencyGraph({
       0,
       (box.y + box.height / 2) * k - viewport.clientHeight / 2
     );
-  }, [hasNodes, centreId, layout]);
+  }, [hasNodes, centreId, layout, horizontal]);
 
   // Link nodes render through the host's <Link>, whose props carry no
   // tabIndex or aria-describedby, so the roving tab stop and the key help
