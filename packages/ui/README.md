@@ -412,7 +412,13 @@ changes).
 
 `TaskGroupTable` takes optional props for a list people act on (the planner's
 Issues page). With none of them it renders exactly what it rendered before (a
-DOM snapshot of My week's props guards that).
+DOM snapshot of My week's props guards that). Its groups and rows are memoized,
+so a selection, a fold or a host render redraws only the rows it touches: the
+event callbacks (`onOpenRow`, `onOpenGroup`, `onRowContextMenu`, `selection`'s
+`onChange`, `drag`'s) are read when they run and may change every render, but
+the render slots (`renderCell`, `rowActions`, `groupActions`), `columns` and
+`columnLabels` redraw every row or group when their identity changes: keep them
+stable in a host with many rows.
 
 - **Data.** Columns `assignee` (the initials square and the name; `null` reads
   "Unassigned", or the row's `unassignedLabel` ("Needs assignee"), beside the

@@ -6,6 +6,7 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  memo,
   type ReactNode,
   useEffect,
   useId,
@@ -17,6 +18,7 @@ import {
 
 import StatusMark from '../components/status-mark';
 import { PickerMarkView } from '../edit/picker-mark';
+import { useLatest } from '../edit/save-state';
 import { Link } from '../lib/link';
 import { isTypingTarget, useMediaQuery } from '../shell/dom';
 import type { UiTone } from '../types';
@@ -167,9 +169,11 @@ interface DropState {
   verdict: true | string;
 }
 
-/** The selection model the rows and headers share. */
+/** The selection model the rows and headers share. Its identity stays
+    the same while the selection changes (the set itself goes to each
+    group and, as a boolean, to each row), so a memoized row redraws
+    only when its own checkbox does. */
 interface SelectionModel {
-  selected: ReadonlySet<string>;
   toggleOnClick: boolean;
   /** A row's checkbox or `x`; shift extends from the anchor. */
   toggleRow: (id: string, shift: boolean) => void;
@@ -177,11 +181,10 @@ interface SelectionModel {
   setGroup: (group: TaskGroupData, on: boolean) => void;
 }
 
-/** The drag model the rows and groups share. */
+/** The drag model the rows and groups share, as stable as the selection
+    model: what is dragged and where it would drop are passed beside it. */
 interface DragModel {
   draggable: boolean;
-  dragging: ReadonlySet<string>;
-  drop: DropState | null;
   start: (event: DragEvent<HTMLElement>, row: TaskRowData) => void;
   end: () => void;
   over: (event: DragEvent<HTMLElement>, group: TaskGroupData) => void;
@@ -219,7 +222,16 @@ interface RowSlots {
    state, never aria-selected, which a list item does not support), `drag`
    (an HTML5 drag from an 18px grip onto any group, which answers with a
    2px accent frame), and the slots `renderCell`, `rowActions`,
-   `groupActions` and `onRowContextMenu`. */
+   `groupActions` and `onRowContextMenu`.
+
+   Groups and rows are memoized: a selection, a fold or a host render
+   that changes nothing of theirs leaves them as they are, so a click on
+   a 300-row list redraws the rows it touches, not all of them. The
+   callbacks a row calls on an event (onOpenRow, onOpenGroup,
+   onRowContextMenu) are read at call time and need not be stable; the
+   render slots (renderCell, rowActions, groupActions) redraw every row
+   or group when their identity changes, so a host with many rows keeps
+   them stable (useCallback). */
 export function TaskGroupTable({
   sections,
   columns = DEFAULT_COLUMNS,
@@ -265,7 +277,10 @@ export function TaskGroupTable({
   const baseId = useId();
   const finePointer = useMediaQuery(FINE_POINTER_QUERY);
 
-  const labels = { ...DEFAULT_LABELS, ...columnLabels };
+  const labels = useMemo(
+    () => ({ ...DEFAULT_LABELS, ...columnLabels }),
+    [columnLabels]
+  );
   const templateOf = (cols: readonly TaskColumnId[]) =>
     [
       ...(drag !== undefined ? ['var(--task-grip-col)'] : []),
@@ -364,41 +379,77 @@ export function TaskGroupTable({
     if (next !== model.selected) model.onChange(next);
   }
 
-  const selectionModel: SelectionModel | null =
-    selection === undefined
-      ? null
-      : {
-          selected: selection.selected,
-          toggleOnClick: selection.toggleOnClick === true,
-          toggleRow(id, shift) {
-            const anchor = anchorRef.current;
-            let next: ReadonlySet<string>;
-            if (shift && anchor !== null) {
-              const on = !selection.selected.has(id);
-              next = setIds(
-                selection.selected,
-                rangeIds(shownOrder, anchor.id, id),
-                on
+  // ---- drag -------------------------------------------------------------
+
+  const [dragging, setDragging] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const [drop, setDrop] = useState<DropState | null>(null);
+  // The ids being dragged (also in dataTransfer, which dragover cannot
+  // read) and canDrop's answers for this drag, asked once per group.
+  const dragRef = useRef<{
+    ids: readonly string[];
+    verdicts: Map<string, true | string>;
+  } | null>(null);
+
+  // What the stable models and event callbacks below read when they run:
+  // this render's props and fold state, never a stale closure.
+  const latest = useLatest({
+    selection,
+    drag,
+    shownOrder,
+    collapsed,
+    setGroupCollapsed,
+    onOpenRow,
+    onOpenGroup,
+    onRowContextMenu,
+  });
+
+  const hasSelection = selection !== undefined;
+  const toggleOnClick = selection?.toggleOnClick === true;
+  const selectionModel = useMemo<SelectionModel | null>(
+    () =>
+      !hasSelection
+        ? null
+        : {
+            toggleOnClick,
+            toggleRow(id, shift) {
+              const current = latest.current.selection;
+              if (current === undefined) return;
+              const anchor = anchorRef.current;
+              let next: ReadonlySet<string>;
+              if (shift && anchor !== null) {
+                const on = !current.selected.has(id);
+                next = setIds(
+                  current.selected,
+                  rangeIds(latest.current.shownOrder, anchor.id, id),
+                  on
+                );
+              } else {
+                next = toggleId(current.selected, id);
+              }
+              anchorRef.current = { id, base: next };
+              changeSelection(current, next);
+            },
+            setGroup(group, on) {
+              const current = latest.current.selection;
+              if (current === undefined) return;
+              if (on && latest.current.collapsed.has(group.id)) {
+                latest.current.setGroupCollapsed(group, false);
+              }
+              anchorRef.current = null;
+              changeSelection(
+                current,
+                setIds(
+                  current.selected,
+                  group.rows.map((r) => r.id),
+                  on
+                )
               );
-            } else {
-              next = toggleId(selection.selected, id);
-            }
-            anchorRef.current = { id, base: next };
-            changeSelection(selection, next);
+            },
           },
-          setGroup(group, on) {
-            if (on && collapsed.has(group.id)) setGroupCollapsed(group, false);
-            anchorRef.current = null;
-            changeSelection(
-              selection,
-              setIds(
-                selection.selected,
-                group.rows.map((r) => r.id),
-                on
-              )
-            );
-          },
-        };
+    [hasSelection, toggleOnClick, latest]
+  );
 
   // Shift+↑/↓ on a row: the range from the anchor to the next row grows
   // or shrinks over the selection the anchor started from; focus follows.
@@ -423,94 +474,113 @@ export function TaskGroupTable({
     return true;
   }
 
-  // ---- drag -------------------------------------------------------------
+  const hasDrag = drag !== undefined;
+  const dragModel = useMemo<DragModel | null>(() => {
+    if (!hasDrag) return null;
+    const endDrag = () => {
+      dragRef.current = null;
+      setDragging(new Set());
+      setDrop(null);
+    };
+    return {
+      draggable: finePointer,
+      start(event, row) {
+        const {
+          drag: host,
+          selection: chosen,
+          shownOrder: order,
+        } = latest.current;
+        if (host === undefined) return;
+        const ids =
+          chosen !== undefined && chosen.selected.has(row.id)
+            ? order.filter((id) => chosen.selected.has(id))
+            : [row.id];
+        dragRef.current = { ids, verdicts: new Map() };
+        const transfer = event.dataTransfer;
+        transfer.effectAllowed = 'move';
+        transfer.setData('text/plain', ids.join(','));
+        setDragImage(event, rootRef.current, host, ids.length);
+        setDragging(new Set(ids));
+      },
+      end: endDrag,
+      over(event, group) {
+        const current = dragRef.current;
+        const host = latest.current.drag;
+        if (current === null || host === undefined) return;
+        if (group.droppable === false) {
+          setDrop((was) => (was === null ? was : null));
+          return;
+        }
+        let verdict = current.verdicts.get(group.id);
+        if (verdict === undefined) {
+          verdict = host.canDrop(current.ids, group.id);
+          current.verdicts.set(group.id, verdict);
+        }
+        if (verdict === true) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+        } else {
+          event.dataTransfer.dropEffect = 'none';
+        }
+        const next = verdict;
+        setDrop((was) =>
+          was !== null && was.groupId === group.id && was.verdict === next
+            ? was
+            : { groupId: group.id, verdict: next }
+        );
+      },
+      leave(event, group) {
+        const into = event.relatedTarget;
+        if (into instanceof Node && event.currentTarget.contains(into)) {
+          return;
+        }
+        setDrop((was) =>
+          was !== null && was.groupId === group.id ? null : was
+        );
+      },
+      dropOn(event, group) {
+        const current = dragRef.current;
+        const host = latest.current.drag;
+        if (current === null || host === undefined) return;
+        event.preventDefault();
+        const verdict =
+          current.verdicts.get(group.id) ??
+          (group.droppable === false
+            ? ''
+            : host.canDrop(current.ids, group.id));
+        const ids = current.ids;
+        endDrag();
+        if (verdict === true) host.onDrop(ids, group.id);
+      },
+    };
+  }, [hasDrag, finePointer, latest]);
 
-  const [dragging, setDragging] = useState<ReadonlySet<string>>(
-    () => new Set()
+  // The event callbacks rows and groups get: stable while the host's
+  // handler is there (read at call time), undefined while it is not, as
+  // the rows and groups draw differently without one.
+  const stable = useMemo(
+    () => ({
+      toggleGroup: (group: TaskGroupData, shut: boolean) =>
+        latest.current.setGroupCollapsed(group, shut),
+      openRow: (row: TaskRowData, group: TaskGroupData) =>
+        latest.current.onOpenRow?.(row, group),
+      openGroup: (group: TaskGroupData) => latest.current.onOpenGroup?.(group),
+      contextMenu: (
+        event: MouseEvent<HTMLElement>,
+        row: TaskRowData,
+        group: TaskGroupData
+      ) => latest.current.onRowContextMenu?.(event, row, group),
+    }),
+    [latest]
   );
-  const [drop, setDrop] = useState<DropState | null>(null);
-  // The ids being dragged (also in dataTransfer, which dragover cannot
-  // read) and canDrop's answers for this drag, asked once per group.
-  const dragRef = useRef<{
-    ids: readonly string[];
-    verdicts: Map<string, true | string>;
-  } | null>(null);
-
-  function endDrag() {
-    dragRef.current = null;
-    setDragging(new Set());
-    setDrop(null);
-  }
-
-  const dragModel: DragModel | null =
-    drag === undefined
-      ? null
-      : {
-          draggable: finePointer,
-          dragging,
-          drop,
-          start(event, row) {
-            const chosen = selection?.selected;
-            const ids =
-              chosen !== undefined && chosen.has(row.id)
-                ? shownOrder.filter((id) => chosen.has(id))
-                : [row.id];
-            dragRef.current = { ids, verdicts: new Map() };
-            const transfer = event.dataTransfer;
-            transfer.effectAllowed = 'move';
-            transfer.setData('text/plain', ids.join(','));
-            setDragImage(event, rootRef.current, drag, ids.length);
-            setDragging(new Set(ids));
-          },
-          end: endDrag,
-          over(event, group) {
-            const current = dragRef.current;
-            if (current === null) return;
-            if (group.droppable === false) {
-              setDrop((was) => (was === null ? was : null));
-              return;
-            }
-            let verdict = current.verdicts.get(group.id);
-            if (verdict === undefined) {
-              verdict = drag.canDrop(current.ids, group.id);
-              current.verdicts.set(group.id, verdict);
-            }
-            if (verdict === true) {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = 'move';
-            } else {
-              event.dataTransfer.dropEffect = 'none';
-            }
-            const next = verdict;
-            setDrop((was) =>
-              was !== null && was.groupId === group.id && was.verdict === next
-                ? was
-                : { groupId: group.id, verdict: next }
-            );
-          },
-          leave(event, group) {
-            const into = event.relatedTarget;
-            if (into instanceof Node && event.currentTarget.contains(into)) {
-              return;
-            }
-            setDrop((was) =>
-              was !== null && was.groupId === group.id ? null : was
-            );
-          },
-          dropOn(event, group) {
-            const current = dragRef.current;
-            if (current === null) return;
-            event.preventDefault();
-            const verdict =
-              current.verdicts.get(group.id) ??
-              (group.droppable === false
-                ? ''
-                : drag.canDrop(current.ids, group.id));
-            const ids = current.ids;
-            endDrag();
-            if (verdict === true) drag.onDrop(ids, group.id);
-          },
-        };
+  const openRow = onOpenRow === undefined ? undefined : stable.openRow;
+  const openGroup = onOpenGroup === undefined ? undefined : stable.openGroup;
+  const contextMenu =
+    onRowContextMenu === undefined ? undefined : stable.contextMenu;
+  const slots = useMemo<RowSlots>(
+    () => ({ renderCell, rowActions, onRowContextMenu: contextMenu }),
+    [renderCell, rowActions, contextMenu]
+  );
 
   // ---- keys -------------------------------------------------------------
 
@@ -629,7 +699,6 @@ export function TaskGroupTable({
     return <EmptyState>{emptyMessage}</EmptyState>;
   }
 
-  const slots: RowSlots = { renderCell, rowActions, onRowContextMenu };
   const allOn =
     selection !== undefined &&
     shownOrder.length > 0 &&
@@ -717,12 +786,15 @@ export function TaskGroupTable({
           columns={columns}
           labels={labels}
           collapsed={collapsed}
-          onToggle={setGroupCollapsed}
-          onOpenRow={onOpenRow}
-          onOpenGroup={onOpenGroup}
+          onToggle={stable.toggleGroup}
+          onOpenRow={openRow}
+          onOpenGroup={openGroup}
           activeRowId={activeRowId}
           selection={selectionModel}
+          selected={selection?.selected ?? null}
           drag={dragModel}
+          dragging={dragging}
+          drop={drop}
           slots={slots}
           groupActions={groupActions}
         />
@@ -764,7 +836,13 @@ interface SectionProps {
   onOpenGroup: TaskGroupTableProps['onOpenGroup'];
   activeRowId: string | undefined;
   selection: SelectionModel | null;
+  /** The host's selected row ids (null without selection). */
+  selected: ReadonlySet<string> | null;
   drag: DragModel | null;
+  /** The rows being dragged (empty when no drag is on). */
+  dragging: ReadonlySet<string>;
+  /** The group a drag is over and its verdict. */
+  drop: DropState | null;
   slots: RowSlots;
   groupActions: TaskGroupTableProps['groupActions'];
 }
@@ -782,7 +860,10 @@ function Section({
   onOpenGroup,
   activeRowId,
   selection,
+  selected,
   drag,
+  dragging,
+  drop,
   slots,
   groupActions,
 }: SectionProps) {
@@ -816,7 +897,12 @@ function Section({
           onOpenGroup={onOpenGroup}
           activeRowId={activeRowId}
           selection={selection}
+          selected={selected}
           drag={drag}
+          dragging={dragging}
+          drop={
+            drop !== null && drop.groupId === group.id ? drop.verdict : null
+          }
           slots={slots}
           groupActions={groupActions}
         />
@@ -837,12 +923,53 @@ interface GroupProps {
   onOpenGroup: TaskGroupTableProps['onOpenGroup'];
   activeRowId: string | undefined;
   selection: SelectionModel | null;
+  selected: ReadonlySet<string> | null;
   drag: DragModel | null;
+  dragging: ReadonlySet<string>;
+  /** A drag over this group: whether it would take the rows (true) or
+      why not; null when no drag is over it. */
+  drop: true | string | null;
   slots: RowSlots;
   groupActions: TaskGroupTableProps['groupActions'];
 }
 
-function Group({
+/** Whether the rows of `rows` are in `a` exactly when they are in `b`
+    (the same set object, or both null, answers at once). */
+function sameMembership(
+  rows: readonly TaskRowData[],
+  a: ReadonlySet<string> | null,
+  b: ReadonlySet<string> | null
+): boolean {
+  if (a === b) return true;
+  if (a === null || b === null) return false;
+  return rows.every((row) => a.has(row.id) === b.has(row.id));
+}
+
+/**
+ * React.memo's test for a group: every prop the same, except that the
+ * selection, the dragged rows and the open row count only for this
+ * group's own rows. A click that selects one row redraws its group's
+ * header (its checkbox) and that row, not the other groups.
+ */
+function groupPropsEqual(prev: GroupProps, next: GroupProps): boolean {
+  for (const key of Object.keys(next) as (keyof GroupProps)[]) {
+    if (key === 'selected' || key === 'dragging' || key === 'activeRowId') {
+      continue;
+    }
+    if (prev[key] !== next[key]) return false;
+  }
+  const rows = next.group.rows;
+  const activeHere = (id: string | undefined) =>
+    id !== undefined && rows.some((row) => row.id === id);
+  return (
+    sameMembership(rows, prev.selected, next.selected) &&
+    sameMembership(rows, prev.dragging, next.dragging) &&
+    (prev.activeRowId === next.activeRowId ||
+      (!activeHere(prev.activeRowId) && !activeHere(next.activeRowId)))
+  );
+}
+
+const Group = memo(function Group({
   group,
   Heading,
   listId,
@@ -854,7 +981,10 @@ function Group({
   onOpenGroup,
   activeRowId,
   selection,
+  selected,
   drag,
+  dragging,
+  drop,
   slots,
   groupActions,
 }: GroupProps) {
@@ -871,10 +1001,6 @@ function Group({
   const dueTone = muted ? 'default' : (group.dueTone ?? 'default');
   const dueToned = hasTextTone(dueTone);
   const count = group.count ?? group.rows.length;
-  const drop =
-    drag !== null && drag.drop !== null && drag.drop.groupId === group.id
-      ? drag.drop.verdict
-      : null;
 
   function onTitleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (onOpenGroup === undefined || !isPlainClick(event)) return;
@@ -906,7 +1032,7 @@ function Group({
   let groupCheck: ReactNode = null;
   if (selection !== null) {
     const ids = group.rows.map((r) => r.id);
-    const on = ids.filter((id) => selection.selected.has(id)).length;
+    const on = ids.filter((id) => selected?.has(id) === true).length;
     const all = ids.length > 0 && on === ids.length && !collapsed;
     groupCheck = (
       <span className={styles.groupLead}>
@@ -1059,7 +1185,9 @@ function Group({
                 onOpenRow={onOpenRow}
                 active={row.id === activeRowId}
                 selection={selection}
+                selected={selected?.has(row.id) === true}
                 drag={drag}
+                dragged={dragging.has(row.id)}
                 slots={slots}
               />
             ))}
@@ -1089,7 +1217,7 @@ function Group({
       </ul>
     </div>
   );
-}
+}, groupPropsEqual);
 
 interface RowProps {
   row: TaskRowData;
@@ -1099,11 +1227,16 @@ interface RowProps {
   onOpenRow: TaskGroupTableProps['onOpenRow'];
   active: boolean;
   selection: SelectionModel | null;
+  /** This row is in the host's selection. */
+  selected: boolean;
   drag: DragModel | null;
+  /** This row is being dragged. */
+  dragged: boolean;
   slots: RowSlots;
 }
 
-function Row({
+/** One row; memoized, so it redraws only when its own props change. */
+const Row = memo(function Row({
   row,
   group,
   columns,
@@ -1111,7 +1244,9 @@ function Row({
   onOpenRow,
   active,
   selection,
+  selected,
   drag,
+  dragged,
   slots,
 }: RowProps) {
   const external = row.external === true;
@@ -1119,7 +1254,7 @@ function Row({
   // heading; phones drop it so the meta fits one line.
   const projectRepeatsHeading =
     row.project !== undefined && row.project === group.eyebrow;
-  const isSelected = selection !== null && selection.selected.has(row.id);
+  const isSelected = selection !== null && selected;
   const tapToggles = selection !== null && selection.toggleOnClick;
   const title =
     row.externalHref === undefined ? row.title : gluedTitle(row.title);
@@ -1179,7 +1314,7 @@ function Row({
     );
 
   const onContextMenu = slots.onRowContextMenu;
-  const isDragged = drag !== null && drag.dragging.has(row.id);
+  const isDragged = drag !== null && dragged;
 
   return (
     <li
@@ -1314,7 +1449,7 @@ function Row({
       ) : null}
     </li>
   );
-}
+});
 
 /** The longest last word a title glues to its ↗ (a longer one wraps
     on its own rather than overflow the row). */

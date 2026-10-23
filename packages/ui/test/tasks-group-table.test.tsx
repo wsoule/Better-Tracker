@@ -13,6 +13,7 @@ import { useState } from 'react';
 import {
   parseCollapsed,
   serializeCollapsed,
+  type TaskColumnId,
   type TaskGroupData,
   TaskGroupTable,
   type TaskRowData,
@@ -974,6 +975,74 @@ describe('TaskGroupTable selection', () => {
         .getByRole('checkbox', { name: 'Issue a-1' })
         .getAttribute('aria-checked')
     ).toBe('true');
+  });
+});
+
+// A click on a long list redraws what it touches, not every row: rows
+// and groups are memoized (the showcase's 300-row /issues re-ran 10,000
+// components per checkbox before). Counted through renderCell, which a
+// row calls each time it draws.
+describe('TaskGroupTable redraws', () => {
+  const COLUMNS: TaskColumnId[] = ['state'];
+  function CountingHost({ drawn }: { drawn: string[] }) {
+    const [selected, setSelected] = useState<ReadonlySet<string>>(
+      () => new Set()
+    );
+    const [ticks, setTicks] = useState(0);
+    // Stable slots, as a host with many rows keeps them.
+    const [renderCell] = useState(
+      () =>
+        (column: string, r: TaskRowData): undefined => {
+          if (column === 'state') drawn.push(r.id);
+          return undefined;
+        }
+    );
+    return (
+      <UiLinkProvider link={HostLink}>
+        <button type="button" onClick={() => setTicks(ticks + 1)}>
+          {`Host render ${ticks}`}
+        </button>
+        <TaskGroupTable
+          sections={SECTIONS}
+          label="Issues"
+          columns={COLUMNS}
+          // Event callbacks need not be stable.
+          onOpenRow={() => undefined}
+          onRowContextMenu={() => undefined}
+          renderCell={renderCell}
+          selection={{ selected, onChange: setSelected }}
+        />
+      </UiLinkProvider>
+    );
+  }
+
+  test('a checkbox redraws its own row; a host render or a fold redraws none of the others', () => {
+    const drawn: string[] = [];
+    const view = render(<CountingHost drawn={drawn} />);
+    expect(drawn.sort()).toEqual(['a-1', 'a-2', 'b-1', 'c-1']);
+
+    drawn.length = 0;
+    fireEvent.click(checkboxNamed(view, 'Select A-2'));
+    expect(drawn).toEqual(['a-2']);
+    expect(selectedRows(view)).toEqual(['a-2']);
+    // Its group's checkbox follows (the group redrew its header).
+    const group = checkboxNamed(view, 'Select the 2 shown issues in Cutover');
+    expect(group.indeterminate).toBe(true);
+
+    drawn.length = 0;
+    fireEvent.click(group);
+    expect(drawn).toEqual(['a-1']);
+    expect(selectedRows(view)).toEqual(['a-1', 'a-2']);
+
+    drawn.length = 0;
+    fireEvent.click(view.getByRole('button', { name: 'Host render 0' }));
+    expect(drawn).toEqual([]);
+
+    // Folding Public beta draws nothing else; unfolding draws its row.
+    fireEvent.click(view.getByRole('button', { name: 'Beacon, Public beta' }));
+    expect(drawn).toEqual([]);
+    fireEvent.click(view.getByRole('button', { name: 'Beacon, Public beta' }));
+    expect(drawn).toEqual(['b-1']);
   });
 });
 
