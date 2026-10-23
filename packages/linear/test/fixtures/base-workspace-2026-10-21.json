@@ -1,0 +1,2174 @@
+{
+  "today": "2026-10-21",
+  "workspace": {
+    "id": "org-northwind",
+    "name": "Northwind Labs",
+    "urlKey": "northwind"
+  },
+  "appUserId": "user-app",
+  "watcherUserIds": ["user-ana", "user-ben"],
+  "installerUserId": "user-ana",
+  "guestUserId": "user-gus",
+  "milestoneMeta": [
+    {
+      "milestoneId": "ms-atlas-2",
+      "doneMeans": "Every invoice and payment write lands in both ledgers with zero drift.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-beacon-1",
+      "doneMeans": "Beta customers can search the full catalog with typo tolerance.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-beacon-2",
+      "doneMeans": "Search v2 serves all production traffic.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-compass-1",
+      "doneMeans": "A new workspace reaches its first project in under five minutes.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-compass-2",
+      "doneMeans": "Admins can invite their team from the setup flow.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-compass-3",
+      "doneMeans": "The setup flow ships in three languages.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-delta-1",
+      "doneMeans": "Admins can export any report as CSV.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-ember-1",
+      "doneMeans": "Each user receives at most one digest email per day.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-fjord-1",
+      "doneMeans": "Usage and retention dashboards are live for every workspace.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-garnet-1",
+      "doneMeans": "The app works through a full day offline without losing data.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-garnet-2",
+      "doneMeans": "Push notifications reach iOS and Android devices.",
+      "weight": null
+    },
+    {
+      "milestoneId": "ms-juniper-1",
+      "doneMeans": "Every product surface uses the shared color and type tokens.",
+      "weight": 5
+    },
+    {
+      "milestoneId": "ms-juniper-2",
+      "doneMeans": "Forms and buttons come from the component library.",
+      "weight": null
+    }
+  ],
+  "store": {
+    "data": {
+      "workspaceId": "org-northwind",
+      "users": [
+        {
+          "id": "user-ana",
+          "name": "Ana Moreno",
+          "displayName": "ana",
+          "email": "ana@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-ben",
+          "name": "Ben Carter",
+          "displayName": "ben",
+          "email": "ben@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-chloe",
+          "name": "Chloe Diaz",
+          "displayName": "chloe",
+          "email": "chloe@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-dev",
+          "name": "Dev Patel",
+          "displayName": "dev",
+          "email": "dev@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-elena",
+          "name": "Elena Novak",
+          "displayName": "elena",
+          "email": "elena@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-femi",
+          "name": "Femi Adeyemi",
+          "displayName": "femi",
+          "email": "femi@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-grace",
+          "name": "Grace Lin",
+          "displayName": "grace",
+          "email": "grace@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-hugo",
+          "name": "Hugo Laurent",
+          "displayName": "hugo",
+          "email": "hugo@northwind.example",
+          "avatarUrl": null,
+          "active": false,
+          "app": false,
+          "guest": false
+        },
+        {
+          "id": "user-gus",
+          "name": "Gus Hart",
+          "displayName": "gus",
+          "email": "gus@northwind.example",
+          "avatarUrl": null,
+          "active": true,
+          "app": false,
+          "guest": true
+        },
+        {
+          "id": "user-app",
+          "name": "Milestone Planner",
+          "displayName": "milestone-planner",
+          "email": null,
+          "avatarUrl": null,
+          "active": true,
+          "app": true,
+          "guest": false
+        }
+      ],
+      "teams": [
+        {
+          "id": "team-eng",
+          "key": "ENG",
+          "name": "Engineering",
+          "visibility": "public",
+          "parentId": null,
+          "memberIds": [
+            "user-ana",
+            "user-chloe",
+            "user-dev",
+            "user-femi",
+            "user-grace",
+            "user-hugo"
+          ]
+        },
+        {
+          "id": "team-ops",
+          "key": "OPS",
+          "name": "Operations",
+          "visibility": "public",
+          "parentId": null,
+          "memberIds": [
+            "user-ana",
+            "user-ben",
+            "user-elena",
+            "user-femi",
+            "user-gus"
+          ]
+        }
+      ],
+      "states": [
+        {
+          "id": "st-eng-triage",
+          "teamId": "team-eng",
+          "name": "Triage",
+          "type": "triage",
+          "position": 0
+        },
+        {
+          "id": "st-eng-backlog",
+          "teamId": "team-eng",
+          "name": "Backlog",
+          "type": "backlog",
+          "position": 1
+        },
+        {
+          "id": "st-eng-todo",
+          "teamId": "team-eng",
+          "name": "Todo",
+          "type": "unstarted",
+          "position": 2
+        },
+        {
+          "id": "st-eng-progress",
+          "teamId": "team-eng",
+          "name": "In Progress",
+          "type": "started",
+          "position": 3
+        },
+        {
+          "id": "st-eng-review",
+          "teamId": "team-eng",
+          "name": "In Review",
+          "type": "started",
+          "position": 4
+        },
+        {
+          "id": "st-eng-done",
+          "teamId": "team-eng",
+          "name": "Done",
+          "type": "completed",
+          "position": 5
+        },
+        {
+          "id": "st-eng-canceled",
+          "teamId": "team-eng",
+          "name": "Canceled",
+          "type": "canceled",
+          "position": 6
+        },
+        {
+          "id": "st-eng-duplicate",
+          "teamId": "team-eng",
+          "name": "Duplicate",
+          "type": "canceled",
+          "position": 7
+        },
+        {
+          "id": "st-ops-triage",
+          "teamId": "team-ops",
+          "name": "Triage",
+          "type": "triage",
+          "position": 0
+        },
+        {
+          "id": "st-ops-backlog",
+          "teamId": "team-ops",
+          "name": "Backlog",
+          "type": "backlog",
+          "position": 1
+        },
+        {
+          "id": "st-ops-todo",
+          "teamId": "team-ops",
+          "name": "Todo",
+          "type": "unstarted",
+          "position": 2
+        },
+        {
+          "id": "st-ops-progress",
+          "teamId": "team-ops",
+          "name": "In Progress",
+          "type": "started",
+          "position": 3
+        },
+        {
+          "id": "st-ops-review",
+          "teamId": "team-ops",
+          "name": "In Review",
+          "type": "started",
+          "position": 4
+        },
+        {
+          "id": "st-ops-done",
+          "teamId": "team-ops",
+          "name": "Done",
+          "type": "completed",
+          "position": 5
+        },
+        {
+          "id": "st-ops-canceled",
+          "teamId": "team-ops",
+          "name": "Canceled",
+          "type": "canceled",
+          "position": 6
+        },
+        {
+          "id": "st-ops-duplicate",
+          "teamId": "team-ops",
+          "name": "Duplicate",
+          "type": "canceled",
+          "position": 7
+        }
+      ],
+      "initiatives": [
+        {
+          "id": "init-platform",
+          "name": "Platform reliability",
+          "sortOrder": 1,
+          "priority": 1,
+          "targetDate": "2026-12-20"
+        },
+        {
+          "id": "init-growth",
+          "name": "Customer growth",
+          "sortOrder": 2,
+          "priority": 3,
+          "targetDate": "2027-01-19"
+        }
+      ],
+      "projects": [
+        {
+          "id": "proj-atlas",
+          "name": "Atlas billing migration",
+          "url": "https://linear.app/northwind/project/atlas-billing-migration",
+          "leadId": "user-chloe",
+          "priority": 1,
+          "sortOrder": 1,
+          "statusType": "started",
+          "statusName": "In Progress",
+          "initiativeIds": ["init-platform"],
+          "teamIds": ["team-eng"],
+          "startDate": "2026-09-06",
+          "targetDate": "2026-11-20"
+        },
+        {
+          "id": "proj-beacon",
+          "name": "Beacon search",
+          "url": "https://linear.app/northwind/project/beacon-search",
+          "leadId": "user-dev",
+          "priority": 2,
+          "sortOrder": 2,
+          "statusType": "started",
+          "statusName": "In Progress",
+          "initiativeIds": ["init-growth"],
+          "teamIds": ["team-eng"],
+          "startDate": "2026-09-21",
+          "targetDate": "2026-11-25"
+        },
+        {
+          "id": "proj-compass",
+          "name": "Compass onboarding",
+          "url": "https://linear.app/northwind/project/compass-onboarding",
+          "leadId": "user-ana",
+          "priority": 2,
+          "sortOrder": 3,
+          "statusType": "planned",
+          "statusName": "Planned",
+          "initiativeIds": ["init-growth"],
+          "teamIds": ["team-eng", "team-ops"],
+          "startDate": "2026-10-21",
+          "targetDate": "2026-12-05"
+        },
+        {
+          "id": "proj-delta",
+          "name": "Delta exports",
+          "url": "https://linear.app/northwind/project/delta-exports",
+          "leadId": null,
+          "priority": 3,
+          "sortOrder": 4,
+          "statusType": "started",
+          "statusName": "In Progress",
+          "initiativeIds": ["init-platform"],
+          "teamIds": ["team-ops"],
+          "startDate": "2026-10-01",
+          "targetDate": "2026-11-10"
+        },
+        {
+          "id": "proj-ember",
+          "name": "Ember notifications",
+          "url": "https://linear.app/northwind/project/ember-notifications",
+          "leadId": "user-hugo",
+          "priority": 3,
+          "sortOrder": 5,
+          "statusType": "started",
+          "statusName": "In Progress",
+          "initiativeIds": ["init-growth"],
+          "teamIds": ["team-eng"],
+          "startDate": "2026-09-26",
+          "targetDate": "2026-11-05"
+        },
+        {
+          "id": "proj-fjord",
+          "name": "Fjord analytics",
+          "url": "https://linear.app/northwind/project/fjord-analytics",
+          "leadId": "user-femi",
+          "priority": 4,
+          "sortOrder": 6,
+          "statusType": "paused",
+          "statusName": "Paused",
+          "initiativeIds": ["init-platform"],
+          "teamIds": ["team-ops"],
+          "startDate": "2026-08-22",
+          "targetDate": null
+        },
+        {
+          "id": "proj-garnet",
+          "name": "Garnet mobile app",
+          "url": "https://linear.app/northwind/project/garnet-mobile-app",
+          "leadId": "user-ben",
+          "priority": 2,
+          "sortOrder": 7,
+          "statusType": "started",
+          "statusName": "In Progress",
+          "initiativeIds": [],
+          "teamIds": ["team-eng"],
+          "startDate": "2026-09-11",
+          "targetDate": "2026-11-15"
+        },
+        {
+          "id": "proj-harbor",
+          "name": "Harbor API v3",
+          "url": "https://linear.app/northwind/project/harbor-api-v3",
+          "leadId": "user-elena",
+          "priority": 1,
+          "sortOrder": 8,
+          "statusType": "started",
+          "statusName": "In Progress",
+          "initiativeIds": ["init-platform"],
+          "teamIds": ["team-eng"],
+          "startDate": "2026-10-06",
+          "targetDate": "2026-11-20"
+        },
+        {
+          "id": "proj-juniper",
+          "name": "Juniper design system",
+          "url": "https://linear.app/northwind/project/juniper-design-system",
+          "leadId": "user-grace",
+          "priority": 0,
+          "sortOrder": 9,
+          "statusType": "started",
+          "statusName": "In Progress",
+          "initiativeIds": ["init-growth", "init-platform"],
+          "teamIds": ["team-eng", "team-ops"],
+          "startDate": "2026-10-11",
+          "targetDate": "2026-11-30"
+        }
+      ],
+      "milestones": [
+        {
+          "id": "ms-atlas-1",
+          "projectId": "proj-atlas",
+          "name": "Schema cutover",
+          "description": "Done means: the new ledger schema is live in production.",
+          "targetDate": "2026-10-01",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-atlas-2",
+          "projectId": "proj-atlas",
+          "name": "Dual-write",
+          "description": "Write every invoice and payment to both ledgers behind a flag.",
+          "targetDate": "2026-10-18",
+          "sortOrder": 2
+        },
+        {
+          "id": "ms-atlas-3",
+          "projectId": "proj-atlas",
+          "name": "Read path switch",
+          "description": "Done means: all reads are served from the new ledger with parity checks green.\n\nRollout notes live in the project document.",
+          "targetDate": "2026-11-15",
+          "sortOrder": 3
+        },
+        {
+          "id": "ms-beacon-1",
+          "projectId": "proj-beacon",
+          "name": "Search v2 beta",
+          "description": null,
+          "targetDate": "2026-10-23",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-beacon-2",
+          "projectId": "proj-beacon",
+          "name": "Search v2 GA",
+          "description": null,
+          "targetDate": "2026-11-20",
+          "sortOrder": 2
+        },
+        {
+          "id": "ms-compass-1",
+          "projectId": "proj-compass",
+          "name": "Guided setup",
+          "description": "First-run experience for new workspaces.",
+          "targetDate": "2026-10-26",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-compass-2",
+          "projectId": "proj-compass",
+          "name": "Team invites",
+          "description": null,
+          "targetDate": "2026-11-30",
+          "sortOrder": 2
+        },
+        {
+          "id": "ms-compass-3",
+          "projectId": "proj-compass",
+          "name": "Localization",
+          "description": "Translations for the setup flow; date to be set.",
+          "targetDate": null,
+          "sortOrder": 3
+        },
+        {
+          "id": "ms-delta-1",
+          "projectId": "proj-delta",
+          "name": "CSV exports",
+          "description": null,
+          "targetDate": "2026-11-02",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-ember-1",
+          "projectId": "proj-ember",
+          "name": "Email digests",
+          "description": null,
+          "targetDate": "2026-10-30",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-fjord-1",
+          "projectId": "proj-fjord",
+          "name": "Dashboards",
+          "description": null,
+          "targetDate": "2026-10-16",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-garnet-1",
+          "projectId": "proj-garnet",
+          "name": "Offline mode",
+          "description": null,
+          "targetDate": "2026-10-27",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-garnet-2",
+          "projectId": "proj-garnet",
+          "name": "Push notifications",
+          "description": "Placeholder until the push provider is chosen.",
+          "targetDate": "2026-11-10",
+          "sortOrder": 2
+        },
+        {
+          "id": "ms-harbor-1",
+          "projectId": "proj-harbor",
+          "name": "Public beta",
+          "description": "Ship the v3 endpoints to beta customers.",
+          "targetDate": "2026-10-25",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-harbor-2",
+          "projectId": "proj-harbor",
+          "name": "General availability",
+          "description": "Done means: v3 is the default for every new API key.",
+          "targetDate": "2026-11-18",
+          "sortOrder": 2
+        },
+        {
+          "id": "ms-juniper-1",
+          "projectId": "proj-juniper",
+          "name": "Tokens and type",
+          "description": null,
+          "targetDate": "2026-11-04",
+          "sortOrder": 1
+        },
+        {
+          "id": "ms-juniper-2",
+          "projectId": "proj-juniper",
+          "name": "Component library",
+          "description": null,
+          "targetDate": "2026-11-25",
+          "sortOrder": 2
+        }
+      ],
+      "issues": [
+        {
+          "id": "iss-eng-1",
+          "identifier": "ENG-1",
+          "title": "Design the ledger schema",
+          "url": "https://linear.app/northwind/issue/ENG-1/design-the-ledger-schema",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-1",
+          "assigneeId": "user-chloe",
+          "stateId": "st-eng-done",
+          "priority": 2,
+          "createdAt": "2026-09-01T09:00:00.000Z",
+          "updatedAt": "2026-09-29T12:00:00.000Z",
+          "startedAt": "2026-09-28T11:00:00.000Z",
+          "completedAt": "2026-09-29T10:00:00.000Z",
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-09-29T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-2",
+          "identifier": "ENG-2",
+          "title": "Migrate the invoices table",
+          "url": "https://linear.app/northwind/issue/ENG-2/migrate-the-invoices-table",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-1",
+          "assigneeId": "user-dev",
+          "stateId": "st-eng-done",
+          "priority": 2,
+          "createdAt": "2026-09-03T09:00:00.000Z",
+          "updatedAt": "2026-09-30T12:00:00.000Z",
+          "startedAt": "2026-09-29T11:00:00.000Z",
+          "completedAt": "2026-09-30T10:00:00.000Z",
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-09-30T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-3",
+          "identifier": "ENG-3",
+          "title": "Backfill historical invoices",
+          "url": "https://linear.app/northwind/issue/ENG-3/backfill-historical-invoices",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-1",
+          "assigneeId": "user-chloe",
+          "stateId": "st-eng-canceled",
+          "priority": 3,
+          "createdAt": "2026-09-06T09:00:00.000Z",
+          "updatedAt": "2026-09-26T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": "2026-09-26T10:00:00.000Z",
+          "lastStateChangeAt": "2026-09-26T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-10",
+          "identifier": "ENG-10",
+          "title": "Dual-write invoices",
+          "url": "https://linear.app/northwind/issue/ENG-10/dual-write-invoices",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-2",
+          "assigneeId": "user-chloe",
+          "stateId": "st-eng-progress",
+          "priority": 1,
+          "createdAt": "2026-09-21T09:00:00.000Z",
+          "updatedAt": "2026-10-19T12:00:00.000Z",
+          "startedAt": "2026-10-19T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-11",
+          "identifier": "ENG-11",
+          "title": "Dual-write payments",
+          "url": "https://linear.app/northwind/issue/ENG-11/dual-write-payments",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-2",
+          "assigneeId": "user-ben",
+          "stateId": "st-eng-review",
+          "priority": 2,
+          "createdAt": "2026-09-23T09:00:00.000Z",
+          "updatedAt": "2026-10-20T12:00:00.000Z",
+          "startedAt": "2026-10-19T11:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-20T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-12",
+          "identifier": "ENG-12",
+          "title": "Reconcile dual-write drift",
+          "url": "https://linear.app/northwind/issue/ENG-12/reconcile-dual-write-drift",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-2",
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 1,
+          "createdAt": "2026-10-01T09:00:00.000Z",
+          "updatedAt": "2026-10-01T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-01T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-13",
+          "identifier": "ENG-13",
+          "title": "Feature flag for dual-write",
+          "url": "https://linear.app/northwind/issue/ENG-13/feature-flag-for-dual-write",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-2",
+          "assigneeId": null,
+          "stateId": "st-eng-todo",
+          "priority": 3,
+          "createdAt": "2026-10-03T09:00:00.000Z",
+          "updatedAt": "2026-10-12T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-12T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-14",
+          "identifier": "ENG-14",
+          "title": "Dual-write audit log",
+          "url": "https://linear.app/northwind/issue/ENG-14/dual-write-audit-log",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-2",
+          "assigneeId": null,
+          "stateId": "st-eng-duplicate",
+          "priority": 4,
+          "createdAt": "2026-10-06T09:00:00.000Z",
+          "updatedAt": "2026-10-13T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": "2026-10-13T10:00:00.000Z",
+          "lastStateChangeAt": "2026-10-13T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-16",
+          "identifier": "ENG-16",
+          "title": "Read-path parity checks",
+          "url": "https://linear.app/northwind/issue/ENG-16/read-path-parity-checks",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-3",
+          "assigneeId": "user-chloe",
+          "stateId": "st-eng-todo",
+          "priority": 2,
+          "createdAt": "2026-10-11T09:00:00.000Z",
+          "updatedAt": "2026-10-16T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-16T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-17",
+          "identifier": "ENG-17",
+          "title": "Switch reads to the new ledger",
+          "url": "https://linear.app/northwind/issue/ENG-17/switch-reads-to-the-new-ledger",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": "ms-atlas-3",
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 2,
+          "createdAt": "2026-10-11T09:00:00.000Z",
+          "updatedAt": "2026-10-11T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-11T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-18",
+          "identifier": "ENG-18",
+          "title": "Remove the legacy ledger",
+          "url": "https://linear.app/northwind/issue/ENG-18/remove-the-legacy-ledger",
+          "teamId": "team-eng",
+          "projectId": "proj-atlas",
+          "milestoneId": null,
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 4,
+          "createdAt": "2026-10-12T09:00:00.000Z",
+          "updatedAt": "2026-10-12T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-12T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-20",
+          "identifier": "ENG-20",
+          "title": "Index the product catalog",
+          "url": "https://linear.app/northwind/issue/ENG-20/index-the-product-catalog",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-1",
+          "assigneeId": "user-dev",
+          "stateId": "st-eng-done",
+          "priority": 2,
+          "createdAt": "2026-09-21T09:00:00.000Z",
+          "updatedAt": "2026-10-15T12:00:00.000Z",
+          "startedAt": "2026-10-14T11:00:00.000Z",
+          "completedAt": "2026-10-15T10:00:00.000Z",
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-15T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-21",
+          "identifier": "ENG-21",
+          "title": "Query parser",
+          "url": "https://linear.app/northwind/issue/ENG-21/query-parser",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-1",
+          "assigneeId": "user-dev",
+          "stateId": "st-eng-done",
+          "priority": 2,
+          "createdAt": "2026-09-22T09:00:00.000Z",
+          "updatedAt": "2026-10-17T12:00:00.000Z",
+          "startedAt": "2026-10-16T11:00:00.000Z",
+          "completedAt": "2026-10-17T10:00:00.000Z",
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-17T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-22",
+          "identifier": "ENG-22",
+          "title": "Ranking v2",
+          "url": "https://linear.app/northwind/issue/ENG-22/ranking-v2",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-1",
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-done",
+          "priority": 1,
+          "createdAt": "2026-09-23T09:00:00.000Z",
+          "updatedAt": "2026-10-18T12:00:00.000Z",
+          "startedAt": "2026-10-17T11:00:00.000Z",
+          "completedAt": "2026-10-18T10:00:00.000Z",
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-18T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-23",
+          "identifier": "ENG-23",
+          "title": "Typo tolerance",
+          "url": "https://linear.app/northwind/issue/ENG-23/typo-tolerance",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-1",
+          "assigneeId": "user-dev",
+          "stateId": "st-eng-progress",
+          "priority": 1,
+          "createdAt": "2026-09-26T09:00:00.000Z",
+          "updatedAt": "2026-10-20T12:00:00.000Z",
+          "startedAt": "2026-10-20T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-20T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-24",
+          "identifier": "ENG-24",
+          "title": "Search analytics events",
+          "url": "https://linear.app/northwind/issue/ENG-24/search-analytics-events",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-1",
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-todo",
+          "priority": 3,
+          "createdAt": "2026-10-01T09:00:00.000Z",
+          "updatedAt": "2026-10-19T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-25",
+          "identifier": "ENG-25",
+          "title": "Beta feedback widget",
+          "url": "https://linear.app/northwind/issue/ENG-25/beta-feedback-widget",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-1",
+          "assigneeId": "user-ben",
+          "stateId": "st-eng-review",
+          "priority": 3,
+          "createdAt": "2026-10-03T09:00:00.000Z",
+          "updatedAt": "2026-10-20T12:00:00.000Z",
+          "startedAt": "2026-10-19T11:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-20T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-26",
+          "identifier": "ENG-26",
+          "title": "Search results page polish",
+          "url": "https://linear.app/northwind/issue/ENG-26/search-results-page-polish",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-1",
+          "assigneeId": "user-grace",
+          "stateId": "st-eng-todo",
+          "priority": 4,
+          "createdAt": "2026-10-06T09:00:00.000Z",
+          "updatedAt": "2026-10-18T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-18T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-27",
+          "identifier": "ENG-27",
+          "title": "Synonyms admin",
+          "url": "https://linear.app/northwind/issue/ENG-27/synonyms-admin",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-2",
+          "assigneeId": "user-dev",
+          "stateId": "st-eng-backlog",
+          "priority": 3,
+          "createdAt": "2026-10-09T09:00:00.000Z",
+          "updatedAt": "2026-10-09T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-09T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-28",
+          "identifier": "ENG-28",
+          "title": "Search GA launch checklist",
+          "url": "https://linear.app/northwind/issue/ENG-28/search-ga-launch-checklist",
+          "teamId": "team-eng",
+          "projectId": "proj-beacon",
+          "milestoneId": "ms-beacon-2",
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-backlog",
+          "priority": 2,
+          "createdAt": "2026-10-11T09:00:00.000Z",
+          "updatedAt": "2026-10-11T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-11T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-30",
+          "identifier": "ENG-30",
+          "title": "Setup checklist UI",
+          "url": "https://linear.app/northwind/issue/ENG-30/setup-checklist-ui",
+          "teamId": "team-eng",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-1",
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-progress",
+          "priority": 2,
+          "createdAt": "2026-10-07T09:00:00.000Z",
+          "updatedAt": "2026-10-19T12:00:00.000Z",
+          "startedAt": "2026-10-19T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-31",
+          "identifier": "ENG-31",
+          "title": "Sample data import",
+          "url": "https://linear.app/northwind/issue/ENG-31/sample-data-import",
+          "teamId": "team-eng",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-1",
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 2,
+          "createdAt": "2026-10-09T09:00:00.000Z",
+          "updatedAt": "2026-10-09T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-09T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-1",
+          "identifier": "OPS-1",
+          "title": "Welcome email sequence",
+          "url": "https://linear.app/northwind/issue/OPS-1/welcome-email-sequence",
+          "teamId": "team-ops",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-1",
+          "assigneeId": null,
+          "stateId": "st-ops-backlog",
+          "priority": 3,
+          "createdAt": "2026-10-10T09:00:00.000Z",
+          "updatedAt": "2026-10-10T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-10T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-32",
+          "identifier": "ENG-32",
+          "title": "Workspace templates",
+          "url": "https://linear.app/northwind/issue/ENG-32/workspace-templates",
+          "teamId": "team-eng",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-1",
+          "assigneeId": null,
+          "stateId": "st-eng-todo",
+          "priority": 3,
+          "createdAt": "2026-10-11T09:00:00.000Z",
+          "updatedAt": "2026-10-17T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-17T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-33",
+          "identifier": "ENG-33",
+          "title": "Request: SSO during setup",
+          "url": "https://linear.app/northwind/issue/ENG-33/request-sso-during-setup",
+          "teamId": "team-eng",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-1",
+          "assigneeId": null,
+          "stateId": "st-eng-triage",
+          "priority": 0,
+          "createdAt": "2026-10-18T09:00:00.000Z",
+          "updatedAt": "2026-10-18T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-18T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-34",
+          "identifier": "ENG-34",
+          "title": "Setup funnel analytics",
+          "url": "https://linear.app/northwind/issue/ENG-34/setup-funnel-analytics",
+          "teamId": "team-eng",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-1",
+          "assigneeId": "user-chloe",
+          "stateId": "st-eng-done",
+          "priority": 3,
+          "createdAt": "2026-10-08T09:00:00.000Z",
+          "updatedAt": "2026-10-18T12:00:00.000Z",
+          "startedAt": "2026-10-17T11:00:00.000Z",
+          "completedAt": "2026-10-18T10:00:00.000Z",
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-18T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-35",
+          "identifier": "ENG-35",
+          "title": "Invite flow",
+          "url": "https://linear.app/northwind/issue/ENG-35/invite-flow",
+          "teamId": "team-eng",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-2",
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-backlog",
+          "priority": 2,
+          "createdAt": "2026-10-12T09:00:00.000Z",
+          "updatedAt": "2026-10-12T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-12T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-36",
+          "identifier": "ENG-36",
+          "title": "Translate setup copy",
+          "url": "https://linear.app/northwind/issue/ENG-36/translate-setup-copy",
+          "teamId": "team-eng",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-3",
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 4,
+          "createdAt": "2026-10-13T09:00:00.000Z",
+          "updatedAt": "2026-10-13T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-13T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-2",
+          "identifier": "OPS-2",
+          "title": "Locale QA pass",
+          "url": "https://linear.app/northwind/issue/OPS-2/locale-qa-pass",
+          "teamId": "team-ops",
+          "projectId": "proj-compass",
+          "milestoneId": "ms-compass-3",
+          "assigneeId": "user-femi",
+          "stateId": "st-ops-todo",
+          "priority": 4,
+          "createdAt": "2026-10-13T09:00:00.000Z",
+          "updatedAt": "2026-10-15T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-15T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-5",
+          "identifier": "OPS-5",
+          "title": "CSV export job",
+          "url": "https://linear.app/northwind/issue/OPS-5/csv-export-job",
+          "teamId": "team-ops",
+          "projectId": "proj-delta",
+          "milestoneId": "ms-delta-1",
+          "assigneeId": null,
+          "stateId": "st-ops-backlog",
+          "priority": 2,
+          "createdAt": "2026-10-01T09:00:00.000Z",
+          "updatedAt": "2026-10-01T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-01T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-6",
+          "identifier": "OPS-6",
+          "title": "Export permissions",
+          "url": "https://linear.app/northwind/issue/OPS-6/export-permissions",
+          "teamId": "team-ops",
+          "projectId": "proj-delta",
+          "milestoneId": "ms-delta-1",
+          "assigneeId": "user-femi",
+          "stateId": "st-ops-progress",
+          "priority": 2,
+          "createdAt": "2026-10-03T09:00:00.000Z",
+          "updatedAt": "2026-10-18T12:00:00.000Z",
+          "startedAt": "2026-10-18T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-18T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-40",
+          "identifier": "ENG-40",
+          "title": "Digest email template",
+          "url": "https://linear.app/northwind/issue/ENG-40/digest-email-template",
+          "teamId": "team-eng",
+          "projectId": "proj-ember",
+          "milestoneId": "ms-ember-1",
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 3,
+          "createdAt": "2026-09-29T09:00:00.000Z",
+          "updatedAt": "2026-09-29T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-09-29T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-41",
+          "identifier": "ENG-41",
+          "title": "Digest scheduler",
+          "url": "https://linear.app/northwind/issue/ENG-41/digest-scheduler",
+          "teamId": "team-eng",
+          "projectId": "proj-ember",
+          "milestoneId": "ms-ember-1",
+          "assigneeId": "user-grace",
+          "stateId": "st-eng-progress",
+          "priority": 2,
+          "createdAt": "2026-09-30T09:00:00.000Z",
+          "updatedAt": "2026-10-17T12:00:00.000Z",
+          "startedAt": "2026-10-17T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-17T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-8",
+          "identifier": "OPS-8",
+          "title": "Usage dashboard",
+          "url": "https://linear.app/northwind/issue/OPS-8/usage-dashboard",
+          "teamId": "team-ops",
+          "projectId": "proj-fjord",
+          "milestoneId": "ms-fjord-1",
+          "assigneeId": "user-femi",
+          "stateId": "st-ops-progress",
+          "priority": 2,
+          "createdAt": "2026-09-11T09:00:00.000Z",
+          "updatedAt": "2026-10-06T12:00:00.000Z",
+          "startedAt": "2026-10-06T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-06T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-9",
+          "identifier": "OPS-9",
+          "title": "Retention chart",
+          "url": "https://linear.app/northwind/issue/OPS-9/retention-chart",
+          "teamId": "team-ops",
+          "projectId": "proj-fjord",
+          "milestoneId": "ms-fjord-1",
+          "assigneeId": null,
+          "stateId": "st-ops-backlog",
+          "priority": 3,
+          "createdAt": "2026-09-13T09:00:00.000Z",
+          "updatedAt": "2026-09-13T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-09-13T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-50",
+          "identifier": "ENG-50",
+          "title": "Offline write queue",
+          "url": "https://linear.app/northwind/issue/ENG-50/offline-write-queue",
+          "teamId": "team-eng",
+          "projectId": "proj-garnet",
+          "milestoneId": "ms-garnet-1",
+          "assigneeId": "user-ben",
+          "stateId": "st-eng-progress",
+          "priority": 1,
+          "createdAt": "2026-09-21T09:00:00.000Z",
+          "updatedAt": "2026-10-09T12:00:00.000Z",
+          "startedAt": "2026-10-09T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-09T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-51",
+          "identifier": "ENG-51",
+          "title": "Conflict resolution rules",
+          "url": "https://linear.app/northwind/issue/ENG-51/conflict-resolution-rules",
+          "teamId": "team-eng",
+          "projectId": "proj-garnet",
+          "milestoneId": "ms-garnet-1",
+          "assigneeId": "user-chloe",
+          "stateId": "st-eng-todo",
+          "priority": 2,
+          "createdAt": "2026-09-26T09:00:00.000Z",
+          "updatedAt": "2026-10-07T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-07T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-52",
+          "identifier": "ENG-52",
+          "title": "Sync status indicator",
+          "url": "https://linear.app/northwind/issue/ENG-52/sync-status-indicator",
+          "teamId": "team-eng",
+          "projectId": "proj-garnet",
+          "milestoneId": "ms-garnet-1",
+          "assigneeId": "user-ben",
+          "stateId": "st-eng-done",
+          "priority": 3,
+          "createdAt": "2026-09-26T09:00:00.000Z",
+          "updatedAt": "2026-10-10T12:00:00.000Z",
+          "startedAt": "2026-10-09T11:00:00.000Z",
+          "completedAt": "2026-10-10T10:00:00.000Z",
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-10T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-53",
+          "identifier": "ENG-53",
+          "title": "Offline QA plan",
+          "url": "https://linear.app/northwind/issue/ENG-53/offline-qa-plan",
+          "teamId": "team-eng",
+          "projectId": "proj-garnet",
+          "milestoneId": "ms-garnet-1",
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-todo",
+          "priority": 3,
+          "createdAt": "2026-09-27T09:00:00.000Z",
+          "updatedAt": "2026-10-08T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-08T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-54",
+          "identifier": "ENG-54",
+          "title": "Crash on cold start",
+          "url": "https://linear.app/northwind/issue/ENG-54/crash-on-cold-start",
+          "teamId": "team-eng",
+          "projectId": "proj-garnet",
+          "milestoneId": null,
+          "assigneeId": "user-ben",
+          "stateId": "st-eng-todo",
+          "priority": 1,
+          "createdAt": "2026-10-15T09:00:00.000Z",
+          "updatedAt": "2026-10-16T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-16T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-55",
+          "identifier": "ENG-55",
+          "title": "Dark mode icons",
+          "url": "https://linear.app/northwind/issue/ENG-55/dark-mode-icons",
+          "teamId": "team-eng",
+          "projectId": "proj-garnet",
+          "milestoneId": null,
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 4,
+          "createdAt": "2026-10-14T09:00:00.000Z",
+          "updatedAt": "2026-10-14T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-14T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-60",
+          "identifier": "ENG-60",
+          "title": "v3 auth endpoints",
+          "url": "https://linear.app/northwind/issue/ENG-60/v3-auth-endpoints",
+          "teamId": "team-eng",
+          "projectId": "proj-harbor",
+          "milestoneId": "ms-harbor-1",
+          "assigneeId": "user-elena",
+          "stateId": "st-eng-progress",
+          "priority": 1,
+          "createdAt": "2026-10-05T09:00:00.000Z",
+          "updatedAt": "2026-10-20T12:00:00.000Z",
+          "startedAt": "2026-10-20T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-20T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-61",
+          "identifier": "ENG-61",
+          "title": "Rate limit headers",
+          "url": "https://linear.app/northwind/issue/ENG-61/rate-limit-headers",
+          "teamId": "team-eng",
+          "projectId": "proj-harbor",
+          "milestoneId": "ms-harbor-1",
+          "assigneeId": null,
+          "stateId": "st-eng-backlog",
+          "priority": 2,
+          "createdAt": "2026-10-07T09:00:00.000Z",
+          "updatedAt": "2026-10-07T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-07T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-62",
+          "identifier": "ENG-62",
+          "title": "v3 API reference docs",
+          "url": "https://linear.app/northwind/issue/ENG-62/v3-api-reference-docs",
+          "teamId": "team-eng",
+          "projectId": "proj-harbor",
+          "milestoneId": "ms-harbor-1",
+          "assigneeId": "user-ben",
+          "stateId": "st-eng-todo",
+          "priority": 3,
+          "createdAt": "2026-10-09T09:00:00.000Z",
+          "updatedAt": "2026-10-19T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-63",
+          "identifier": "ENG-63",
+          "title": "Deprecate v2 keys",
+          "url": "https://linear.app/northwind/issue/ENG-63/deprecate-v2-keys",
+          "teamId": "team-eng",
+          "projectId": "proj-harbor",
+          "milestoneId": "ms-harbor-2",
+          "assigneeId": "user-elena",
+          "stateId": "st-eng-backlog",
+          "priority": 3,
+          "createdAt": "2026-10-11T09:00:00.000Z",
+          "updatedAt": "2026-10-11T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-11T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-70",
+          "identifier": "ENG-70",
+          "title": "Color tokens",
+          "url": "https://linear.app/northwind/issue/ENG-70/color-tokens",
+          "teamId": "team-eng",
+          "projectId": "proj-juniper",
+          "milestoneId": "ms-juniper-1",
+          "assigneeId": "user-grace",
+          "stateId": "st-eng-progress",
+          "priority": 2,
+          "createdAt": "2026-10-09T09:00:00.000Z",
+          "updatedAt": "2026-10-19T12:00:00.000Z",
+          "startedAt": "2026-10-19T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-71",
+          "identifier": "ENG-71",
+          "title": "Type scale",
+          "url": "https://linear.app/northwind/issue/ENG-71/type-scale",
+          "teamId": "team-eng",
+          "projectId": "proj-juniper",
+          "milestoneId": "ms-juniper-1",
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-progress",
+          "priority": 2,
+          "createdAt": "2026-10-09T09:00:00.000Z",
+          "updatedAt": "2026-10-18T12:00:00.000Z",
+          "startedAt": "2026-10-18T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-18T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-20",
+          "identifier": "OPS-20",
+          "title": "Brand review sign-off",
+          "url": "https://linear.app/northwind/issue/OPS-20/brand-review-sign-off",
+          "teamId": "team-ops",
+          "projectId": "proj-juniper",
+          "milestoneId": "ms-juniper-1",
+          "assigneeId": "user-grace",
+          "stateId": "st-ops-todo",
+          "priority": 3,
+          "createdAt": "2026-10-11T09:00:00.000Z",
+          "updatedAt": "2026-10-17T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-17T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-72",
+          "identifier": "ENG-72",
+          "title": "Button component",
+          "url": "https://linear.app/northwind/issue/ENG-72/button-component",
+          "teamId": "team-eng",
+          "projectId": "proj-juniper",
+          "milestoneId": "ms-juniper-2",
+          "assigneeId": "user-ben",
+          "stateId": "st-eng-backlog",
+          "priority": 3,
+          "createdAt": "2026-10-12T09:00:00.000Z",
+          "updatedAt": "2026-10-12T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-12T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-73",
+          "identifier": "ENG-73",
+          "title": "Form components",
+          "url": "https://linear.app/northwind/issue/ENG-73/form-components",
+          "teamId": "team-eng",
+          "projectId": "proj-juniper",
+          "milestoneId": "ms-juniper-2",
+          "assigneeId": "user-grace",
+          "stateId": "st-eng-backlog",
+          "priority": 3,
+          "createdAt": "2026-10-12T09:00:00.000Z",
+          "updatedAt": "2026-10-12T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-12T10:00:00.000Z"
+        },
+        {
+          "id": "iss-eng-80",
+          "identifier": "ENG-80",
+          "title": "Update the on-call runbook",
+          "url": "https://linear.app/northwind/issue/ENG-80/update-the-on-call-runbook",
+          "teamId": "team-eng",
+          "projectId": null,
+          "milestoneId": null,
+          "assigneeId": "user-ana",
+          "stateId": "st-eng-todo",
+          "priority": 3,
+          "createdAt": "2026-10-16T09:00:00.000Z",
+          "updatedAt": "2026-10-17T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-17T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-30",
+          "identifier": "OPS-30",
+          "title": "Renew the monitoring contract",
+          "url": "https://linear.app/northwind/issue/OPS-30/renew-the-monitoring-contract",
+          "teamId": "team-ops",
+          "projectId": null,
+          "milestoneId": null,
+          "assigneeId": "user-ben",
+          "stateId": "st-ops-progress",
+          "priority": 2,
+          "createdAt": "2026-10-15T09:00:00.000Z",
+          "updatedAt": "2026-10-19T12:00:00.000Z",
+          "startedAt": "2026-10-19T10:00:00.000Z",
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-19T10:00:00.000Z"
+        },
+        {
+          "id": "iss-ops-31",
+          "identifier": "OPS-31",
+          "title": "Office network upgrade",
+          "url": "https://linear.app/northwind/issue/OPS-31/office-network-upgrade",
+          "teamId": "team-ops",
+          "projectId": null,
+          "milestoneId": null,
+          "assigneeId": null,
+          "stateId": "st-ops-triage",
+          "priority": 0,
+          "createdAt": "2026-10-19T09:00:00.000Z",
+          "updatedAt": "2026-10-19T12:00:00.000Z",
+          "startedAt": null,
+          "completedAt": null,
+          "canceledAt": null,
+          "lastStateChangeAt": "2026-10-19T10:00:00.000Z"
+        }
+      ],
+      "relations": [
+        {
+          "id": "rel-chain-1",
+          "blockerId": "iss-eng-12",
+          "blockedId": "iss-eng-23"
+        },
+        {
+          "id": "rel-chain-2",
+          "blockerId": "iss-eng-23",
+          "blockedId": "iss-ops-20"
+        },
+        {
+          "id": "rel-cycle-1",
+          "blockerId": "iss-eng-70",
+          "blockedId": "iss-eng-71"
+        },
+        {
+          "id": "rel-cycle-2",
+          "blockerId": "iss-eng-71",
+          "blockedId": "iss-eng-70"
+        },
+        {
+          "id": "rel-resolved",
+          "blockerId": "iss-eng-2",
+          "blockedId": "iss-eng-26"
+        },
+        {
+          "id": "rel-atlas",
+          "blockerId": "iss-eng-10",
+          "blockedId": "iss-eng-16"
+        }
+      ]
+    },
+    "comments": [],
+    "seededComments": [
+      {
+        "id": "seed-comment-1",
+        "issueId": "iss-eng-12",
+        "body": "Drift shows up on about 0.3% of invoices in staging, always a payment that lands between the two writes. We need the reconciler before the cutover, not after.",
+        "authorId": "user-chloe",
+        "createdAt": "2026-10-15T10:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-2",
+        "issueId": "iss-eng-12",
+        "body": "Agreed. I can pair on it once payments dual-write is in review.",
+        "authorId": "user-ben",
+        "createdAt": "2026-10-16T14:00:00.000Z",
+        "parentId": "seed-comment-1"
+      },
+      {
+        "id": "seed-comment-3",
+        "issueId": "iss-eng-12",
+        "body": "This also holds up Beacon's typo tolerance (ENG-23 waits on it). Who can pick it up this week?",
+        "authorId": "user-ana",
+        "createdAt": "2026-10-19T09:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-4",
+        "issueId": "iss-eng-23",
+        "body": "Typo tolerance works on our side; results disagree between the ledgers when amounts are rounded, so this waits on the drift fix in ENG-12.",
+        "authorId": "user-dev",
+        "createdAt": "2026-10-18T11:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-5",
+        "issueId": "iss-eng-31",
+        "body": "The sample data should include one project with milestones so the checklist has something to show.",
+        "authorId": "user-ana",
+        "createdAt": "2026-10-18T16:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-6",
+        "issueId": "iss-eng-54",
+        "body": "Repro: cold start on Android 14 with an empty offline queue. The crash report has the stack trace.",
+        "authorId": "user-ben",
+        "createdAt": "2026-10-20T08:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-7",
+        "issueId": "iss-eng-60",
+        "body": "Token exchange works end to end; refresh rotation still needs tests.",
+        "authorId": "user-elena",
+        "createdAt": "2026-10-17T13:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-8",
+        "issueId": "iss-eng-61",
+        "body": "Should the header names follow the common `x-ratelimit-*` style? Leaning yes, people know it.",
+        "authorId": "user-ben",
+        "createdAt": "2026-10-20T15:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-9",
+        "issueId": "iss-eng-70",
+        "body": "Colour tokens and the type scale wait on each other: tokens need the ramp for line heights, the ramp needs tokens for contrast. Proposal: freeze the ramp first.",
+        "authorId": "user-grace",
+        "createdAt": "2026-10-13T10:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-10",
+        "issueId": "iss-eng-71",
+        "body": "Happy to freeze the ramp this week if the tokens can follow next week.",
+        "authorId": "user-ana",
+        "createdAt": "2026-10-14T12:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-11",
+        "issueId": "iss-ops-30",
+        "body": "The vendor wants the signed PO a week before renewal.",
+        "authorId": "user-ben",
+        "createdAt": "2026-10-17T09:00:00.000Z"
+      },
+      {
+        "id": "seed-comment-12",
+        "issueId": "iss-ops-31",
+        "body": "Asked two vendors for a site survey; first quote expected Friday.",
+        "authorId": "user-femi",
+        "createdAt": "2026-10-19T17:00:00.000Z"
+      }
+    ],
+    "issueFields": {
+      "iss-eng-1": {
+        "description": "Model invoices, payments and adjustments as append-only ledger entries.\n\n- One row per money movement\n- Balances are derived, never stored\n- Every entry carries the source system and a correlation id",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-2": {
+        "description": "Move the invoices table onto the new ledger schema. Keep the old table readable until the read path switches.",
+        "labelIds": ["lbl-eng-tech-debt", "lbl-eng-backend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-3": {
+        "description": "Canceled: history stays in the legacy ledger and is read through the compatibility view.",
+        "labelIds": ["lbl-eng-backend"],
+        "estimate": 8,
+        "dueDate": null
+      },
+      "iss-eng-10": {
+        "description": "Write every invoice to both ledgers behind the `ledger_dual_write` flag.\n\n**Acceptance**\n- Writes to both ledgers commit together or not at all\n- Latency stays within 10% of today",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 5,
+        "dueDate": "2026-10-20"
+      },
+      "iss-eng-11": {
+        "description": "Same as invoices, for payments. Refunds are payments with a negative amount.",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-12": {
+        "description": "Staging shows the two ledgers disagreeing on a small share of invoices. Find the cause and add a nightly reconciler that reports (and can repair) drift.\n\n1. Reproduce with the staging replay\n2. Write the reconciler\n3. Alert when drift is above zero for two nights",
+        "labelIds": ["lbl-bug", "lbl-eng-backend"],
+        "estimate": 3,
+        "dueDate": "2026-10-19"
+      },
+      "iss-eng-13": {
+        "description": "A per-workspace flag so dual-write can be turned on gradually and off instantly.",
+        "labelIds": ["lbl-improvement", "lbl-eng-backend"],
+        "estimate": 1,
+        "dueDate": null
+      },
+      "iss-eng-14": {
+        "description": "Duplicate of the audit logging that ENG-11 already covers.",
+        "labelIds": [],
+        "estimate": null,
+        "dueDate": null
+      },
+      "iss-eng-16": {
+        "description": "Compare every read served by the new ledger with the legacy answer and log mismatches.",
+        "labelIds": ["lbl-eng-backend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-17": {
+        "description": "Switch reads to the new ledger once parity checks have been green for a week.",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 8,
+        "dueDate": "2026-11-15"
+      },
+      "iss-eng-18": {
+        "description": "Drop the legacy ledger tables and the compatibility view after the read path switch.",
+        "labelIds": ["lbl-eng-tech-debt"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-20": {
+        "description": "Index products, variants and categories. Full rebuild under 10 minutes.",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-21": {
+        "description": "Parse quoted phrases, minus terms and field filters (`brand:`).",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-22": {
+        "description": "Blend text relevance with popularity; keep the old ranking behind a flag for comparison.",
+        "labelIds": ["lbl-feature", "lbl-eng-backend", "lbl-eng-performance"],
+        "estimate": 8,
+        "dueDate": null
+      },
+      "iss-eng-23": {
+        "description": "Match queries with one or two typos (\"headphnes\" finds headphones). Beta customers asked for this first.",
+        "labelIds": ["lbl-feature", "lbl-customer", "lbl-eng-backend"],
+        "estimate": 5,
+        "dueDate": "2026-10-23"
+      },
+      "iss-eng-24": {
+        "description": "Send query, result count and click position events so we can measure search quality.",
+        "labelIds": ["lbl-improvement", "lbl-eng-frontend"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-25": {
+        "description": "A small \"Was this helpful?\" widget under the results, beta workspaces only.",
+        "labelIds": ["lbl-feature", "lbl-eng-frontend"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-26": {
+        "description": "Spacing, empty state and keyboard navigation on the results page.",
+        "labelIds": ["lbl-improvement", "lbl-eng-frontend"],
+        "estimate": 1,
+        "dueDate": null
+      },
+      "iss-eng-27": {
+        "description": "Let admins define synonyms (\"tee\" = \"t-shirt\").",
+        "labelIds": ["lbl-feature", "lbl-eng-frontend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-28": {
+        "description": null,
+        "labelIds": [],
+        "estimate": 1,
+        "dueDate": null
+      },
+      "iss-eng-30": {
+        "description": "The checklist new workspaces see on first sign-in: create a project, invite a teammate, connect an integration.",
+        "labelIds": ["lbl-feature", "lbl-eng-frontend"],
+        "estimate": 3,
+        "dueDate": "2026-10-25"
+      },
+      "iss-eng-31": {
+        "description": "Offer a sample project (with milestones) so the checklist has something to show.",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-32": {
+        "description": "Three starter templates: product launch, bug triage, hiring.",
+        "labelIds": ["lbl-feature"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-33": {
+        "description": "From two sales calls: prospects want SAML SSO configured during onboarding, not after.",
+        "labelIds": ["lbl-customer", "lbl-security"],
+        "estimate": null,
+        "dueDate": null
+      },
+      "iss-eng-34": {
+        "description": "Track each checklist step so we can see where new workspaces stop.",
+        "labelIds": ["lbl-improvement", "lbl-eng-frontend"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-35": {
+        "description": "Invite by email or link from the setup flow; admins approve link joins.",
+        "labelIds": ["lbl-feature", "lbl-eng-frontend"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-36": {
+        "description": "Extract the setup copy into message files and send them for translation.",
+        "labelIds": ["lbl-eng-frontend"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-40": {
+        "description": "One email per user per day listing what changed in their projects.",
+        "labelIds": ["lbl-feature", "lbl-eng-frontend"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-41": {
+        "description": "Send digests at 8:00 in each user's timezone; skip days with nothing to say.",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-50": {
+        "description": "Queue writes made offline and replay them in order when the device reconnects.",
+        "labelIds": ["lbl-feature", "lbl-eng-mobile"],
+        "estimate": 8,
+        "dueDate": null
+      },
+      "iss-eng-51": {
+        "description": "Last writer wins per field; a conflicting delete wins over an edit.",
+        "labelIds": ["lbl-eng-mobile"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-52": {
+        "description": "Show \"Offline · 3 changes waiting\" in the header while the queue is not empty.",
+        "labelIds": ["lbl-improvement", "lbl-eng-mobile"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-53": {
+        "description": null,
+        "labelIds": [],
+        "estimate": 1,
+        "dueDate": null
+      },
+      "iss-eng-54": {
+        "description": "The app crashes on cold start when the offline queue is empty (Android 14).\n\n**Steps**\n1. Clear app data\n2. Sign in, force-quit\n3. Open the app again",
+        "labelIds": ["lbl-bug", "lbl-eng-mobile"],
+        "estimate": 2,
+        "dueDate": "2026-10-22"
+      },
+      "iss-eng-55": {
+        "description": null,
+        "labelIds": ["lbl-improvement", "lbl-eng-mobile"],
+        "estimate": 1,
+        "dueDate": null
+      },
+      "iss-eng-60": {
+        "description": "OAuth 2 token exchange and refresh for the v3 API, with rotating refresh tokens.",
+        "labelIds": ["lbl-feature", "lbl-security", "lbl-eng-backend"],
+        "estimate": 5,
+        "dueDate": "2026-10-24"
+      },
+      "iss-eng-61": {
+        "description": "Return remaining requests and the reset time on every v3 response.",
+        "labelIds": ["lbl-feature", "lbl-eng-backend"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-62": {
+        "description": "Reference pages generated from the v3 schema, with one example per endpoint.",
+        "labelIds": ["lbl-improvement"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-63": {
+        "description": "Email owners of v2 keys, then stop issuing new v2 keys.",
+        "labelIds": ["lbl-eng-backend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-70": {
+        "description": "Named colour tokens for surfaces, text and borders, light and dark.",
+        "labelIds": ["lbl-eng-frontend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-71": {
+        "description": "A type ramp of six sizes with line heights that fit the 4px grid.",
+        "labelIds": ["lbl-eng-frontend"],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-eng-72": {
+        "description": "Primary, secondary and quiet buttons with loading and disabled states.",
+        "labelIds": ["lbl-feature", "lbl-eng-frontend"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-eng-73": {
+        "description": "Text field, select, checkbox and radio, all labelled and keyboard friendly.",
+        "labelIds": ["lbl-feature", "lbl-eng-frontend"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-eng-80": {
+        "description": "Bring the on-call runbook up to date with the new alerting setup.",
+        "labelIds": [],
+        "estimate": 1,
+        "dueDate": null
+      },
+      "iss-ops-1": {
+        "description": "Three emails over the first week: welcome, first project, invite your team.",
+        "labelIds": ["lbl-ops-process"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-ops-2": {
+        "description": "Check every translated setup screen on a phone and a laptop.",
+        "labelIds": [],
+        "estimate": 2,
+        "dueDate": null
+      },
+      "iss-ops-5": {
+        "description": "A background job that writes the export to storage and emails a link.",
+        "labelIds": ["lbl-ops-infra"],
+        "estimate": 5,
+        "dueDate": null
+      },
+      "iss-ops-6": {
+        "description": "Only admins and report owners can export; every export is logged.",
+        "labelIds": ["lbl-security"],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-ops-8": {
+        "description": "Daily active users and actions per workspace for the last 90 days.",
+        "labelIds": ["lbl-ops-infra"],
+        "estimate": 8,
+        "dueDate": null
+      },
+      "iss-ops-9": {
+        "description": null,
+        "labelIds": [],
+        "estimate": 3,
+        "dueDate": null
+      },
+      "iss-ops-20": {
+        "description": "Brand team signs off on colours and type before the tokens ship.",
+        "labelIds": ["lbl-ops-process"],
+        "estimate": 1,
+        "dueDate": "2026-10-31"
+      },
+      "iss-ops-30": {
+        "description": "The monitoring contract renews at the end of the month; get the quote approved and the PO signed.",
+        "labelIds": ["lbl-ops-vendor"],
+        "estimate": 2,
+        "dueDate": "2026-10-30"
+      },
+      "iss-ops-31": {
+        "description": "The office Wi-Fi drops every afternoon. Needs a site survey and a quote.",
+        "labelIds": ["lbl-ops-infra"],
+        "estimate": null,
+        "dueDate": null
+      }
+    },
+    "labels": [
+      {
+        "id": "lbl-bug",
+        "name": "Bug",
+        "color": "#eb5757",
+        "teamId": null,
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-feature",
+        "name": "Feature",
+        "color": "#bb87fc",
+        "teamId": null,
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-improvement",
+        "name": "Improvement",
+        "color": "#4ea7fc",
+        "teamId": null,
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-customer",
+        "name": "Customer request",
+        "color": "#f2c94c",
+        "teamId": null,
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-security",
+        "name": "Security",
+        "color": "#f2994a",
+        "teamId": null,
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-legacy",
+        "name": "Legacy",
+        "color": "#95a2b3",
+        "teamId": null,
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": true
+      },
+      {
+        "id": "lbl-eng-tech-debt",
+        "name": "Tech debt",
+        "color": "#95a2b3",
+        "teamId": "team-eng",
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-eng-performance",
+        "name": "Performance",
+        "color": "#26b5ce",
+        "teamId": "team-eng",
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-eng-area",
+        "name": "Area",
+        "color": "#5e6ad2",
+        "teamId": "team-eng",
+        "parentId": null,
+        "isGroup": true,
+        "groupType": "singleSelect",
+        "archived": false
+      },
+      {
+        "id": "lbl-eng-frontend",
+        "name": "Frontend",
+        "color": "#5e6ad2",
+        "teamId": "team-eng",
+        "parentId": "lbl-eng-area",
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-eng-backend",
+        "name": "Backend",
+        "color": "#5e6ad2",
+        "teamId": "team-eng",
+        "parentId": "lbl-eng-area",
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-eng-mobile",
+        "name": "Mobile",
+        "color": "#5e6ad2",
+        "teamId": "team-eng",
+        "parentId": "lbl-eng-area",
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-ops-infra",
+        "name": "Infrastructure",
+        "color": "#0f783c",
+        "teamId": "team-ops",
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-ops-vendor",
+        "name": "Vendor",
+        "color": "#4cb782",
+        "teamId": "team-ops",
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      },
+      {
+        "id": "lbl-ops-process",
+        "name": "Process",
+        "color": "#26b5ce",
+        "teamId": "team-ops",
+        "parentId": null,
+        "isGroup": false,
+        "groupType": null,
+        "archived": false
+      }
+    ],
+    "estimateScales": {
+      "team-eng": {
+        "type": "fibonacci",
+        "allowZero": false,
+        "extended": false
+      },
+      "team-ops": {
+        "type": "tShirt",
+        "allowZero": true,
+        "extended": true
+      }
+    },
+    "lastRelationNumber": 6
+  }
+}

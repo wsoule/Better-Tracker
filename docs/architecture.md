@@ -65,7 +65,7 @@ apps/
   worker/    CLI for scheduled jobs (daily run, periodic resync, migrations)
 packages/
   core/      pure domain logic + shared types (no I/O, no dependencies)
-  linear/    Linear GraphQL gateway, OAuth, webhook verification, fixture workspace
+  linear/    Linear GraphQL gateway, OAuth, webhook verification, demo workspaces
   store/     Postgres persistence (pg in production, PGlite locally/tests)
   notify/    digest delivery: Slack DMs, outbox
   engine/    orchestration: sync, allocation, warnings, edits, read models
@@ -783,7 +783,14 @@ The allocation comment (§7.4) is exactly:
   lead), triage issues, unplanned issues, blocks chains across projects, a
   cycle, a project with an inactive lead, a paused project.
   `createFixtureGateway(state, actorUserId | 'app')` mutates that in-memory
-  workspace so demo drags and allocation runs "write back".
+  workspace so demo drags and allocation runs "write back". Its numbers are
+  pinned by hundreds of tests and the browser smoke, so it never changes:
+  `test/base-snapshot.test.ts` deep-equals it against main's output. The generic
+  builders (dates, people, workflow states, the issue builder) live in the
+  internal `fixture-kit.ts`, shared with the showcase.
+- `showcase.ts` (+ the tables in `showcase-data.ts`): the **showcase demo
+  workspace** (`LINEAR_FIXTURE=showcase`, for the live demo), see "Showcase demo
+  workspace" below.
 - **Issue page** (owner decision 2026-10-21; additive `LinearGateway` methods,
   real and fixture):
   - `fetchIssueDetail(issueId) → IssueExtras | null` — one `IssueDetail` query
@@ -831,6 +838,69 @@ The allocation comment (§7.4) is exactly:
     change without a milestone drops the old project's milestone. Seeded
     comments live in `seededComments`; `comments` stays the list of comments
     written through the gateway.
+
+### Showcase demo workspace (`showcase.ts`)
+
+Owner feedback 2026-10-23: the demo needs "a ton of tasks", and "the graph is
+there to show all issues not just blocking ones". The base fixture stays the
+scenario fixture tests pin; the showcase is a second dataset for live demos.
+
+- **It grows the base workspace.** `createShowcaseWorkspace(today)` contains
+  `createFixtureWorkspace(today)` unchanged, entity by entity (the base teams
+  only gain members), so every base scenario, person, the watchers, the
+  installer, the guest Gus Hart and the workspace id are the same and the engine
+  seeds it exactly like the base demo. On top: 12 people (22 users), the Data
+  (DATA, linear estimates) and Growth (GRO, T-shirt estimates) teams, the
+  Enterprise readiness and Self-serve insights initiatives, 12 projects (21;
+  Sorrel in Backlog status, so with paused Fjord two are inactive), 50
+  milestones (67: complete, overdue, at risk for each reason, on track soon and
+  far out, no target date, empty, Willow's next milestone with no "done means…"
+  as missing inputs) and about 365 issues (418, about 73% open, every state and
+  priority, unassigned and unplanned work, open issues with no project), with
+  issue-page content (labels from the title, estimates on the team's scale, due
+  dates on some open issues, descriptions and a seeded discussion on the issues
+  the story runs through).
+- **Blocking relations (247)** follow three flow rules, so the layered layout
+  reads left to right: a blocker's milestone is due no later than the blocked
+  issue's (undated last); cross-project relations follow one project order
+  (plume, orchard, atlas, beacon, juniper, harbor, ridge, thistle, delta, fjord,
+  quarry, lagoon, nettle, marble, saffron, ember, umber, compass, sorrel,
+  garnet, willow); cross-initiative ones flow Platform / Insights → Enterprise →
+  Growth → No initiative (Insights receives from nobody, Enterprise sends only
+  to No initiative). Only the designed cycles break them, plus the base chain
+  ENG-12 → ENG-23 → OPS-20, so the initiative level's only cycle is the base's
+  Platform ⇄ Growth.
+- **Structure**: a 13-issue critical path, the enterprise launch
+  (`SHOWCASE_CRITICAL_PATH`: ENG-60 → ENG-186 → ENG-187 (unassigned, so a risk
+  chain from there) → ENG-194 → ENG-196 → ENG-240 → ENG-242 → ENG-225 → GRO-31 →
+  GRO-33 → GRO-40 → GRO-41 → OPS-106, six projects), the unique longest chain;
+  fan-out hubs (DATA-45 the overdue event schema rollout, blocking 9; OPS-52 the
+  unassigned overdue capacity plan and base ENG-73 form components, 5 each) and
+  fan-in hubs (GRO-40 the go/no-go with 10 blockers: 9 workstreams plus GRO-33
+  on the critical path; DATA-75 scheduled report delivery with 5); exactly three
+  cycles (`SHOWCASE_CYCLES`: base ENG-70 ⇄ ENG-71, ENG-243 → ENG-215 → ENG-244 →
+  ENG-243 across Nettle and Marble, OPS-55 ⇄ OPS-73 across Ridge and Thistle,
+  all Operations so the guest sees one); done blockers (16 resolved, 27 closed
+  history); about 17% cross-project; every milestone mixes linked and unlinked
+  work (paused Fjord aside); about 190 issues on no relation.
+- **Draw budget**: every level draws every item in scope (all non-canceled
+  issues, every milestone, project and initiative), so the whole workspace must
+  fit the graph's draw limits: 406 issue boxes (≤ 450) and 247 arrows (≤ 600).
+  Until every issue is drawn, the issue level of the whole workspace (only
+  linked issues) is 193 boxes and 216 arrows, inside the 200 / 300 limits but
+  with 7 boxes to spare: four new relations between unlinked issues tip it into
+  "Too many to draw", for every visitor of a shared demo until it restarts. So
+  the live demo switches to `LINEAR_FIXTURE=showcase` only once every issue is
+  drawn under the raised limits (then a new relation adds only an arrow).
+- **Deterministic**: the tables are text (one row per issue, `A > B > C`
+  relation chains) parsed at load; the builder throws on a reference Linear
+  would refuse. Timestamps a row leaves out come from an FNV-1a hash of the
+  identifier and the milestone's timing profile, so the output depends only on
+  `today`. `createShowcaseStore(today)` is a `FixtureStore` like the base one,
+  served by the same `createFixtureGateway`. `createDemoStore(today, dataset)`
+  and `demoMilestoneMeta(dataset)` (`FixtureDataset = 'base' | 'showcase'`) are
+  what boot uses; `SHOWCASE_MILESTONE_META` is the base rows plus the
+  showcase's.
 
 ### 4.1 Linear facts this design relies on
 
@@ -1345,17 +1415,25 @@ and `READ_ONLY_MESSAGE`, which the web's resync and preview routes call.
   still sets it, boot logs exactly one warning saying it is unused and to set
   `WATCHER_EMAILS` instead.
 
-- `LINEAR_FIXTURE=1` (demo mode): in-memory PGlite unless `PGLITE_DIR` is set;
-  ephemeral random `TOKEN_ENCRYPTION_KEY` if unset; `APP_URL` defaults to
-  `http://localhost:3000`; `oauth: null`. Seeds the fixture workspace
-  (`createFixtureStore(today)`), a fake installation (installed by
+- `LINEAR_FIXTURE=1` or `LINEAR_FIXTURE=showcase` (demo mode; any case, and
+  `true` = `1`; `fixtureDatasetFromEnv(env)` gives `'base' | 'showcase' | null`
+  and `isFixtureEnv(env)` is every "is this demo mode" check, the worker's, the
+  webhook route's and the `/ui-gallery` guard's included; any other value than
+  those and `0`/`false` is a config error): in-memory PGlite unless `PGLITE_DIR`
+  is set; ephemeral random `TOKEN_ENCRYPTION_KEY` if unset; `APP_URL` defaults
+  to `http://localhost:3000`; `oauth: null`. Seeds the demo workspace
+  (`createDemoStore(today, dataset)`: the base fixture for `1`, the showcase for
+  `showcase`, §4 "Showcase demo workspace"; the "engine ready" log line names it
+  as `demoWorkspace`), a fake installation (installed by
   `FIXTURE_INSTALLER_USER_ID`, Ana), settings (watchers =
   `FIXTURE_WATCHER_USER_IDS`, Ana and Ben; `dry_run`, `preview`; no PM flags:
   every demo person may edit everything, except the one Linear guest, Gus Hart
   (`FIXTURE_GUEST_USER_ID`, a member of Operations only), who is read-only),
-  milestone meta from `FIXTURE_MILESTONE_META`, then `fullSync`. `devSignIn`
-  creates sessions with scopes `read,write`. Webhooks are ignored. The
-  `LinearProvider` serves `createFixtureGateway` (app actor or the session's
+  milestone meta from `demoMilestoneMeta(dataset)` (`FIXTURE_MILESTONE_META`, or
+  `SHOWCASE_MILESTONE_META`, which adds the showcase's rows), then `fullSync`.
+  Settings → Status names the demo workspace and its `LINEAR_FIXTURE` value.
+  `devSignIn` creates sessions with scopes `read,write`. Webhooks are ignored.
+  The `LinearProvider` serves `createFixtureGateway` (app actor or the session's
   user).
 - Otherwise: requires `APP_URL`, `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
   `LINEAR_CLIENT_SECRET`; `DATABASE_URL` or PGlite at `PGLITE_DIR` (default
@@ -1625,7 +1703,7 @@ only. Gr8r is a reference only; nothing is imported from it.
 | `POST /api/warnings/preview`     | not a guest       | digests without sending                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `PATCH /api/settings`            | not a guest       | settings patch (audited)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `GET /api/health`                | —                 | `{ ok, db }` for Railway healthchecks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `/ui-gallery/*`                  | demo mode only    | the `@better-tracker/ui` component gallery with fixture props (no engine); 404 unless `LINEAR_FIXTURE=1` or `next dev`, checked per request                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `/ui-gallery/*`                  | demo mode only    | the `@better-tracker/ui` component gallery with fixture props (no engine); 404 unless demo mode (`LINEAR_FIXTURE=1` or `showcase`) or `next dev`, checked per request                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
 `APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
@@ -2360,37 +2438,41 @@ hover floods on controls, and the timeline's today.
     bar is titled by the level (Initiatives, Projects, Milestones, Issues) or
     "Chain".
   - **Canvas.** SVG laid out with `@dagrejs/dagre` (rankdir LR) once on the
-    server, hairline boxes with mono labels, in the status hues (§8.2 "Status
-    colours"): an overdue box floods red (`--red`, its text and marks in
-    `--on-red`; its `UNASSIGNED` chip inverts to a paper chip with red text, so
-    amber never sits on red); a box that needs action (an unassigned issue, an
-    at-risk milestone, a project or initiative whose next milestone is at risk)
-    carries a 2px amber rule, and one that is overdue a 2px red rule
-    (`GraphNodeTone` `warning` / `danger`, drawn through `data-tone`); a closed
-    or inactive box is faint, its status mark in grey. Each status mark keeps
-    its shape (done filled ink, on track hollow green, at risk a 2px amber
-    outline, overdue filled red, a missing input hatched grey); an issue box's
-    open mark is the plain hollow ink square (`UiStatus` `open`: an issue makes
-    no status claim of its own, its milestone does); forced colours keep the
-    filled marks filled. `UNASSIGNED` is a filled amber chip; the other chips
-    stay ink. Risk chains in amber, cycles dashed red (and a dashed red outline
-    around each box in the cycle), cross edges dashed ink (crossing a project at
-    the issue and milestone levels, a first initiative at the project level,
-    never at the initiative level), resolved edges faint; weights as mono counts
-    (a risk or cycle count in the hue's text colour); externals (outside the
-    container, one hop) dashed and muted (an overdue external keeps its dashes
-    in the paper colour on the red flood). The purple is never a status here: it
-    is the hover flood, keyboard focus and Copy Mermaid's confirmation (a
-    refused copy is outlined red); selection stays the ink fill, where the
-    status marks and the amber chip keep their hues. Hover/focus highlights the
-    upstream chain; click a box → its slide-over; "Copy Mermaid" copies
-    `toMermaid` of the drawn graph. Nodes with no blocking relation are listed
-    under the canvas, not drawn (§8.1). Sublabels: an initiative "4 projects ·
-    <target date | no target date>", a project its lead or "No lead", a
-    milestone "<project> · <date>", an issue "KEY · assignee". Chips, in order:
-    `UNASSIGNED` (issues, milestones), `OVERDUE` (active work only), `CYCLE`,
-    `CYCLE INSIDE`, `NO LEAD`, `INACTIVE`, `+N MORE` (a chain issue leading on
-    past the cap).
+    server (the planner keeps its last 24 layouts by their exact input, boxes,
+    edges and options, so an unchanged drawing, such as the page re-rendered for
+    a slide-over opening or closing, is not laid out again), hairline boxes with
+    mono labels, in the status hues (§8.2 "Status colours"): an overdue box
+    floods red (`--red`, its text and marks in `--on-red`; its `UNASSIGNED` chip
+    inverts to a paper chip with red text, so amber never sits on red); a box
+    that needs action (an unassigned issue, an at-risk milestone, a project or
+    initiative whose next milestone is at risk) carries a 2px amber rule, and
+    one that is overdue a 2px red rule (`GraphNodeTone` `warning` / `danger`,
+    drawn through `data-tone`); a closed or inactive box is faint, its status
+    mark in grey. Each status mark keeps its shape (done filled ink, on track
+    hollow green, at risk a 2px amber outline, overdue filled red, a missing
+    input hatched grey); an issue box's open mark is the plain hollow ink square
+    (`UiStatus` `open`: an issue makes no status claim of its own, its milestone
+    does); forced colours keep the filled marks filled. `UNASSIGNED` is a filled
+    amber chip; the other chips stay ink. Risk chains in amber, cycles dashed
+    red (and a dashed red outline around each box in the cycle), cross edges
+    dashed ink (crossing a project at the issue and milestone levels, a first
+    initiative at the project level, never at the initiative level), resolved
+    edges faint; weights as mono counts (a risk or cycle count in the hue's text
+    colour); externals (outside the container, one hop) dashed and muted (an
+    overdue external keeps its dashes in the paper colour on the red flood). The
+    purple is never a status here: it is the hover flood, keyboard focus and
+    Copy Mermaid's confirmation (a refused copy is outlined red); selection
+    stays the ink fill, where the status marks and the amber chip keep their
+    hues. Hover/focus highlights the upstream chain; click a box → its
+    slide-over; "Copy Mermaid" copies `toMermaid` of the drawn graph. Nodes with
+    no blocking relation are listed under the canvas, not drawn (§8.1).
+    Sublabels: an initiative "4 projects · <target date | no target date>", a
+    project its lead or "No lead", a milestone "<project> · <date>", an issue
+    "KEY · assignee"; a box has one sublabel line, and when a milestone's or
+    initiative's line is too long for it the part before the " · " is cut, never
+    the date. Chips, in order: `UNASSIGNED` (issues, milestones), `OVERDUE`
+    (active work only), `CYCLE`, `CYCLE INSIDE`, `NO LEAD`, `INACTIVE`,
+    `+N MORE` (a chain issue leading on past the cap).
   - **Legends** per level: initiatives and projects ("blockers sit left of what
     waits", Overdue = a project's milestone is past due, At risk = a project's
     next milestone, In a cycle, Inactive = no active project / paused or not
@@ -2440,7 +2522,12 @@ hover floods on controls, and the timeline's today.
     is about is brought into the part the panel leaves uncovered instead of
     lying under it (scrolled only as far as it takes to show it whole, so what
     it waits on stays in view to its left); on a phone, where the sheet covers
-    everything, nothing moves.
+    everything, nothing moves. With nothing to centre on (no `?node=`, no chain
+    focus, no selection) the canvas opens where its flow starts, not at dagre's
+    empty top-left corner: scrolled to the left end, and down to the band,
+    starting at a box, where the most boxes of that first frame-width show whole
+    (the topmost on a tie), so a big graph opens on boxes on a phone too; a
+    graph whose height fits its frame does not move.
   - **A chain** (`?chain=<KEY>`): the issue is ruled as the focus (ui `focusId`,
     a 2px ink rule, not a selection) and kept; no panel opens. Clicking any box
     opens its slide-over, whose Graph link re-centres the graph on that issue's
@@ -2702,7 +2789,7 @@ Worker decisions made while building it (binding):
 | `SLACK_BOT_TOKEN`                           | worker, planner | optional; without it digests stay in the outbox                   |
 | `DEFAULT_TIMEZONE`                          | all             | IANA zone for new workspaces (default `UTC`)                      |
 | `WATCHER_EMAILS`                            | engine          | comma-separated emails of the first watchers (else the installer) |
-| `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed                                 |
+| `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed; `showcase` = the big demo      |
 | `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
 | `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)    |
 | `SYNC_INTERVAL_MINUTES`                     | worker serve    | minutes between ticks (default 15)                                |
@@ -2727,7 +2814,15 @@ not read; a deploy that still sets it boots normally and logs one warning
   webhook signature + timestamp tests with known vectors; the issue page's reads
   and writes with a fake fetch (label/comment paging and the comment cap,
   estimate-scale inheritance, readable refusals) and in the fixture (content on
-  every team's scale, every refusal Linear would give).
+  every team's scale, every refusal Linear would give); the base fixture
+  deep-equals main's snapshot (`test/base-snapshot.test.ts`); the showcase
+  (`test/showcase.test.ts`): it contains the base unchanged, counts in range and
+  inside the draw budget, every reference, timestamps, determinism for several
+  todays, the milestone scenarios, the flow rules with their exact exceptions,
+  the designed cycles as the only ones, the critical path as the unique longest
+  chain, the hubs, linked and unlinked work in every milestone, core's graph at
+  every level and container (cycles per level), the guest's view, issue-page
+  content and the store.
 - store: every method against in-memory PGlite; concurrency guards (second
   `startRun` returns null; duplicate notification returns false; job claims).
   With `TEST_DATABASE_URL` the same suite also runs on real Postgres, including
@@ -2754,7 +2849,11 @@ not read; a deploy that still sets it boots normally and logs one warning
   refused `read_only` by every mutating method (also with a crafted
   `canWriteLinear`), nothing reaches Linear, the mirror, settings, runs or the
   audit, the same calls work for a member, and (`auth.test.ts`) a guest's
-  `grant_write` and install are refused and the mirror decides `readOnly`.
+  `grant_write` and install are refused and the mirror decides `readOnly`;
+  `LINEAR_FIXTURE`'s values and a boot with `showcase`
+  (`test/showcase-boot.test.ts`: seeded like the base demo with the showcase's
+  meta, every view and graph level for a member, the guest's Operations-only,
+  read-only view).
 - planner: unit tests for cookie signing/origin checks; the adapters; the route
   handlers with a fake actor resolver, and end to end on the demo engine
   (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),
@@ -2769,7 +2868,15 @@ not read; a deploy that still sets it boots normally and logs one warning
   HTML (`test/read-only-render.test.tsx`: drawer, timeline, issue page,
   settings) and must hold no inputs, Save buttons, drag handles or grant links,
   while keeping every graph link (the drawer's two, the timeline's group links
-  and "Open as graph", the issue's Blocked-by Graph).
+  and "Open as graph", the issue's Blocked-by Graph). On the showcase engine
+  (`test/showcase-pages.test.ts`), `/graph` at every level and inside an
+  initiative, a project, a milestone and a chain, `/timeline`, `/projects` and
+  `/week` build their models through the pages' engine calls and adapters, draw
+  (never "Too many to draw") with a layout and Mermaid text, no box's sublabel
+  is cut, and each page's server time is measured against a budget. A milestone
+  box keeps its date on any day, cross-year dates included, in both demo
+  workspaces (`test/adapters-graph-sublabel.test.ts`), and the layout cache
+  reuses only an identical drawing (`test/graph-layout-cache.test.ts`).
 - planner browser smoke (Playwright 1.56, `apps/planner/e2e/*.e2e.ts`,
   `playwright.config.ts`; moon `planner:test-e2e`, which builds first; CI runs
   it as a `moon ci` target whenever the planner or anything it depends on

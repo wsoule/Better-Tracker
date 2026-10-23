@@ -57,6 +57,60 @@ function coveredPart(viewport: HTMLElement, width: number): number {
     : 0;
 }
 
+/**
+ * Where a graph with nothing to centre on (no focus, no selection) opens,
+ * as frame scroll offsets at zoom `k`. dagre leaves empty space around a
+ * layered drawing, so a big graph scrolled to (0, 0) can show no box at
+ * all. Blockers sit left of what waits (above it, top-down), so the flow
+ * starts at the drawing's first layer: the frame stays at the start of
+ * the flow axis and slides along the other axis to the band, starting at
+ * a box, where the most boxes of that first frame-length show whole (the
+ * earliest such band on a tie). Null, so nothing moves, when the frame
+ * has no size, the drawing fits it across, or no box fits its flow length.
+ */
+function openingScroll(
+  nodes: readonly LaidOutNode[],
+  horizontal: boolean,
+  frameWidth: number,
+  frameHeight: number,
+  k: number
+): { left: number; top: number } | null {
+  const flowLength = horizontal ? frameWidth : frameHeight;
+  const crossLength = horizontal ? frameHeight : frameWidth;
+  if (flowLength <= 0 || crossLength <= 0) return null;
+  let crossExtent = 0;
+  // The boxes whole along the flow from its start, as cross-axis spans.
+  const spans: { start: number; end: number }[] = [];
+  for (const n of nodes) {
+    const start = (horizontal ? n.y : n.x) * k;
+    const end = start + (horizontal ? n.height : n.width) * k;
+    crossExtent = Math.max(crossExtent, end);
+    const flowEnd = (horizontal ? n.x + n.width : n.y + n.height) * k;
+    if (flowEnd <= flowLength) spans.push({ start, end });
+  }
+  if (crossExtent <= crossLength || spans.length === 0) return null;
+  // Each band starts just above (left of) one of those boxes.
+  let best = Number.POSITIVE_INFINITY;
+  let bestCount = 0;
+  for (const band of spans) {
+    const offset = Math.max(0, band.start - FIT_PADDING);
+    let count = 0;
+    for (const s of spans) {
+      if (s.start >= offset && s.end <= offset + crossLength) count += 1;
+    }
+    if (count > bestCount || (count === bestCount && offset < best)) {
+      best = offset;
+      bestCount = count;
+    }
+  }
+  // No box fits across the frame whole: show the start of the first one.
+  if (bestCount === 0) {
+    best = Math.max(0, Math.min(...spans.map((s) => s.start)) - FIT_PADDING);
+  }
+  const cross = Math.round(best);
+  return horizontal ? { left: 0, top: cross } : { left: cross, top: 0 };
+}
+
 const EDGE_WORDS: Record<GraphEdgeKind, string> = {
   default: 'blocks',
   risk: 'blocks, on a risk chain',
@@ -390,13 +444,27 @@ export function DependencyGraph({
   // not hidden under its own panel and what it waits on, to its left,
   // stays in view. Only the frame scrolls, never the page, with no
   // animation; it happens once, so later selections never move the
-  // drawing under the reader.
+  // drawing under the reader. With neither, it opens where the flow starts
+  // (openingScroll), so a big graph never opens on dagre's empty corner.
   const centredRef = useRef(false);
   const centreId = focusId ?? selectedId;
   useIsomorphicLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (centredRef.current || !hasNodes || viewport === null) return;
     centredRef.current = true;
+    if (centreId === null) {
+      const start = openingScroll(
+        layout.nodes,
+        horizontal,
+        viewport.clientWidth - reserveRef.current,
+        viewport.clientHeight,
+        zoomRef.current
+      );
+      if (start === null) return;
+      viewport.scrollLeft = start.left;
+      viewport.scrollTop = start.top;
+      return;
+    }
     const box =
       centreId === null
         ? undefined
@@ -414,7 +482,7 @@ export function DependencyGraph({
       0,
       (box.y + box.height / 2) * k - viewport.clientHeight / 2
     );
-  }, [hasNodes, centreId, layout]);
+  }, [hasNodes, centreId, layout, horizontal]);
 
   // Link nodes render through the host's <Link>, whose props carry no
   // tabIndex or aria-describedby, so the roving tab stop and the key help

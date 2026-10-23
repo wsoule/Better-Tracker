@@ -13,7 +13,10 @@
 // interface and applies every write to it, so demo-mode allocation runs,
 // milestone, lead and issue edits "write back". The issue page's extra
 // fields (descriptions, labels, estimates, due dates, comments) live in
-// fixture-details.ts and are kept in the same in-memory store.
+// fixture-details.ts and are kept in the same in-memory store. The generic
+// builders (dates, people, workflow states, the issue builder) are in
+// fixture-kit.ts, shared with the larger showcase workspace (showcase.ts,
+// LINEAR_FIXTURE=showcase), which contains this workspace unchanged.
 
 import {
   type BlockingRelation,
@@ -34,7 +37,6 @@ import {
   type Team,
   type User,
   type WorkflowState,
-  type WorkflowStateType,
   type WorkspaceData,
 } from '@better-tracker/core';
 
@@ -44,6 +46,17 @@ import {
   type FixtureIssueFields,
   type FixtureLabel,
 } from './fixture-details';
+import {
+  addDays,
+  buildIssue,
+  buildStates,
+  type IssueSpec,
+  person,
+  projectId,
+  slugify,
+  spec,
+  STATUS_NAME,
+} from './fixture-kit';
 import {
   LinearApiError,
   type LinearGateway,
@@ -89,57 +102,8 @@ export const FIXTURE_GUEST_USER_ID = 'user-gus';
 const BASE_URL = `https://linear.app/${FIXTURE_WORKSPACE.urlKey}`;
 
 // ---------------------------------------------------------------------------
-// Local date helpers (core's date helpers are not a dependency here)
-// ---------------------------------------------------------------------------
-
-const DAY_MS = 86_400_000;
-const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-// `date` plus `days` calendar days, computed in UTC so DST never shifts it.
-function addDays(date: IsoDate, days: number): IsoDate {
-  const match = ISO_DATE.exec(date);
-  if (match === null) throw new RangeError(`Not a YYYY-MM-DD date: ${date}`);
-  const ms = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  return new Date(ms + days * DAY_MS).toISOString().slice(0, 10);
-}
-
-/** An instant on `today - daysAgo` at a fixed UTC time of day. */
-function daysAgo(
-  today: IsoDate,
-  days: number,
-  time = '09:00:00.000'
-): IsoDateTime {
-  return `${addDays(today, -days)}T${time}Z`;
-}
-
-function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
-
-// ---------------------------------------------------------------------------
 // People, teams, states, initiatives
 // ---------------------------------------------------------------------------
-
-function person(
-  id: string,
-  name: string,
-  options: { active?: boolean; guest?: boolean } = {}
-): User {
-  const first = name.split(' ')[0] ?? name;
-  return {
-    id,
-    name,
-    displayName: first.toLowerCase(),
-    email: `${first.toLowerCase()}@northwind.example`,
-    avatarUrl: null,
-    active: options.active ?? true,
-    app: false,
-    guest: options.guest ?? false,
-  };
-}
 
 function buildUsers(): User[] {
   return [
@@ -205,53 +169,6 @@ const TEAMS: readonly Team[] = [
   },
 ];
 
-type StateKey =
-  | 'triage'
-  | 'backlog'
-  | 'todo'
-  | 'progress'
-  | 'review'
-  | 'done'
-  | 'canceled'
-  | 'duplicate';
-
-// Linear's default workflow plus Triage and a Duplicate state. Duplicate is
-// already normalised to type canceled, as the real gateway maps it.
-const STATE_DEFS: readonly {
-  key: StateKey;
-  name: string;
-  type: WorkflowStateType;
-}[] = [
-  { key: 'triage', name: 'Triage', type: 'triage' },
-  { key: 'backlog', name: 'Backlog', type: 'backlog' },
-  { key: 'todo', name: 'Todo', type: 'unstarted' },
-  { key: 'progress', name: 'In Progress', type: 'started' },
-  { key: 'review', name: 'In Review', type: 'started' },
-  { key: 'done', name: 'Done', type: 'completed' },
-  { key: 'canceled', name: 'Canceled', type: 'canceled' },
-  { key: 'duplicate', name: 'Duplicate', type: 'canceled' },
-];
-
-function stateId(team: TeamKey, key: StateKey): string {
-  return `st-${team}-${key}`;
-}
-
-function buildStates(): WorkflowState[] {
-  const states: WorkflowState[] = [];
-  for (const team of ['eng', 'ops'] as const) {
-    STATE_DEFS.forEach((def, position) => {
-      states.push({
-        id: stateId(team, def.key),
-        teamId: `team-${team}`,
-        name: def.name,
-        type: def.type,
-        position,
-      });
-    });
-  }
-  return states;
-}
-
 function buildInitiatives(today: IsoDate): Initiative[] {
   return [
     {
@@ -274,15 +191,6 @@ function buildInitiatives(today: IsoDate): Initiative[] {
 // ---------------------------------------------------------------------------
 // Projects and milestones
 // ---------------------------------------------------------------------------
-
-const STATUS_NAME: Record<ProjectStatusType, string> = {
-  backlog: 'Backlog',
-  planned: 'Planned',
-  started: 'In Progress',
-  paused: 'Paused',
-  completed: 'Completed',
-  canceled: 'Canceled',
-};
 
 interface ProjectSpec {
   key: string;
@@ -412,10 +320,6 @@ const PROJECT_SPECS: readonly ProjectSpec[] = [
     target: 40,
   },
 ];
-
-function projectId(key: string): string {
-  return `proj-${key}`;
-}
 
 function buildProjects(today: IsoDate): Project[] {
   return PROJECT_SPECS.map((spec, index) => ({
@@ -667,47 +571,6 @@ export const FIXTURE_MILESTONE_META: {
 // ---------------------------------------------------------------------------
 // Issues and relations
 // ---------------------------------------------------------------------------
-
-interface IssueSpec {
-  team: TeamKey;
-  number: number;
-  title: string;
-  project: string | null;
-  milestone: string | null;
-  assignee: string | null;
-  state: StateKey;
-  priority: Priority;
-  /** Days ago the issue was created. */
-  created: number;
-  /** Days ago it entered its current state (drives "stalled"). */
-  changed: number;
-}
-
-function spec(
-  team: TeamKey,
-  number: number,
-  title: string,
-  project: string | null,
-  milestone: string | null,
-  assignee: string | null,
-  state: StateKey,
-  priority: Priority,
-  created: number,
-  changed: number
-): IssueSpec {
-  return {
-    team,
-    number,
-    title,
-    project,
-    milestone,
-    assignee,
-    state,
-    priority,
-    created,
-    changed,
-  };
-}
 
 const ISSUE_SPECS: readonly IssueSpec[] = [
   // (a)+(i) Atlas: ms-atlas-1 complete in the past; ms-atlas-2 overdue with
@@ -1359,56 +1222,6 @@ const ISSUE_SPECS: readonly IssueSpec[] = [
   ),
 ];
 
-function issueId(team: TeamKey, number: number): string {
-  return `iss-${team}-${number}`;
-}
-
-const STATE_TYPE_BY_KEY: ReadonlyMap<StateKey, WorkflowStateType> = new Map(
-  STATE_DEFS.map((def) => [def.key, def.type])
-);
-
-// Turns a spec into an Issue with lifecycle timestamps consistent with its
-// state: started issues started when they last changed, completed ones were
-// started a day earlier, canceled ones never started.
-function buildIssue(today: IsoDate, s: IssueSpec): Issue {
-  const team = TEAMS.find((t) => t.id === `team-${s.team}`);
-  const key = team?.key ?? s.team.toUpperCase();
-  const identifier = `${key}-${s.number}`;
-  const createdAt = daysAgo(today, s.created);
-  const changedAt = daysAgo(today, s.changed, '10:00:00.000');
-  const dayBeforeChange = daysAgo(
-    today,
-    Math.min(s.changed + 1, s.created),
-    '11:00:00.000'
-  );
-  const type = STATE_TYPE_BY_KEY.get(s.state) ?? 'backlog';
-  return {
-    id: issueId(s.team, s.number),
-    identifier,
-    title: s.title,
-    url: `${BASE_URL}/issue/${identifier}/${slugify(s.title)}`,
-    teamId: `team-${s.team}`,
-    projectId: s.project === null ? null : projectId(s.project),
-    milestoneId: s.milestone,
-    assigneeId: s.assignee,
-    stateId: stateId(s.team, s.state),
-    priority: s.priority,
-    createdAt,
-    updatedAt: daysAgo(today, s.changed, '12:00:00.000'),
-    startedAt:
-      type === 'started'
-        ? s.state === 'review'
-          ? dayBeforeChange
-          : changedAt
-        : type === 'completed'
-          ? dayBeforeChange
-          : null,
-    completedAt: type === 'completed' ? changedAt : null,
-    canceledAt: type === 'canceled' ? changedAt : null,
-    lastStateChangeAt: changedAt,
-  };
-}
-
 const RELATION_SPECS: readonly {
   id: string;
   blocker: string;
@@ -1445,11 +1258,11 @@ export function createFixtureWorkspace(today: IsoDate): WorkspaceData {
       ...team,
       memberIds: [...(team.memberIds ?? [])],
     })),
-    states: buildStates(),
+    states: buildStates(['eng', 'ops']),
     initiatives: buildInitiatives(today),
     projects: buildProjects(today),
     milestones: buildMilestones(today),
-    issues: ISSUE_SPECS.map((s) => buildIssue(today, s)),
+    issues: ISSUE_SPECS.map((s) => buildIssue(today, s, BASE_URL)),
     relations,
   };
 }

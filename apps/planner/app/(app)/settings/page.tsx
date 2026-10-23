@@ -1,3 +1,4 @@
+import { fixtureDatasetFromEnv } from '@better-tracker/engine';
 import {
   BlockBar,
   Chip,
@@ -209,6 +210,7 @@ async function renderSection(
         users: snapshot.users,
         timeZone,
         demo: engine.mode === 'fixture',
+        demoWorkspace: fixtureDatasetFromEnv(process.env),
       });
       return (
         <>

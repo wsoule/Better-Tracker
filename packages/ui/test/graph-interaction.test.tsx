@@ -774,6 +774,50 @@ describe('DependencyGraph: a host layout and a focus node', () => {
     }
   });
 
+  test('with nothing to centre on, a big graph opens where its flow starts', () => {
+    // dagre's empty corner: every box sits 1000px down, so (0, 0) would
+    // show the frame empty until Fit.
+    const base = layoutGraph(MILESTONES, MILESTONE_EDGES);
+    const layout: GraphLayout = {
+      ...base,
+      height: base.height + 1000,
+      nodes: base.nodes.map((n) => ({ ...n, y: n.y + 1000 })),
+    };
+    const restore = sizeViewport(300, 200);
+    try {
+      const { container } = renderGraph({ layout });
+      const viewport = viewportOf(container);
+      expect(viewport.scrollLeft).toBe(0);
+      expect(viewport.scrollTop).toBeGreaterThanOrEqual(1000 - 16);
+      const top = viewport.scrollTop;
+      // The first layer's boxes show whole in the frame.
+      const whole = layout.nodes.filter(
+        (n) => n.x + n.width <= 300 && n.y >= top && n.y + n.height <= top + 200
+      );
+      expect(whole.length).toBeGreaterThan(0);
+      expect(whole.every((n) => n.rank === 0)).toBe(true);
+      // The band starts at a box: its first box sits just under the top.
+      const first = Math.min(...whole.map((n) => n.y));
+      expect(Math.abs(first - top - 16)).toBeLessThanOrEqual(0.5);
+    } finally {
+      restore();
+    }
+  });
+
+  test('a graph that fits its frame, or a frame with no size, scrolls nothing', () => {
+    const restore = sizeViewport(4000, 4000);
+    try {
+      const { container } = renderGraph();
+      expect(viewportOf(container).scrollLeft).toBe(0);
+      expect(viewportOf(container).scrollTop).toBe(0);
+    } finally {
+      restore();
+    }
+    // No size (not laid out yet): nothing to place a box against.
+    const { container } = renderGraph();
+    expect(viewportOf(container).scrollTop).toBe(0);
+  });
+
   test('a focus or selection that is not drawn scrolls nothing', () => {
     const restore = sizeViewport(300, 60);
     try {

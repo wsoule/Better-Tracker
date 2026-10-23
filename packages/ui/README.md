@@ -403,7 +403,11 @@ palette's `fuzzyMatch`, and the collapsed-group storage helpers.
   `selectedId`; its accessible name ends with `focusLabel` (default "focus"),
   and Tab lands on it until a node is focused or selected. On the first paint
   the frame (never the page) scrolls so the focus, else the selected node, sits
-  in its middle. The legend draws the mark as `node-focus`.
+  in its middle. With neither, it opens where the flow starts rather than on
+  dagre's empty top-left corner: at the drawing's start along the flow, and
+  across it at the band, starting at a box, where the most boxes of that first
+  frame-length show whole (the earliest on a tie); a drawing that fits the frame
+  across does not move. The legend draws the mark as `node-focus`.
 - `DependencyGraph` `coveredRight`: the width of a panel fixed along the
   window's right edge that is open over the graph (pass `SLIDE_OVER_WIDTH` while
   a `SlideOver` the page opened on arrival is open, and nothing once it closes).

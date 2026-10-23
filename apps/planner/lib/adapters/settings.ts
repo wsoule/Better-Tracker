@@ -594,15 +594,18 @@ export function statusRows(input: {
   users: ReadonlyMap<string, User>;
   timeZone: string;
   demo: boolean;
+  /** Which demo workspace LINEAR_FIXTURE chose (the base one if unset). */
+  demoWorkspace?: 'base' | 'showcase' | null;
 }): StatusRow[] {
   const { installation, syncState, users, timeZone } = input;
   const rows: StatusRow[] = [];
   if (input.demo) {
+    const showcase = input.demoWorkspace === 'showcase';
     rows.push({
       id: 'source',
       label: 'Data source',
-      value: 'Demo workspace',
-      sub: 'LINEAR_FIXTURE=1 · nothing reaches Linear',
+      value: showcase ? 'Showcase demo workspace' : 'Demo workspace',
+      sub: `LINEAR_FIXTURE=${showcase ? 'showcase' : '1'} · nothing reaches Linear`,
       tone: 'muted',
     });
   }

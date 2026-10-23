@@ -32,7 +32,7 @@ import {
   type GraphNodeData,
   type GraphNodeTag,
   type GraphNodeTone,
-  layoutGraph,
+  measureNode,
   type NavTabItem,
   type ShellCrumb,
   type UiStatus,
@@ -41,6 +41,7 @@ import {
 
 import { dueLabel, formatDate, plural } from '../format';
 import type { ReadOnlyReasonCopy } from '../read-only';
+import { cachedLayoutGraph } from './graph-layout-cache';
 import {
   chainHref,
   GRAPH_DRAW_LIMITS,
@@ -575,7 +576,37 @@ function presentLinks(links: readonly (GraphLink | null)[]): GraphLink[] {
 
 /* ---- node marks, sublabels and details, per kind -------------------------- */
 
-/** "Atlas billing migration · Oct 18", "… · no date": fits one node line. */
+/**
+ * How many characters one sublabel line holds in the widest box (with its
+ * status mark, which every drawn box has). ui's measureNode cuts a longer
+ * sublabel at its end; measured with measureNode itself, so this follows
+ * the ui's box metrics.
+ */
+const SUBLABEL_CHARS = measureNode({
+  id: 'measure',
+  label: '',
+  sublabel: 'x'.repeat(200),
+  tone: 'default',
+  status: 'open',
+}).sublabelLine.length;
+
+/**
+ * "<head> · <tail>" for a box's one sublabel line. measureNode would cut
+ * a too-long line at its end, which is where the date is, so here the
+ * head gives way instead ("Atlas billing mig… · Jan 1, 2027"): the date
+ * always shows. A line that fits is unchanged; a tail too long to leave
+ * the head a few characters is left to the box's own cut.
+ */
+export function fitSublabel(head: string, tail: string): string {
+  const full = `${head} · ${tail}`;
+  if (full.length <= SUBLABEL_CHARS) return full;
+  const room = SUBLABEL_CHARS - tail.length - ' · '.length;
+  if (room < 4) return full;
+  return `${head.slice(0, room - 1).trimEnd()}… · ${tail}`;
+}
+
+/** "Atlas billing migration · Oct 18", "… · no date": fits one node line
+    (a project name too long for the box is cut, never the date). */
 function milestoneSublabel(
   snapshot: Snapshot,
   milestoneId: string,
@@ -584,7 +615,10 @@ function milestoneSublabel(
   const milestone = snapshot.milestones.get(milestoneId);
   const project = projectName(snapshot, milestone?.projectId ?? null);
   const target = milestone?.targetDate ?? null;
-  return `${project} · ${target === null ? 'no date' : formatDate(target, today)}`;
+  return fitSublabel(
+    project,
+    target === null ? 'no date' : formatDate(target, today)
+  );
 }
 
 /** "Oct 18", or "No target date" (null) for "No initiative". */
@@ -1006,7 +1040,7 @@ function nodeFace(ctx: PageContext, node: GraphNode): NodeFace {
         sublabel:
           node.id === NO_INITIATIVE_ID
             ? node.sublabel
-            : `${node.sublabel} · ${target ?? 'no target date'}`,
+            : fitSublabel(node.sublabel, target ?? 'no target date'),
         group: undefined,
       };
     }
@@ -2254,7 +2288,7 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
     meta,
     nodes,
     edges,
-    layout: drawn ? layoutGraph(nodes, edges, { direction: 'LR' }) : null,
+    layout: drawn ? cachedLayoutGraph(nodes, edges, { direction: 'LR' }) : null,
     details,
     isolated,
     tooLarge,
