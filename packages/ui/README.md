@@ -779,20 +779,23 @@ or middle click still opens the link.
   own element (so a lock from the first render is placed too). The strip follows
   the boxes in the DOM, so Tab from the box reaches it. The readout leads with
   `pathWords.locked` ("Locked on", semibold in `--accent-ink`) and the same
-  actions as small inline buttons (`open` the primary, `openItsGraph` a
-  secondary, `unlock` a ghost). Escape (from anywhere on the page, heard on the
-  window after every nearer handler, so an open panel's or menu's own Escape, or
-  one typed into a field, goes first), a click on the background (never the end
-  of a pan), Unlock, or a press on another node (which moves the lock) drops it;
-  while locked, a new `selectedId` from the host moves the lock to it. A polite
-  `role="status"` line says the lock once ("Locked on ENG-23 Typo tolerance.",
-  "Unlocked."); a button node exposes it as `aria-pressed` (no longer the
-  selection), a link or plain node as `aria-current`. Leave `lockedId` undefined
-  and the graph keeps its own lock; pass it to keep the lock yourself (the
-  planner keeps it in `?lock=`). The first paint centres the locked node, before
-  `focusId` and `selectedId`. On a touch press a tap locks, a second tap opens,
-  two taps within `DOUBLE_PRESS_MS` drill down, and a tap on the background
-  unlocks (the focus a tap gives a button in Chromium never traces on its own).
+  actions as small inline buttons (`open` the primary, `openItsGraph` and
+  `unlock` secondaries, so the three read as one group of controls), then a
+  short vertical rule (`aria-hidden`, a border so forced colours keep it) in
+  place of the facts' first " · ", then the facts. Escape (from anywhere on the
+  page, heard on the window after every nearer handler, so an open panel's or
+  menu's own Escape, or one typed into a field, goes first), a click on the
+  background (never the end of a pan), Unlock, or a press on another node (which
+  moves the lock) drops it; while locked, a new `selectedId` from the host moves
+  the lock to it. A polite `role="status"` line says the lock once ("Locked on
+  ENG-23 Typo tolerance.", "Unlocked."); a button node exposes it as
+  `aria-pressed` (no longer the selection), a link or plain node as
+  `aria-current`. Leave `lockedId` undefined and the graph keeps its own lock;
+  pass it to keep the lock yourself (the planner keeps it in `?lock=`). The
+  first paint centres the locked node, before `focusId` and `selectedId`. On a
+  touch press a tap locks, a second tap opens, two taps within `DOUBLE_PRESS_MS`
+  drill down, and a tap on the background unlocks (the focus a tap gives a
+  button in Chromium never traces on its own).
 - Drill down (`GraphNodeData.drillHref`, `GraphClusterData.drillHref`,
   `onDrill`, `drillHrefFor`): a double-click, a double tap or Shift + Enter on a
   node follows its `drillHref` (its own graph, one level down, in the planner;

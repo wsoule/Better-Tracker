@@ -2028,10 +2028,7 @@ export function DependencyGraph({
         {drill !== null && where === 'readout' ? ' ' : null}
         <button
           type="button"
-          className={cx(
-            action,
-            where === 'strip' ? styles.lockClose : styles.readoutQuiet
-          )}
+          className={cx(action, where === 'strip' && styles.lockClose)}
           onClick={unlockFrom}
           aria-label={where === 'strip' ? words.unlock : undefined}
           title={`${words.unlock} (Esc)`}
@@ -2687,7 +2684,15 @@ export function DependencyGraph({
               ) : null}
               {readoutLine.parts.map((part, i) => (
                 <Fragment key={i}>
-                  <span className={styles.readoutSep}> · </span>
+                  {lockedHere && i === 0 ? (
+                    // A rule, not a " · ", between the lock's buttons and
+                    // the facts, so "Unlock" never reads as the first fact.
+                    <span className={styles.readoutBreak} aria-hidden="true">
+                      {' '}
+                    </span>
+                  ) : (
+                    <span className={styles.readoutSep}> · </span>
+                  )}
                   <span>{part}</span>
                 </Fragment>
               ))}

@@ -969,8 +969,7 @@ div.node {
     background: var(--surface-2);
   }
 
-  .lockClose:hover,
-  .readoutAction.readoutQuiet:hover {
+  .lockClose:hover {
     background: var(--surface-2);
     color: var(--text);
   }
@@ -1154,8 +1153,10 @@ div.node {
 /* "Locked on" and the locked box's actions, leading the readout: the
    lead-in in the accent's text colour, semibold (the lock is a selection,
    never a status), then the strip's buttons, small and inline (24px
-   targets): Open the primary, Open its graph a secondary, Unlock a
-   ghost text button. */
+   targets): Open the primary, Open its graph and Unlock secondaries, so
+   the three read as one group of controls (a ghost Unlock in --text-2
+   read as one more fact, 2026-10-23 review). A short vertical rule, not
+   the facts' " · ", then parts the buttons from the facts. */
 .readoutLocked {
   color: var(--accent-ink);
   font-weight: var(--fw-semibold);
@@ -1174,12 +1175,14 @@ div.node {
   padding: 0 8px;
 }
 
-.readoutAction.readoutQuiet {
-  padding: 0 6px;
-  border-color: transparent;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-2);
+/* A border, not a fill, so forced colours keep it. */
+.readoutBreak {
+  display: inline-block;
+  width: 0;
+  height: 16px;
+  margin: 0 8px 0 6px;
+  border-left: 1px solid var(--border-strong);
+  vertical-align: middle;
 }
 
 .readoutHint {

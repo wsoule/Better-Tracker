@@ -809,12 +809,12 @@ describe('DependencyGraph highlight styles (dependency-graph.module.css)', () =>
     expect(step).toContain('border-radius: var(--r-full)');
     // Shadows only on what floats: the critical path's step control and
     // the lock's strip (plus the small shadow of its secondary buttons,
-    // as on Gr8r's Button, dropped on the primary and the ghosts).
+    // as on Gr8r's Button, dropped on the primary and the strip's ghost
+    // Unlock).
     expect(sheet.match(/box-shadow: [^;]*/g)).toEqual([
       'box-shadow: var(--shadow-pop)',
       'box-shadow: var(--shadow-pop)',
       'box-shadow: var(--shadow-sm)',
-      'box-shadow: none',
       'box-shadow: none',
       'box-shadow: none',
     ]);

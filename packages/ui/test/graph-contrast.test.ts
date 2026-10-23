@@ -130,7 +130,6 @@ describe('graph marks meet WCAG in both themes', () => {
         'color: var(--on-accent)',
       ],
       ['.lockClose', 'color: var(--text-2)'],
-      ['.readoutAction.readoutQuiet', 'color: var(--text-2)'],
       ['.readoutLocked', 'color: var(--accent-ink)'],
     ];
     expect(

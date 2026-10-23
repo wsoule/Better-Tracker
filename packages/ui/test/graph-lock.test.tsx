@@ -196,8 +196,24 @@ describe('DependencyGraph: lock on', () => {
     ).toBe(true);
     // The readout leads with the lock and its actions.
     expect(readoutOf(container)).toBe(
-      'Locked on ENG-23 Open Open its graph Unlock · Blocked by 1 · Waits on 1 open, start with ENG-12 · Holds up 1 · Done would unblock 1: OPS-20'
+      'Locked on ENG-23 Open Open its graph Unlock Blocked by 1 · Waits on 1 open, start with ENG-12 · Holds up 1 · Done would unblock 1: OPS-20'
     );
+    // Its Unlock is a button like Open its graph (not a ghost that reads
+    // as one more fact), and a rule, not a " · ", parts the three buttons
+    // from the facts.
+    const readout = container.querySelector('[data-graph-readout]');
+    const actions = [
+      ...(readout?.querySelectorAll<HTMLElement>('[data-lock-action]') ?? []),
+    ];
+    expect(actions.map((el) => el.dataset.lockAction)).toEqual([
+      'open',
+      'graph',
+      'unlock',
+    ]);
+    expect(actions[2]?.className).toBe(actions[1]?.className);
+    const after = actions[2]?.parentElement?.nextElementSibling;
+    expect(after?.getAttribute('aria-hidden')).toBe('true');
+    expect(after?.textContent).toBe(' ');
     // Said once to a screen reader, in a status line (not the readout).
     expect(statusOf(container)).toBe('Locked on ENG-23 Typo tolerance.');
     expect(
@@ -1381,14 +1397,17 @@ describe('the lock’s look (dependency-graph.module.css)', () => {
     );
     expect(open).toContain('background: var(--accent)');
     expect(open).toContain('color: var(--on-accent)');
-    // Unlock: an icon button on the strip, a ghost in the readout.
+    // Unlock: an icon button on the strip, a secondary in the readout (a
+    // ghost there read as one more fact), parted from the facts by a rule
+    // that forced colours keep.
     const close = rule(sheet, '.lockClose');
     expect(close).toContain('border-color: transparent');
     expect(close).toContain('background: transparent');
     expect(close).toContain('color: var(--text-2)');
-    expect(rule(sheet, '.readoutAction.readoutQuiet')).toContain(
-      'background: transparent'
-    );
+    expect(sheet).not.toContain('readoutQuiet');
+    const rest = rule(sheet, '.readoutBreak');
+    expect(rest).toContain('border-left: 1px solid var(--border-strong)');
+    expect(rest).not.toContain('background');
     // "Locked on" in sentence case, the accent's text colour.
     const lead = rule(sheet, '.readoutLocked');
     expect(lead).toContain('color: var(--accent-ink)');

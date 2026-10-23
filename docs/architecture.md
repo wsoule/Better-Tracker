@@ -4339,40 +4339,43 @@ links and follow-ups, new or unread, progress and the timeline's today.
     so Tab from the box reaches Open, Open graph and Unlock. The **readout**
     leads with "Locked on <name>" (the lead-in semibold in `--accent-ink`) and
     the same three as small inline buttons, 24px tall ("Open" the primary, "Open
-    its graph" a secondary, "Unlock" a ghost), then the box's paths. **Unlock**:
-    Escape (one Escape for the lock; a host panel's own Escape waits for the
-    next; from anywhere on the page, not only from inside the graph, since a
-    drag on the background leaves focus on the page, unless an open panel, a
-    menu or a text field nearer to the key takes it first), a click or tap on
-    the background (not the end of a pan, which swallows its click), Unlock on
-    the strip or in the readout, or locking another box (a click on another box
-    moves the lock). A screen reader hears the lock once, in a polite status
-    line ("Locked on ENG-23 Typo tolerance.", "Unlocked."; the readout stays
-    plain), and the box exposes it (`aria-pressed` on a button box, which meant
-    the selection before; `aria-current` on a link or plain box). The key help
-    names Enter, Shift + Enter ("opens its graph (the box itself when it has
-    none)": on a box with no graph it locks and opens the box, as a double-click
-    does there; it used to do nothing), Tab and Escape, and the touch gestures.
-    While a box is locked a new selection from a panel (a "Waits on" row, a
-    drawer's link to another issue) moves the lock to it, so the canvas lights
-    what the panel shows. The lock never moves a box or lays anything out again.
-    **In the URL**: `?lock=<id>` (an issue by its identifier, `lockParam`; read
-    by id, else by identifier in any case, `lockedNodeId`), written in place
-    with `?highlight=` (`addressHref`, the lock before the highlight,
-    `withLockParam` keeping its place), so a reload, Back and Forward and a
-    shared link keep it and a lock leaves no history entry of its own; dropped
-    when the box is not drawn; carried on the graph's own links (level tabs,
-    trail, panel and narrower-graph links: `carryLock`), where the next graph
-    keeps it only if it draws that box; never on a drill-down link. The first
-    paint centres the locked box (before the focus and the selection). The
-    island reads and writes the URL only while it is its own page (`scopeQuery`:
-    Back and Forward render the page being left with the arriving entry's URL,
-    and its writes used to wipe that entry's `?lock=`). **Touch** (`pointerType`
-    touch only, not width): a tap locks (it used to trace without locking), a
-    second tap on the locked box opens it, two taps within 300 ms drill down, a
-    tap on the background or Escape unlocks; the focus a tap gives a box in
-    Chromium never traces on its own, and a tap after an unlock is never half of
-    a double tap.
+    its graph" and "Unlock" secondaries, so the three read as one group of
+    controls: a ghost "Unlock" in the facts' `--text-2`, followed by their " ·
+    ", read as the first fact, 2026-10-23 review), then a short vertical rule
+    (1px `--border-strong`, 16px, a border so forced colours keep it) in place
+    of the first " · ", then the box's paths. **Unlock**: Escape (one Escape for
+    the lock; a host panel's own Escape waits for the next; from anywhere on the
+    page, not only from inside the graph, since a drag on the background leaves
+    focus on the page, unless an open panel, a menu or a text field nearer to
+    the key takes it first), a click or tap on the background (not the end of a
+    pan, which swallows its click), Unlock on the strip or in the readout, or
+    locking another box (a click on another box moves the lock). A screen reader
+    hears the lock once, in a polite status line ("Locked on ENG-23 Typo
+    tolerance.", "Unlocked."; the readout stays plain), and the box exposes it
+    (`aria-pressed` on a button box, which meant the selection before;
+    `aria-current` on a link or plain box). The key help names Enter, Shift +
+    Enter ("opens its graph (the box itself when it has none)": on a box with no
+    graph it locks and opens the box, as a double-click does there; it used to
+    do nothing), Tab and Escape, and the touch gestures. While a box is locked a
+    new selection from a panel (a "Waits on" row, a drawer's link to another
+    issue) moves the lock to it, so the canvas lights what the panel shows. The
+    lock never moves a box or lays anything out again. **In the URL**:
+    `?lock=<id>` (an issue by its identifier, `lockParam`; read by id, else by
+    identifier in any case, `lockedNodeId`), written in place with `?highlight=`
+    (`addressHref`, the lock before the highlight, `withLockParam` keeping its
+    place), so a reload, Back and Forward and a shared link keep it and a lock
+    leaves no history entry of its own; dropped when the box is not drawn;
+    carried on the graph's own links (level tabs, trail, panel and
+    narrower-graph links: `carryLock`), where the next graph keeps it only if it
+    draws that box; never on a drill-down link. The first paint centres the
+    locked box (before the focus and the selection). The island reads and writes
+    the URL only while it is its own page (`scopeQuery`: Back and Forward render
+    the page being left with the arriving entry's URL, and its writes used to
+    wipe that entry's `?lock=`). **Touch** (`pointerType` touch only, not
+    width): a tap locks (it used to trace without locking), a second tap on the
+    locked box opens it, two taps within 300 ms drill down, a tap on the
+    background or Escape unlocks; the focus a tap gives a box in Chromium never
+    traces on its own, and a tap after an unlock is never half of a double tap.
   - **Drill down** (owner request 2026-10-23: "when I double click on the graph
     item, it should take me to that items graph so I can quickly drill down"). A
     **double-click** on a box (a double tap, Shift + Enter, or its strip's and
