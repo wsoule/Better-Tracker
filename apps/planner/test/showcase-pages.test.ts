@@ -84,6 +84,45 @@ async function graphPage(
   });
 }
 
+/** Points along an SVG path of M, L and C commands (a layout edge's). */
+function sampled(d: string): { x: number; y: number }[] {
+  const tokens = d.match(/[MLC]|-?\d*\.?\d+/g) ?? [];
+  const out: { x: number; y: number }[] = [];
+  let i = 0;
+  let at = { x: 0, y: 0 };
+  const next = () => ({ x: Number(tokens[i++]), y: Number(tokens[i++]) });
+  while (i < tokens.length) {
+    const command = tokens[i++];
+    if (command === 'M') {
+      at = next();
+      out.push(at);
+    } else if (command === 'L') {
+      const to = next();
+      for (let k = 1; k <= 20; k += 1) {
+        out.push({
+          x: at.x + ((to.x - at.x) * k) / 20,
+          y: at.y + ((to.y - at.y) * k) / 20,
+        });
+      }
+      at = to;
+    } else {
+      const [c1, c2, to] = [next(), next(), next()];
+      for (let k = 1; k <= 32; k += 1) {
+        const t = k / 32;
+        const u = 1 - t;
+        const mix = (a: number, b: number, c: number, e: number) =>
+          u ** 3 * a + 3 * u * u * t * b + 3 * u * t * t * c + t ** 3 * e;
+        out.push({
+          x: mix(at.x, c1.x, c2.x, to.x),
+          y: mix(at.y, c1.y, c2.y, to.y),
+        });
+      }
+      at = to;
+    }
+  }
+  return out;
+}
+
 describe('showcase pages', () => {
   const scopes: [string, GraphScope][] = [
     ['workspace milestones', { level: 'milestone' }],
@@ -187,6 +226,38 @@ describe('showcase pages', () => {
       expect(page.nodes).toEqual(first?.nodes ?? []);
       expect(page.clusters).toEqual(first?.clusters ?? []);
     }
+  });
+
+  // Arrows between frames turn round the boxes in their way (ui
+  // layoutClustered, routeAround): before, 67 of the issue level's 247
+  // arrows, 24 of the milestones' 54 and 8 of the projects' 27 ran behind
+  // a box they do not join, so a reader could not tell where one ended
+  // (2026-10-23 showcase review). Counted on the drawn curve, sampled.
+  test('/graph: arrows keep clear of the boxes they do not join', async () => {
+    const behind = async (scope: GraphScope) => {
+      const layout = (await graphPage(scope)).layout;
+      let count = 0;
+      for (const edge of layout?.edges ?? []) {
+        const points = sampled(edge.path);
+        const hit = (layout?.nodes ?? []).some(
+          (n) =>
+            n.id !== edge.from &&
+            n.id !== edge.to &&
+            points.some(
+              (p) =>
+                p.x > n.x + 2 &&
+                p.x < n.x + n.width - 2 &&
+                p.y > n.y + 2 &&
+                p.y < n.y + n.height - 2
+            )
+        );
+        if (hit) count += 1;
+      }
+      return count;
+    };
+    expect(await behind({ level: 'project' })).toBeLessThanOrEqual(2);
+    expect(await behind({ level: 'milestone' })).toBeLessThanOrEqual(6);
+    expect(await behind({ level: 'issue' })).toBeLessThanOrEqual(8);
   });
 
   test('/graph for the guest: his projects, with the guest notice', async () => {

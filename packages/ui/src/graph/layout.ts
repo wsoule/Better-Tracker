@@ -1444,6 +1444,338 @@ function layoutFrame(
 /** A box's top-left corner and size. */
 type Box = { x: number; y: number; width: number; height: number };
 
+/** Room a rerouted arrow keeps from a box it turns around: half a grid
+    row's gap, so a run between two rows of boxes sits in its middle. */
+const AVOID_PAD = C.gridGapY / 2;
+/** The most control points a rerouted arrow may grow to. */
+const AVOID_MAX_POINTS = 128;
+/** The side of the cells the obstacles are bucketed in. */
+const AVOID_CELL = 240;
+
+/** What a rerouted arrow keeps clear of, bucketed by AVOID_CELL px cells
+    so a run looks only at the obstacles near it. */
+interface Obstacles {
+  buckets: Map<number, Box[]>;
+}
+
+const cellKey = (cx: number, cy: number): number => cx * 65536 + cy;
+
+/** `boxes` (the laid-out boxes, frame title patches) as Obstacles. */
+function obstaclesOf(boxes: readonly Box[]): Obstacles {
+  const buckets = new Map<number, Box[]>();
+  for (const box of boxes) {
+    const x0 = Math.floor((box.x - AVOID_PAD) / AVOID_CELL);
+    const x1 = Math.floor((box.x + box.width + AVOID_PAD) / AVOID_CELL);
+    const y0 = Math.floor((box.y - AVOID_PAD) / AVOID_CELL);
+    const y1 = Math.floor((box.y + box.height + AVOID_PAD) / AVOID_CELL);
+    for (let cx = x0; cx <= x1; cx += 1) {
+      for (let cy = y0; cy <= y1; cy += 1) {
+        const key = cellKey(cx, cy);
+        const bucket = buckets.get(key);
+        if (bucket === undefined) buckets.set(key, [box]);
+        else bucket.push(box);
+      }
+    }
+  }
+  return { buckets };
+}
+
+/**
+ * Where the straight run from `a` to `b` first enters `box` grown by
+ * `pad` on every side, as a fraction of the run (Liang-Barsky), or null
+ * when it misses it, or starts or ends inside it (an arrow cannot turn
+ * round a box it is already in).
+ */
+function entersAt(a: Point, b: Point, box: Box, pad: number): number | null {
+  const left = box.x - pad;
+  const right = box.x + box.width + pad;
+  const top = box.y - pad;
+  const bottom = box.y + box.height + pad;
+  const inside = (p: Point) =>
+    p.x > left && p.x < right && p.y > top && p.y < bottom;
+  if (inside(a) || inside(b)) return null;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  let t0 = 0;
+  let t1 = 1;
+  for (const [p, q] of [
+    [-dx, a.x - left],
+    [dx, right - a.x],
+    [-dy, a.y - top],
+    [dy, bottom - a.y],
+  ] as const) {
+    if (p === 0) {
+      if (q <= 0) return null;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 >= t1) return null;
+  }
+  return t0;
+}
+
+/**
+ * The cells the run from `a` to `b` passes through, in order (a grid walk,
+ * Amanatides and Woo): a long diagonal run looks at the cells along it,
+ * not at every cell of its bounding box.
+ */
+function cellsAlong(a: Point, b: Point): number[] {
+  let cx = Math.floor(a.x / AVOID_CELL);
+  let cy = Math.floor(a.y / AVOID_CELL);
+  const endX = Math.floor(b.x / AVOID_CELL);
+  const endY = Math.floor(b.y / AVOID_CELL);
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const stepX = Math.sign(dx);
+  const stepY = Math.sign(dy);
+  const deltaX = dx === 0 ? Infinity : AVOID_CELL / Math.abs(dx);
+  const deltaY = dy === 0 ? Infinity : AVOID_CELL / Math.abs(dy);
+  let nextX =
+    dx === 0
+      ? Infinity
+      : (stepX > 0 ? (cx + 1) * AVOID_CELL - a.x : a.x - cx * AVOID_CELL) /
+        Math.abs(dx);
+  let nextY =
+    dy === 0
+      ? Infinity
+      : (stepY > 0 ? (cy + 1) * AVOID_CELL - a.y : a.y - cy * AVOID_CELL) /
+        Math.abs(dy);
+  const cells = [cellKey(cx, cy)];
+  const most = Math.abs(endX - cx) + Math.abs(endY - cy);
+  for (let i = 0; i < most && (cx !== endX || cy !== endY); i += 1) {
+    if (nextX < nextY) {
+      cx += stepX;
+      nextX += deltaX;
+    } else {
+      cy += stepY;
+      nextY += deltaY;
+    }
+    cells.push(cellKey(cx, cy));
+  }
+  return cells;
+}
+
+/** The obstacle the run from `a` to `b` enters first, other than `own`. */
+function firstObstacle(
+  a: Point,
+  b: Point,
+  obstacles: Obstacles,
+  own: ReadonlySet<Box>
+): Box | null {
+  let best: Box | null = null;
+  let bestAt = Infinity;
+  for (const cell of cellsAlong(a, b)) {
+    for (const box of obstacles.buckets.get(cell) ?? []) {
+      if (own.has(box)) continue;
+      // One px inside the detour's own lane, so a run along it is clear.
+      const at = entersAt(a, b, box, AVOID_PAD - 1);
+      if (at !== null && at < bestAt) {
+        best = box;
+        bestAt = at;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * The two corners a run from `a` to `b` turns round `box` by, AVOID_PAD
+ * out from it: over or under a run that is mostly along x, beside one
+ * that is mostly along y, on the side the run already passes nearer to
+ * the box's centre, and never past either end of the run.
+ */
+function turnRound(a: Point, b: Point, box: Box): [Point, Point] {
+  const left = box.x - AVOID_PAD;
+  const right = box.x + box.width + AVOID_PAD;
+  const top = box.y - AVOID_PAD;
+  const bottom = box.y + box.height + AVOID_PAD;
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const clamp = (v: number, p: number, q: number) =>
+    Math.min(Math.max(p, q), Math.max(Math.min(p, q), v));
+  if (Math.abs(dx) >= Math.abs(dy)) {
+    const t = Math.min(1, Math.max(0, (box.x + box.width / 2 - a.x) / dx));
+    const side = a.y + dy * t <= box.y + box.height / 2 ? top : bottom;
+    const [first, second] = dx >= 0 ? [left, right] : [right, left];
+    return [
+      { x: r(clamp(first, a.x, b.x)), y: r(side) },
+      { x: r(clamp(second, a.x, b.x)), y: r(side) },
+    ];
+  }
+  const t = Math.min(1, Math.max(0, (box.y + box.height / 2 - a.y) / dy));
+  const side = a.x + dx * t <= box.x + box.width / 2 ? left : right;
+  const [first, second] = dy >= 0 ? [top, bottom] : [bottom, top];
+  return [
+    { x: r(side), y: r(clamp(first, a.y, b.y)) },
+    { x: r(side), y: r(clamp(second, a.y, b.y)) },
+  ];
+}
+
+/**
+ * An arrow between frames, kept off the boxes it would run behind (and
+ * the frame titles' paper patches, which hide what runs under them).
+ * Between its lead-out and lead-in points each straight run of its
+ * control polygon that enters another box turns round it by its nearer
+ * side (turnRound), so it runs along the gap beside the box; the new
+ * runs are checked in turn, up to AVOID_MAX_POINTS points. Its two ends are kept, and with `leads` the
+ * straight lead from each (an arrow between frames), so it still leaves
+ * and enters its own boxes straight. On the
+ * showcase's 406-box issue level, 67 of 247 arrows ran behind some box
+ * before this (2026-10-23 review); dagre routes only inside one frame.
+ */
+function avoidObstacles(
+  points: readonly Point[],
+  obstacles: Obstacles,
+  own: ReadonlySet<Box>,
+  leads: boolean
+): Point[] {
+  if (points.length < (leads ? 4 : 2)) return [...points];
+  const path = leads ? points.slice(1, -1) : [...points];
+  const out: Point[] = [path[0]];
+  // The points still to reach, the next one last; each run is checked
+  // once, and a run that turns round a box is replaced by its three.
+  const ahead = path.slice(1).reverse();
+  let room = AVOID_MAX_POINTS - path.length;
+  while (ahead.length > 0) {
+    const b = ahead.pop() as Point;
+    const a = out[out.length - 1];
+    if (a.x === b.x && a.y === b.y) continue;
+    const hit = room >= 2 ? firstObstacle(a, b, obstacles, own) : null;
+    if (hit !== null) {
+      const [first, second] = turnRound(a, b, hit);
+      ahead.push(b, second, first);
+      room -= 2;
+      continue;
+    }
+    out.push(b);
+  }
+  return leads ? [points[0], ...out, points[points.length - 1]] : out;
+}
+
+/**
+ * `points` kept off `boxes` other than `own` (steerClear), as
+ * layoutClustered draws an arrow: with `leads`, the first and last runs
+ * (an arrow between frames' straight leads out of and into its boxes) are
+ * kept as they are. Exported for the tests; the layout builds its
+ * obstacles once per graph.
+ */
+export function routeAround(
+  points: readonly Point[],
+  boxes: readonly Box[],
+  own: readonly Box[],
+  leads: boolean
+): Point[] {
+  return steerClear(points, obstaclesOf(boxes), new Set(own), leads);
+}
+
+/** How far from each bend of a rerouted arrow its curve starts to turn. */
+const BEND = 14;
+
+/**
+ * The control polygon with a point BEND px from each end of every run
+ * longer than two bends: a B-spline runs straight through three points
+ * in a line, so the drawn curve then follows each run and rounds only
+ * its bends, instead of cutting across the boxes beside a long run.
+ */
+function hugRuns(points: readonly Point[]): Point[] {
+  if (points.length < 3) return [...points];
+  const out: Point[] = [points[0]];
+  for (let i = 1; i < points.length; i += 1) {
+    const a = points[i - 1];
+    const b = points[i];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length > BEND * 2) {
+      const ux = (b.x - a.x) / length;
+      const uy = (b.y - a.y) / length;
+      out.push({ x: r(a.x + ux * BEND), y: r(a.y + uy * BEND) });
+      out.push({ x: r(b.x - ux * BEND), y: r(b.y - uy * BEND) });
+    }
+    out.push(b);
+  }
+  return out;
+}
+
+/**
+ * Points along the curve basisPath draws through `points`, `per` on each
+ * of its pieces: the same cubic pieces, sampled instead of written out.
+ */
+function basisSamples(points: readonly Point[], per: number): Point[] {
+  if (points.length < 3) return [...points];
+  const out: Point[] = [points[0]];
+  let at: Point = {
+    x: (5 * points[0].x + points[1].x) / 6,
+    y: (5 * points[0].y + points[1].y) / 6,
+  };
+  out.push(at);
+  const piece = (a: Point, b: Point, c: Point) => {
+    const c1 = { x: (2 * a.x + b.x) / 3, y: (2 * a.y + b.y) / 3 };
+    const c2 = { x: (a.x + 2 * b.x) / 3, y: (a.y + 2 * b.y) / 3 };
+    const to = { x: (a.x + 4 * b.x + c.x) / 6, y: (a.y + 4 * b.y + c.y) / 6 };
+    for (let k = 1; k <= per; k += 1) {
+      const t = k / per;
+      const u = 1 - t;
+      const mix = (p0: number, p1: number, p2: number, p3: number) =>
+        u * u * u * p0 +
+        3 * u * u * t * p1 +
+        3 * u * t * t * p2 +
+        t * t * t * p3;
+      out.push({
+        x: mix(at.x, c1.x, c2.x, to.x),
+        y: mix(at.y, c1.y, c2.y, to.y),
+      });
+    }
+    at = to;
+  };
+  for (let i = 2; i < points.length; i += 1) {
+    piece(points[i - 2], points[i - 1], points[i]);
+  }
+  const last = points[points.length - 1];
+  piece(points[points.length - 2], last, last);
+  out.push(last);
+  return out;
+}
+
+/** Whether the curve basisPath draws through `points` runs inside an
+    obstacle other than `own` (2px in from its edges). */
+function curveCrosses(
+  points: readonly Point[],
+  obstacles: Obstacles,
+  own: ReadonlySet<Box>
+): boolean {
+  return basisSamples(points, 24).some((p) => {
+    const cell = cellKey(
+      Math.floor(p.x / AVOID_CELL),
+      Math.floor(p.y / AVOID_CELL)
+    );
+    return (obstacles.buckets.get(cell) ?? []).some(
+      (box) =>
+        !own.has(box) &&
+        p.x > box.x + 2 &&
+        p.x < box.x + box.width - 2 &&
+        p.y > box.y + 2 &&
+        p.y < box.y + box.height - 2
+    );
+  });
+}
+
+/**
+ * An arrow's control points kept off the boxes it does not join: rerouted
+ * round them (avoidObstacles), then, only where the smooth curve through
+ * the result would still cut behind a box, eased into straight runs
+ * (hugRuns). An arrow with nothing in its way keeps its smooth curve.
+ */
+function steerClear(
+  points: readonly Point[],
+  obstacles: Obstacles,
+  own: ReadonlySet<Box>,
+  leads: boolean
+): Point[] {
+  const routed = avoidObstacles(points, obstacles, own, leads);
+  return curveCrosses(routed, obstacles, own) ? hugRuns(routed) : routed;
+}
+
 /**
  * A point on a box's side for an arrow between frames: `out` the side
  * facing along the direction (where a blocker's arrow leaves), `in` the
@@ -1723,6 +2055,21 @@ function layoutClustered(
         y0 > n.y + n.height + 1
       );
     });
+  // What an arrow between frames keeps clear of: every box, and each
+  // frame title's paper patch (drawn over the arrows, it hides them).
+  const obstacles = obstaclesOf([
+    ...placed,
+    ...groups.map((group) => ({
+      x: group.x + C.titleX - 3,
+      y: group.y + C.titleTop,
+      width:
+        Math.min(
+          Math.max(0, group.width - C.titleX * 2),
+          Math.min(group.label.length, C.titleMaxChars) * C.titleAdvance
+        ) + 6,
+      height: 12,
+    })),
+  ]);
   const laidEdges: LaidOutEdge[] = [];
   for (const { edge, key, frame, link, outWay, inWay } of kept) {
     const route = frame.routes.get(link);
@@ -1738,7 +2085,9 @@ function layoutClustered(
     const exact = home.get(edge.from) === frame && home.get(edge.to) === frame;
     let points: Point[];
     if (exact) {
-      points = routed;
+      // dagre's own route inside one frame; rerouted only where it would
+      // run behind a box (a frame's grid sits under its flow).
+      points = steerClear(routed, obstacles, new Set([fromBox, toBox]), false);
     } else {
       // A backward arrow (its waiting box lies before its blocker along
       // the direction: a cycle between frames, or shelved frames) leaves
@@ -1795,6 +2144,7 @@ function layoutClustered(
           end,
         ];
       }
+      points = steerClear(points, obstacles, new Set([fromBox, toBox]), true);
     }
     if (points.length < 2) continue;
     const tip = points[points.length - 1];

@@ -579,11 +579,16 @@ or middle click still opens the link.
   small enough for network-simplex the frame's ports rank after and before its
   whole flow; in a bigger one they sit beside their own items, to keep its cost
   down), so they pass the other boxes there instead of running behind them;
-  arrows inside one frame keep their dagre route. Top to bottom, a frame's grid
-  sits under its flow, in the way of the arrows leaving it, so frames read best
-  left to right (every host uses `LR`). Given at all, even empty, `clusters`
-  also packs the loose top-level nodes, so a host with no frames for a level
-  (the planner's initiative level) still gets no long column. Frames are drawn
+  arrows inside one frame keep their dagre route. Then each arrow between
+  frames, and an arrow inside one whose route would pass a box, turns round
+  every box in its way (and each frame title's paper patch) by the box's nearer
+  side, 6px out, and where its smooth curve would still cut behind a box it is
+  eased into straight runs with rounded bends (`routeAround`), so an arrow is
+  not lost behind a box it does not join. Top to bottom, a frame's grid sits
+  under its flow, in the way of the arrows leaving it, so frames read best left
+  to right (every host uses `LR`). Given at all, even empty, `clusters` also
+  packs the loose top-level nodes, so a host with no frames for a level (the
+  planner's initiative level) still gets no long column. Frames are drawn
   decoratively (`data-graph-cluster`, `data-depth`, `data-muted`,
   `data-external`): a 1px `--grey-2` hairline, a mono caps title in the top-left
   on a paper patch above the arrows (ink at the top level, `--muted` nested),

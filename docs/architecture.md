@@ -3587,23 +3587,38 @@ hover floods on controls, and the timeline's today.
     its whole flow; in a bigger one they sit beside their own items, which saves
     about 0.35 s at 600 boxes in one frame), so it passes the other boxes there
     instead of running behind them (a regression test pins the demo's Dual-write
-    → Search v2 beta beside Read path switch). Arrows between shelved frames
-    still have no route, so in a big, dense workspace many long arrows cross
-    boxes. Arrow keys move to the nearest box that way (columns are per frame).
-    A frame is a 1px `--grey-2` hairline (3.23 / 5.93 on the paper), square, no
-    fill or shadow, its name a mono caps 9px title on a paper patch drawn over
-    the arrows: ink at the top (21.00 / 16.37), `--muted` nested (7.00 / 7.60),
-    `--grey-2-ink` in a paused frame (5.10 / 5.93); a paused frame is hatched
-    (the base's `--hatch`) with a `--grey` rule (3.54 / 3.76 on the paper, 3.11
-    / 3.12 on its hatch line); an outside one is dashed. Forced colours draw
-    frames `CanvasText`, paused ones `GrayText` with no hatch, outside ones
-    still dashed. Frames are decorative (`aria-hidden`): the names carry them. A
-    done box keeps its filled ink done square even when faint. The legends end
-    their Nodes row with the frame: "Milestone — a frame of its issues, inside
-    its project's" ("a frame of its issues" in one project), "Project — a frame
-    of its milestones", "Initiative — a frame of its projects (each under its
-    first initiative)", and "Inactive — a hatched frame of paused work" when one
-    is drawn.
+    → Search v2 beta beside Read path switch). Last, every arrow between frames
+    (and an arrow inside one frame whose dagre route would pass a box of its
+    grid) turns round each box in its way (`routeAround`): between its straight
+    leads, each run of its control points that would enter a box (or a frame
+    title's paper patch) is replaced by a run round the box's nearer side, 6px
+    out (half a grid row's gap), checked again in turn up to 128 points; where
+    the smooth curve through the result would still cut behind a box, it is
+    eased into straight runs with rounded bends (a point 14px from each end of a
+    run, since a B-spline runs straight through three points in a line), and an
+    arrow with nothing in its way keeps its smooth curve. Before it (2026-10-23
+    showcase review, in Chromium), 69 of the showcase's 247 issue-level arrows,
+    25 of 54 at the milestone level, 8 of 27 at the project level and 28 of
+    Enterprise readiness's 86 ran behind some box; after it 10, 5, 0 and 3
+    counted the same way, or 4, 3, 0 and 2 behind a box they do not join (a test
+    pins the workspace levels). At the draw limits (700 boxes, 1,000 arrows) it
+    adds up to about 160 ms (the slowest shape measured 0.69 s in all). Many
+    arrows can share one gap between frames there, as a bundle; pointing at a
+    box traces its own. Arrow keys move to the nearest box that way (columns are
+    per frame). A frame is a 1px `--grey-2` hairline (3.23 / 5.93 on the paper),
+    square, no fill or shadow, its name a mono caps 9px title on a paper patch
+    drawn over the arrows: ink at the top (21.00 / 16.37), `--muted` nested
+    (7.00 / 7.60), `--grey-2-ink` in a paused frame (5.10 / 5.93); a paused
+    frame is hatched (the base's `--hatch`) with a `--grey` rule (3.54 / 3.76 on
+    the paper, 3.11 / 3.12 on its hatch line); an outside one is dashed. Forced
+    colours draw frames `CanvasText`, paused ones `GrayText` with no hatch,
+    outside ones still dashed. Frames are decorative (`aria-hidden`): the names
+    carry them. A done box keeps its filled ink done square even when faint. The
+    legends end their Nodes row with the frame: "Milestone — a frame of its
+    issues, inside its project's" ("a frame of its issues" in one project),
+    "Project — a frame of its milestones", "Initiative — a frame of its projects
+    (each under its first initiative)", and "Inactive — a hatched frame of
+    paused work" when one is drawn.
   - **Draw limits and cost.** At most 700 boxes and 1,000 arrows
     (`GRAPH_DRAW_LIMITS`, §8.1; 200 and 300 before every item was drawn), the
     largest size that lays out in about a second here, whatever the shape.
