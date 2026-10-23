@@ -896,6 +896,152 @@ function flowChain(
 }
 
 /**
+ * Moves the first ranks of a laid-out flow up into its top corner (left,
+ * for LR). dagre centres each rank on its neighbours, so when a later rank
+ * stacks higher than the first ones (a tall frame or several boxes at the
+ * far end) everything before it hangs below an empty band, and reading
+ * starts in blank space: about 130px above the workspace issue level's
+ * first box. Each rank rises by the space that lies above it and above
+ * every rank before it (its items' and the arrows' points counted), so
+ * the band goes and the ranks from the first to the highest one keep
+ * their places relative to each other; nothing rises past an arrow or a
+ * box, and the ranks from the highest one on stay put.
+ *
+ * A rank moves as one piece with the arrow points in its stretch (from
+ * the end of the rank before it to its own far edge, so a point in the
+ * gap between two ranks goes with the later one): items keep their order
+ * across the direction and an arrow its slot between them, and only the
+ * curves between two ranks that rise by different amounts get steeper.
+ * The routes to and from the frame's ports move the same way. Mutates
+ * dagre's output in place.
+ */
+function liftOpening(
+  g: InstanceType<typeof graphlib.Graph>,
+  items: readonly string[],
+  links: readonly [string, FrameLink][],
+  outs: ReadonlySet<string>,
+  ins: ReadonlySet<string>,
+  sizeOf: (key: string) => { width: number; height: number },
+  horizontal: boolean
+): void {
+  const along = (p: Point) => (horizontal ? p.x : p.y);
+  const across = (p: Point) => (horizontal ? p.y : p.x);
+  // Ranks by their centre along the direction (dagre gives every item of a
+  // rank the same one): where the rank's far edge is and its top.
+  const byCentre = new Map<number, { end: number; top: number }>();
+  for (const key of items) {
+    const box = g.node(key) as DagreNode;
+    const size = sizeOf(key);
+    const centre = Math.round(along(box));
+    const end = along(box) + (horizontal ? size.width : size.height) / 2;
+    const top = across(box) - (horizontal ? size.height : size.width) / 2;
+    const known = byCentre.get(centre);
+    byCentre.set(centre, {
+      end: Math.max(known?.end ?? end, end),
+      top: Math.min(known?.top ?? top, top),
+    });
+  }
+  if (byCentre.size < 2) return;
+  const ranks = [...byCentre.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([, rank]) => rank);
+  const stretchOf = (value: number): number => {
+    let k = 0;
+    while (k + 1 < ranks.length && ranks[k].end < value) k += 1;
+    return k;
+  };
+  const drawn = links.map(
+    ([, link]) => g.edge(link.from, link.to) as DagreEdge | undefined
+  );
+  const highest = ranks.map((rank) => rank.top);
+  for (const route of drawn) {
+    for (const p of route?.points ?? []) {
+      const k = stretchOf(along(p));
+      highest[k] = Math.min(highest[k], across(p));
+    }
+  }
+  const top = Math.min(...highest);
+  let floor = Infinity;
+  const lift = highest.map((value) => {
+    floor = Math.min(floor, value);
+    return floor - top;
+  });
+  if (lift[0] <= 0) return;
+  const raise = (p: Point) => {
+    const by = lift[stretchOf(along(p))];
+    if (horizontal) p.y -= by;
+    else p.x -= by;
+  };
+  const raiseRoute = (route: DagreEdge | undefined) => {
+    if (route === undefined) return;
+    // The label point first: it is read where the route was.
+    if (route.x !== undefined && route.y !== undefined) {
+      const label = { x: route.x, y: route.y };
+      raise(label);
+      route.x = label.x;
+      route.y = label.y;
+    }
+    for (const p of route.points ?? []) raise(p);
+  };
+  for (const key of items) raise(g.node(key) as DagreNode);
+  for (const route of drawn) raiseRoute(route);
+  for (const key of outs) {
+    raiseRoute(g.edge(key, PORT_OUT) as DagreEdge | undefined);
+  }
+  for (const key of ins) {
+    raiseRoute(g.edge(PORT_IN, key) as DagreEdge | undefined);
+  }
+  // dagre ends a route where the line from the box's centre to the next
+  // point leaves the box; a box that rose more than that point now meets
+  // its curve on another side, so each end is found again (a route that
+  // moved as one piece gets the same ends back).
+  const node = (key: string) => g.node(key) as DagreNode;
+  links.forEach(([, link], i) => {
+    const points = drawn[i]?.points;
+    if (points === undefined || points.length < 2 || link.from === link.to) {
+      return;
+    }
+    const last = points.length - 1;
+    const from = node(link.from);
+    const to = node(link.to);
+    points[0] = boxExit(from, last > 1 ? points[1] : to);
+    points[last] = boxExit(to, last > 1 ? points[last - 1] : from);
+  });
+  for (const key of outs) {
+    const points = (g.edge(key, PORT_OUT) as DagreEdge | undefined)?.points;
+    if (points !== undefined && points.length >= 2) {
+      points[0] = boxExit(node(key), points[1]);
+    }
+  }
+  for (const key of ins) {
+    const points = (g.edge(PORT_IN, key) as DagreEdge | undefined)?.points;
+    if (points !== undefined && points.length >= 2) {
+      const last = points.length - 1;
+      points[last] = boxExit(node(key), points[last - 1]);
+    }
+  }
+}
+
+/**
+ * Where the line from `box`'s centre toward `toward` crosses its border
+ * (dagre's own rule for a route's ends). A point at the centre gives the
+ * centre back.
+ */
+function boxExit(box: DagreNode, toward: Point): Point {
+  const dx = toward.x - box.x;
+  const dy = toward.y - box.y;
+  const halfW = box.width / 2;
+  const halfH = box.height / 2;
+  if (dx === 0 && dy === 0) return { x: box.x, y: box.y };
+  if (Math.abs(dy) * halfW > Math.abs(dx) * halfH) {
+    const h = dy < 0 ? -halfH : halfH;
+    return { x: box.x + (h * dx) / dy, y: box.y + h };
+  }
+  const w = dx < 0 ? -halfW : halfW;
+  return { x: box.x + w, y: box.y + (w * dy) / dx };
+}
+
+/**
  * Runs dagre over `items` (keys with their sizes) and the `links` between
  * them, with a zero-size port after the `outs` and one before the `ins`
  * (so what connects out of the frame drifts to its far side and what
@@ -1014,6 +1160,7 @@ function runFlow(
     }
   }
   dagreLayout(g);
+  liftOpening(g, items, links, outs, ins, sizeOf, horizontal);
 
   let minX = Infinity;
   let minY = Infinity;

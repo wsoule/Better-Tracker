@@ -96,6 +96,23 @@ function curvePoints(d: string): { x: number; y: number }[] {
   return out;
 }
 
+/** `p` lies on `box`'s border (within half a pixel). */
+function onBorder(p: { x: number; y: number }, box: Box): boolean {
+  const near = (a: number, b: number) => Math.abs(a - b) <= 0.5;
+  const within =
+    p.x >= box.x - 0.5 &&
+    p.x <= box.x + box.width + 0.5 &&
+    p.y >= box.y - 0.5 &&
+    p.y <= box.y + box.height + 0.5;
+  return (
+    within &&
+    (near(p.x, box.x) ||
+      near(p.x, box.x + box.width) ||
+      near(p.y, box.y) ||
+      near(p.y, box.y + box.height))
+  );
+}
+
 function overlaps(a: Box, b: Box): boolean {
   return (
     a.x < b.x + b.width &&
@@ -538,6 +555,57 @@ describe('the clustered layout', () => {
       // And never turns back along the direction on the way.
       const along = (cross?.points ?? []).map((p) => p.x);
       expect(along).toEqual([...along].sort((a, b) => a - b));
+    }
+  });
+
+  test('a frame starts at its top corner, not under an empty band', () => {
+    // s → h → five waiting boxes: dagre centres s and h on the tall last
+    // rank, which would leave a band above them where reading starts.
+    const fan = ['w1', 'w2', 'w3', 'w4', 'w5'];
+    const nodes = ['s', 'h', ...fan].map((id) => issue(id, 'p'));
+    const edges: GraphEdgeData[] = [
+      { from: 's', to: 'h', kind: 'default' },
+      ...fan.map((id): GraphEdgeData => ({
+        from: 'h',
+        to: id,
+        kind: 'default',
+      })),
+    ];
+    for (const direction of ['LR', 'TB'] as const) {
+      const layout = layoutGraph(nodes, edges, {
+        direction,
+        clusters: [{ id: 'p', label: 'Pulse' }],
+      });
+      const frame = frameOf(layout, 'p');
+      const s = nodeOf(layout, 's');
+      const h = nodeOf(layout, 'h');
+      if (direction === 'LR') {
+        expect(s.y).toBe(frame.y + CLUSTER_METRICS.padTop);
+        // The two first ranks rise together: s → h stays straight.
+        expect(h.y + h.height / 2).toBeCloseTo(s.y + s.height / 2, 0);
+      } else {
+        expect(s.x).toBe(frame.x + CLUSTER_METRICS.padX);
+        expect(h.x + h.width / 2).toBeCloseTo(s.x + s.width / 2, 0);
+      }
+      // Every arrow still starts on its blocker's border and ends on the
+      // border of what waits, facing the curve (dagre's rule for ends).
+      for (const edge of layout.edges) {
+        const first = edge.points[0];
+        const last = edge.points.at(-1) ?? first;
+        expect(onBorder(first, nodeOf(layout, edge.from))).toBe(true);
+        expect(onBorder(last, nodeOf(layout, edge.to))).toBe(true);
+      }
+      const straight = layout.edges.find((e) => e.key === 's->h');
+      expect(
+        new Set(straight?.points.map((p) => (direction === 'LR' ? p.y : p.x)))
+          .size
+      ).toBe(1);
+      for (const a of layout.nodes) {
+        expect(inside(a, frame, CONTENT)).toBe(true);
+        for (const b of layout.nodes) {
+          if (a !== b) expect(overlaps(a, b)).toBe(false);
+        }
+      }
     }
   });
 
