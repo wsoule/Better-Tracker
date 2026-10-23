@@ -114,6 +114,24 @@ describe('graph marks meet WCAG in both themes', () => {
         ':is(.overdueNode, .selected, .pointed) > .text > .tags [data-filled]',
         'var(--surface)',
       ],
+      // The lock: its corner ticks, the floating strip and its buttons,
+      // the readout's lead-in.
+      ['.lockMark', 'color: var(--accent)'],
+      ['.lockMark', 'border: 2px solid currentcolor'],
+      ['.lockStrip', 'background: var(--surface)'],
+      ['.lockButton, .readoutAction', 'background: var(--surface)'],
+      ['.lockButton, .readoutAction', 'color: var(--text)'],
+      [
+        '.lockButton.actionOpen, .readoutAction.actionOpen',
+        'background: var(--accent)',
+      ],
+      [
+        '.lockButton.actionOpen, .readoutAction.actionOpen',
+        'color: var(--on-accent)',
+      ],
+      ['.lockClose', 'color: var(--text-2)'],
+      ['.readoutAction.readoutQuiet', 'color: var(--text-2)'],
+      ['.readoutLocked', 'color: var(--accent-ink)'],
     ];
     expect(
       uses
@@ -185,6 +203,23 @@ describe('graph marks meet WCAG in both themes', () => {
       expect(failing).toEqual([]);
     });
 
+    test(`${theme}: the lock's corner ticks are 3:1 on every box they mark`, () => {
+      // The locked box is the box being read (the accent tint), a selected
+      // one keeps the same tint, and an overdue one its red tint; the
+      // ticks are the accent on all three, and on a plain card while a
+      // walked step lights over the lock.
+      const fills: [string, string][] = [
+        ['card', surface],
+        ['accent tint', accentBox],
+        ['overdue tint', overdueBox],
+      ];
+      expect(
+        fills
+          .filter(([, fill]) => !(contrast(token('--accent'), fill) >= 3))
+          .map(([where]) => where)
+      ).toEqual([]);
+    });
+
     test(`${theme}: the upstream and downstream rings are 3:1 apart`, () => {
       expect(
         contrast(token('--accent'), token('--text'))
@@ -231,6 +266,14 @@ describe('graph marks meet WCAG in both themes', () => {
         // The toolbar's quiet hint and zoom figures.
         ['hint', token('--text-3'), surface],
         ['zoom', token('--text-2'), surface],
+        // The lock strip's buttons, at rest and hovered, and the readout's
+        // "Locked on" lead-in and quiet Unlock.
+        ['Open', token('--on-accent'), token('--accent')],
+        ['Open graph', token('--text'), surface],
+        ['Open graph hovered', token('--text'), token('--surface-2')],
+        ['Unlock', token('--text-2'), surface],
+        ['Unlock hovered', token('--text'), token('--surface-2')],
+        ['Locked on', token('--accent-ink'), surface],
       ];
       expect(
         pairs

@@ -169,6 +169,33 @@
   outline-offset: 0;
 }
 
+/* The locked box: the box being read's tint and ring plus its four
+   rounded accent corner ticks, as the graph draws them (.lockMark),
+   scaled to the swatch. */
+.pathLocked {
+  --tick: 5px;
+
+  margin: 0 2px;
+  background: linear-gradient(var(--accent-soft), var(--accent-soft))
+    var(--surface);
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.pathLocked::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border: 2px solid var(--accent);
+  border-radius: 2px;
+  mask: conic-gradient(
+      at var(--tick) var(--tick),
+      transparent 75%,
+      currentcolor 0
+    )
+    0 0 / calc(100% - var(--tick)) calc(100% - var(--tick));
+}
+
 /* The paths of the box you point at: a 2px ring outside the box, accent
    for what it waits on, --text for what it holds up and the critical path
    (the chain through it is drawn as the critical path's own ring). */
@@ -302,10 +329,16 @@
     color: CanvasText;
   }
 
-  .pathActive {
+  .pathActive,
+  .pathLocked {
     margin: 0 6px;
     outline: 4px double CanvasText;
     outline-offset: 2px;
+  }
+
+  .pathLocked::after {
+    forced-color-adjust: none;
+    border-color: Highlight;
   }
 
   .pathUp {

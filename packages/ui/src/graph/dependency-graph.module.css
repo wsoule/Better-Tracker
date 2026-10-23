@@ -154,6 +154,10 @@
   cursor: grab;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
+
+  /* Native panning and pinch zoom, but no double-tap zoom: a double tap
+     on a box opens its graph. */
+  touch-action: manipulation;
 }
 
 .viewport[data-panning] {
@@ -237,6 +241,22 @@
 
 .clusterTitleTop {
   color: var(--text-2);
+}
+
+/* A frame whose graph a double-click (or double tap) on its title opens:
+   the zoom-in cursor says so, and the title selects no text. Its single
+   click does nothing (it may be half of a double-click). On hover the
+   title steps to the link colour, the accent's link role. */
+.clusterTitleDrill {
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .clusterTitleDrill:hover {
+    color: var(--accent-ink);
+  }
 }
 
 /* Inactive work (a paused project): dashed in the inactive grey (3:1 on
@@ -437,6 +457,10 @@
   text-align: left;
   text-decoration: none;
   cursor: pointer;
+
+  /* A click locks, a double-click drills down: neither selects text. */
+  user-select: none;
+  -webkit-user-select: none;
 
   /* Only the fill and the rings fade: text and edge colours change at
      once, so receding every other box while a path is read (one class per
@@ -815,10 +839,157 @@ div.node {
 }
 
 /* Gr8r's hover: the --surface-2 fill, nothing else moves. A tinted
-   overdue box keeps its tint, and a selected one its own fill. */
+   overdue box keeps its tint, and a selected one its own fill. While a
+   box is locked (data-locked on the graph) the lock keeps the paths:
+   another box under the pointer also gets a thin neutral ring (1px
+   --control-border, 2px out), so it still reads as clickable without
+   moving the highlight. A box on the locked box's paths keeps its 2px
+   path ring under the pointer (the thin ring would replace it), and a
+   focused box its focus ring. */
 @media (hover: hover) and (width >= 901px) {
   .node:not(.selected, .overdueNode):hover {
     background: var(--surface-2);
+  }
+
+  :where(.graph[data-locked])
+    .node:not(.locked, .lit, .down, .chain, :focus-visible):hover {
+    outline: 1px solid var(--control-border);
+    outline-offset: 2px;
+  }
+}
+
+/* The locked box (owner request 2026-10-23, "lock on"): the box being
+   read (the soft accent tint under its 2px accent ring) plus its own
+   mark, four rounded corner ticks just inside the box (2px, 9px long, a
+   viewfinder's "locked on"), so a lock never reads as a hover. The mark
+   is not a ring, so it never reads as the keyboard focus ring either,
+   which still shows on the locked box when it has focus: a focus preview
+   (tint and ring), a lock (tint, ring and ticks) and a focused lock (tint,
+   focus ring and ticks) each look different. The ticks are the accent on
+   every box: 3:1 or better on the card, the accent tint and the overdue
+   red tint, in both themes (test/graph-contrast.test.ts). They are a
+   2px edge with a 4px radius (--r-xs), masked down to its four
+   corners (the mask reads alpha only), and sit in the box's padding,
+   clear of its words, under the step disc and the "Ready next" pill.
+   Selection-derived, never a status. */
+.lockMark {
+  --tick: 9px;
+
+  position: absolute;
+  inset: 2px;
+  border: 2px solid currentcolor;
+  border-radius: var(--r-xs);
+  color: var(--accent);
+  mask: conic-gradient(
+      at var(--tick) var(--tick),
+      transparent 75%,
+      currentcolor 0
+    )
+    0 0 / calc(100% - var(--tick)) calc(100% - var(--tick));
+  pointer-events: none;
+}
+
+/* ---- the locked box's action strip -------------------------------------- */
+
+/* Open, Open graph, Unlock: a small floating bar (the step control's
+   look: --surface, a 1px --border, --r and the floating shadow, the
+   only shadows in this sheet) riding the locked box just outside it, at
+   its own size whatever the zoom. Gr8r's buttons inside, sentence case:
+   Open the one primary (the accent fill, --on-accent words), Open graph
+   a secondary (bordered --surface, --text words, the small shadow),
+   Unlock a ghost icon button (--text-2, --surface-2 on hover). Buttons
+   are 26px tall, at least 26px wide (32px on a touch screen). Its
+   surface hides the arrows behind it. */
+.lockStrip {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  cursor: default;
+}
+
+.lockButton,
+.readoutAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.lockButton {
+  min-width: var(--h-sm);
+  height: var(--h-sm);
+  padding: 0 9px;
+}
+
+/* Unlock: Gr8r's icon button, no box at rest. */
+.lockClose {
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+
+.lockButton.actionOpen,
+.readoutAction.actionOpen {
+  border-color: transparent;
+  background: var(--accent);
+  box-shadow: none;
+  color: var(--on-accent);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .lockButton:hover,
+  .readoutAction:hover {
+    background: var(--surface-2);
+  }
+
+  .lockClose:hover,
+  .readoutAction.readoutQuiet:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  .lockButton.actionOpen:hover,
+  .readoutAction.actionOpen:hover {
+    background: var(--accent-hover);
+  }
+}
+
+.lockButton.actionOpen:active,
+.readoutAction.actionOpen:active {
+  background: var(--accent-active);
+}
+
+/* A touch screen gets wider buttons but the same height: in a dense
+   drawing the gap under a box is narrower than the strip, and a taller
+   one would cover the top line of the box below. */
+@media (pointer: coarse) {
+  .lockButton {
+    min-width: 32px;
   }
 }
 
@@ -886,6 +1057,34 @@ div.node {
     border-color: CanvasText;
   }
 
+  /* The locked box: the double rule of the box being read (above) plus
+     its corner ticks, kept in the Highlight colour (the mark opts out so
+     its colour holds), apart from a box pointed at (the double rule
+     alone) and from the solid Highlight ring of what it waits on; the
+     strip's buttons keep their edges in ButtonText and Open a heavier
+     rule. */
+  .lockMark,
+  .node.locked > .lockMark {
+    forced-color-adjust: none;
+    color: Highlight;
+  }
+
+  .lockStrip,
+  .lockButton,
+  .readoutAction {
+    border-color: ButtonText;
+  }
+
+  .lockClose {
+    border-color: transparent;
+  }
+
+  .lockButton.actionOpen,
+  .readoutAction.actionOpen {
+    outline: 2px solid ButtonText;
+    outline-offset: -4px;
+  }
+
   /* Frames keep their shape: solid, dashed outside the scope or paused; a
      paused frame's edge and title in GrayText. */
   .cluster {
@@ -950,6 +1149,37 @@ div.node {
   color: var(--text);
 }
 
+/* "Locked on" and the locked box's actions, leading the readout: the
+   lead-in in the accent's text colour, semibold (the lock is a selection,
+   never a status), then the strip's buttons, small and inline (24px
+   targets): Open the primary, Open its graph a secondary, Unlock a
+   ghost text button. */
+.readoutLocked {
+  color: var(--accent-ink);
+  font-weight: var(--fw-semibold);
+}
+
+.readoutActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
+.readoutAction {
+  min-height: 24px;
+  padding: 0 8px;
+}
+
+.readoutAction.readoutQuiet {
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-2);
+}
+
 .readoutHint {
   color: var(--text-3);
 }
@@ -1006,6 +1236,8 @@ div.node {
 
 @media (prefers-reduced-motion: reduce) {
   .zoomButton,
+  .lockButton,
+  .readoutAction,
   .node,
   .next,
   .step {

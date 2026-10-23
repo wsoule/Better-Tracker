@@ -47,7 +47,9 @@ async function loadGraph(
    arrival, ?highlight=status|risk|critical picks what the drawing
    emphasises (else the graph-highlight cookie remembers the last one
    picked, else Status; the island reads both, so Back and Forward show
-   what each history entry says), and ?issue=<key> opens an issue node's slide-over
+   what each history entry says), ?lock=<id|key> keeps the box the reader
+   locked (client state the island reads and writes in place; the server
+   ignores it), and ?issue=<key> opens an issue node's slide-over
    (§8.5). With no parameters it is the workspace's milestones. Everyone sees the
    graph; it is read-only. The engine builds the graph from the viewer's
    mirror (a viewer with no initiatives gets the workspace, with a notice),

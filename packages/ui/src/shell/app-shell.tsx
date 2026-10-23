@@ -530,7 +530,9 @@ export default function AppShell({
       />
 
       <div className={styles.column}>
-        <header className={styles.topbar}>
+        {/* data-ui-edge-bar: a bar over the page's edge, which floating
+            controls (the graph lock's strip) keep clear of. */}
+        <header className={styles.topbar} data-ui-edge-bar="top">
           <button
             type="button"
             className={cx(styles.iconButton, styles.menuButton)}
@@ -602,7 +604,11 @@ export default function AppShell({
       </div>
 
       {hasTabs ? (
-        <nav className={styles.tabbar} aria-label="Sections">
+        <nav
+          className={styles.tabbar}
+          aria-label="Sections"
+          data-ui-edge-bar="bottom"
+        >
           <ul
             className={styles.tabList}
             style={{ '--tab-count': tabs.length + 1 } as CSSProperties}

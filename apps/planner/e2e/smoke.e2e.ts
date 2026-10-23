@@ -64,7 +64,14 @@ test('the graph drills from initiatives to projects and back up', async ({
   page,
 }) => {
   await page.goto('/graph?level=initiative');
-  await page.getByRole('button', { name: /^Platform reliability\./ }).click();
+  // A click locks the box; a second click on it opens its panel.
+  const platform = page.getByRole('button', {
+    name: /^Platform reliability\./,
+  });
+  await platform.click();
+  await expect(platform).toHaveAttribute('aria-pressed', 'true');
+  await expect(page).toHaveURL(/\/graph\?level=initiative&lock=init-platform$/);
+  await platform.click();
   await page
     .getByRole('dialog')
     .getByRole('link', { name: 'Projects in Platform reliability' })
@@ -141,10 +148,11 @@ test('a milestone drawer opens what it waits on as a graph', async ({
     .getByRole('link', { name: 'What it waits on' })
     .click();
   await expect(page).toHaveURL(/\/graph\?node=ms-beacon-1$/);
-  // Arriving with ?node= selects the box and opens its panel.
-  await expect(
-    page.getByRole('button', { name: /^Search v2 beta\./ })
-  ).toHaveAttribute('aria-pressed', 'true');
+  // Arriving with ?node= selects the box (its paths lit at rest) and opens
+  // its panel; it locks nothing.
+  const beacon = page.getByRole('button', { name: /^Search v2 beta\./ });
+  await expect(beacon).toHaveAttribute('data-state', 'active');
+  await expect(beacon).toHaveAttribute('aria-pressed', 'false');
   await expect(page.getByRole('dialog')).toBeVisible();
   // The box panel's own parts: where it stands in one line, where to
   // start upstream, what finishing it would clear, the box-arrow caveat.
@@ -383,6 +391,8 @@ test.describe('graph highlights', () => {
     await expect(frame).toHaveAttribute('data-highlight', 'status');
     // Inside the issue drawer: switch there, close, then Back to it.
     await switcher.getByRole('radio', { name: 'Risk' }).click();
+    // A click locks the box, a second click opens it.
+    await box(page, 'iss-eng-23').click();
     await box(page, 'iss-eng-23').click();
     await expect(page).toHaveURL(/issue=ENG-23/);
     await expect(page.getByRole('dialog')).toContainText('Typo tolerance');
@@ -411,6 +421,7 @@ test.describe('graph highlights', () => {
       }
       await route.continue();
     });
+    await box(page, 'iss-eng-23').click();
     await box(page, 'iss-eng-23').click();
     await page
       .getByRole('radiogroup', { name: 'Highlight' })
@@ -476,34 +487,43 @@ test.describe('graph highlights', () => {
   });
 });
 
-// On a touch screen the first tap on a box traces its paths (nothing
-// opens) and a second tap opens it (design doc §12, graph highlights).
-test.describe('graph highlights on a touch screen', () => {
+// On a touch screen a tap locks a box (nothing opens) and a second tap on
+// the locked box opens it (owner request 2026-10-23, "lock on"; it used to
+// be a pin that only traced).
+test.describe('graph lock on a touch screen', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test('the first tap traces, the second opens the issue', async ({ page }) => {
+  test('a tap locks, a second tap opens the issue', async ({ page }) => {
     await page.goto('/graph?chain=ENG-23');
     const eng12 = page.locator('[data-graph-node="iss-eng-12"]');
     await eng12.tap();
+    await expect(eng12).toHaveAttribute('data-locked', '');
     await expect(eng12).toHaveAttribute('data-state', 'active');
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.locator('[data-graph-readout]')).toHaveText(
-      /· Tap again to open$/
+    await expect(page.locator('[data-graph-readout]')).toContainText(
+      'Locked on ENG-12'
     );
+    await expect(page).toHaveURL(/\/graph\?chain=ENG-23&lock=ENG-12$/);
+    // Slower than a double tap: the second tap opens it.
+    await page.waitForTimeout(400);
     await eng12.tap();
     await expect(page).toHaveURL(/issue=ENG-12/);
     await expect(page.getByRole('dialog')).toBeVisible();
   });
 
-  test('a tapped box is marked, and Escape clears its trace', async ({
+  test('a locked box is marked, and Escape or a tap on the background unlocks it', async ({
     page,
   }) => {
     await page.goto('/graph?chain=ENG-23');
     const eng23 = page.locator('[data-graph-node="iss-eng-23"]');
     await eng23.tap();
     await expect(eng23).toHaveAttribute('data-state', 'active');
-    // The box being read gets the accent flood on touch too.
+    // The box being read gets the accent flood on touch too, and the lock
+    // its strip.
     await expect(eng23).toHaveAttribute('data-pointed', '');
+    await expect(
+      page.locator('[data-graph-lock-strip="iss-eng-23"]')
+    ).toBeVisible();
     await expect(
       page.locator('[data-graph-node="iss-eng-12"]')
     ).toHaveAttribute('data-state', 'lit');
@@ -513,6 +533,14 @@ test.describe('graph highlights on a touch screen', () => {
     await expect(
       page.locator('[data-graph-node="iss-eng-12"]')
     ).not.toHaveAttribute('data-state', /./);
+    await expect(page).toHaveURL(/\/graph\?chain=ENG-23$/);
+    await eng23.tap();
+    await expect(eng23).toHaveAttribute('data-locked', '');
+    const viewport = page.locator('[data-graph-viewport]');
+    const frame = await viewport.boundingBox();
+    if (frame === null) throw new Error('no frame');
+    await page.touchscreen.tap(frame.x + frame.width - 12, frame.y + 12);
+    await expect(eng23).not.toHaveAttribute('data-locked', /.*/);
   });
 });
 

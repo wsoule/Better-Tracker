@@ -734,16 +734,19 @@ describe('describePaths', () => {
     );
   });
 
-  test('a touch pin appends "Tap again to open"', () => {
+  test('the lock words and hints are worded for the reader', () => {
+    // The graph leads a locked box's line with "Locked on" and its
+    // actions; the readout's own parts never change for a lock.
+    expect(defaultGraphPathWords.locked).toBe('Locked on');
+    expect(defaultGraphPathWords.open).toBe('Open');
+    expect(defaultGraphPathWords.openGraph).toBe('Open graph');
+    expect(defaultGraphPathWords.openItsGraph).toBe('Open its graph');
+    expect(defaultGraphPathWords.unlock).toBe('Unlock');
+    expect(defaultGraphPathWords.hint).toContain('click it to lock');
+    expect(defaultGraphPathWords.tapHint).toContain('tap it again to open it');
     const readout = describePaths('ENG-23', CHAIN);
-    expect(readout).not.toBeNull();
-    if (readout === null) return;
-    const pinned = {
-      ...readout,
-      parts: [...readout.parts, defaultGraphPathWords.tapAgain],
-    };
-    expect(readoutText(pinned)).toEndWith(
-      'Done would unblock 1: OPS-20 · Tap again to open'
+    expect(readout === null ? '' : readoutText(readout)).toEndWith(
+      'Done would unblock 1: OPS-20'
     );
   });
 

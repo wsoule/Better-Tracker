@@ -170,6 +170,10 @@ kept.)*
 every item in its scope, not only those on a blocking relation; the relations
 are the arrows, and boxes are framed by their milestone, project or
 initiative. The original text is kept.)*
+*(Extended 2026-10-23, §12 "lock on and drill down": a click locks a box so its
+paths stay lit while you scroll, with an Open button beside it; a
+double-click opens the box's own graph one level down. The original text is
+kept.)*
 
 Rendered from Linear `blocks`/`blocked by` relations, as a mermaid-style directed graph.
 Two zoom levels: **milestone level** (milestone A depends on milestone B if any issue in
@@ -624,3 +628,79 @@ of that entry stay.
   2026-10-22 restyle get the same look; behaviour, routes, keyboard paths and
   names do not change, and only copy that relied on capital letters is
   rewritten in sentence case ("Demo data", "Not found").
+
+### 2026-10-23 — lock on and drill down
+
+Owner, in their words: "In the graphs, I want to like 'lock on' to the thing
+so it stays highlighted (along with its path) but I can still scroll. [...]
+when I double click on the graph item, it should take me to that items graph so
+I can quickly drill down", and then: "For the lock on, there must still be a
+way to open it obviously". It extends §7.3 and the graph entries above. It was
+built in the look of the day and is drawn in the Gr8r look of the entry above
+since the two were merged (the same request asked for a lighter dark
+background, which that restyle's soft dark answers).
+
+- **A click locks a box** (a tap on a phone, Enter on the keyboard): it stays
+  the box being read, with its paths, its "Ready next" marks and the line under
+  the graph, while you scroll, drag, zoom, fit or switch Status, Risk and
+  Critical path. Pointing at other boxes no longer moves the highlight (they get
+  a faint outline, so they still look clickable). A locked box has its own
+  mark beside the soft purple tint and ring a pointed-at box gets: four rounded
+  corner ticks inside it, like a viewfinder locked on, so it never looks like
+  the keyboard's focus ring.
+- **Opening is one obvious click away:** a small floating strip rides the
+  locked box with **Open** (the purple primary button), **Open graph** and an
+  **×** to unlock, kept inside the visible graph when the box is near an edge; the line under the
+  graph repeats them ("Locked on ENG-23 · Open · Open its graph · Unlock").
+  A second click on the locked box opens it too, as before: an issue's
+  slide-over, or a box's panel. Open always opens: pressing it when the
+  panel already shows that box leaves it open (only the panel's × and Escape
+  close it).
+- **Unlocking:** Escape, a click on empty space (not the end of a drag), the ×,
+  or clicking another box (which moves the lock there).
+- **A double-click opens the box's own graph,** one level down, keeping the
+  highlight: an initiative its projects, a project its milestones, a milestone
+  its issues, an issue its blocking chain; a frame's title (a milestone,
+  project or initiative frame) that frame's graph. When that graph would be
+  empty or too big to draw it goes where the box's panel links go instead.
+  Open graph on the strip and Shift + Enter do the same, so nothing needs a
+  double-click.
+- **The lock is in the link:** a reload, Back and Forward and a shared link keep
+  it; Back from a graph you drilled into returns to the box you drilled from,
+  still locked.
+
+*Builder's calls, flagged for review:*
+- a second click on a locked box that has a graph to drill into opens it after
+  a short pause (half a second with a mouse, the longest usual double-click
+  time; 300 ms for a tap), so a double-click never opens the panel on its way
+  to the next graph; Enter and the Open button open at once;
+- Shift + Enter on a box with no graph below it opens the box, as a
+  double-click does there;
+- the strip goes under the box, over it, or beside it (never on the side
+  where the box's own arrows start, so it never hides the path you locked
+  on), whichever covers the fewest words nearby; it stays clear of the
+  critical path's step control and, on a phone, of the tab bar at the bottom
+  of the screen;
+- dragging the canvas from a box never leaves that box lit;
+- a frame's title drills at the level being drawn: a project frame around
+  issues opens the project's issues (not its milestones, which a double-click
+  on the project's own box opens), and the frame of the page you are on opens
+  the next level down within it;
+- an issue on no relation drills to its milestone's issues; one with nowhere
+  else to go has no Open graph;
+- the lock is written into the address in place (Back never steps through
+  locks) and carried on the graph's own links, where the next graph keeps it
+  only if it draws that box; drill-down links never carry it;
+- pressing on a box and dragging past a few pixels now pans the canvas too, and
+  never locks;
+- a screen reader hears "Locked on ENG-23 Typo tolerance." once, and the box's
+  pressed state now means locked (it meant selected);
+- Escape drops the lock first; a second Escape closes an open panel. It works
+  from anywhere on the page (after dragging the canvas the focus is on the
+  page, not on the graph), except where something nearer wants it: with the
+  focus in an open panel the panel closes first;
+- under Critical path a locked box keeps the frame where it is (switching to
+  Critical path no longer jumps to step 1 of the workspace's path), and the
+  step control walks the chain through the locked box;
+- on a phone the strip's buttons are wider but no taller (26px), so it covers
+  no more of the box below.

@@ -56,6 +56,7 @@ import {
 
 import { dueLabel, formatDate, plural } from '../format';
 import type { ReadOnlyReasonCopy } from '../read-only';
+import { drillTargets } from './graph-drill';
 import { cachedLayoutGraph } from './graph-layout-cache';
 import {
   chainHref,
@@ -89,6 +90,7 @@ import { assessmentMark, uiStatus } from './status';
 export {
   addressHref,
   carryHighlight,
+  carryLock,
   chainHref,
   DEFAULT_GRAPH_HIGHLIGHT,
   effectiveHighlight,
@@ -100,10 +102,14 @@ export {
   highlightCookie,
   highlightFromCookies,
   levelTabs,
+  LOCK_PARAM,
   parseGraphParams,
   parseGraphScope,
   parseHighlight,
+  parseLockParam,
+  scopeQuery,
   withHighlightParam,
+  withLockParam,
 } from './graph-scope';
 
 function timelineMilestoneHref(milestoneId: string): string {
@@ -1452,7 +1458,15 @@ function riskMarks(ctx: PageContext): GraphLegendItem[] {
 const READING_ITEM: GraphLegendItem = {
   mark: 'path-active',
   label: 'Reading',
-  note: 'the box you point at, focus or tap',
+  note: 'the box you point at or focus',
+};
+
+/** The locked box (owner request 2026-10-23, "lock on"): the tint and
+    ring of the box being read plus its corner ticks, with Open beside it. */
+const LOCKED_ITEM: GraphLegendItem = {
+  mark: 'path-locked',
+  label: 'Locked',
+  note: 'the box you click or tap: its paths stay lit, Open beside it',
 };
 
 /** What pointing at a box lights (the Paths row of every legend but the
@@ -1461,6 +1475,7 @@ const READING_ITEM: GraphLegendItem = {
 function pathItems(aggregate: boolean): GraphLegendItem[] {
   return [
     READING_ITEM,
+    LOCKED_ITEM,
     {
       mark: 'path-up',
       label: 'Waits on',
@@ -1740,6 +1755,7 @@ function criticalLegend(ctx: PageContext): GraphLegendItem[] {
           },
         ]),
     READING_ITEM,
+    LOCKED_ITEM,
     {
       mark: 'path-chain',
       label: 'Critical path',
@@ -1821,17 +1837,54 @@ function legendsFor(
 
 /** Core's clusters as the ui draws them (GraphClusterData): the frame of
     work with nothing active muted (dashed grey), one holding only boxes from
-    outside the scope dashed. */
+    outside the scope dashed, and the graph a double-click on its title
+    opens (`drills`, graph-drill.ts) when it has one. */
 export function clusterData(
-  clusters: readonly GraphCluster[]
+  clusters: readonly GraphCluster[],
+  drills: ReadonlyMap<string, string> = new Map()
 ): GraphClusterData[] {
   return clusters.map((cluster) => {
     const data: GraphClusterData = { id: cluster.id, label: cluster.label };
     if (cluster.parentId !== null) data.parent = cluster.parentId;
     if (!cluster.active) data.muted = true;
     if (cluster.external) data.external = true;
+    const drill = drills.get(cluster.id);
+    if (drill !== undefined) data.drillHref = drill;
     return data;
   });
+}
+
+/**
+ * The drawn box a ?lock= names (owner request 2026-10-23, "lock on"): by
+ * its id, else an issue box by its identifier in any case ("eng-23");
+ * null when it names nothing drawn, so a stale or shared link locks
+ * nothing and the address bar drops it.
+ */
+export function lockedNodeId(
+  nodes: readonly GraphNodeData[],
+  param: string | null
+): string | null {
+  if (param === null) return null;
+  const wanted = param.toUpperCase();
+  return (
+    nodes.find((node) => node.id === param)?.id ??
+    nodes.find(
+      (node) => node.key !== undefined && node.key.toUpperCase() === wanted
+    )?.id ??
+    null
+  );
+}
+
+/** The ?lock= a drawn box is written as: an issue by its identifier
+    ("ENG-23", as ?issue= and ?chain= are), any other box by its id. */
+export function lockParam(
+  nodes: readonly GraphNodeData[],
+  id: string | null
+): string | null {
+  if (id === null) return null;
+  const node = nodes.find((n) => n.id === id);
+  if (node === undefined) return null;
+  return node.key !== undefined && node.key !== '' ? node.key : node.id;
 }
 
 /* ---- words per level ------------------------------------------------------- */
@@ -2373,6 +2426,18 @@ function criticalSentence(
   return `Critical path: ${plural(chain.length, levelNoun(level))}: ${steps}.`;
 }
 
+/** How to trace, lock, open and drill into a box, in the idle readout
+    (every box the planner draws can open, and most have a graph). */
+const GESTURE_WORDS: Partial<GraphPathWords> = {
+  hint: 'Point at or focus a box to trace what it waits on and holds up; click it to lock the trace, double-click to open its graph.',
+  tapHint:
+    'Tap a box to lock the trace of what it waits on and holds up; tap it again to open it, or double-tap for its graph.',
+  hintCritical:
+    'Point at or focus a box to show the longest chain through it; click it to lock it, double-click to open its graph.',
+  tapHintCritical:
+    'Tap a box to lock the longest chain through it; tap it again to open it, or double-tap for its graph.',
+};
+
 /**
  * The readout's words for the level (ui GraphPathWords): issues are
  * counted as issues; above the issue level as the level's boxes, which
@@ -2381,9 +2446,12 @@ function criticalSentence(
  * the "Clear next" pill) and read "Complete" when done.
  */
 export function pathWordsFor(level: GraphLevel): Partial<GraphPathWords> {
-  if (level === 'issue') return { unit: ['issue', 'issues'] };
+  if (level === 'issue') {
+    return { unit: ['issue', 'issues'], ...GESTURE_WORDS };
+  }
   const noun = levelNoun(level);
   return {
+    ...GESTURE_WORDS,
     unit: [noun, `${noun}s`],
     waitsOn: 'Waits on {n}',
     waitsOnNone: 'Nothing outside it holds it up',
@@ -2502,6 +2570,17 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   const details: Record<string, GraphNodeDetail> = {};
   const labels = new Map<string, string>();
   for (const node of graph.nodes) labels.set(node.id, node.label);
+  // Where a double-click on each box and frame title goes: its own graph
+  // one level down, or its panel's next drill-down link (graph-drill.ts).
+  const drills = drawn
+    ? drillTargets({
+        snapshot,
+        nodes: graph.nodes,
+        clusters: isChain ? [] : graph.clusters,
+        level,
+        pageHref: scopeHref,
+      })
+    : { nodes: new Map<string, string>(), clusters: new Map<string, string>() };
   if (drawn) {
     for (const edge of graph.edges) {
       if (!edge.blocking || edge.from === edge.to) continue;
@@ -2531,6 +2610,8 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
       }
       if (node.clusterId !== null) data.cluster = node.clusterId;
       if (node.external) data.external = true;
+      const drill = drills.nodes.get(node.id);
+      if (drill !== undefined) data.drillHref = drill;
       details[node.id] = nodeDetail(ctx, node, face.mark);
       nodes.push(data);
     }
@@ -2544,7 +2625,7 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
         cross: crossesBoundary(edge, level),
       }))
     : [];
-  const clusters = drawn ? clusterData(graph.clusters) : [];
+  const clusters = drawn ? clusterData(graph.clusters, drills.clusters) : [];
 
   const edgeCount = graph.edges.length;
   const riskCount = edges.filter((e) => e.kind === 'risk').length;
