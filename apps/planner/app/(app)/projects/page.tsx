@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import {
   buildProjectsPage,
   parseProjectFilter,
-  PROJECT_QUERY_MAX,
+  parseProjectQuery,
 } from '../../../lib/adapters/projects';
 import { currentHref } from '../../../lib/issue-load';
 import {
@@ -44,8 +44,7 @@ export default async function ProjectsPage({
     ])
   );
   const page = buildProjectsPage({ timeline, statusNames });
-  const query =
-    typeof params.q === 'string' ? params.q.slice(0, PROJECT_QUERY_MAX) : '';
+  const query = parseProjectQuery(params.q);
 
   return (
     <>

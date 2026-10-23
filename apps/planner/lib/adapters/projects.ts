@@ -1,4 +1,5 @@
 import {
+  containsLinearCredential,
   type MilestoneStatus,
   NO_INITIATIVE_ID,
   type ProjectAllocationPlan,
@@ -346,6 +347,19 @@ export function parseProjectFilter(value: unknown): ProjectFilterId {
 export const PROJECT_QUERY_MAX = 200;
 
 /**
+ * The register's search from a URL's `?q=` (the page's searchParams or the
+ * address bar): length-capped, and empty when it holds a Linear credential,
+ * so a key in a pasted link is never echoed into the field or the empty
+ * state (the search box refuses to write one, architecture §8 "Key-shaped
+ * input").
+ */
+export function parseProjectQuery(value: unknown): string {
+  const raw = Array.isArray(value) ? (value[0] as unknown) : value;
+  if (typeof raw !== 'string' || containsLinearCredential(raw)) return '';
+  return raw.slice(0, PROJECT_QUERY_MAX);
+}
+
+/**
  * The search and filter a /projects query string asks for (`?q=`,
  * `?filter=`), as the client island reads them when the URL changes under
  * it (back/forward, a link to /projects). Unknown filters mean "all".
@@ -354,7 +368,7 @@ export function parseProjectsSearch(params: {
   get(name: string): string | null;
 }): { query: string; filter: ProjectFilterId } {
   return {
-    query: (params.get('q') ?? '').slice(0, PROJECT_QUERY_MAX),
+    query: parseProjectQuery(params.get('q')),
     filter: parseProjectFilter(params.get('filter') ?? undefined),
   };
 }

@@ -29,13 +29,21 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { parseIssueListParams } from '../lib/adapters/issue-list';
 import { signedOutNotice } from '../lib/adapters/landing';
 import {
+  parseProjectQuery,
+  parseProjectsSearch,
+} from '../lib/adapters/projects';
+import {
   API_KEY_JOBS_OFF,
   API_KEY_STATUS_DESCRIPTION,
   parseSettingsSection,
   sectionDescription,
   statusRows,
 } from '../lib/adapters/settings';
-import { buildMilestoneDrawer } from '../lib/adapters/timeline';
+import {
+  buildMilestoneDrawer,
+  parseTimelineSearch,
+  parseTimelineState,
+} from '../lib/adapters/timeline';
 import {
   KEY_TEXT_REFUSAL,
   refuseKeyText,
@@ -369,6 +377,31 @@ describe('key-shaped searches', () => {
     expect(refuseKeyText('they start with lin_api_')).toBeNull();
     expect(parseIssueListParams({ q: [KEY] }).filters.q).toBe('');
     expect(parseIssueListParams({ q: ['billing'] }).filters.q).toBe('billing');
+  });
+
+  test('the Projects and Timeline searches ignore one in the URL', () => {
+    // The search boxes refuse to write one (projects-register.tsx,
+    // timeline-screen.tsx); a pasted link that holds one seeds no field,
+    // empty state, lane link or drawer URL with it.
+    const params = new URLSearchParams({ q: `find ${KEY}`, filter: 'blocked' });
+    expect(parseProjectsSearch(params)).toEqual({
+      query: '',
+      filter: 'blocked',
+    });
+    expect(parseProjectQuery(KEY)).toBe('');
+    expect(parseProjectQuery([KEY])).toBe('');
+    expect(parseProjectQuery('billing')).toBe('billing');
+    expect(parseTimelineState({ q: KEY, zoom: 'months' })).toMatchObject({
+      query: '',
+      zoom: 'months',
+    });
+    expect(parseTimelineState({ q: [KEY] }).query).toBe('');
+    expect(parseTimelineSearch(new URLSearchParams({ q: KEY })).query).toBe('');
+    expect(parseTimelineState({ q: 'billing' }).query).toBe('billing');
+    // A key cut in two by the 200-character cap is dropped too.
+    const long = `${'x'.repeat(190)} ${KEY}`;
+    expect(parseTimelineState({ q: long }).query).toBe('');
+    expect(parseProjectQuery(long)).toBe('');
   });
 
   test('urlWithoutKeys drops what holds a key from a page URL (proxy.ts)', () => {

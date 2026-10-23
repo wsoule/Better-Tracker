@@ -1,5 +1,6 @@
 import {
   BLOCK_REASON_LABEL,
+  containsLinearCredential,
   type DependencyGraph,
   graphContainer,
   missingLine,
@@ -91,10 +92,20 @@ function param(params: SearchParams, key: string): string | null {
   return trimmed === '' ? null : trimmed.slice(0, MAX_PARAM_LENGTH);
 }
 
-/** Filters, zoom and the dependency toggle from the page's searchParams. */
+/**
+ * Filters, zoom and the dependency toggle from the page's searchParams. A
+ * search that holds a Linear credential reads as none, so a key in a
+ * pasted link is never echoed into the field, the lane links or the
+ * drawer's URLs (the search box refuses to write one, architecture §8
+ * "Key-shaped input").
+ */
 export function parseTimelineState(params: SearchParams): TimelineUrlState {
+  // Checked before param() trims and caps it, so a key cut in two by the
+  // cap is dropped too.
+  const rawQ = Array.isArray(params.q) ? params.q[0] : params.q;
+  const keyInQ = typeof rawQ === 'string' && containsLinearCredential(rawQ);
   return {
-    query: param(params, 'q') ?? '',
+    query: keyInQ ? '' : (param(params, 'q') ?? ''),
     initiative: param(params, 'initiative') ?? 'all',
     activeOnly: param(params, 'active') === '1',
     riskOnly: param(params, 'risk') === '1',

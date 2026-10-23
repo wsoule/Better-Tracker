@@ -29,6 +29,7 @@
 }
 
 .toolbarWrap,
+.notices,
 .blocks {
   max-width: 1440px;
   margin: 20px auto 0;
@@ -147,6 +148,7 @@
   }
 
   .toolbarWrap,
+  .notices,
   .blocks {
     margin-top: 16px;
     padding: 0 16px;

@@ -2,10 +2,11 @@ import { containsLinearCredential } from '@better-tracker/core';
 
 // Text that holds a Linear credential is refused in the browser before it
 // goes anywhere (architecture §8 "API-key mode", security S14): a key
-// pasted into the issue search, the command palette or the relation
-// picker's search would otherwise land in a URL, the browser history and
-// the host's HTTP logs. Nobody has a reason to search for a key, so this
-// holds in every mode.
+// pasted into the Issues, Projects or Timeline search, the command palette
+// or the relation picker's search would otherwise land in a URL, the
+// browser history, the Referer of the next request and the host's HTTP
+// logs. Nobody has a reason to search for a key, so this holds in every
+// mode.
 
 /** What the refused field says instead (the engine's own sentence). */
 export const KEY_TEXT_REFUSAL =

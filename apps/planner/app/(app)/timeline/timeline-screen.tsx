@@ -41,6 +41,7 @@ import {
 } from '../../../lib/adapters/timeline';
 import { notSavedToast, sendJson } from '../../../lib/api-client';
 import { formatDate, plural } from '../../../lib/format';
+import { refuseKeyText } from '../../../lib/key-text';
 import {
   type IssueDrawerServer,
   useIssueDrawerParts,
@@ -102,6 +103,14 @@ export default function TimelineScreen({
   // shown (a drawer push carries the filters) keeps it, half-typed search
   // included.
   const [state, setState] = useState(urlState);
+  // A search that holds a Linear API key is refused before it filters or
+  // reaches any URL (lib/key-text.ts, architecture §8 "Key-shaped input"):
+  // the field keeps the refused text here, apart from `state`, which the
+  // address bar, the lane links and the drawer's pushes are built from,
+  // and the sentence shows instead.
+  const [refused, setRefused] = useState<string | null>(null);
+  const searchRefusal = refused === null ? null : refuseKeyText(refused);
+  const refusalId = useId();
   const searchParams = useSearchParams();
   const urlSearch = searchParams.toString();
   const written = useRef<string[]>([]);
@@ -112,6 +121,7 @@ export default function TimelineScreen({
       return;
     }
     written.current = [];
+    setRefused(null);
     const next = parseTimelineSearch(new URLSearchParams(urlSearch));
     setState((current) =>
       timelineHref(current) === timelineHref(next) ? current : next
@@ -262,6 +272,14 @@ export default function TimelineScreen({
     <>
       {crumb === undefined ? null : <PageCrumb label={crumb} />}
 
+      {searchRefusal !== null ? (
+        <div className={css.notices} id={refusalId}>
+          <Notice label="Not searched" tone="danger" role="alert">
+            {searchRefusal}
+          </Notice>
+        </div>
+      ) : null}
+
       {model.banners.length > 0 ||
       model.needsWriteGrant ||
       model.readOnly ||
@@ -334,8 +352,20 @@ export default function TimelineScreen({
                   type="search"
                   placeholder="Search projects"
                   autoComplete="off"
-                  value={state.query}
-                  onChange={(event) => update({ query: event.target.value })}
+                  value={refused ?? state.query}
+                  aria-invalid={searchRefusal === null ? undefined : true}
+                  aria-describedby={
+                    searchRefusal === null ? undefined : refusalId
+                  }
+                  onChange={(event) => {
+                    const text = event.target.value;
+                    if (refuseKeyText(text) !== null) {
+                      setRefused(text);
+                      return;
+                    }
+                    setRefused(null);
+                    update({ query: text });
+                  }}
                 />
               </span>
               <label className="srOnly" htmlFor={initiativeId}>

@@ -2724,7 +2724,9 @@ binding):
   a 308 whose Location is the URL the browser sent, tidied; it goes back only to
   that browser, nothing renders it, and the next request is cleaned as above.
   The host's HTTP log may still record the URL the browser sent; the search box
-  and palette refusals below keep the planner from ever producing one.
+  and palette refusals below (§8.4 "Key-shaped input": the Issues, Projects and
+  Timeline searches, the relation picker and the palette) keep the planner from
+  ever producing one.
 - **Nonce CSP** (`proxy.ts`, Next 16's Proxy on the Node runtime, read at
   request time so one build serves every mode): in api_key mode only, every page
   (not `/api` or below, `/_next/static/…`, `/_next/image`, `/icon.svg`,
@@ -4856,13 +4858,21 @@ links and follow-ups, new or unread, progress and the timeline's today.
     workspace member's key and to reload once one connects, and the error page's
     `not_synced` block reads "Waiting for a workspace member's key."
 
-  - **Key-shaped input** (security S14): the issue list's search and the
-    relation picker's search never run a query that looks like a key (the Issues
-    page shows a red "Not searched" notice, and a page URL that holds one is
-    redirected without it by `proxy.ts` before rendering, with
-    `parseIssueListParams` dropping such a `q` as a second layer), the command
-    palette shows no matches with one alert sentence (`refuseQuery`), and the
-    comment and edit forms are refused by the engine (§7.4).
+  - **Key-shaped input** (security S14): the issue list's search, the Projects
+    and Timeline searches and the relation picker's search never run a query
+    that looks like a key (`refuseKeyText`, `lib/key-text.ts`; the Issues,
+    Projects and Timeline pages show a red "Not searched" notice under the
+    toolbar and mark the field `aria-invalid`, and the refused text stays in the
+    field only, apart from the query the rows, the URL, the lane links and the
+    drawer's pushes are built from, so it reaches no URL, history entry or
+    Referer; the Projects and Timeline searches wrote `?q=` with
+    `history.replaceState` on every keystroke and had no refusal until the
+    2026-10-23 review; a page URL that holds one is redirected without it by
+    `proxy.ts` before rendering, with `parseIssueListParams`,
+    `parseProjectQuery` and `parseTimelineState` dropping such a `q` as a second
+    layer), the command palette shows no matches with one alert sentence
+    (`refuseQuery`), and the comment and edit forms are refused by the engine
+    (§7.4).
 
 Fixture mode shows a permanent demo strip under the topbar (`DemoNotice`, the
 shell's full-bleed banner: an info icon in the accent, "Demo data" and one
@@ -5439,7 +5449,8 @@ not read; a deploy that still sets it boots normally and logs one warning
     a relative 307; the nonce policy only in api_key mode, a fresh nonce per
     page, API routes, static assets and prefetches skipped by whole path
     segment), `test/api-key-render.test.tsx` (the connect form, the notices, the
-    three Status rows, the read-only-key notice, the key-refusing inputs),
+    three Status rows, the read-only-key notice, the key-refusing inputs, and
+    the Issues, Projects and Timeline parsers dropping a key-holding `q`),
     `test/api-key-routes-demo.test.ts` (the real route files over a real api_key
     engine whose gateway talks to the e2e's fake Linear in-process: an edit with
     the member's key, a replayed cookie after sign-out 401, a read-only key, a
@@ -5460,10 +5471,12 @@ not read; a deploy that still sets it boots normally and logs one warning
     Status), an edit that reaches the fake with that member's key, a key pasted
     into the address bar dropped by the proxy before the page renders (and in a
     typo path, a missing static file, an icon's query, `/tasks`, a prefetch and
-    an API URL), another workspace refused without naming this one, a read-only
-    key refused once by Linear and then by the planner, per-viewer visibility,
-    sign-out on every device (and a second sign-out with the stale cookie
-    landing on `signed_out=ended`, "Already disconnected", never "every
+    an API URL), a key typed into the Projects, Timeline and Issues searches
+    refused with no key in the URL, the Referer of the next request or the page
+    Back returns to, another workspace refused without naming this one, a
+    read-only key refused once by Linear and then by the planner, per-viewer
+    visibility, sign-out on every device (and a second sign-out with the stale
+    cookie landing on `signed_out=ended`, "Already disconnected", never "every
     browser"), cross-site, `Origin: null` and multipart posts refused, the
     eleventh failure from one `X-Real-IP` limited while another connects, and no
     test key (or a fragment of one) in any response, the server log, the build

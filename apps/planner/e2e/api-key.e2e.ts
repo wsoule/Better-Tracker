@@ -264,6 +264,60 @@ test('5c. a key in any other URL never comes back either', async () => {
   await page.close();
 });
 
+test('5d. a key typed into a search box never reaches a URL', async () => {
+  const page = await ana.newPage();
+  // Every request the page sends, with its Referer: a key in the address
+  // bar would ride along in the Referer of each same-origin request.
+  const sent: Promise<string>[] = [];
+  page.on('request', (request) => {
+    sent.push(
+      (async () => {
+        const headers: Record<string, string> = await request
+          .allHeaders()
+          .catch(() => ({}));
+        return `${request.url()} ${headers.referer ?? ''}`;
+      })()
+    );
+  });
+  const typed = `find ${E2E_KEYS.member}`;
+  for (const [path, name] of [
+    ['/projects', 'Search projects'],
+    ['/timeline', 'Search projects'],
+    ['/issues', 'Search issues'],
+  ] as const) {
+    // Hydrated first, so the island sees the typing.
+    await page.goto(path, { waitUntil: 'networkidle' });
+    const field = page.getByRole('searchbox', { name });
+    await field.fill(typed);
+    // Past the Issues search's debounce, so a write would have landed.
+    await page.waitForTimeout(600);
+    await expect(
+      page.getByText('That looks like a Linear API key; it was not sent.')
+    ).toBeVisible();
+    expect(needlesIn(page.url())).toEqual([]);
+    // The next same-origin request carries the page's URL as its Referer.
+    const status = await page.evaluate(async () => {
+      const response = await fetch('/api/issues/options');
+      return response.status;
+    });
+    expect(status).toBe(200);
+    // Back from another page lands on the URL without the key.
+    await page.goto('/week');
+    await page.goBack({ waitUntil: 'networkidle' });
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+    // A plain search still goes into the URL.
+    await page.getByRole('searchbox', { name }).fill('billing');
+    await expect(page).toHaveURL(new RegExp(`${path}\\?q=billing$`));
+    await expect(
+      page.getByText('That looks like a Linear API key; it was not sent.')
+    ).toHaveCount(0);
+  }
+  const requests = await Promise.all(sent);
+  expect(requests.length).toBeGreaterThan(0);
+  expect(requests.filter((line) => needlesIn(line).length > 0)).toEqual([]);
+  await page.close();
+});
+
 test('6. a key from another workspace is refused without naming this one', async ({
   browser,
   baseURL,

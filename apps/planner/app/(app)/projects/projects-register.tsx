@@ -5,6 +5,7 @@ import {
   Button,
   Chip,
   EmptyState,
+  Notice,
   ProgressRule,
   Register,
   RegisterCell,
@@ -26,6 +27,7 @@ import {
   type ProjectRowModel,
 } from '../../../lib/adapters/projects';
 import { plural } from '../../../lib/format';
+import { refuseKeyText } from '../../../lib/key-text';
 import css from './page.module.css';
 
 const COLUMNS =
@@ -88,7 +90,14 @@ export default function ProjectsRegister({
 }) {
   const [query, setQuery] = useState(initialQuery);
   const [filter, setFilter] = useState<ProjectFilterId>(initialFilter);
+  // A search that holds a Linear API key is refused before it filters or
+  // reaches the URL (lib/key-text.ts, architecture §8 "Key-shaped input"):
+  // the field keeps the refused text here, apart from `query`, which the
+  // rows, the empty state and the URL read, and the sentence shows instead.
+  const [refused, setRefused] = useState<string | null>(null);
+  const refusal = refused === null ? null : refuseKeyText(refused);
   const searchId = useId();
+  const refusalId = useId();
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Follow the address bar when it changes under the register: back and
@@ -106,6 +115,7 @@ export default function ProjectsRegister({
       return;
     }
     written.current = [];
+    setRefused(null);
     const next = parseProjectsSearch(new URLSearchParams(urlSearch));
     setQuery((current) =>
       current.trim() === next.query ? current : next.query
@@ -125,6 +135,16 @@ export default function ProjectsRegister({
     setQuery(nextQuery);
     setFilter(nextFilter);
     written.current.push(syncUrl(nextQuery.trim(), nextFilter));
+  }
+
+  /** The search box's text: refused when it holds a key, else applied. */
+  function search(text: string) {
+    if (refuseKeyText(text) !== null) {
+      setRefused(text);
+      return;
+    }
+    setRefused(null);
+    update(text, filter);
   }
 
   return (
@@ -148,8 +168,10 @@ export default function ProjectsRegister({
               type="search"
               placeholder="Search projects"
               autoComplete="off"
-              value={query}
-              onChange={(event) => update(event.target.value, filter)}
+              value={refused ?? query}
+              aria-invalid={refusal === null ? undefined : true}
+              aria-describedby={refusal === null ? undefined : refusalId}
+              onChange={(event) => search(event.target.value)}
             />
           </span>
           <SegmentedControl
@@ -167,6 +189,14 @@ export default function ProjectsRegister({
         </div>
       </div>
 
+      {refusal !== null ? (
+        <div className={css.notices} id={refusalId}>
+          <Notice label="Not searched" tone="danger" role="alert">
+            {refusal}
+          </Notice>
+        </div>
+      ) : null}
+
       {total === 0 ? (
         <div className={css.blocks}>
           <EmptyState label="No projects">
@@ -181,6 +211,7 @@ export default function ProjectsRegister({
               <Button
                 size="sm"
                 onClick={() => {
+                  setRefused(null);
                   update('', 'all');
                   // The button goes away with the empty state; keep the
                   // keyboard user in the toolbar instead of on <body>.
