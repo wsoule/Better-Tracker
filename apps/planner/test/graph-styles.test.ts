@@ -5,10 +5,10 @@ import path from 'node:path';
 // The graph page and the graph gallery in the Gr8r look (owner decision
 // 2026-10-23, design doc §12; docs/architecture.md §8.2, §8.4 Graph):
 // their stylesheets read only the Gr8r token names (the old Analytics
-// names are deprecated aliases in the ui package's tokens.css), write no
-// hex of their own, draw no mono caps and no hairline collapses, and their
-// pages number no sections. The package's own graph files are checked by
-// packages/ui/test/graph-contrast.test.ts.
+// names, removed from the ui package's tokens.css), write no hex of
+// their own, draw no mono caps and no hairline collapses, and their
+// pages number no sections. The package's own graph files are checked
+// by packages/ui/test/graph-contrast.test.ts.
 
 const appDir = path.join(import.meta.dir, '..', 'app');
 

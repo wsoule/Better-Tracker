@@ -10,6 +10,7 @@ import {
   luminance,
   over,
   readCss,
+  RETIRED,
   retiredNamesIn,
   sourceFiles,
   srcDir,
@@ -387,28 +388,28 @@ describe('the data-tone hook', () => {
     ],
     danger: [
       'var(--red)',
-      'var(--red-ink)',
+      'var(--red)',
       'var(--red-soft)',
       'var(--red-line)',
       'var(--on-red)',
     ],
     warning: [
       'var(--amber)',
-      'var(--amber-ink)',
+      'var(--amber)',
       'var(--amber-soft)',
       'var(--amber-line)',
       'var(--on-amber)',
     ],
     success: [
       'var(--green)',
-      'var(--green-ink)',
+      'var(--green)',
       'var(--green-soft)',
       'var(--green-line)',
       'var(--on-green)',
     ],
     info: [
       'var(--blue)',
-      'var(--blue-ink)',
+      'var(--blue)',
       'var(--blue-soft)',
       'var(--blue-line)',
       'var(--on-blue)',
@@ -444,13 +445,24 @@ describe('the data-tone hook', () => {
     );
   });
 
-  // The -ink names the hook reads are the hues themselves (text-safe in
-  // Gr8r); an unmigrated hover flood may still swap them for its inverse.
-  test('each status text name resolves to its hue in both themes', () => {
+  // A status tone's text is its hue itself (text-safe in Gr8r, so the
+  // same token draws the mark and the words), a literal in both themes.
+  test('each status tone reads its text straight from its hue', () => {
     for (const [, tokens] of THEMES) {
       for (const hue of ['red', 'amber', 'green', 'blue']) {
-        expect(hex(tokens, `--${hue}-ink`)).toBe(hex(tokens, `--${hue}`));
+        expect(hex(tokens, `--${hue}`)).toMatch(/^#[0-9a-f]{6}$/i);
       }
+    }
+    for (const tone of ['danger', 'warning', 'success', 'info']) {
+      const head = `:where([data-tone='${tone}']) {`;
+      const body = flat.slice(
+        flat.indexOf(head),
+        flat.indexOf('}', flat.indexOf(head))
+      );
+      expect([tone, body]).toEqual([
+        tone,
+        expect.not.stringContaining('-ink)'),
+      ]);
     }
   });
 });
@@ -480,71 +492,32 @@ describe('dark mode is a soft dark', () => {
   });
 });
 
-// The old Analytics names stay as deprecated aliases while the screens
-// migrate (docs/architecture.md §8.2 maps each one): they must resolve to
-// a Gr8r token in both themes, so an unmigrated sheet stays readable.
-describe('the migration aliases', () => {
-  const ALIASES: [old: string, gr8r: string][] = [
-    ['--paper', '--surface'],
-    ['--background', '--surface'],
-    ['--ink', '--text'],
-    ['--foreground', '--text'],
-    ['--ink-soft', '--text'],
-    ['--muted', '--text-2'],
-    ['--grey', '--gray'],
-    ['--grey-2', '--text-4'],
-    ['--grey-2-ink', '--text-3'],
-    ['--grey-3', '--border-strong'],
-    ['--grey-4', '--surface-3'],
-    ['--tint', '--surface-2'],
-    ['--hairline-faint', '--divider'],
-    ['--amber-ink-strong', '--amber'],
-  ];
-
-  test('each points at its Gr8r token in both themes', () => {
+// The old Analytics names were deprecated aliases while the screens moved
+// to the Gr8r tokens (docs/architecture.md §8.2 "Old token names" maps each
+// one). Every screen, and every branch written before the restyle, has
+// moved, so tokens.css no longer declares them and no file reads them: a
+// sheet merged in later that still does fails here (it would get nothing
+// from the token, not a warm stand-in).
+describe('the old token names are gone', () => {
+  test('tokens.css declares none of them, in any theme', () => {
+    expect(
+      RETIRED.filter((name) =>
+        new RegExp(`(?<![\\w-])${name}\\s*:`).test(tokensCss)
+      )
+    ).toEqual([]);
     for (const [, tokens] of THEMES) {
-      for (const [old, gr8r] of ALIASES) {
-        expect([old, hex(tokens, old)]).toEqual([old, hex(tokens, gr8r)]);
-      }
+      expect(RETIRED.filter((name) => tokens.has(name))).toEqual([]);
     }
-    expect(lightTokens.get('--hatch')).toBe('transparent');
   });
 
-  // The foundation's own sheets and components (tokens.css declares the
-  // aliases, so it is the one exception) read none of them. Each lane adds
-  // the same check for its files as it migrates (contract §12).
-  test('the foundation files read no retired name', () => {
-    const atoms = [
-      'chip',
-      'notice',
-      'button',
-      'progress-rule',
-      'register',
-      'stats-strip',
-      'checklist',
-      'task-glyphs',
-    ];
-    const files = [
-      ...sourceFiles(path.join(srcDir, 'components')),
-      ...sourceFiles(path.join(srcDir, 'shell')),
-      path.join(srcDir, 'styles', 'primitives.css'),
-      ...atoms.flatMap((atom) => [
-        path.join(srcDir, 'tasks', `${atom}.tsx`),
-        path.join(srcDir, 'tasks', `${atom}.module.css`),
-      ]),
-    ];
-    expect(retiredNamesIn(files)).toEqual([]);
-  });
-
-  // Every lane has migrated, so the guard now covers the whole package:
-  // tokens.css (which declares the aliases) is the one file that may name
-  // them. They stay declared only for branches written before the
-  // restyle; one merged in fails here until its sheets are restyled.
+  // The guard covers the whole package, tokens.css included: no file
+  // under src reads or sets a retired name.
   test('no file under src reads a retired name', () => {
-    const files = sourceFiles(srcDir).filter(
-      (file) => path.basename(file) !== 'tokens.css'
-    );
+    const files = sourceFiles(srcDir);
     expect(files.length).toBeGreaterThan(100);
+    expect(files.some((file) => path.basename(file) === 'tokens.css')).toBe(
+      true
+    );
     expect(retiredNamesIn(files)).toEqual([]);
   });
 });

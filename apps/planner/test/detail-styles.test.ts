@@ -6,11 +6,11 @@ import path from 'node:path';
 // Settings, Setup, the landing and sign-in page, the error and loading
 // states, and the task gallery) in the Gr8r look (owner decision
 // 2026-10-23, design doc §12; docs/architecture.md §8.2): their
-// stylesheets read only the Gr8r token names (the old Analytics names are
-// deprecated aliases in the ui package's tokens.css), write no hex of
-// their own, draw no mono caps, no hairline collapses and no removed
-// outline, and their pages number no sections and print no "404" / "ERR"
-// / "SYNC" keys.
+// stylesheets read only the Gr8r token names (the old Analytics names,
+// removed from the ui package's tokens.css), write no hex of their own,
+// draw no mono caps, no hairline collapses and no removed outline, and
+// their pages number no sections and print no "404" / "ERR" / "SYNC"
+// keys.
 
 const appDir = path.join(import.meta.dir, '..', 'app');
 

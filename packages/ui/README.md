@@ -132,9 +132,11 @@ lead-in), `.label` (a 12px quiet label), `.eyebrow` (the one uppercase voice),
 The pre-Gr8r names (`--paper`, `--ink`, `--background`, `--foreground`,
 `--muted`, `--ink-soft`, `--grey*`, `--tint`, `--hairline-faint`, `--hatch`,
 `--red-ink` and the other `-ink` steps, `--muted-inverse`, `--ink-soft-inverse`,
-`--hairline-inverse`, `--ease-out-quint`, `--ease-out-expo`) are deprecated
-aliases onto the Gr8r tokens while the last sheets move; a host's own CSS should
-not use them (`RETIRED` in `test/contrast-helpers.ts`).
+`--hairline-inverse`, `--ease-out-quint`, `--ease-out-expo`) were deprecated
+aliases onto the Gr8r tokens while the sheets moved, and are removed:
+`tokens.css` no longer declares them, so a host's CSS that still reads one gets
+nothing (`RETIRED` in `test/contrast-helpers.ts`; docs/architecture.md §8.2 "Old
+token names" maps each to its Gr8r name).
 
 ### Page mode (default)
 

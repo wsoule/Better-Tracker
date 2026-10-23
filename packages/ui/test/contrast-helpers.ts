@@ -136,9 +136,9 @@ export function sourceFiles(dir: string): string[] {
   });
 }
 
-/** The pre-Gr8r token names: migration aliases in tokens.css (deprecated)
-    while the screens move to the Gr8r names (docs/architecture.md §8.2).
-    A migrated file reads none of them. */
+/** The pre-Gr8r token names (docs/architecture.md §8.2 "Old token
+    names"): migration aliases in tokens.css while the screens moved to the
+    Gr8r names, now removed. No file reads or declares any of them. */
 export const RETIRED = [
   '--paper',
   '--ink',

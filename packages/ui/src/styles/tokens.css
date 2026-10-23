@@ -226,39 +226,13 @@
   --dur: 140ms;
   --nav-h: 80px;
 
-  /* MIGRATION ALIASES (deprecated; docs/architecture.md §8.2 maps each
-     old name to its Gr8r name). The Analytics names, pointed at the Gr8r
-     token that does the same job. Nothing in this package or the planner
-     reads them any more (styles-contrast.test.ts and the planner's
-     gr8r-tokens.test.ts check every file); they stay only so a branch
-     written before the restyle renders warm and readable rather than
-     broken when it merges, until its sheets move to the Gr8r names. Never
-     use them; remove them once those branches are in. */
-  --paper: var(--surface);
-  --ink: var(--text);
-  --background: var(--surface);
-  --foreground: var(--text);
-  --muted: var(--text-2);
-  --ink-soft: var(--text);
-  --grey: var(--gray);
-  --grey-2: var(--text-4);
-  --grey-2-ink: var(--text-3);
-  --grey-3: var(--border-strong);
-  --grey-4: var(--surface-3);
-  --tint: var(--surface-2);
-  --hairline-faint: var(--divider);
-  --hatch: transparent;
-  --red-ink: var(--red);
-  --amber-ink: var(--amber);
-  --amber-ink-strong: var(--amber);
-  --green-ink: var(--green);
-  --blue-ink: var(--blue);
-  --ease-out-quint: var(--ease-drawer);
-  --ease-out-expo: var(--ease);
-  /* secondary text and rules on the old ink hover flood (a --text fill) */
-  --muted-inverse: #b5b2ab;
-  --ink-soft-inverse: #eceae5;
-  --hairline-inverse: rgba(255, 255, 255, 0.22);
+  /* The old Analytics names (--paper, --ink, --muted, --grey-*, --hatch,
+     the -ink steps, ...) were migration aliases while the screens moved to
+     the Gr8r tokens; every screen and every branch written before the
+     restyle has moved, so they are gone (docs/architecture.md §8.2 "Old
+     token names" maps each one). A sheet that reads one now gets nothing:
+     styles-contrast.test.ts and the planner's gr8r-tokens.test.ts check
+     every file, tokens.css included. */
 
   color-scheme: light;
 }
@@ -329,9 +303,6 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
   --amber-ink-inverse: #88590d;
   --green-ink-inverse: #247149;
   --blue-ink-inverse: #2f63ae;
-  --muted-inverse: #57544e;
-  --ink-soft-inverse: #1d1c1a;
-  --hairline-inverse: rgba(0, 0, 0, 0.18);
 
   color-scheme: dark;
 }
@@ -403,9 +374,6 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
     --amber-ink-inverse: #88590d;
     --green-ink-inverse: #247149;
     --blue-ink-inverse: #2f63ae;
-    --muted-inverse: #57544e;
-    --ink-soft-inverse: #1d1c1a;
-    --hairline-inverse: rgba(0, 0, 0, 0.18);
 
     color-scheme: dark;
   }
@@ -457,7 +425,7 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui])
   :where([data-tone='danger']) {
   --tone: var(--red);
-  --tone-ink: var(--red-ink);
+  --tone-ink: var(--red);
   --tone-soft: var(--red-soft);
   --tone-line: var(--red-line);
   --on-tone: var(--on-red);
@@ -466,7 +434,7 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui])
   :where([data-tone='warning']) {
   --tone: var(--amber);
-  --tone-ink: var(--amber-ink);
+  --tone-ink: var(--amber);
   --tone-soft: var(--amber-soft);
   --tone-line: var(--amber-line);
   --on-tone: var(--on-amber);
@@ -475,7 +443,7 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui])
   :where([data-tone='success']) {
   --tone: var(--green);
-  --tone-ink: var(--green-ink);
+  --tone-ink: var(--green);
   --tone-soft: var(--green-soft);
   --tone-line: var(--green-line);
   --on-tone: var(--on-green);
@@ -483,7 +451,7 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) :where([data-tone='info']) {
   --tone: var(--blue);
-  --tone-ink: var(--blue-ink);
+  --tone-ink: var(--blue);
   --tone-soft: var(--blue-soft);
   --tone-line: var(--blue-line);
   --on-tone: var(--on-blue);

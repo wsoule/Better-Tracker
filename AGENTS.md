@@ -47,10 +47,10 @@
   never write a hex outside it. The accent stays purple (`#9747ff`) in Gr8r's
   accent role (primary, focus, selection, progress, today, unread, links) and
   never means a status. The old Analytics look (black hairlines, mono caps,
-  hatching, numbered blocks, zero radius, ink floods) is retired; no sheet reads
-  its token names any more (tests check every file); they stay in tokens.css as
-  deprecated aliases only until the branches written before the restyle are
-  merged and restyled. Dark mode is a soft warm dark: nothing darker than
+  hatching, numbered blocks, zero radius, ink floods) is retired, and its token
+  names (`--paper`, `--ink`, `--muted`, `--grey-*`, `--hatch`, the `-ink`
+  steps…) are removed from tokens.css; never reintroduce them (tests check every
+  file, tokens.css included). Dark mode is a soft warm dark: nothing darker than
   `#1a1a19` (owner 2026-10-23: the near-black was "too dark"). See
   `docs/architecture.md` §8.2.
 - Status keeps its hue mapping (owner decision 2026-10-22): red overdue and

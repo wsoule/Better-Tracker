@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { RETIRED_TOKENS } from './retired-tokens';
+
 // The whole planner app is in the Gr8r look (owner decision 2026-10-23,
 // design doc §12; docs/architecture.md §8.2 "Old token names"): no file
-// under app/ reads one of the deprecated Analytics names that the ui
-// package's tokens.css still declares as migration aliases, and no sheet
-// writes a colour of its own. The per-lane tests (lists-styles,
+// under app/ reads one of the old Analytics names (the ui package's
+// tokens.css declared them as migration aliases until every sheet had
+// moved, and no longer does), and no sheet writes a colour of its own. The per-lane tests (lists-styles,
 // detail-styles, graph-styles, timeline-tones-render) say more about
 // their screens; this one covers every file, so a sheet added later, or
 // one merged in from a branch written before the restyle, fails here
@@ -29,17 +31,8 @@ const tokensCss = readFileSync(
   'utf8'
 );
 
-/** The retired names: every custom property tokens.css declares in its
-    MIGRATION ALIASES block (up to the light theme's colour-scheme). */
-const RETIRED = [
-  ...tokensCss
-    .slice(
-      tokensCss.indexOf('MIGRATION ALIASES'),
-      tokensCss.indexOf('color-scheme: light;')
-    )
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .matchAll(/^\s*(--[\w-]+)\s*:/gm),
-].map((match) => match[1] ?? '');
+/** The retired names (test/retired-tokens.ts). */
+const RETIRED: readonly string[] = RETIRED_TOKENS;
 
 /** Every .css, .ts and .tsx file under a directory, comments stripped. */
 function sources(dir: string): { file: string; text: string }[] {
@@ -55,11 +48,14 @@ function sources(dir: string): { file: string; text: string }[] {
 describe('the planner app uses only the Gr8r tokens', () => {
   const files = sources(appDir);
 
-  test('the alias block and the app files are found', () => {
-    expect(RETIRED).toContain('--paper');
-    expect(RETIRED).toContain('--grey-2-ink');
-    expect(RETIRED).toContain('--ease-out-expo');
+  test('the app files are found, and tokens.css declares no old name', () => {
     expect(files.length).toBeGreaterThan(100);
+    const declarations = tokensCss.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(
+      RETIRED.filter((name) =>
+        new RegExp(`(?<![\\w-])${name}\\s*:`).test(declarations)
+      )
+    ).toEqual([]);
   });
 
   test('no file reads or sets a retired name', () => {

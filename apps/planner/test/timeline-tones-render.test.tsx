@@ -28,6 +28,7 @@ import {
   buildTimelineBanners,
   type TimelinePermissions,
 } from '../lib/adapters/timeline';
+import { RETIRED_TOKENS } from './retired-tokens';
 
 // Status colours on the timeline page's own islands (owner decision
 // 2026-10-22, docs/architecture.md §8.2 "Status colours"), rendered to
@@ -232,36 +233,11 @@ describe('the milestone drawer', () => {
 });
 
 // The timeline page, its drawer and the timeline gallery are migrated to
-// the Gr8r token names: none reads a deprecated migration alias, the
-// Analytics names tokens.css keeps only for sheets not yet restyled (its
-// MIGRATION ALIASES block, docs/architecture.md §8.2).
+// the Gr8r token names: none reads one of the old Analytics names (the
+// migration aliases tokens.css declared until every sheet had moved;
+// test/retired-tokens.ts, docs/architecture.md §8.2).
 describe('the timeline page sheets are migrated', () => {
-  const tokens = readFileSync(
-    path.join(
-      import.meta.dir,
-      '..',
-      '..',
-      '..',
-      'packages',
-      'ui',
-      'src',
-      'styles',
-      'tokens.css'
-    ),
-    'utf8'
-  );
-  const block = tokens.slice(
-    tokens.indexOf('MIGRATION ALIASES'),
-    tokens.indexOf('color-scheme: light;')
-  );
-  const retired = [
-    ...block.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/^\s*(--[\w-]+)\s*:/gm),
-  ].map((match) => match[1] ?? '');
-
-  test('the alias block is found', () => {
-    expect(retired).toContain('--paper');
-    expect(retired).toContain('--grey-2-ink');
-  });
+  const retired: readonly string[] = RETIRED_TOKENS;
 
   test('no timeline page or gallery file reads a retired name', () => {
     const dirs = [

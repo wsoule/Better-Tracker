@@ -2561,11 +2561,11 @@ track and succeeded, blue in progress and live, grey paused and inactive) is
 unchanged; only its rendering is Gr8r's (§8.2 "Status colours"). The earlier
 visual language from the Analytics `competitors-site` (paper/ink, black
 hairlines, mono uppercase labels, hatched chrome, numbered blocks, zero radius,
-no shadows) is retired; its token names remain only as deprecated aliases while
-the last sheets move (§8.2). The restyle was first built on the branch
-`claude/ui-reskin` (declined on 2026-10-22, then adopted on 2026-10-23); this is
-that visual language applied to today's screens, not a merge of the branch. Gr8r
-is a reference only; nothing is imported from it.
+no shadows) is retired; its token names were deprecated aliases while the last
+sheets moved and are now removed (§8.2 "Old token names"). The restyle was first
+built on the branch `claude/ui-reskin` (declined on 2026-10-22, then adopted on
+2026-10-23); this is that visual language applied to today's screens, not a
+merge of the branch. Gr8r is a reference only; nothing is imported from it.
 
 ### 8.1 Routes
 
@@ -3147,27 +3147,29 @@ theme-dependent component tokens).
   is capped to the part of the bar still visible beside the lane column (the
   bar's end less the chart's scroll offset), so the receipts drop out and the
   name stays readable rather than sliding under it.
-- **Old token names** are deprecated aliases onto the Gr8r tokens. Every sheet
-  in `packages/ui/src` and `apps/planner/app` has moved off them (a test reads
-  every file there, `styles-contrast.test.ts` and the planner's
-  `gr8r-tokens.test.ts`); they stay only so a branch written before the restyle
-  (the graph lock-on, the API-key connect page) renders warm and readable when
-  it merges, until its sheets are restyled, and are then removed: `--paper`,
-  `--background` → `--surface`; `--ink`, `--foreground`, `--ink-soft` →
-  `--text`; `--muted` → `--text-2`; `--grey-2-ink` → `--text-3`; `--grey-2` →
-  `--text-4`; `--grey-3` → `--border-strong`; `--grey-4` → `--surface-3`;
-  `--grey` → `--gray`; `--hairline-faint` → `--divider`; `--tint` →
-  `--surface-2`; `--red-ink`, `--amber-ink`, `--amber-ink-strong`,
-  `--green-ink`, `--blue-ink` → the hue itself; `--hatch` is `transparent`;
-  `--muted-inverse`, `--ink-soft-inverse` and `--hairline-inverse` map onto the
-  inverted-fill steps (a flood merged in from such a branch must still swap the
-  text tokens until it is restyled, `test/styles-contrast.test.ts`);
-  `--ease-out-quint` / `--ease-out-expo` → `--ease-drawer` / `--ease`. The list
-  is `RETIRED` in `test/contrast-helpers.ts`, and `retiredNamesIn(files)` checks
-  a migrated file reads none of them. `test/styles-contrast.test.ts` checks
-  every text token at 4.5:1 on every surface and on its own tint, every mark and
-  control edge at 3:1, the tone hook's mapping and the dark floor, in both
-  themes.
+- **Old token names** are removed. They were deprecated aliases onto the Gr8r
+  tokens while the sheets moved, kept until the branches written before the
+  restyle (the graph lock-on, the API-key connect page) had merged and been
+  restyled; both are in, so `tokens.css` declares none of them and nothing reads
+  them (a test reads every file in `packages/ui/src`, `tokens.css` included,
+  `styles-contrast.test.ts`, and every file in `apps/planner/app`, the planner's
+  `gr8r-tokens.test.ts`). A sheet that still used one would get nothing from it.
+  Each mapped to the Gr8r token that does its job: `--paper`, `--background` →
+  `--surface`; `--ink`, `--foreground`, `--ink-soft` → `--text`; `--muted` →
+  `--text-2`; `--grey-2-ink` → `--text-3`; `--grey-2` → `--text-4`; `--grey-3` →
+  `--border-strong`; `--grey-4` → `--surface-3`; `--grey` → `--gray`;
+  `--hairline-faint` → `--divider`; `--tint` → `--surface-2`; `--red-ink`,
+  `--amber-ink`, `--amber-ink-strong`, `--green-ink`, `--blue-ink` → the hue
+  itself; `--hatch` is `transparent`; `--muted-inverse`, `--ink-soft-inverse`
+  and `--hairline-inverse` went with the ink floods that swapped them;
+  `--ease-out-quint` / `--ease-out-expo` → `--ease-drawer` / `--ease`. The
+  data-tone hook's `--tone-ink` reads the hue itself (`--red`, `--amber`,
+  `--green`, `--blue`), no longer the `-ink` alias. The list is `RETIRED` in
+  `test/contrast-helpers.ts` (the planner's copy is `test/retired-tokens.ts`),
+  and `retiredNamesIn(files)` checks a file reads none of them.
+  `test/styles-contrast.test.ts` checks every text token at 4.5:1 on every
+  surface and on its own tint, every mark and control edge at 3:1, the tone
+  hook's mapping and the dark floor, in both themes.
 
 **Status colours** (owner decision 2026-10-22; drawn the Gr8r way since the
 owner decision of 2026-10-23, design doc §12). The mapping is unchanged: red is
