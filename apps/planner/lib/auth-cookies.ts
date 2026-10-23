@@ -2,6 +2,8 @@ import type { OAuthIntent } from '@better-tracker/engine';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
+import { holdsLinearCredential } from './key-text';
+
 // Cookies and redirects for the auth routes (architecture §8.1 Security):
 //
 // - `mp_session` holds the opaque session token (the store keeps only its
@@ -220,7 +222,10 @@ function encodeNonAscii(value: string): string {
  * The path a sign-in may return to. Only same-site relative paths pass:
  * one leading "/", never "//" or "/\" (protocol-relative URLs to another
  * host), no control characters or spaces (which browsers strip, turning
- * "/\t/x" into "//x"), and nothing that resolves to another origin.
+ * "/\t/x" into "//x"), nothing that resolves to another origin, and
+ * nothing that holds a Linear credential, even percent-encoded (every
+ * caller copies the result into a redirect's Location, and no URL the
+ * planner answers carries a key, architecture §8.1 "No key in a URL").
  * Non-ASCII characters come back percent-encoded, so the result is always
  * a valid header value. Anything else falls back to `fallback`.
  */
@@ -234,6 +239,7 @@ export function sanitizeReturnTo(
   if (!value.startsWith('/')) return fallback;
   if (value.startsWith('//') || value.startsWith('/\\')) return fallback;
   if (hasUnsafeChar(value)) return fallback;
+  if (holdsLinearCredential(value)) return fallback;
   let encoded: string;
   try {
     encoded = encodeNonAscii(value);

@@ -74,6 +74,28 @@ describe('sanitizeReturnTo', () => {
     expect(sanitizeReturnTo('/∕evil.example')).toBe('/%E2%88%95evil.example');
   });
 
+  test('falls back for a path that holds a Linear credential, however encoded', () => {
+    // Every caller copies the result into a redirect's Location, and no
+    // URL the planner answers carries a key (architecture §8.1).
+    const key = 'lin_api_TESTKEY_member_q7Wz3Kp9Vx2Lm8Rt5Yb1Nc';
+    for (const value of [
+      `/week?x=${key}`,
+      `/issues/${key}`,
+      `/issues?q=${encodeURIComponent(key)}`,
+      `/issues?q=${key.replaceAll('_', '%5F')}`,
+      `/issues?q=${key.replaceAll('_', '%255F')}`,
+      `/issues#${key}`,
+      `/issues?q=lin_oauth_${key.slice('lin_api_'.length)}`,
+    ]) {
+      expect(sanitizeReturnTo(value)).toBe('/week');
+      expect(sanitizeReturnTo(value, '/settings')).toBe('/settings');
+    }
+    // Words that only look like the prefix are not keys.
+    expect(sanitizeReturnTo('/issues?q=lin_api_key')).toBe(
+      '/issues?q=lin_api_key'
+    );
+  });
+
   test('falls back for missing or oversized values, to the given default', () => {
     expect(sanitizeReturnTo(null)).toBe('/week');
     expect(sanitizeReturnTo(undefined, '/settings')).toBe('/settings');

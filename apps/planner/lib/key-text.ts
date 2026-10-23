@@ -28,6 +28,24 @@ function decodedOnce(text: string): string {
 }
 
 /**
+ * True when `text` holds a Linear credential as it is or percent-decoded
+ * up to three times (`lin%5Fapi%5F…`, `lin%255Fapi…`). For a value the
+ * planner would copy into a URL it answers, such as a sign-in's returnTo
+ * (auth-cookies.ts `sanitizeReturnTo`): no real path holds one in any
+ * encoding, so the stricter test loses nothing.
+ */
+export function holdsLinearCredential(text: string): boolean {
+  let current = text;
+  for (let round = 0; round < 3; round += 1) {
+    if (containsLinearCredential(current)) return true;
+    const next = decodedOnce(current);
+    if (next === current) return false;
+    current = next;
+  }
+  return containsLinearCredential(current);
+}
+
+/**
  * Where a request whose URL holds a Linear credential goes instead
  * (proxy.ts, LINEAR_AUTH=api_key, every request; architecture §8.1 "No key
  * in a URL"): the same path without the query parameters that hold one, or

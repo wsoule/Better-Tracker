@@ -314,6 +314,70 @@ describe('handleConnect: success', () => {
   });
 });
 
+describe('handleConnect: a returnTo that holds a key', () => {
+  // The planner never copies a key into a Location (architecture §8.1 "No
+  // key in a URL"): a returnTo holding one, even percent-encoded, falls
+  // back to /week, on a failure, a rate limit and a success alike.
+  const returnTos = [
+    `/week?x=${KEY}`,
+    `/issues?q=${encodeURIComponent(KEY)}`,
+    `/issues?q=${KEY.replaceAll('_', '%5F')}`,
+    `/issues/${OTHER}`,
+  ];
+
+  test('a failure lands on "/" with its code and no returnTo', async () => {
+    for (const returnTo of returnTos) {
+      const s = stub();
+      const shape = await handleConnect(
+        post(form({ apiKey: 'bad', returnTo })),
+        s.deps
+      );
+      expect(shape.headers.get('location')).toBe('/?auth_error=key_shape');
+      await expectNoKey(shape);
+      const rejected = await handleConnect(
+        post(form({ apiKey: KEY, returnTo })),
+        stub({ fail: namedError('EngineAuthError', 'key_rejected') }).deps
+      );
+      expect(rejected.headers.get('location')).toBe(
+        '/?auth_error=key_rejected'
+      );
+      await expectNoKey(rejected);
+    }
+  });
+
+  test('a rate-limited try lands on "/" with no returnTo', async () => {
+    const s = stub();
+    const ip = { 'x-real-ip': '203.0.113.77' };
+    for (let i = 0; i < 10; i++) {
+      await handleConnect(
+        post(form({ apiKey: 'bad' }), { headers: ip }),
+        s.deps
+      );
+    }
+    const limited = await handleConnect(
+      post(form({ apiKey: KEY, returnTo: `/week?x=${KEY}` }), { headers: ip }),
+      s.deps
+    );
+    expect(limited.headers.get('location')).toBe(
+      '/?auth_error=connect_rate_limited'
+    );
+    await expectNoKey(limited);
+  });
+
+  test('a success goes to /week, the cookie set', async () => {
+    for (const returnTo of returnTos) {
+      const response = await handleConnect(
+        post(form({ apiKey: KEY, returnTo })),
+        stub().deps
+      );
+      expect(response.status).toBe(303);
+      expect(response.headers.get('location')).toBe('/week');
+      expect(response.headers.getSetCookie()).toHaveLength(1);
+      await expectNoKey(response);
+    }
+  });
+});
+
 describe('handleConnect: rate limits', () => {
   test('the 11th failure from one X-Real-IP is limited, whatever X-Forwarded-For says', async () => {
     const lines: string[] = [];

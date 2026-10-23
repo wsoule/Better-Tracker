@@ -2680,8 +2680,11 @@ binding):
   `not_signed_in`, `connect_rate_limited` with `Retry-After`,
   `insecure_transport`, `key_capacity`, `linear_unreachable`,
   `linear_rate_limited`, `invalid_request`, `internal`), each with one fixed
-  sentence (`lib/adapters/landing.ts`); no answer, header or URL ever carries
-  the key.
+  sentence (`lib/adapters/landing.ts`), and the posted `returnTo` when it is not
+  `/week`; no answer, header or URL ever carries the key (a `returnTo` that
+  holds one, even percent-encoded, becomes `/week` in every Location, failure,
+  rate limit and success alike: `sanitizeReturnTo` below; it used to be copied
+  into the Location, 2026-10-23 review).
 - **Rate limits** (`lib/connect-limit.ts`, in memory): per client IP 10 failures
   per 10 minutes (every failure counts), keyed on Railway's **`X-Real-IP`**
   (never `X-Forwarded-For`, which a client can set; requests without a usable IP
@@ -2761,11 +2764,13 @@ Auth and frame details (decided while building `apps/planner`; binding):
   straight there. The same `sanitizeReturnTo` rules apply at every hop.
 - `mp_oauth` is scoped to `Path=/api/auth`. `returnTo` must start with exactly
   one `/` (never `//` or `/\`), contain no control characters or spaces
-  (browsers strip them, turning `/\t/x` into `//x`) and resolve to the same
-  origin; anything else becomes `/week`. Non-ASCII characters are
-  percent-encoded (UTF-8), because the callback's `Location` header must be a
-  byte string. It is checked when signing the cookie and again after verifying
-  it.
+  (browsers strip them, turning `/\t/x` into `//x`), resolve to the same origin
+  and hold no Linear credential, as it is or percent-decoded up to three times
+  (`holdsLinearCredential`, `lib/key-text.ts`: every hop copies it into a
+  `Location`, and no URL the planner answers carries a key); anything else
+  becomes `/week`. Non-ASCII characters are percent-encoded (UTF-8), because the
+  callback's `Location` header must be a byte string. It is checked when signing
+  the cookie and again after verifying it.
 - Every callback outcome clears `mp_oauth`. Failures land on
   `/?auth_error=<code>`: the engine's `EngineAuthError`/`EngineInputError`
   codes, `linear_<kind>`, `oauth_expired` (missing, tampered or expired cookie),
