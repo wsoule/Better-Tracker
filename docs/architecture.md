@@ -2789,8 +2789,10 @@ hover floods on controls, and the timeline's today.
   `aria-live="polite"` (a toast's `announce` replaces its sentence there only,
   e.g. "›" spoken as a comma and "Press Z to undo."; `onClose` hears it leave);
   used after saves, runs and copies. While a bulk bar is up the stack sits above
-  it (the bar publishes its height as `--bulk-bar-h`), so an Undo toast never
-  covers its actions or ✕, on a phone too.
+  it (the bar publishes its height through `useBulkBarHeight` and the stack sets
+  it as `--bulk-bar-h` on its own element, never on `<html>`, whose every
+  descendant would restyle), so an Undo toast never covers its actions or ✕, on
+  a phone too.
 - **Loading**: `loading.tsx` per route renders hatched skeleton rows in the
   page's real layout (Gr8r skeletons), not spinners.
 - **Slide-over drawer** (milestone details): opens from the right over the
@@ -3102,8 +3104,20 @@ hover floods on controls, and the timeline's today.
       app does not include. This changes them in Linear, as you." [Move 24
       issues] [Cancel] ("Set {n} issues to {value}? …" for the other fields);
       while sending it reads "Moving 24 issues…". While the bar is up the toasts
-      stack above it (the bar publishes its height as `--bulk-bar-h`), so the
-      Undo toast never covers its actions or ✕, on a phone too.
+      stack above it (the bar publishes its height through `useBulkBarHeight`),
+      so the Undo toast never covers its actions or ✕, on a phone too, and the
+      list ends in room of the bar's height plus 44px (`BulkBarRoom`, in place
+      of its bottom padding) so the last rows scroll above it.
+    - **Cost of a click.** A selection, a fold, the Filter menu or a row's "…"
+      redraws only what it touches: `TaskGroupTable` memoizes its groups and
+      rows (a group redraws when its own rows' selection changes, a row when its
+      own props do), the page keeps its render slots (`renderCell`,
+      `rowActions`, `groupActions`) and the options state stable, and the open
+      row menu lives in a small store each row's "…" reads for itself. Before
+      (2026-10-23 showcase review, 304 open rows, 26k elements) every click
+      re-ran about 11,000 components (0.15–0.3 s), and the first selection and
+      clearing it took 0.5–0.7 s more, restyling the whole page for a custom
+      property on `<html>`.
     - **Drag** (`TaskGroupTable`'s `drag`, desktop fine pointers only): the grip
       drags the row, or the selection when the row is in it. A group takes the
       drop when its patch would change at least one dragged issue; a project

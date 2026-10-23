@@ -18,6 +18,7 @@ import {
   TaskGroupTable,
   type TaskRowData,
   type TaskSectionData,
+  useBulkBarHeight,
   useModKeyLabel,
   useOptionalCommandPalette,
   useToast,
@@ -87,7 +88,6 @@ import {
   issueCell,
   MilestoneMenu,
   type MoveTargets,
-  RowMenu,
 } from './issue-row-actions';
 import {
   FacetIcon,
@@ -97,6 +97,14 @@ import {
   SortMenu,
 } from './issues-filters';
 import css from './page.module.css';
+import {
+  RowMenuSlot,
+  rowTitle,
+  SelectionContext,
+  targetsOf,
+  useEventCallback,
+  useRowMenuStore,
+} from './row-menu-slot';
 import { useIssueListOptions } from './use-issue-list-options';
 import { useIssueMoves, useMediaQuery } from './use-issue-moves';
 
@@ -148,23 +156,36 @@ const ROW_KEY_STAGE: Readonly<Record<string, RowMenuStage>> = {
   p: 'priority',
 };
 
-/** Which row's "…" menu is open, at which stage, and where: under the
-    "…" button (point null), or at the pointer of a right-click. */
-interface MenuState {
-  rowId: string;
-  stage: RowMenuStage;
-  open: boolean;
-  point: { x: number; y: number } | null;
-  /** A row key (m, a, s, p) on the row's title opened it: Esc or a choice
-      puts focus back on that title, not on the "…" button. */
-  fromKey: boolean;
-}
+/** The bulk bar floats this far off the bottom (bulk-bar.module.css),
+    is this tall on one line, and the list keeps this much more room under
+    its last row. */
+const BULK_BAR_OFFSET_PX = 20;
+const BULK_BAR_LINE_PX = 44;
+const BULK_BAR_GAP_PX = 24;
 
-// A row's title (its link, or its button without an href).
-function rowTitle(rowId: string): HTMLElement | null {
-  const row = `[data-nav-item="row"][data-row-id="${CSS.escape(rowId)}"]`;
-  return document.querySelector<HTMLElement>(
-    `${row} [data-nav-target] > a, ${row} [data-nav-target] > button`
+/**
+ * While rows are selected the bulk bar floats over the end of the list:
+ * this room after the rows (the list drops its own bottom padding then)
+ * is the bar's 20px offset, its height and a 24px gap, so the last rows
+ * still scroll above it. The height is BulkBar's own measure
+ * (useBulkBarHeight; it grows when a confirmation wraps on a phone), one
+ * line's until it arrives. It used to be a custom property on <html>,
+ * which every row inherits, so the first selection and clearing it
+ * restyled the whole list; a component of its own, so the height arriving
+ * redraws only this.
+ */
+function BulkBarRoom({ shown }: { shown: boolean }): ReactNode {
+  const height = useBulkBarHeight();
+  if (!shown) return null;
+  return (
+    <div
+      aria-hidden="true"
+      data-bulk-bar-room=""
+      style={{
+        height:
+          BULK_BAR_OFFSET_PX + (height ?? BULK_BAR_LINE_PX) + BULK_BAR_GAP_PX,
+      }}
+    />
   );
 }
 
@@ -425,7 +446,7 @@ export default function IssuesScreen({
     options: optionsState.options,
   });
   const { selected, clearSelection, send } = moves;
-  const [menu, setMenu] = useState<MenuState | null>(null);
+  const menus = useRowMenuStore();
 
   // The row that last had focus in the list: Esc on the bulk bar (or the
   // page) clears the selection and puts focus back there.
@@ -448,22 +469,6 @@ export default function IssuesScreen({
     undoLatestRef.current = moves.undoLatest;
   }, [openIssue, selected, clearAndRefocus, moves.undoLatest]);
 
-  /** The issues a row's menu or keys act on: the selection when the row
-      is in it, else the row. */
-  const targetsFor = useCallback(
-    (rowId: string): MoveTargets => {
-      const ids =
-        selected.has(rowId) && selected.size > 1 ? [...selected] : [rowId];
-      return {
-        ids,
-        facts: ids
-          .map((id) => page.rowFacts[id])
-          .filter((f) => f !== undefined),
-      };
-    },
-    [selected, page.rowFacts]
-  );
-
   const selectedTargets: MoveTargets = useMemo(() => {
     const ids = [...selected];
     return {
@@ -472,7 +477,12 @@ export default function IssuesScreen({
     };
   }, [selected, page.rowFacts]);
 
-  function onRowAction(action: RowMenuAction, row: TaskRowData) {
+  // A row menu's actions (Open, Copy link, …), read when chosen: the
+  // rows keep one callback, so passing it never redraws them.
+  const onRowAction = useEventCallback(function onRowAction(
+    action: RowMenuAction,
+    row: TaskRowData
+  ) {
     switch (action) {
       case 'open':
         drawerState.open(row.key);
@@ -507,7 +517,7 @@ export default function IssuesScreen({
       default:
         break;
     }
-  }
+  });
 
   // The group whose weight just changed: its toggle gets focus back once
   // the refreshed list (where the group may have moved) renders.
@@ -523,7 +533,7 @@ export default function IssuesScreen({
       ?.focus();
   }, [page]);
 
-  async function saveWeight(
+  const saveWeight = useEventCallback(async function saveWeight(
     group: TaskGroupData,
     choice: 'raise' | 'lower' | 'clear'
   ) {
@@ -547,7 +557,7 @@ export default function IssuesScreen({
     });
     refocusGroup.current = group.id;
     startTransition(() => router.refresh());
-  }
+  });
 
   function onRowKeyDown(
     event: ReactKeyboardEvent<HTMLElement>,
@@ -561,12 +571,17 @@ export default function IssuesScreen({
     // A pending G chord (G S, G P) belongs to the palette.
     if (palette?.isSequencePending() === true) return;
     event.preventDefault();
-    setMenu({ rowId: row.id, stage, open: true, point: null, fromKey: true });
+    menus.set({ rowId: row.id, stage, open: true, point: null, fromKey: true });
   }
 
   const pick = (ids: readonly string[], change: IssueChange) => {
     send(ids, change);
   };
+  // A change chosen in a row's menu: the selection when the row is in
+  // it, else the row (read when chosen).
+  const pickFromRow = useEventCallback((rowId: string, change: IssueChange) =>
+    pick(targetsOf(selected, rowId, page.rowFacts).ids, change)
+  );
 
   function canDrop(rowIds: readonly string[], groupId: string): true | string {
     if (rowIds.length > ISSUE_MOVE_MAX) {
@@ -581,91 +596,81 @@ export default function IssuesScreen({
     if (plan.ok) send(plan.issueIds, plan.change, { drag: true });
   }
 
-  function renderCell(
-    column: TaskColumnId,
-    row: TaskRowData
-  ): ReactNode | undefined {
-    if (!canEdit || moves.pending.has(row.id) || row.pending === true) {
-      return undefined;
-    }
-    const rowFacts = page.rowFacts[row.id];
-    if (rowFacts === undefined) return undefined;
-    return issueCell({
-      column,
-      row,
-      facts: rowFacts,
-      optionsState,
-      today,
-      viewerId,
-      onSave: moves.saveIssue,
-    });
-  }
+  // The render slots of every row and group: stable while what they draw
+  // is (TaskGroupTable redraws every row when one changes identity).
+  const pending = moves.pending;
+  const saveIssue = moves.saveIssue;
+  const rowFacts = page.rowFacts;
+  const renderCell = useCallback(
+    (column: TaskColumnId, row: TaskRowData): ReactNode | undefined => {
+      if (!canEdit || pending.has(row.id) || row.pending === true) {
+        return undefined;
+      }
+      const facts = rowFacts[row.id];
+      if (facts === undefined) return undefined;
+      return issueCell({
+        column,
+        row,
+        facts,
+        optionsState,
+        today,
+        viewerId,
+        onSave: saveIssue,
+      });
+    },
+    [canEdit, pending, rowFacts, optionsState, today, viewerId, saveIssue]
+  );
 
-  function rowActions(row: TaskRowData): ReactNode {
-    const mine = menu !== null && menu.rowId === row.id;
-    return (
-      <RowMenu
+  const { readOnly, canWriteLinear, canEditWeight } = permissions;
+  const rowActions = useCallback(
+    (row: TaskRowData): ReactNode => (
+      <RowMenuSlot
         row={row}
-        facts={page.rowFacts[row.id]}
-        targets={mine ? targetsFor(row.id) : { ids: [row.id], facts: [] }}
-        stage={mine ? menu.stage : 'menu'}
-        open={mine && menu.open}
-        anchorPoint={mine ? menu.point : null}
-        returnFocus={mine && menu.fromKey ? () => rowTitle(row.id) : undefined}
-        onOpen={() =>
-          setMenu({
-            rowId: row.id,
-            stage: 'menu',
-            open: true,
-            point: null,
-            fromKey: false,
-          })
-        }
-        onClose={() =>
-          setMenu((current) =>
-            current === null || current.rowId !== row.id
-              ? current
-              : { ...current, open: false }
-          )
-        }
-        onStage={(stage) =>
-          setMenu((current) => ({
-            rowId: row.id,
-            stage,
-            open: true,
-            point: current?.rowId === row.id ? current.point : null,
-            fromKey: current?.rowId === row.id ? current.fromKey : false,
-          }))
-        }
-        onAction={(action) => onRowAction(action, row)}
-        onPick={(change) => pick(targetsFor(row.id).ids, change)}
-        readOnly={permissions.readOnly}
-        canWriteLinear={permissions.canWriteLinear}
+        menus={menus}
+        rowFacts={rowFacts}
+        readOnly={readOnly}
+        canWriteLinear={canWriteLinear}
         optionsState={optionsState}
         today={today}
         viewerId={viewerId}
+        onAction={onRowAction}
+        onPick={pickFromRow}
       />
-    );
-  }
+    ),
+    [
+      menus,
+      rowFacts,
+      readOnly,
+      canWriteLinear,
+      optionsState,
+      today,
+      viewerId,
+      onRowAction,
+      pickFromRow,
+    ]
+  );
 
-  function groupActions(group: TaskGroupData): ReactNode {
-    if (!permissions.canEditWeight) return null;
-    const menuData = page.milestoneMenus[group.id];
-    if (menuData === undefined) return null;
-    return (
-      <MilestoneMenu
-        title={group.title}
-        menu={menuData}
-        bounds={weightBounds}
-        onWeight={(choice) => void saveWeight(group, choice)}
-        onOpen={() =>
-          router.push(
-            `/timeline?milestone=${encodeURIComponent(menuData.milestoneId)}`
-          )
-        }
-      />
-    );
-  }
+  const milestoneMenus = page.milestoneMenus;
+  const groupActions = useCallback(
+    (group: TaskGroupData): ReactNode => {
+      const menuData = milestoneMenus[group.id];
+      if (menuData === undefined) return null;
+      return (
+        <MilestoneMenu
+          title={group.title}
+          menu={menuData}
+          bounds={weightBounds}
+          onWeight={(choice) => void saveWeight(group, choice)}
+          onOpen={() =>
+            router.push(
+              `/timeline?milestone=${encodeURIComponent(menuData.milestoneId)}`
+            )
+          }
+        />
+      );
+    },
+    [milestoneMenus, weightBounds, saveWeight, router]
+  );
 
   // ---- page keys and the shortcuts sheet ------------------------------------
 
@@ -739,6 +744,10 @@ export default function IssuesScreen({
 
   // ---- the list ---------------------------------------------------------------
 
+  // The footers' Show more / Show fewer navigate through this one
+  // callback: `navigate` changes when the slide-over opens, and new
+  // groups would redraw every row.
+  const navigateFromList = useEventCallback(navigate);
   const baseSections = useMemo(
     () =>
       page.sections.map((section: IssueListSectionModel): TaskSectionData => ({
@@ -754,7 +763,7 @@ export default function IssuesScreen({
                     label: action.label,
                     disabled: action.disabled,
                     onActivate: () =>
-                      navigate(
+                      navigateFromList(
                         action.query,
                         action.replace ? 'replace' : 'push'
                       ),
@@ -762,7 +771,7 @@ export default function IssuesScreen({
                 },
         })),
       })),
-    [page.sections, navigate]
+    [page.sections, navigateFromList]
   );
   const { decorate } = moves;
   const sections = useMemo(
@@ -990,59 +999,62 @@ export default function IssuesScreen({
             {page.empty.message}
           </EmptyState>
         ) : (
-          <TaskGroupTable
-            key={page.storageKey}
-            sections={sections}
-            columns={page.columns}
-            columnLabels={ISSUE_LIST_COLUMN_LABELS}
-            label="Issues"
-            headingLevel={2}
-            storageKey={page.storageKey}
-            defaultCollapsed={page.defaultCollapsed}
-            onOpenRow={(row) => drawerState.open(row.key)}
-            activeRowId={activeRow?.id}
-            onRowKeyDown={onRowKeyDown}
-            // The checkboxes are in the markup whenever the person can move
-            // issues; on a touch screen or a phone CSS hides them until the
-            // Select button turns selection mode on (no flash after
-            // hydration).
-            selection={
-              canEdit
-                ? {
-                    selected,
-                    onChange: moves.onSelectionChange,
-                    toggleOnClick: touch && selectMode,
-                    hideOnTouch: !selectMode,
-                  }
-                : undefined
-            }
-            dropColumns={DROP_COLUMNS}
-            renderCell={renderCell}
-            rowActions={rowActions}
-            onRowContextMenu={(event, row) => {
-              if (touch) return;
-              event.preventDefault();
-              // At the pointer, as a desktop context menu opens.
-              setMenu({
-                rowId: row.id,
-                stage: 'menu',
-                open: true,
-                point: { x: event.clientX, y: event.clientY },
-                fromKey: false,
-              });
-            }}
-            groupActions={permissions.canEditWeight ? groupActions : undefined}
-            drag={
-              canEdit
-                ? {
-                    canDrop,
-                    onDrop,
-                    label: (n) => (n === 1 ? '1 issue' : `${n} issues`),
-                  }
-                : undefined
-            }
-          />
+          <SelectionContext.Provider value={selected}>
+            <TaskGroupTable
+              key={page.storageKey}
+              sections={sections}
+              columns={page.columns}
+              columnLabels={ISSUE_LIST_COLUMN_LABELS}
+              label="Issues"
+              headingLevel={2}
+              storageKey={page.storageKey}
+              defaultCollapsed={page.defaultCollapsed}
+              onOpenRow={(row) => drawerState.open(row.key)}
+              activeRowId={activeRow?.id}
+              onRowKeyDown={onRowKeyDown}
+              // The checkboxes are in the markup whenever the person can move
+              // issues; on a touch screen or a phone CSS hides them until the
+              // Select button turns selection mode on (no flash after
+              // hydration).
+              selection={
+                canEdit
+                  ? {
+                      selected,
+                      onChange: moves.onSelectionChange,
+                      toggleOnClick: touch && selectMode,
+                      hideOnTouch: !selectMode,
+                    }
+                  : undefined
+              }
+              dropColumns={DROP_COLUMNS}
+              renderCell={renderCell}
+              rowActions={rowActions}
+              onRowContextMenu={(event, row) => {
+                if (touch) return;
+                event.preventDefault();
+                // At the pointer, as a desktop context menu opens.
+                menus.set({
+                  rowId: row.id,
+                  stage: 'menu',
+                  open: true,
+                  point: { x: event.clientX, y: event.clientY },
+                  fromKey: false,
+                });
+              }}
+              groupActions={canEditWeight ? groupActions : undefined}
+              drag={
+                canEdit
+                  ? {
+                      canDrop,
+                      onDrop,
+                      label: (n) => (n === 1 ? '1 issue' : `${n} issues`),
+                    }
+                  : undefined
+              }
+            />
+          </SelectionContext.Provider>
         )}
+        <BulkBarRoom shown={canEdit && selected.size > 0} />
       </div>
       {canEdit ? (
         <BulkBar

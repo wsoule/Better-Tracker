@@ -124,11 +124,12 @@
   cursor: progress;
 }
 
-/* While rows are selected the bulk bar floats over the end of the list
-   (20px off the bottom, its height on <html> as --bulk-bar-h): room to
-   scroll the last rows above it. */
+/* While rows are selected the bulk bar floats over the end of the list:
+   BulkBarRoom (issues-screen.tsx) puts the room to scroll the last rows
+   above it after them, sized by the bar's own height, in place of the
+   list's bottom padding. */
 .list[data-selecting='true'] {
-  padding-bottom: calc(20px + var(--bulk-bar-h, 44px) + 24px);
+  padding-bottom: 0;
 }
 
 /* Loading skeleton: the header's lines, the tabs and the toolbar row. */

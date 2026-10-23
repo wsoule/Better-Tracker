@@ -1,7 +1,7 @@
 'use client';
 
 import type { IssueListOptions } from '@better-tracker/core';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getIssueListOptions } from '../../../../lib/api-client';
 
@@ -77,11 +77,16 @@ export function useIssueListOptions(
     fetchNow();
   }, [fetchNow, failed, state.options, state.version, pageMirrorVersion]);
 
-  return {
-    options: state.options,
-    loading: state.loading,
-    error: state.error,
-    load,
-    retry: fetchNow,
-  };
+  // One object while nothing in it changes: every row's cell pickers take
+  // it, and a new one each render would redraw all of them.
+  return useMemo(
+    () => ({
+      options: state.options,
+      loading: state.loading,
+      error: state.error,
+      load,
+      retry: fetchNow,
+    }),
+    [state.options, state.loading, state.error, load, fetchNow]
+  );
 }
