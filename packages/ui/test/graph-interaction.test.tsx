@@ -120,19 +120,26 @@ describe('DependencyGraph', () => {
     expect(name).toContain('waits on 0, holds up 3; done would unblock 2');
   });
 
-  test('Enter selects the focused node; aria-pressed follows', () => {
+  test('Enter locks the focused node and opens the locked one; aria-pressed is the lock', () => {
     const onSelect = mock((_id: string) => undefined);
     const { container } = render(<Selectable onSelect={onSelect} />);
     const node = nodeEl(container, 'mobile-m1');
     act(() => node.focus());
     fireEvent.keyDown(node, { key: 'Enter' });
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(node.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.keyDown(node, { key: 'Enter' });
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect.mock.calls[0][0]).toBe('mobile-m1');
-    expect(node.getAttribute('aria-pressed')).toBe('true');
-    // A click selects too.
-    fireEvent.click(nodeEl(container, 'atlas-m3'));
-    expect(onSelect.mock.calls[1][0]).toBe('atlas-m3');
+    // A click on another box moves the lock; a second click opens it.
+    fireEvent.click(nodeEl(container, 'atlas-m3'), { detail: 1 });
+    expect(nodeEl(container, 'atlas-m3').getAttribute('aria-pressed')).toBe(
+      'true'
+    );
     expect(node.getAttribute('aria-pressed')).toBe('false');
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    fireEvent.click(nodeEl(container, 'atlas-m3'), { detail: 1 });
+    expect(onSelect.mock.calls[1][0]).toBe('atlas-m3');
   });
 
   test('arrow keys move focus to the neighbouring rank and along it', () => {
@@ -329,19 +336,28 @@ describe('DependencyGraph', () => {
     });
     expect(viewport.scrollLeft).toBe(50);
     expect(viewport.hasAttribute('data-panning')).toBe(false);
-    // A press on a node never pans, so clicks still select.
-    fireEvent.pointerDown(nodeEl(container, 'atlas-m3'), {
+    // A press on a node pans too, but only past a longer travel, so a
+    // shaky click still locks it.
+    const box = nodeEl(container, 'atlas-m3');
+    fireEvent.pointerDown(box, { ...pointer, clientX: 300, clientY: 300 });
+    fireEvent.pointerMove(viewport, {
       ...pointer,
-      clientX: 300,
+      buttons: 1,
+      clientX: 295,
       clientY: 300,
     });
+    expect(viewport.scrollLeft).toBe(50);
     fireEvent.pointerMove(viewport, {
       ...pointer,
       buttons: 1,
       clientX: 200,
       clientY: 300,
     });
-    expect(viewport.scrollLeft).toBe(50);
+    expect(viewport.scrollLeft).toBe(150);
+    fireEvent.pointerUp(viewport, { ...pointer, clientX: 200, clientY: 300 });
+    // The release's click locks nothing.
+    fireEvent.click(box, { detail: 1 });
+    expect(box.hasAttribute('data-locked')).toBe(false);
   });
 
   test('the edge table names itself instead of repeating the summary', () => {

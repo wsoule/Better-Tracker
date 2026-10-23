@@ -34,12 +34,13 @@ import {
   useToast,
 } from '@better-tracker/ui';
 import { ExternalLink } from 'lucide-react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   addressHref,
   carryHighlight,
+  carryLock,
   GRAPH_HIGHLIGHT_LABEL,
   GRAPH_HIGHLIGHTS,
   type GraphNodeDetail,
@@ -47,7 +48,12 @@ import {
   type GraphTooLarge,
   highlightCookie,
   highlightFromCookies,
+  LOCK_PARAM,
+  lockedNodeId,
+  lockParam,
   parseHighlight,
+  parseLockParam,
+  scopeQuery,
 } from '../../../lib/adapters/graph';
 import {
   type IssueDrawerParts,
@@ -96,7 +102,14 @@ function initialBare(server: GraphHighlight): GraphHighlight {
    chain's issue ruled as its focus) with its readout line, the
    highlight's legend under it, Copy Mermaid in the highlight, the
    too-large state, and
-   the slide-over for the selected node. An initiative, project or
+   the slide-over for the selected node. A click (tap, Enter) on a box
+   locks it, keeping its paths lit while the reader pans or switches the
+   highlight; the lock lives in ?lock= (written in place like ?highlight=,
+   read back on Back and Forward, carried on the graph links it draws and
+   dropped when the box is not drawn), and a second click on the locked
+   box, or its strip's Open, opens it. A double-click drills into the
+   box's own graph (model drillHref, carrying the highlight). An
+   initiative, project or
    milestone node shows what it is, its drill-down links, where it stands,
    what it waits on and what it holds up (the same paths the graph
    lights); an issue node opens the issue itself (§8.5, ?issue=<key>,
@@ -123,8 +136,17 @@ export default function GraphScreen({
   issueDrawer: IssueDrawerServer;
 }) {
   const { toast } = useToast();
+  const router = useRouter();
   const searchParams = useSearchParams();
   const query = searchParams.toString();
+  // Whether the URL is still this island's page: its scope parameters as
+  // they were when it mounted. Back and Forward render the page being left
+  // with the arriving entry's URL while the traversal is on its way; that
+  // island must neither adopt that entry's lock (it does not draw that
+  // box) nor write the address bar (it would wipe the entry's ?lock= and
+  // ?highlight= before the arriving page reads them).
+  const [ownScope] = useState(() => scopeQuery(query));
+  const current = scopeQuery(query) === ownScope;
   // What a bare URL shows on this device (initialBare).
   const [bare, setBare] = useState<GraphHighlight>(() =>
     initialBare(bareHighlight)
@@ -139,6 +161,22 @@ export default function GraphScreen({
     setSeenEntry(entryMode);
     setHighlight(entryMode);
   }
+  // The locked box: this history entry's ?lock= (a box that is not drawn
+  // locks nothing), adopted during render on Back and Forward like the
+  // highlight; a lock, a move and an unlock update it at once and the
+  // address bar follows below.
+  const lockInUrl = parseLockParam(searchParams.get(LOCK_PARAM));
+  const entryLock = useMemo(
+    () => lockedNodeId(model.nodes, lockInUrl),
+    [model.nodes, lockInUrl]
+  );
+  const [lockId, setLockId] = useState<string | null>(entryLock);
+  const [seenLock, setSeenLock] = useState(entryLock);
+  if (current && entryLock !== seenLock) {
+    setSeenLock(entryLock);
+    setLockId(entryLock);
+  }
+  const lock = lockParam(model.nodes, lockId);
   const issue = useIssueDrawerState(issueDrawer);
   // A link click starts a navigation the address-bar write below would
   // cancel (Next turns a history write into a restore that discards it):
@@ -173,16 +211,18 @@ export default function GraphScreen({
   }, [leaving]);
   const navigating = issue.navigating || leaving !== null;
   // The address bar says what is shown: on arrival (the cookie may have
-  // picked the mode), after every switch and after each navigation lands,
-  // ?highlight= is written in place (addressHref), every other parameter
-  // kept; never while a navigation is on its way.
+  // picked the mode), after every switch, lock and unlock and after each
+  // navigation lands, ?highlight= and ?lock= are written in place
+  // (addressHref), every other parameter kept; never while a navigation is
+  // on its way. In place, so a lock leaves no history entry of its own:
+  // Back from a drill-down returns to the box that was locked.
   useEffect(() => {
-    if (navigating) return;
+    if (navigating || !current) return;
     const { pathname, search, hash } = window.location;
     const here = `${pathname}${search}${hash}`;
-    const wanted = addressHref(here, highlight, bare);
+    const wanted = addressHref(here, highlight, bare, lock);
     if (wanted !== here) window.history.replaceState(null, '', wanted);
-  }, [highlight, bare, navigating, query]);
+  }, [highlight, bare, navigating, current, query, lock]);
   const choose = (id: string) => {
     const mode = parseHighlight(id);
     if (mode === null) return;
@@ -195,8 +235,19 @@ export default function GraphScreen({
       window.location.protocol === 'https:'
     );
   };
-  /** A graph link this screen draws, carrying the mode on screen. */
-  const carry = (href: string) => carryHighlight(href, highlight, bare);
+  /** A graph link this screen draws, carrying the mode on screen and the
+      locked box (the next graph keeps it if it draws that box). */
+  const carry = (href: string) =>
+    carryHighlight(carryLock(href, lock), highlight, bare);
+  /** A drill-down link: the mode on screen, not the lock (the box drilled
+      into is the next page's subject). */
+  const carryDrill = (href: string) => carryHighlight(href, highlight, bare);
+  /** A double-click's drill-down: a client navigation, held clear of the
+      address-bar write like a link click. */
+  const drill = (href: string) => {
+    setLeaving(queryRef.current);
+    router.push(href);
+  };
   const [selectedId, setSelectedId] = useState<string | null>(
     model.initialSelectedId
   );
@@ -250,7 +301,24 @@ export default function GraphScreen({
       ? null
       : `${model.mermaid.body}${model.mermaid.styles[highlight]}`;
 
-  // Issue nodes open the issue's slide-over; the other kinds the panel.
+  /** Opens a box from the canvas (a second click, tap or Enter on the
+      locked box, or Open on its strip or in the readout): an issue's
+      slide-over, else the box's panel. Idempotent, never a toggle: a box
+      already open stays open (the timeline's link that arrives with its
+      panel open, Open pressed twice); the panel's × and Escape close it. */
+  const open = (id: string) => {
+    const detail = model.details[id];
+    if (detail?.kind === 'issue' && detail.issueKey !== null) {
+      setSelectedId(null);
+      if (issueNodeId !== id) issue.open(detail.issueKey);
+      return;
+    }
+    if (issue.requested !== null) issue.close();
+    setSelectedId(id);
+  };
+  // The panel's own rows ("Waits on", "Holds up") select a box, and a
+  // second press on the row shown closes it again. Issue nodes open the
+  // issue's slide-over; the other kinds the panel.
   const select = (id: string) => {
     const detail = model.details[id];
     if (detail?.kind === 'issue' && detail.issueKey !== null) {
@@ -305,10 +373,14 @@ export default function GraphScreen({
               clusters={model.clusters}
               layout={model.layout ?? undefined}
               selectedId={issue.requested === null ? selectedId : issueNodeId}
+              lockedId={lockId}
+              onLockChange={setLockId}
+              onDrill={drill}
+              drillHrefFor={carryDrill}
               focusId={model.focusId}
               focusLabel="the issue this chain is about"
               coveredRight={arrivalPanel ? SLIDE_OVER_WIDTH : undefined}
-              onSelect={select}
+              onSelect={open}
               ariaSummary={model.ariaSummary}
               emptyMessage={model.emptyMessage}
               toolbar={

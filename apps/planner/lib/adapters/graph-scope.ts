@@ -16,8 +16,9 @@ import type { NavTabItem, ShellCrumb } from '@better-tracker/ui';
 
 // The /graph URL vocabulary (architecture §8.1, §8.4 "Graph"): reading a
 // graph scope from the query string, writing the canonical URL of a scope,
-// the drill-up trail, the level tabs, and the highlight (?highlight= and
-// the graph-highlight cookie, which never take part in a scope's URL).
+// the drill-up trail, the level tabs, the highlight (?highlight= and the
+// graph-highlight cookie) and the locked box (?lock=), the last two never
+// part of a scope's URL.
 // Pure functions; the timeline, projects and issue adapters import their
 // graph links from here so every page writes the same URLs.
 
@@ -217,14 +218,109 @@ export function withHighlightParam(
  * with no ?highlight= shows on this device (its cookie, else the default):
  * the parameter is left out only when both are the default, so a copied
  * address shows the same to anyone, and a reload shows the same here (an
- * explicit Status survives a cookie that says Risk).
+ * explicit Status survives a cookie that says Risk). `lock` is the locked
+ * box's ?lock= (lockParam), null for none; undefined leaves ?lock= as it
+ * is. ?highlight= stays last.
  */
 export function addressHref(
   href: string,
   mode: GraphHighlight,
-  bare: GraphHighlight
+  bare: GraphHighlight,
+  lock?: string | null
 ): string {
-  return withHighlightParam(href, mode, bare !== DEFAULT_GRAPH_HIGHLIGHT);
+  const locked = lock === undefined ? href : withLockParam(href, lock);
+  return withHighlightParam(locked, mode, bare !== DEFAULT_GRAPH_HIGHLIGHT);
+}
+
+/* ---- the locked box (?lock=) --------------------------------------------- */
+
+/**
+ * The parameter that keeps the locked box (owner request 2026-10-23, "lock
+ * on"): the box's id, or an issue's identifier ("ENG-23"). Client state
+ * kept in the URL so a reload, Back and Forward and a shared link keep it;
+ * the server never reads it, and a box that is not drawn locks nothing
+ * (the address bar then drops it).
+ */
+export const LOCK_PARAM = 'lock';
+
+/** ?lock= read from the URL: the first value, trimmed; null when blank or
+    too long. Which box it names is the graph's to say (lockedNodeId). */
+export function parseLockParam(
+  value: string | string[] | undefined | null
+): string | null {
+  return pickParam(value ?? undefined);
+}
+
+/**
+ * `href` with ?lock= set to `lock`, or removed for null: an existing one
+ * is replaced where it stands (its repeats dropped), a new one goes last,
+ * and every other parameter keeps its place and exact encoding, a
+ * #fragment last.
+ */
+export function withLockParam(href: string, lock: string | null): string {
+  const hashAt = href.indexOf('#');
+  const hash = hashAt === -1 ? '' : href.slice(hashAt);
+  const rest = hashAt === -1 ? href : href.slice(0, hashAt);
+  const queryAt = rest.indexOf('?');
+  const path = queryAt === -1 ? rest : rest.slice(0, queryAt);
+  const query = queryAt === -1 ? '' : rest.slice(queryAt + 1);
+  const value =
+    lock === null ? null : `${LOCK_PARAM}=${encodeURIComponent(lock)}`;
+  let placed = false;
+  const kept: string[] = [];
+  for (const part of query.split('&')) {
+    if (part === '') continue;
+    const name = part.split('=', 1)[0] ?? '';
+    if (safeDecode(name) !== LOCK_PARAM) {
+      kept.push(part);
+    } else if (!placed && value !== null) {
+      kept.push(value);
+      placed = true;
+    }
+  }
+  if (!placed && value !== null) kept.push(value);
+  return `${path}${kept.length === 0 ? '' : `?${kept.join('&')}`}${hash}`;
+}
+
+/** The parameters a graph page reads as its view, not its scope: the
+    locked box, the highlight, an open issue and the arrival selection. */
+const VIEW_PARAMS: ReadonlySet<string> = new Set([
+  LOCK_PARAM,
+  'highlight',
+  'issue',
+  'node',
+]);
+
+/**
+ * The scope part of a /graph query string ("level=issue&lock=ENG-23" →
+ * "level=issue"): every parameter but the view ones (VIEW_PARAMS), in
+ * order and as written. Two URLs of one page share it; the graph's client
+ * island uses it to tell its own URL from the one of a page it is leaving
+ * for or arriving from.
+ */
+export function scopeQuery(query: string): string {
+  return query
+    .replace(/^\?/, '')
+    .split('&')
+    .filter((part) => {
+      if (part === '') return false;
+      return !VIEW_PARAMS.has(safeDecode(part.split('=', 1)[0] ?? ''));
+    })
+    .join('&');
+}
+
+/**
+ * A graph link the screen draws (a level tab, a trail crumb, a panel or
+ * narrower-graph link) carrying the locked box to the next graph, which
+ * keeps it when it draws that box (a milestone's "Milestones of P") and
+ * drops it otherwise. Links off /graph, and a null lock, are left alone.
+ * Drill-down links never carry it: the box drilled into is that page's
+ * subject.
+ */
+export function carryLock(href: string, lock: string | null): string {
+  if (lock === null) return href;
+  if (href !== GRAPH_PATH && !href.startsWith(`${GRAPH_PATH}?`)) return href;
+  return withLockParam(href, lock);
 }
 
 /**

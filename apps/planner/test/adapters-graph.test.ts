@@ -49,6 +49,17 @@ import {
 
 const TODAY = '2026-10-21';
 
+/** The planner's idle hints: trace, lock, open and drill into a box. */
+const GESTURE_WORDS = {
+  hint: 'Point at or focus a box to trace what it waits on and holds up; click it to lock the trace, double-click to open its graph.',
+  tapHint:
+    'Tap a box to lock the trace of what it waits on and holds up; tap it again to open it, or double-tap for its graph.',
+  hintCritical:
+    'Point at or focus a box to show the longest chain through it; click it to lock it, double-click to open its graph.',
+  tapHintCritical:
+    'Tap a box to lock the longest chain through it; tap it again to open it, or double-tap for its graph.',
+};
+
 /** buildGraphPage's options beside the graph and the mirror. */
 type PageOptions = Pick<
   GraphPageInput,
@@ -502,7 +513,18 @@ describe('every item drawn, framed by parent', () => {
     const onEdge = new Set(model.edges.flatMap((e) => [e.from, e.to]));
     expect(model.nodes.filter((n) => !onEdge.has(n.id))).toHaveLength(13);
     // Each box sits in its project's frame; the paused Fjord's is muted.
-    expect(model.clusters).toEqual(clusterData(graph.clusters));
+    // A double-click on a frame's title opens that project's milestones.
+    expect(model.clusters).toEqual(
+      clusterData(
+        graph.clusters,
+        new Map(
+          graph.clusters.map((c) => [
+            c.id,
+            `/graph?project=${c.refId ?? ''}&level=milestone`,
+          ])
+        )
+      )
+    );
     expect(model.clusters).toHaveLength(9);
     for (const n of model.nodes) {
       const milestone = snapshot.milestones.get(n.id);
@@ -512,6 +534,7 @@ describe('every item drawn, framed by parent', () => {
       id: 'project:proj-fjord',
       label: 'Fjord analytics',
       muted: true,
+      drillHref: '/graph?project=proj-fjord&level=milestone',
     });
     // Counts say what is drawn; nothing is "listed under the graph".
     expect(model.meta).toBe('17 milestones · 3 edges');
@@ -918,6 +941,8 @@ describe('every level on the demo workspace', () => {
       id: 'none',
       label: 'No initiative',
       sublabel: '1 project',
+      // A double-click opens its projects.
+      drillHref: '/graph?initiative=none',
       tone: 'warning',
       status: 'at_risk',
       statusLabel: 'At risk',
@@ -947,7 +972,8 @@ describe('every level on the demo workspace', () => {
       'Risk chain — a blocking issue is unassigned or overdue, or waits on one',
       'Cycle — both ends wait',
       'Count — issue relations on one edge',
-      'Reading — the box you point at, focus or tap',
+      'Reading — the box you point at or focus',
+      'Locked — the box you click or tap: its paths stay lit, Open beside it',
       'Waits on — what the box you point at waits on',
       'Holds up — what waits on it, through box arrows',
       'Clear next — clear once it is finished',
@@ -1019,10 +1045,23 @@ describe('every level on the demo workspace', () => {
       ['proj-ember', 'Hugo Laurent', [], 'initiative:init-growth'],
       ['proj-garnet', 'Ben Carter', [], 'initiative:none'],
     ]);
+    // A double-click on a frame's title opens that initiative's projects.
     expect(model.clusters).toEqual([
-      { id: 'initiative:init-platform', label: 'Platform reliability' },
-      { id: 'initiative:init-growth', label: 'Customer growth' },
-      { id: 'initiative:none', label: 'No initiative' },
+      {
+        id: 'initiative:init-platform',
+        label: 'Platform reliability',
+        drillHref: '/graph?initiative=init-platform',
+      },
+      {
+        id: 'initiative:init-growth',
+        label: 'Customer growth',
+        drillHref: '/graph?initiative=init-growth',
+      },
+      {
+        id: 'initiative:none',
+        label: 'No initiative',
+        drillHref: '/graph?initiative=none',
+      },
     ]);
     expect(
       model.legends.status.find((item) => item.mark === 'cluster')
@@ -1114,12 +1153,20 @@ describe('every level on the demo workspace', () => {
       ['proj-atlas', true, 'initiative:init-platform'],
       ['proj-juniper', true, 'initiative:init-platform'],
     ]);
+    // The page's own frame opens what its panel's next link opens (its
+    // milestones: its projects are this page); the outside one its
+    // projects.
     expect(model.clusters).toEqual([
-      { id: 'initiative:init-growth', label: 'Customer growth' },
+      {
+        id: 'initiative:init-growth',
+        label: 'Customer growth',
+        drillHref: '/graph?initiative=init-growth&level=milestone',
+      },
       {
         id: 'initiative:init-platform',
         label: 'Platform reliability',
         external: true,
+        drillHref: '/graph?initiative=init-platform',
       },
     ]);
     expect(model.notices).toEqual([
@@ -1399,8 +1446,13 @@ describe('every level on the demo workspace', () => {
       '3 milestones in Compass onboarding; no blocking edges.'
     );
     expect(model.meta).toBe('3 milestones · 0 edges');
+    // The page's own frame: its issues, the panel's next link.
     expect(model.clusters).toEqual([
-      { id: 'project:proj-compass', label: 'Compass onboarding' },
+      {
+        id: 'project:proj-compass',
+        label: 'Compass onboarding',
+        drillHref: '/graph?project=proj-compass',
+      },
     ]);
     expect(Object.keys(model.details)).toEqual(ids(model.nodes));
     expect(model.readouts.status).toBe(
@@ -1503,6 +1555,7 @@ describe('“No initiative” copy, empty containers and quiet boxes', () => {
       id: 'project:proj-fjord',
       label: 'Fjord analytics',
       muted: true,
+      drillHref: '/graph?project=proj-fjord&level=milestone',
     });
     expect(model.details['ms-fjord-1']?.alert).toBeNull();
     expect(
@@ -1634,6 +1687,7 @@ describe('one issue’s chain', () => {
       'edge-cross',
       'edge-resolved',
       'path-active',
+      'path-locked',
       'path-up',
       'path-down',
       'path-next',
@@ -2284,7 +2338,10 @@ describe('graph highlights', () => {
     expect(model.ariaSummary).toBe(
       'Blocking chain of ENG-23: 3 issues joined by 2 blocking relations, 2 on a risk chain and 0 unblocked; no cycles. ENG-23 is the focus. 1 ready, 2 blocked. Critical path: 3 issues: ENG-12, ENG-23, OPS-20.'
     );
-    expect(model.pathWords).toEqual({ unit: ['issue', 'issues'] });
+    expect(model.pathWords).toEqual({
+      unit: ['issue', 'issues'],
+      ...GESTURE_WORDS,
+    });
     expect(model.legends.status.map((i) => `${i.label} — ${i.note}`)).toEqual([
       'Ready — nothing open blocks it',
       'Blocked — an open issue blocks it',
@@ -2296,7 +2353,8 @@ describe('graph highlights', () => {
       'Unblocked — one end is done: no longer blocking',
       'Cycle — both ends wait',
       'Cross-project — leaves its project',
-      'Reading — the box you point at, focus or tap',
+      'Reading — the box you point at or focus',
+      'Locked — the box you click or tap: its paths stay lit, Open beside it',
       'Waits on — what the box you point at waits on',
       'Holds up — what waits on it',
       'Ready next — ready once it is done',
@@ -2313,6 +2371,7 @@ describe('graph highlights', () => {
       'edge-cycle',
       'edge-cross',
       'path-active',
+      'path-locked',
       'path-up',
       'path-down',
       'path-next',
@@ -2328,7 +2387,8 @@ describe('graph highlights', () => {
       'edge-default: Blocks — the blocker is still open',
       'edge-cycle: Cycle — both ends wait',
       'edge-resolved: Unblocked — one end is done',
-      'path-active: Reading — the box you point at, focus or tap',
+      'path-active: Reading — the box you point at or focus',
+      'path-locked: Locked — the box you click or tap: its paths stay lit, Open beside it',
       'path-chain: Critical path — through the box you point at: the longest chain it is on',
     ]);
     // Risk is today's legend, then the paths.
@@ -2388,6 +2448,7 @@ describe('graph highlights', () => {
       'Milestone dependency graph: 17 milestones in 9 projects, with 3 blocking edges, 3 on a risk chain and 2 across projects; no cycles. 1 clear, 3 waiting, 11 with no dependencies, 1 complete, 1 with no issues. Critical path: 3 milestones: Dual-write, Search v2 beta, Tokens and type.'
     );
     expect(model.pathWords).toEqual({
+      ...GESTURE_WORDS,
       unit: ['milestone', 'milestones'],
       waitsOn: 'Waits on {n}',
       waitsOnNone: 'Nothing outside it holds it up',
@@ -2407,7 +2468,8 @@ describe('graph highlights', () => {
       'Cycle — both ends wait',
       'Cross-project — leaves its project',
       'Count — issue relations on one edge',
-      'Reading — the box you point at, focus or tap',
+      'Reading — the box you point at or focus',
+      'Locked — the box you click or tap: its paths stay lit, Open beside it',
       'Waits on — what the box you point at waits on',
       'Holds up — what waits on it, through box arrows',
       'Clear next — clear once it is finished',
@@ -2571,7 +2633,10 @@ describe('graph highlights', () => {
   });
 
   test('path words per level', () => {
-    expect(pathWordsFor('issue')).toEqual({ unit: ['issue', 'issues'] });
+    expect(pathWordsFor('issue')).toEqual({
+      unit: ['issue', 'issues'],
+      ...GESTURE_WORDS,
+    });
     expect(pathWordsFor('project').unit).toEqual(['project', 'projects']);
     expect(pathWordsFor('initiative').next).toBe('Clear next');
   });

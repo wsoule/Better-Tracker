@@ -348,9 +348,10 @@ The other shared vocabularies:
   `node-blocked` (2px amber) and `node-stuck` (2px red), the Critical path's
   `node-chain` (ink ring and step) and `node-faded`, the edges `edge-unblocked`
   (green dots) and `edge-chain` (2.5px ink), the Paths row's `path-active` (the
-  accent flood of the box being read), `path-up` (accent ring), `path-down` (ink
-  ring), `path-next` (the square "Ready next" tag) and `path-chain` (as
-  `node-chain`), and the frames `cluster` and `cluster-muted`.
+  accent flood of the box being read), `path-locked` (the flood and the lock's
+  corner ticks), `path-up` (accent ring), `path-down` (ink ring), `path-next`
+  (the square "Ready next" tag) and `path-chain` (as `node-chain`), and the
+  frames `cluster` and `cluster-muted`.
 - `ToastKind`: `info`, `error`. A `ToastInput` may carry `announce` (what the
   live region says in place of the visible sentence) and `onClose` (called once
   when the toast leaves the stack, however it goes).
@@ -632,9 +633,9 @@ or middle click still opens the link.
   unblocked edges as green dots. `critical` numbers the critical path and lets
   the rest recede. Switching never moves a box: the layout ignores the
   highlight, so one `layout` serves all three. The frame carries
-  `data-highlight`; nodes carry `data-state` (`active`, `lit`, `down`, `chain`,
-  `dim`), `data-pointed` (the box being read), `data-readiness`, `data-next` and
-  `data-step`.
+  `data-highlight` (and `data-locked` while a node is locked); nodes carry
+  `data-state` (`active`, `lit`, `down`, `chain`, `dim`), `data-pointed` (the
+  box being read), `data-locked`, `data-readiness`, `data-next` and `data-step`.
 - `GraphNodeData.readiness` (`GraphNodeReadiness`: `state` ready, blocked, done,
   independent or empty (a box nothing counts toward, walked like done but read
   as its `statusLabel` or "No issues", never "Done"); the chip `label`, "Ready",
@@ -655,14 +656,14 @@ or middle click still opens the link.
   `GraphEdgeData.cross` marks an edge that crosses a project (or owner) boundary
   whatever its kind; Status and Critical path dash it while it blocks and is not
   a cycle.
-- Paths: hover, keyboard focus, a touch tap or the selection lights what the
-  node transitively waits on (an accent ring and accent lines) and what waits on
-  it (an ink ring and ink lines), over the drawn edges; a `pathWords.next` tag
+- Paths: hover, keyboard focus, the lock or the selection lights what the node
+  transitively waits on (an accent ring and accent lines) and what waits on it
+  (an ink ring and ink lines), over the drawn edges; a `pathWords.next` tag
   ("Ready next", a square mono tag on the box's top rule) marks each node that
   finishing it alone would unblock. The node being read (hover, keyboard focus,
-  a touch pin; not the selection) is flooded in the accent on every input, with
-  a 4px double `CanvasText` outline in forced colours (the selected node gets
-  one too, its ink fill being dropped there). Receding nodes grey their words
+  the lock; not the selection) is flooded in the accent on every input, with a
+  4px double `CanvasText` outline in forced colours (the selected node gets one
+  too, its ink fill being dropped there). Receding nodes grey their words
   directly and nothing but the flood and the rings fades, so a hover stays cheap
   on hundreds of nodes. Accessible names give the same counts ("waits on 1,
   holds up 3; done would unblock 2"; "waits on 1, holds up 0 in this graph; done
@@ -678,11 +679,14 @@ or middle click still opens the link.
   only when it holds two or more nodes, and its names carry "step k of s on the
   critical path". Entering `critical` (a new `highlight`, or the first paint
   with no `focusId` or `selectedId` to centre) scrolls the frame to step 1 of
-  the path shown at rest unless one of its steps already shows whole. A step
-  control over the frame's bottom-left corner (`data-graph-steps`: ‹, "3 steps"
-  / "Step 2 of 3", ›) and the keys `]` / `[` walk that path: the walked step is
-  the box being read (the accent flood, the readout) and the frame centres it;
-  Escape, a tap on the background or another highlight drops it.
+  the path shown at rest unless one of its steps already shows whole or a node
+  is locked. With a node on an open chain locked, the path shown at rest (and
+  the one the step control walks) is the chain through it. A step control over
+  the frame's bottom-left corner (`data-graph-steps`: ‹, "3 steps" / "Step 2 of
+  3", ›) and the keys `]` / `[` walk that path: the walked step is the box being
+  read (the accent flood, the readout) and the frame centres it; Escape, a tap
+  on the background, a press on a box or another highlight drops it (it lights
+  over a lock until then).
 - `DependencyGraph` `readout`: one plain (not live) line under the frame names
   the node being read and its paths ("ENG-23 · Blocked by 1 · Waits on 1 open,
   start with ENG-12 · Holds up 1 · Done would unblock 1: OPS-20"); with nothing
@@ -692,12 +696,71 @@ or middle click still opens the link.
   node it says "Nothing here waits on it" (`holdsUpNone`). `null` hides the
   line. `pathWords` (`Partial<GraphPathWords>`, defaults in
   `defaultGraphPathWords`) rewords any part, the tag included.
-- Touch: on a touch press (`pointerType === 'touch'`) the first tap traces a
-  node and a second tap opens it (`onSelect`, or its link); on a node that opens
-  nothing a second tap drops the pin again. A tap on the background or Escape
-  drops the pin and its trace (the focus a tap gives a button in Chromium never
-  traces on its own). Mouse, pen, keyboard and assistive-tech activation open at
-  once.
+- Lock on (`lockedId`, `onLockChange`): a click, a tap, Enter or Space on a node
+  locks it, so its paths, tags and readout stay lit while the reader pans (a
+  drag from the background, or from a box past 8px, which also drops the trace
+  the press's focus gave that box), scrolls, zooms, fits or switches the
+  highlight. While a node is locked, pointing at or focusing another moves
+  nothing (CSS gives a hovered box off the lock's paths a 1px accent outline, a
+  box on them keeps its path ring, and no state is set, so a locked graph does
+  not re-render on hover). A second press on the locked node opens it
+  (`onSelect`, else its link; a node that opens nothing is unlocked instead).
+  `onSelect` may be called again for the node already open (a third click, Open
+  pressed twice), so a host must open, never toggle (the planner's panel used to
+  close). A mouse's second click waits out `DOUBLE_CLICK_MS` (500 ms, the
+  longest common double-click time) and a tap's `DOUBLE_PRESS_MS` (300 ms) when
+  the node has a `drillHref`, so a double-click never opens it on the way, and a
+  key opens at once. The locked node gets its own mark (`data-locked`,
+  `data-lock-mark`: four 2px corner ticks inside the box in its own ink, never a
+  ring, so the keyboard focus ring still shows on it and a focus preview, a lock
+  and a focused lock look different; in forced colours the double rule of the
+  node being read plus `Highlight` ticks) and an action strip riding the box
+  (`data-graph-lock-strip`: Open, Open graph when it has a `drillHref`, an ×
+  Unlock; `data-lock-action` on each), drawn in the canvas at the box's zoomed
+  place but its own size (28px tall cells, at least 32px wide on a coarse
+  pointer), 4px out (room for the focus ring). `lockStripPlace` (exported for
+  hosts' tests) puts it under the box, over it, or beside it on the right or the
+  left (a side none of the box's own arrows use), the first that fits whole on
+  screen (the frame's visible part, clipped to the visual viewport and clear of
+  bars marked `data-ui-edge-bar="top"` / `"bottom"`, as the shell's top bar and
+  phone tab bar are) and meets no blocked control (the step control), covering
+  the fewest words (`data-graph-words` on each box's words and group titles, and
+  the frame titles); with none, the one most on screen. It slides to stay inside
+  the frame but never off the box's side, and is placed again on every scroll of
+  the frame or the page and every resize without a re-render, finding the frame
+  from its own element (so a lock from the first render is placed too). The
+  strip follows the boxes in the DOM, so Tab from the box reaches it. The
+  readout leads with `pathWords.locked` ("Locked on") and the same actions
+  (`open`, `openItsGraph`, `unlock`). Escape (from anywhere on the page, heard
+  on the window after every nearer handler, so an open panel's or menu's own
+  Escape, or one typed into a field, goes first), a click on the background
+  (never the end of a pan), Unlock, or a press on another node (which moves the
+  lock) drops it; while locked, a new `selectedId` from the host moves the lock
+  to it. A polite `role="status"` line says the lock once ("Locked on ENG-23
+  Typo tolerance.", "Unlocked."); a button node exposes it as `aria-pressed` (no
+  longer the selection), a link or plain node as `aria-current`. Leave
+  `lockedId` undefined and the graph keeps its own lock; pass it to keep the
+  lock yourself (the planner keeps it in `?lock=`). The first paint centres the
+  locked node, before `focusId` and `selectedId`. On a touch press a tap locks,
+  a second tap opens, two taps within `DOUBLE_PRESS_MS` drill down, and a tap on
+  the background unlocks (the focus a tap gives a button in Chromium never
+  traces on its own).
+- Drill down (`GraphNodeData.drillHref`, `GraphClusterData.drillHref`,
+  `onDrill`, `drillHrefFor`): a double-click, a double tap or Shift + Enter on a
+  node follows its `drillHref` (its own graph, one level down, in the planner;
+  on a node with none they lock and open it, as a second press would), and a
+  double-click on the title of a frame with one follows the frame's (the title
+  gets a zoom-in cursor and `data-graph-drill`, and a single click on it does
+  nothing). The locked node's strip and readout offer it as a link, so it is
+  never reachable only by a double-click. `drillHrefFor` rewrites every drill
+  href before it is drawn or followed (the planner adds the highlight on
+  screen); `onDrill` follows a double-click (default: `window.location.assign`).
+  A double-click selects no text (boxes and drilling titles are
+  `user-select: none`, and the second press's mousedown is prevented), and the
+  frame is `touch-action: manipulation`, so a double tap never zooms the page.
+  Without a `hint`, the toolbar says "Click to lock · Double-click to drill in ·
+  Drag to pan · Ctrl + wheel to zoom" (the drill part only when something
+  drills).
 - **Cap what you draw.** Without `clusters` one layout costs about 0.45 s at 200
   nodes and 300 edges (dagre network-simplex; edges dominate) and grows fast
   past that (about 1.3 s at 400 and 600). With `clusters` (measured 2026-10-23
@@ -767,6 +830,10 @@ touches none of it.
   `[data-shell-tabbar='true']` on phones, as the toasts do; while it is up it
   publishes its height to `useBulkBarHeight()` (null when it goes) and the
   toasts stack above it.
+- `DependencyGraph`, while a node is locked, listens for Escape, scroll and
+  resize on `window` and for scroll and resize on `window.visualViewport`, and
+  reads the rects of `[data-ui-edge-bar]` elements (which `AppShell` puts on its
+  top bar and phone tab bar) to keep the lock's strip on screen.
 - `SlideOver` closes on Esc and traps focus; `TaskGroupTable` can persist folded
   groups in `localStorage` or `sessionStorage` (`storage="session"` suits a
   desktop app). Storage failures are tolerated everywhere.

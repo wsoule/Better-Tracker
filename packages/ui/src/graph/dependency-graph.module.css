@@ -147,6 +147,10 @@
   cursor: grab;
   scrollbar-width: thin;
   scrollbar-color: var(--grey-3) transparent;
+
+  /* Native panning and pinch zoom, but no double-tap zoom: a double tap
+     on a box opens its graph. */
+  touch-action: manipulation;
 }
 
 .viewport[data-panning] {
@@ -240,6 +244,21 @@
 
 .clusterTitleTop {
   color: var(--foreground);
+}
+
+/* A frame whose graph a double-click (or double tap) on its title opens:
+   the zoom-in cursor says so, and the title selects no text. Its single
+   click does nothing (it may be half of a double-click). */
+.clusterTitleDrill {
+  cursor: zoom-in;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+@media (hover: hover) {
+  .clusterTitleDrill:hover {
+    color: var(--accent-ink);
+  }
 }
 
 /* Inactive work (a paused project): the blueprint hatch, the hatch the
@@ -425,6 +444,10 @@
   color: var(--foreground);
   text-align: left;
   cursor: pointer;
+
+  /* A click locks, a double-click drills down: neither selects text. */
+  user-select: none;
+  -webkit-user-select: none;
 
   /* Only the flood and the rings fade: text and rule colours change at
      once, so dimming every other box while a path is read (one class per
@@ -811,8 +834,15 @@ div.node {
   pointer-events: none;
 }
 
+/* Pointing at a box floods it while nothing is locked. While a box is
+   locked (data-locked on the graph) the lock keeps the paths: another box
+   under the pointer only gets a 1px accent outline, so it still reads as
+   clickable without moving the highlight. A box on the locked box's paths
+   keeps its 2px path ring under the pointer (the outline would replace
+   it, and a downstream box's ink ring would turn purple): its pointer
+   cursor says it is clickable. */
 @media (hover: hover) and (width >= 901px) {
-  .node:not(.selected):hover {
+  :where(.graph:not([data-locked])) .node:not(.selected):hover {
     --foreground: var(--on-accent);
     --border: var(--on-accent);
     --muted: var(--on-accent);
@@ -831,25 +861,32 @@ div.node {
       outline-color 0.15s ease;
   }
 
-  .node.overdueNode:not(.selected):hover {
+  :where(.graph:not([data-locked])) .node.overdueNode:not(.selected):hover {
     border-color: var(--accent-hover);
     background: var(--accent-hover);
   }
 
-  .node:not(.selected):hover .tagWarning {
+  :where(.graph:not([data-locked])) .node:not(.selected):hover .tagWarning {
     border-color: var(--on-accent);
     background: var(--on-accent);
     color: var(--accent);
   }
 
   /* A toned chip turns to the flood's ink, its word still saying it. */
-  .node:not(.selected):hover .tagToned {
+  :where(.graph:not([data-locked])) .node:not(.selected):hover .tagToned {
     border-color: var(--on-accent);
     color: var(--on-accent);
   }
 
-  .node:not(.selected):hover .tagToned.readyChip::before {
+  :where(.graph:not([data-locked]))
+    .node:not(.selected):hover
+    .tagToned.readyChip::before {
     background: var(--on-accent);
+  }
+
+  :where(.graph[data-locked]) .node:not(.locked, .lit, .down, .chain):hover {
+    outline: 1px solid var(--accent);
+    outline-offset: 3px;
   }
 }
 
@@ -897,6 +934,132 @@ div.node {
 
 .node.pointed:not(.selected) .tagToned.readyChip::before {
   background: var(--on-accent);
+}
+
+/* The locked box (owner request 2026-10-23, "lock on"): the flood of the
+   box being read plus its own mark, four corner ticks just inside the box
+   (2px, 8px long, a viewfinder's "locked on"), so a lock never reads as a
+   hover. The mark is not a ring, so it never reads as the keyboard focus
+   ring (2px accent, 2px out) either, which still shows on the locked box
+   when it has focus: a focus preview (flood and ring), a lock (flood and
+   ticks) and a focused lock (all three) each look different. The ticks
+   take the box's own ink: --on-accent on the flood (4.51:1), the paper on
+   a selected box's ink fill, --on-red on the overdue flood, and the accent
+   on a plain box (a walked step lights over the lock). They sit in the
+   box's padding, clear of its words, under the step number and the "Ready
+   next" tag. The action strip leaves the focus ring room round the box.
+   Selection-derived, never a status. */
+.lockMark {
+  --tick: 8px;
+  --tick-w: 2px;
+
+  position: absolute;
+  inset: 1px;
+  background:
+    linear-gradient(currentcolor 0 0) left top / var(--tick) var(--tick-w),
+    linear-gradient(currentcolor 0 0) left top / var(--tick-w) var(--tick),
+    linear-gradient(currentcolor 0 0) right top / var(--tick) var(--tick-w),
+    linear-gradient(currentcolor 0 0) right top / var(--tick-w) var(--tick),
+    linear-gradient(currentcolor 0 0) left bottom / var(--tick) var(--tick-w),
+    linear-gradient(currentcolor 0 0) left bottom / var(--tick-w) var(--tick),
+    linear-gradient(currentcolor 0 0) right bottom / var(--tick) var(--tick-w),
+    linear-gradient(currentcolor 0 0) right bottom / var(--tick-w) var(--tick);
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+.node.locked:not(.pointed, .selected, .overdueNode) > .lockMark {
+  color: var(--accent);
+}
+
+/* ---- the locked box's action strip -------------------------------------- */
+
+/* Open, Open graph, Unlock: hairline cells in the zoom group's look (mono
+   caps, square, no shadow) riding the locked box just outside its ring,
+   at their own size whatever the zoom (28px tall; at least 28px wide,
+   32px on a touch screen). Purple only because a lock is a selection: Open, the one
+   primary, is the accent fill with --on-accent words (4.51:1), the others
+   paper cells with --accent-ink words (4.51 / 5.63:1). Its paper hides
+   the arrows behind it. */
+.lockStrip {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  border: 1px solid var(--accent);
+  background: var(--background);
+  cursor: default;
+}
+
+.lockButton,
+.readoutAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: var(--background);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.12em;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.lockButton {
+  min-width: 28px;
+  height: 28px;
+  padding: 0 10px;
+}
+
+.lockButton + .lockButton {
+  border-left: 1px solid var(--accent);
+}
+
+.lockClose {
+  padding: 0 6px;
+}
+
+.lockButton.actionOpen,
+.readoutAction.actionOpen {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The cells sit edge to edge: lift the focused one so its ring shows. */
+.lockButton:focus-visible,
+.readoutAction:focus-visible {
+  position: relative;
+  z-index: 1;
+}
+
+@media (hover: hover) {
+  .lockButton:hover,
+  .readoutAction:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .lockButton.actionOpen:hover,
+  .readoutAction.actionOpen:hover {
+    background: var(--accent-hover);
+  }
+}
+
+/* A touch screen gets wider cells but the same height: in a dense
+   drawing the gap under a box is narrower than the strip, and a taller
+   one would cover the top line of the box below. */
+@media (pointer: coarse) {
+  .lockButton {
+    min-width: 32px;
+  }
 }
 
 /* Forced colours drop backgrounds: the filled marks keep a fill in the
@@ -964,6 +1127,23 @@ div.node {
     outline-offset: 2px;
   }
 
+  /* The locked box: the double rule of the box being read (above) plus
+     its corner ticks, kept in the Highlight colour (backgrounds are
+     dropped here, so the ticks opt out), apart from a box pointed at (the
+     double rule alone) and from the solid Highlight ring of what it waits
+     on; the strip's Open keeps a heavier rule. */
+  .lockMark,
+  .node.locked:not(.pointed, .selected, .overdueNode) > .lockMark {
+    forced-color-adjust: none;
+    color: Highlight;
+  }
+
+  .lockButton.actionOpen,
+  .readoutAction.actionOpen {
+    outline: 2px solid ButtonText;
+    outline-offset: -4px;
+  }
+
   /* Frames keep their shape: solid, dashed outside the scope; a muted
      frame's rule and title in GrayText (the hatch is dropped). */
   .cluster {
@@ -1027,6 +1207,31 @@ div.node {
   color: var(--foreground);
 }
 
+/* "Locked on" and the locked box's actions, leading the readout: the same
+   cells as the strip, smaller, inline (24px targets). */
+.readoutLocked {
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.readoutActions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 2px;
+  vertical-align: middle;
+}
+
+.readoutAction {
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+}
+
 .readoutHint {
   color: var(--grey-2-ink);
 }
@@ -1077,6 +1282,8 @@ div.node {
 
 @media (prefers-reduced-motion: reduce) {
   .zoomButton,
+  .lockButton,
+  .readoutAction,
   .node,
   .node.pointed:not(.selected),
   .node:not(.selected):hover,

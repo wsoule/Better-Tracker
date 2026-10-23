@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render } from '@testing-library/react';
-import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -18,9 +18,10 @@ import { MILESTONE_EDGES, MILESTONES } from './graph-fixture';
 // The graph highlights (architecture §8.4 Graph): both paths of the node
 // being read (what it waits on lit, what it holds up down), the pill on
 // what finishing it alone would unblock, the Status / Risk / Critical path
-// modes, the readout line, and the touch pin. CSS modules resolve to empty
-// objects under Bun, so the drawing is read through its data hooks and the
-// colours through the stylesheet.
+// modes and the readout line (the lock and the drill-down are
+// graph-lock.test.tsx). CSS modules resolve to empty objects under Bun, so
+// the drawing is read through its data hooks and the colours through the
+// stylesheet.
 
 afterEach(cleanup);
 
@@ -521,9 +522,11 @@ describe('DependencyGraph: the readout', () => {
     const line = readoutOf(container);
     expect(line.startsWith('1 ready · 2 blocked · 1 done ')).toBe(true);
     expect(line).toContain(
-      'Point at or focus a box to trace what it waits on and holds up.'
+      'Point at or focus a box to trace what it waits on and holds up; click it to lock the trace.'
     );
-    expect(line).toContain('Tap a box to trace what it waits on and holds up.');
+    expect(line).toContain(
+      'Tap a box to lock the trace of what it waits on and holds up; tap it again to open it.'
+    );
     // Plain text, not a live region.
     const p = container.querySelector('[data-graph-readout]');
     expect(p?.tagName).toBe('P');
@@ -579,9 +582,11 @@ describe('DependencyGraph: the readout', () => {
     const { container } = renderChain({ highlight: 'critical', readout: '' });
     const line = readoutOf(container);
     expect(line).toContain(
-      'Point at or focus a box to show the longest chain through it.'
+      'Point at or focus a box to show the longest chain through it; click it to lock it.'
     );
-    expect(line).toContain('Tap a box to show the longest chain through it.');
+    expect(line).toContain(
+      'Tap a box to lock the longest chain through it; tap it again to open it.'
+    );
     expect(line).not.toContain('waits on and holds up');
   });
 
@@ -644,174 +649,6 @@ describe('DependencyGraph: the readout', () => {
       />
     );
     expect(container.querySelector('[data-graph-readout]')).toBeNull();
-  });
-});
-
-describe('DependencyGraph: touch', () => {
-  const touch = { pointerType: 'touch', pointerId: 7 };
-
-  test('the first tap traces, the second opens', () => {
-    const onSelect = mock((_id: string) => undefined);
-    const { container } = renderChain({ onSelect });
-    const node = nodeEl(container, 'ENG-12');
-    fireEvent.pointerDown(node, touch);
-    fireEvent.click(node);
-    expect(onSelect).not.toHaveBeenCalled();
-    expect(node.dataset.state).toBe('active');
-    expect(nodeEl(container, 'ENG-23').dataset.state).toBe('down');
-    expect(nodeEl(container, 'ENG-23').hasAttribute('data-next')).toBe(true);
-    expect(readoutOf(container).endsWith(' · Tap again to open')).toBe(true);
-    fireEvent.pointerDown(node, touch);
-    fireEvent.click(node);
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect.mock.calls[0][0]).toBe('ENG-12');
-  });
-
-  test('a click with no touch press first opens at once', () => {
-    const onSelect = mock((_id: string) => undefined);
-    const { container } = renderChain({ onSelect });
-    // Keyboard, switch access or a screen reader's activation.
-    fireEvent.click(nodeEl(container, 'ENG-12'));
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    // A mouse press is not a touch press either.
-    fireEvent.pointerDown(nodeEl(container, 'ENG-23'), {
-      pointerType: 'mouse',
-    });
-    fireEvent.click(nodeEl(container, 'ENG-23'));
-    expect(onSelect).toHaveBeenCalledTimes(2);
-  });
-
-  test('a cancelled press (a scroll) drops the pending pin', () => {
-    const onSelect = mock((_id: string) => undefined);
-    const { container } = renderChain({ onSelect });
-    const node = nodeEl(container, 'ENG-12');
-    fireEvent.pointerDown(node, touch);
-    fireEvent.pointerCancel(node, touch);
-    fireEvent.click(node);
-    expect(onSelect).toHaveBeenCalledTimes(1);
-  });
-
-  test('a tap on the background, or Escape, drops the pin', () => {
-    const { container } = renderChain();
-    const node = nodeEl(container, 'ENG-12');
-    const pin = () => {
-      fireEvent.pointerDown(node, touch);
-      fireEvent.click(node);
-    };
-    pin();
-    expect(node.dataset.state).toBe('active');
-    const viewport = container.querySelector<HTMLElement>(
-      '[data-graph-viewport]'
-    );
-    if (viewport === null) throw new Error('viewport');
-    fireEvent.click(viewport);
-    expect(node.dataset.state).toBeUndefined();
-    pin();
-    expect(node.dataset.state).toBe('active');
-    fireEvent.keyDown(node, { key: 'Escape' });
-    expect(node.dataset.state).toBeUndefined();
-  });
-
-  test('the box being read is marked on every input; a selection is not', () => {
-    const { container } = renderChain({ selectedId: 'OPS-20' });
-    const pointed = () =>
-      [...container.querySelectorAll<HTMLElement>('[data-pointed]')].map(
-        (el) => el.dataset.graphNode
-      );
-    // At rest the selection lights its paths but nobody is reading a box.
-    expect(nodeEl(container, 'OPS-20').dataset.state).toBe('active');
-    expect(pointed()).toEqual([]);
-    // A touch pin.
-    fireEvent.pointerDown(nodeEl(container, 'ENG-23'), touch);
-    fireEvent.click(nodeEl(container, 'ENG-23'));
-    expect(pointed()).toEqual(['ENG-23']);
-    fireEvent.keyDown(nodeEl(container, 'ENG-23'), { key: 'Escape' });
-    expect(pointed()).toEqual([]);
-    // Keyboard focus.
-    act(() => nodeEl(container, 'ENG-12').focus());
-    expect(pointed()).toEqual(['ENG-12']);
-    act(() => nodeEl(container, 'ENG-12').blur());
-    // A pointer.
-    fireEvent.pointerEnter(nodeEl(container, 'ENG-26'), {
-      pointerType: 'mouse',
-    });
-    expect(pointed()).toEqual(['ENG-26']);
-  });
-
-  test('Escape clears the trace even when the tap left focus on the box', () => {
-    // In Chromium a tap focuses the button it lands on: that focus is the
-    // tap's, so the pin alone traces, and Escape clears it.
-    const { container } = renderChain();
-    const node = nodeEl(container, 'ENG-23');
-    fireEvent.pointerDown(node, touch);
-    act(() => node.focus());
-    fireEvent.click(node);
-    expect(node.dataset.state).toBe('active');
-    expect(nodeEl(container, 'ENG-12').dataset.state).toBe('lit');
-    expect(document.activeElement).toBe(node);
-    fireEvent.keyDown(node, { key: 'Escape' });
-    expect(node.dataset.state).toBeUndefined();
-    expect(nodeEl(container, 'ENG-12').dataset.state).toBeUndefined();
-    expect(readoutOf(container)).not.toContain('ENG-23 ·');
-    // Keyboard focus that arrives later still traces.
-    act(() => nodeEl(container, 'ENG-12').focus());
-    expect(nodeEl(container, 'ENG-12').dataset.state).toBe('active');
-  });
-
-  test('on a link node the pinning tap does not follow the link', () => {
-    const { container } = render(
-      <DependencyGraph
-        nodes={CHAIN.map((n) => ({ ...n, href: `/issues/${n.id}` }))}
-        edges={CHAIN_EDGES}
-        ariaSummary="Links."
-        emptyMessage="Nothing."
-      />
-    );
-    const wrap = nodeEl(container, 'ENG-12');
-    const anchor = wrap.querySelector('a');
-    if (anchor === null) throw new Error('anchor');
-    fireEvent.pointerDown(anchor, touch);
-    // fireEvent returns false when a handler called preventDefault.
-    expect(fireEvent.click(anchor)).toBe(false);
-    expect(wrap.dataset.state).toBe('active');
-    fireEvent.pointerDown(anchor, touch);
-    expect(fireEvent.click(anchor)).toBe(true);
-  });
-
-  test('a node that opens nothing just pins', () => {
-    const { container } = render(
-      <DependencyGraph
-        nodes={CHAIN}
-        edges={CHAIN_EDGES}
-        ariaSummary="Plain."
-        emptyMessage="Nothing."
-      />
-    );
-    const node = nodeEl(container, 'ENG-23');
-    fireEvent.pointerDown(node, touch);
-    fireEvent.click(node);
-    expect(node.dataset.state).toBe('active');
-    // Nothing to open: no "tap again", and the key help says a tap traces.
-    expect(readoutOf(container)).not.toContain('Tap again');
-    // A second tap on it drops the pin again.
-    fireEvent.pointerDown(node, touch);
-    fireEvent.click(node);
-    expect(node.dataset.state).toBeUndefined();
-    fireEvent.pointerDown(node, touch);
-    fireEvent.click(node);
-    expect(node.dataset.state).toBe('active');
-    const help = node.getAttribute('aria-describedby') ?? '';
-    expect(document.getElementById(help)?.textContent).toContain(
-      "On a touch screen, a tap traces a box's paths."
-    );
-  });
-
-  test('the key help names the two taps where a node opens', () => {
-    const { container } = renderChain();
-    const help = nodeEl(container, 'ENG-12').getAttribute('aria-describedby');
-    expect(document.getElementById(help ?? '')?.textContent).toContain(
-      "On a touch screen, the first tap traces a box's paths and a second tap opens it."
-    );
   });
 });
 
@@ -1001,7 +838,7 @@ describe('DependencyGraph highlight styles (dependency-graph.module.css)', () =>
       sheet.indexOf('@media (prefers-reduced-motion: reduce)')
     );
     expect(reduced).toContain(
-      '.zoomButton, .node, .node.pointed:not(.selected), .node:not(.selected):hover, .next, .step { transition: none; }'
+      '.zoomButton, .lockButton, .readoutAction, .node, .node.pointed:not(.selected), .node:not(.selected):hover, .next, .step { transition: none; }'
     );
   });
 });
@@ -1082,8 +919,19 @@ describe('GraphLegend: the highlight marks', () => {
     expect(rule(forced, '.nodeChain, .pathChain')).toBe(
       'outline-color: CanvasText;'
     );
-    expect(rule(forced, '.pathActive')).toContain(
+    expect(rule(forced, '.pathActive, .pathLocked')).toContain(
       'outline: 4px double CanvasText'
+    );
+    // The locked box: the flood and its corner ticks, as drawn, the ticks
+    // kept in Highlight through forced colours.
+    expect(rule(sheet, '.pathLocked')).toBe(
+      '--tick-ink: var(--on-accent); border-color: var(--accent); background: var(--accent);'
+    );
+    expect(rule(sheet, '.pathLocked::after')).toContain(
+      'linear-gradient(var(--tick-ink) 0 0) left top / 5px 2px'
+    );
+    expect(rule(forced, '.pathLocked::after')).toBe(
+      '--tick-ink: Highlight; forced-color-adjust: none;'
     );
     expect(sheet).not.toMatch(/radius|box-shadow|color-mix/);
   });

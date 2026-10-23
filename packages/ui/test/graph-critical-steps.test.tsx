@@ -227,6 +227,69 @@ describe('DependencyGraph: finding the critical path', () => {
     expect(stepText(container)).toBe('Step 1 of 3');
   });
 
+  test('switching to Critical path while a box is locked keeps the frame on it', () => {
+    sizeViewport(400, 300);
+    const props = {
+      nodes: NODES,
+      edges: EDGES,
+      layout: SPREAD,
+      ariaSummary: 'A path.',
+      emptyMessage: 'Nothing.',
+      onSelect: () => undefined,
+      // Delta, on no chain, at the top-left: no step is in the frame.
+      lockedId: 'd',
+    };
+    const view = render(<DependencyGraph {...props} highlight="status" />);
+    const viewport = viewportOf(view.container);
+    expect([viewport.scrollLeft, viewport.scrollTop]).toEqual([0, 0]);
+    view.rerender(<DependencyGraph {...props} highlight="critical" />);
+    expect([viewport.scrollLeft, viewport.scrollTop]).toEqual([0, 0]);
+    expect(nodeEl(view.container, 'd').dataset.locked).toBe('');
+  });
+
+  test('with a box locked the step control walks the chain through it', () => {
+    sizeViewport(400, 300);
+    // Alpha → Beta → Gamma is the graph-wide path; Epsilon → Zeta a
+    // shorter chain of its own.
+    const nodes: GraphNodeData[] = [
+      ...NODES,
+      { id: 'e', label: 'Epsilon', tone: 'default' },
+      { id: 'f', label: 'Zeta', tone: 'default' },
+    ];
+    const edges: GraphEdgeData[] = [
+      ...EDGES,
+      { from: 'e', to: 'f', kind: 'default' },
+    ];
+    const layout: GraphLayout = {
+      ...SPREAD,
+      nodes: [
+        ...SPREAD.nodes,
+        { ...SPREAD.nodes[0], id: 'e', x: 400, y: 0, rank: 0 },
+        { ...SPREAD.nodes[0], id: 'f', x: 700, y: 0, rank: 1 },
+      ],
+    };
+    const props = {
+      nodes,
+      edges,
+      layout,
+      ariaSummary: 'Two chains.',
+      emptyMessage: 'Nothing.',
+      onSelect: () => undefined,
+      highlight: 'critical' as const,
+    };
+    const view = render(<DependencyGraph {...props} lockedId={null} />);
+    expect(stepText(view.container)).toBe('3 steps');
+    view.rerender(<DependencyGraph {...props} lockedId="f" />);
+    expect(stepText(view.container)).toBe('2 steps');
+    fireEvent.click(stepButton(view.container, 'Go to step 1'));
+    expect(stepText(view.container)).toBe('Step 1 of 2');
+    expect(nodeEl(view.container, 'e').dataset.pointed).toBe('');
+    expect(nodeEl(view.container, 'f').dataset.locked).toBe('');
+    // A lock on no chain walks the graph-wide path again.
+    view.rerender(<DependencyGraph {...props} lockedId="d" />);
+    expect(stepText(view.container)).toBe('3 steps');
+  });
+
   test('no step control outside Critical path, or with no path', () => {
     const risk = renderGraph({ highlight: 'risk' });
     expect(risk.container.querySelector('[data-graph-steps]')).toBeNull();

@@ -162,6 +162,31 @@
   background: var(--accent);
 }
 
+/* The locked box: the flood plus its corner ticks in --on-accent, as the
+   graph draws it (.lockMark), scaled to the swatch. */
+.pathLocked {
+  --tick-ink: var(--on-accent);
+
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.pathLocked::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  background:
+    linear-gradient(var(--tick-ink) 0 0) left top / 5px 2px,
+    linear-gradient(var(--tick-ink) 0 0) left top / 2px 5px,
+    linear-gradient(var(--tick-ink) 0 0) right top / 5px 2px,
+    linear-gradient(var(--tick-ink) 0 0) right top / 2px 5px,
+    linear-gradient(var(--tick-ink) 0 0) left bottom / 5px 2px,
+    linear-gradient(var(--tick-ink) 0 0) left bottom / 2px 5px,
+    linear-gradient(var(--tick-ink) 0 0) right bottom / 5px 2px,
+    linear-gradient(var(--tick-ink) 0 0) right bottom / 2px 5px;
+  background-repeat: no-repeat;
+}
+
 /* The paths of the box you point at: a 2px ring outside the box, accent
    for what it waits on, ink for what it holds up and the critical path
    (the chain through it is drawn as the critical path's own ink ring). */
@@ -283,10 +308,17 @@
     color: CanvasText;
   }
 
-  .pathActive {
+  .pathActive,
+  .pathLocked {
     outline: 4px double CanvasText;
     outline-offset: 2px;
     margin: 0 6px;
+  }
+
+  .pathLocked::after {
+    --tick-ink: Highlight;
+
+    forced-color-adjust: none;
   }
 
   .pathUp {

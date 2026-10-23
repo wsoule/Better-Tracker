@@ -39,6 +39,11 @@ export const defaultGraphLegend: GraphLegendItem[] = [
   },
   { mark: 'weight', label: 'Count', note: 'relations on one edge' },
   {
+    mark: 'path-locked',
+    label: 'Locked',
+    note: 'the box you clicked: its paths stay lit',
+  },
+  {
     mark: 'path-up',
     label: 'Waits on',
     note: 'what the box you point at waits on',
@@ -72,6 +77,7 @@ const NODE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
   'node-chain': styles.nodeChain,
   'node-faded': styles.nodeFaded,
   'path-active': styles.pathActive,
+  'path-locked': styles.pathLocked,
   'path-up': styles.pathUp,
   'path-down': styles.pathDown,
   'path-next': styles.pathNext,

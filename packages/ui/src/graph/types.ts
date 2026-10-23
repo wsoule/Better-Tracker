@@ -69,6 +69,15 @@ export interface GraphNodeData {
    * Status highlight falls back to `tone` and the walks to drawn edges.
    */
   readiness?: GraphNodeReadiness;
+  /**
+   * The node's own graph, one level down (the planner: an initiative's
+   * projects, a project's milestones, a milestone's issues, an issue's
+   * blocking chain). A double-click (a double tap on touch, Shift + Enter
+   * on the keyboard) follows it, and the locked node's action strip and
+   * the readout offer it as "Open graph", so it is never reachable only
+   * by a double-click. Unset: the node has no graph to open.
+   */
+  drillHref?: string;
 }
 
 /**
@@ -89,6 +98,13 @@ export interface GraphClusterData {
   muted?: boolean;
   /** Outside the scope: a dashed frame. */
   external?: boolean;
+  /**
+   * The graph of what the frame stands for (the planner: that milestone,
+   * project or initiative at the level being drawn). A double-click (or
+   * double tap) on the frame's title follows it. Unset: the title is
+   * plain, and a click on it is a click on the background.
+   */
+  drillHref?: string;
 }
 
 /**
@@ -309,7 +325,18 @@ export interface GraphPathWords {
   step: string;
   through: string;
   offChain: string;
-  tapAgain: string;
+  /** The readout's lead while a box is locked: "Locked on" + its name. */
+  locked: string;
+  /** What the screen-reader status says when the lock is dropped. */
+  unlocked: string;
+  /** The locked box's primary action (the strip and the readout). */
+  open: string;
+  /** The strip's drill-down button ("Open graph"). */
+  openGraph: string;
+  /** The readout's drill-down button ("Open its graph"). */
+  openItsGraph: string;
+  /** The strip's and the readout's unlock button. */
+  unlock: string;
   /** The idle hint under Status and Risk, where a box shows its paths. */
   hint: string;
   tapHint: string;
@@ -335,8 +362,38 @@ export interface DependencyGraphProps {
   edges: GraphEdgeData[];
   /** Persistently marked node (ink fill); its paths show when idle. */
   selectedId?: string | null;
-  /** Click / Enter on a node. Omit for a read-only graph. */
+  /**
+   * Opens a node: a second click (or tap, or Enter) on the locked node,
+   * or its strip's Open button. It may be called again for the node that
+   * is already open (a third click, Open pressed twice), so it must open,
+   * never toggle: closing is the host panel's own. Omit for a read-only
+   * graph (a node with an `href` then opens its link).
+   */
   onSelect?: (id: string) => void;
+  /**
+   * The locked node (owner request 2026-10-23, "lock on"): a click, a tap
+   * or Enter on a node locks it, so its paths, tags and readout stay lit
+   * while the reader pans, scrolls, zooms or switches the highlight, and
+   * an action strip (Open, Open graph, Unlock) rides the box. Pass it to
+   * keep the lock yourself (the planner keeps it in the URL); leave it
+   * undefined and the graph keeps its own. A node that is not drawn
+   * locks nothing.
+   */
+  lockedId?: string | null;
+  /** Told when the reader locks a node, moves the lock or drops it (null). */
+  onLockChange?: (id: string | null) => void;
+  /**
+   * Follows a node's or a frame's `drillHref` on a double-click (the
+   * strip's Open graph is a link and follows it itself). Default: a full
+   * page load (`window.location.assign`); a host with a router passes its
+   * own navigation.
+   */
+  onDrill?: (href: string) => void;
+  /**
+   * Rewrites every `drillHref` before it is drawn or followed (the planner
+   * carries the highlight on screen to the next graph). Default: as given.
+   */
+  drillHrefFor?: (href: string) => string;
   /** One full sentence: what the graph shows, for the role="img" label. */
   ariaSummary: string;
   /** Honest copy for a graph with no nodes. */
@@ -426,8 +483,10 @@ export interface DependencyGraphProps {
  * ring of what it waits on, `path-down` the ink ring of what it holds up,
  * `path-next` the square tag on what finishing it would unblock,
  * `path-chain` the ink ring and step number of the chain through it (as
- * `node-chain`: the critical path is ink, never the accent). `cluster` is a frame around the boxes that share a
- * parent (`clusters`), `cluster-muted` a hatched one of inactive work;
+ * `node-chain`: the critical path is ink, never the accent), `path-locked`
+ * the flood with the corner ticks of the locked box. `cluster` is a frame
+ * around the boxes that share a parent (`clusters`), `cluster-muted` a
+ * hatched one of inactive work;
  * both sit in the Nodes row, and a plain `node` swatch can say "No
  * dependencies".
  */
@@ -458,6 +517,7 @@ export type GraphLegendMark =
   | 'path-down'
   | 'path-next'
   | 'path-chain'
+  | 'path-locked'
   | 'cluster'
   | 'cluster-muted';
 

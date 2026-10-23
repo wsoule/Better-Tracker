@@ -62,11 +62,19 @@ export const defaultGraphPathWords: GraphPathWords = {
   step: 'Step {k} of {s}',
   through: 'Longest chain through it: {n} {unit}: {names}',
   offChain: 'Not on an open chain',
-  tapAgain: 'Tap again to open',
-  hint: 'Point at or focus a box to trace what it waits on and holds up.',
-  tapHint: 'Tap a box to trace what it waits on and holds up.',
-  hintCritical: 'Point at or focus a box to show the longest chain through it.',
-  tapHintCritical: 'Tap a box to show the longest chain through it.',
+  locked: 'Locked on',
+  unlocked: 'Unlocked',
+  open: 'Open',
+  openGraph: 'Open graph',
+  openItsGraph: 'Open its graph',
+  unlock: 'Unlock',
+  hint: 'Point at or focus a box to trace what it waits on and holds up; click it to lock the trace.',
+  tapHint:
+    'Tap a box to lock the trace of what it waits on and holds up; tap it again to open it.',
+  hintCritical:
+    'Point at or focus a box to show the longest chain through it; click it to lock it.',
+  tapHintCritical:
+    'Tap a box to lock the longest chain through it; tap it again to open it.',
   more: '+{n} more',
 };
 
@@ -789,8 +797,9 @@ function waitsPart(
  * its readiness word, what it waits on and where to start, what it holds
  * up, and what finishing it alone would unblock, with what is counted but
  * not drawn. Critical: its step on the longest chain through it, from
- * `chain` when the caller has it, else worked out here. A host showing a
- * touch pin appends `words.tapAgain` to the parts.
+ * `chain` when the caller has it, else worked out here. The graph leads
+ * the line with `words.locked` and the locked box's actions while the box
+ * is locked.
  */
 export function describePaths(
   id: string,
