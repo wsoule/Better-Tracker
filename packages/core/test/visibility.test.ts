@@ -354,13 +354,15 @@ describe('graphs follow visibility', () => {
 
   test('readiness counts only blockers the viewer can see', () => {
     // SEC-1 (Vault, Security) blocks ENG-1 (Orion). Wyat cannot see SEC-1,
-    // so for him ENG-1 and Orion are free to start; Sam sees the wait.
+    // so for him ENG-1 and Orion are free to start, with no dependencies
+    // at all; Sam sees the wait.
     const nodeIn = (graph: DependencyGraph, id: string) =>
       graph.nodes.find((n) => n.id === id);
     const orionIssues: GraphScope = { level: 'issue', projectId: 'orion' };
     expect(nodeIn(graphFor('wyat', orionIssues), 'eng-1')).toMatchObject({
-      readiness: 'ready',
+      readiness: 'independent',
       blockedBy: 0,
+      readyIssues: 1,
     });
     expect(nodeIn(graphFor('sam', orionIssues), 'eng-1')).toMatchObject({
       readiness: 'blocked',
@@ -368,13 +370,13 @@ describe('graphs follow visibility', () => {
     });
     const wyatOrion = nodeIn(graphFor('wyat', { level: 'project' }), 'orion');
     expect(wyatOrion).toMatchObject({
-      readiness: 'ready',
+      readiness: 'independent',
       blockedBy: 0,
       openIssues: 1,
       readyIssues: 1,
     });
     expect(wyatOrion === undefined ? null : readinessLabel(wyatOrion)).toBe(
-      'Clear'
+      'No dependencies'
     );
     const samProjects = graphFor('sam', { level: 'project' });
     expect(nodeIn(samProjects, 'orion')).toMatchObject({

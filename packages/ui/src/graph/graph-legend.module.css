@@ -1,6 +1,6 @@
 /* The graph legend: Matrix's legend strip (one hairline box, swatch + bold
-   mono name + muted note), split into a NODES row and an EDGES row so the
-   two vocabularies never mix. Swatches reuse the graph's own marks. */
+   mono name + muted note), split into a NODES, an EDGES and a PATHS row so
+   the vocabularies never mix. Swatches reuse the graph's own marks. */
 
 .legend {
   margin-top: -1px;
@@ -113,6 +113,105 @@
   margin: 0 3px;
 }
 
+/* The Status highlight's boxes: ready the 1px green edge, blocked the 2px
+   amber rule, stuck the 2px red rule. */
+.nodeReady {
+  border-color: var(--green);
+}
+
+.nodeBlocked {
+  border: 2px solid var(--amber);
+}
+
+.nodeStuck {
+  border: 2px solid var(--red);
+}
+
+/* A cluster frame, as the graph draws it (.cluster): a wider, empty box
+   in the dim furniture grey; a muted one hatched, its rule in the
+   inactive mark grey. */
+.cluster {
+  flex-basis: 30px;
+  width: 30px;
+  height: 16px;
+  border-color: var(--grey-2);
+}
+
+.clusterMuted {
+  flex-basis: 30px;
+  width: 30px;
+  height: 16px;
+  border-color: var(--grey);
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--hatch) 0,
+    var(--hatch) 1px,
+    transparent 1px,
+    transparent 5px
+  );
+}
+
+/* A box receding off the critical path: its hairline faint. */
+.nodeFaded {
+  border-color: var(--hairline-faint);
+}
+
+/* The box being read: the accent flood it gets on every input. */
+.pathActive {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+/* The paths of the box you point at: a 2px ring outside the box, accent
+   for what it waits on, ink for what it holds up and the critical path
+   (the chain through it is drawn as the critical path's own ink ring). */
+.pathUp,
+.pathDown,
+.nodeChain,
+.pathChain {
+  outline: 2px solid var(--ink);
+  outline-offset: 0;
+  margin: 0 2px;
+}
+
+.pathUp {
+  outline-color: var(--accent);
+}
+
+/* The critical path's step number, at the box's corner as drawn. */
+.step {
+  position: absolute;
+  top: -6px;
+  left: -6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 11px;
+  height: 11px;
+  border: 1px solid var(--paper);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* "Ready next": the green tag riding a box's top rule. */
+.pathNext {
+  margin-top: 3px;
+}
+
+.next {
+  position: absolute;
+  top: -4px;
+  right: 3px;
+  width: 9px;
+  height: 6px;
+  border: 1px solid var(--green);
+  background: var(--background);
+}
+
 .edge {
   flex: 0 0 28px;
   color: var(--foreground);
@@ -145,7 +244,22 @@
 }
 
 .edgeResolved {
-  color: var(--grey-3);
+  color: var(--grey-2-ink);
+}
+
+.edgeResolved .edgeLine,
+.edgeUnblocked .edgeLine {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 4;
+}
+
+.edgeUnblocked {
+  color: var(--green);
+}
+
+.edgeChain .edgeLine {
+  stroke-width: 2.5;
 }
 
 .weight {
@@ -159,6 +273,45 @@
   font-family: var(--font-mono);
   font-size: 9.5px;
   font-weight: 700;
+}
+
+@media (forced-colors: active) {
+  /* An SVG swatch keeps its author colour in forced colours (Chromium
+     gives an svg preserve-parent-color), while the graph's edges turn to
+     the system text colour: the swatches follow, keeping their dashes. */
+  .edge {
+    color: CanvasText;
+  }
+
+  .pathActive {
+    outline: 4px double CanvasText;
+    outline-offset: 2px;
+    margin: 0 6px;
+  }
+
+  .pathUp {
+    outline-color: Highlight;
+  }
+
+  .pathDown {
+    outline: 2px dashed CanvasText;
+  }
+
+  .nodeChain,
+  .pathChain {
+    outline-color: CanvasText;
+  }
+
+  .step {
+    forced-color-adjust: none;
+    border-color: Canvas;
+    background: CanvasText;
+    color: Canvas;
+  }
+
+  .next {
+    border-color: CanvasText;
+  }
 }
 
 @media (width <= 1200px) {

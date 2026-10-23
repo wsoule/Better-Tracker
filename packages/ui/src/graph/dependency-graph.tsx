@@ -3,7 +3,9 @@
 import { Maximize, Minus, Plus } from 'lucide-react';
 import {
   type CSSProperties,
+  Fragment,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   useCallback,
@@ -17,13 +19,27 @@ import {
 
 import { Link } from '../lib/link';
 import { cx } from '../tasks/class-names';
-import { blockerIndex, upstreamChain, waiterIndex } from './chain';
 import styles from './dependency-graph.module.css';
-import { layoutGraph } from './layout';
+import { CLUSTER_METRICS, edgeKey, layoutGraph } from './layout';
+import {
+  describePaths,
+  longestChain,
+  nodePaths,
+  type PathNameCounts,
+  pathContext,
+  pathNameCounts,
+  pathNamePhrase,
+  resolvePathWords,
+} from './paths';
 import type {
   DependencyGraphProps,
+  GraphClusterData,
   GraphEdgeKind,
+  GraphHighlight,
   GraphNodeData,
+  GraphNodeTone,
+  LaidOutEdge,
+  LaidOutGroup,
   LaidOutNode,
 } from './types';
 
@@ -62,7 +78,7 @@ const EDGE_WORDS: Record<GraphEdgeKind, string> = {
   risk: 'blocks, on a risk chain',
   cycle: 'blocks, in a cycle',
   cross: 'blocks, across projects',
-  resolved: 'blocked, now resolved',
+  resolved: 'no longer blocks',
 };
 
 const EDGE_CLASS: Record<GraphEdgeKind, string | undefined> = {
@@ -73,15 +89,41 @@ const EDGE_CLASS: Record<GraphEdgeKind, string | undefined> = {
   resolved: styles.edgeResolved,
 };
 
-/** A node or edge while a chain is shown: the node being read, part of
-    its upstream chain, or receding. */
-type HighlightState = 'active' | 'lit' | 'dim';
+/** A node or edge while paths are shown: the node being read, what it
+    waits on (lit), what it holds up (down), on the critical path shown
+    (chain), or receding (dim). */
+type HighlightState = 'active' | 'lit' | 'down' | 'chain' | 'dim';
 
 const STATE_CLASS: Record<HighlightState, string | undefined> = {
   active: styles.active,
   lit: styles.lit,
+  down: styles.down,
+  chain: styles.chain,
   dim: styles.dim,
 };
+
+/** Overlay paint order: what it holds up, then what it waits on (an edge
+    walked both ways is drawn as upstream), then the critical path. */
+const OVERLAY_ORDER: readonly HighlightState[] = ['down', 'lit', 'chain'];
+
+/**
+ * The tone a node is drawn in under `highlight`: Status takes the host's
+ * readiness tone (else its `tone`), Risk its `tone`, and Critical keeps
+ * only closed or paused work faint, so the numbered path is all that
+ * stands out.
+ */
+function shownTone(
+  node: GraphNodeData,
+  highlight: GraphHighlight
+): GraphNodeTone {
+  if (highlight === 'status') return node.readiness?.tone ?? node.tone;
+  if (highlight === 'critical') {
+    return node.tone === 'muted' || node.readiness?.tone === 'muted'
+      ? 'muted'
+      : 'default';
+  }
+  return node.tone;
+}
 
 // useLayoutEffect warns nowhere in React 19, but it never runs on the
 // server; the alias keeps intent clear for hosts that render there.
@@ -104,29 +146,131 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /**
+ * The labels of the frames each node sits in, innermost first ("Beta",
+ * "Orion"), from the graph's clusters: what a sighted reader gets from the
+ * frame around a box. A parent chain that loops back stops where it
+ * repeats.
+ */
+function frameLabels(
+  nodes: readonly GraphNodeData[],
+  clusters: readonly GraphClusterData[] | undefined
+): Map<string, string[]> {
+  const labels = new Map<string, string[]>();
+  if (clusters === undefined || clusters.length === 0) return labels;
+  const byId = new Map<string, GraphClusterData>();
+  for (const cluster of clusters) {
+    if (!byId.has(cluster.id)) byId.set(cluster.id, cluster);
+  }
+  for (const node of nodes) {
+    const path: string[] = [];
+    const seen = new Set<string>();
+    let id = node.cluster;
+    while (id !== undefined && !seen.has(id)) {
+      const cluster = byId.get(id);
+      if (cluster === undefined) break;
+      seen.add(id);
+      path.push(cluster.label);
+      id = cluster.parent;
+    }
+    if (path.length > 0) labels.set(node.id, path);
+  }
+  return labels;
+}
+
+/**
+ * The next box from `current` for an arrow key in a clustered layout,
+ * where columns are per frame rather than global: the nearest box whose
+ * centre lies that way, a step straight along the key's axis counting
+ * half as much as one across it. Null when nothing lies that way.
+ */
+function nearestThatWay(
+  nodes: readonly LaidOutNode[],
+  current: LaidOutNode,
+  key: string
+): LaidOutNode | null {
+  const dirs: Record<string, [number, number]> = {
+    ArrowRight: [1, 0],
+    ArrowLeft: [-1, 0],
+    ArrowDown: [0, 1],
+    ArrowUp: [0, -1],
+  };
+  const dir = dirs[key];
+  if (dir === undefined) return null;
+  const cx = current.x + current.width / 2;
+  const cy = current.y + current.height / 2;
+  let best: LaidOutNode | null = null;
+  let bestScore = Infinity;
+  for (const n of nodes) {
+    if (n === current) continue;
+    const dx = n.x + n.width / 2 - cx;
+    const dy = n.y + n.height / 2 - cy;
+    const along = dx * dir[0] + dy * dir[1];
+    if (along <= 1) continue;
+    const across = Math.abs(dx * dir[1] + dy * dir[0]);
+    const score = along + across * 2;
+    if (score < bestScore) {
+      best = n;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
  * The sentence a screen reader hears on a node: name, context, status,
- * flags, scope, how many open edges touch it, and last the focus words
- * when the graph is about this node.
+ * its readiness word and flags, scope, how many nodes it waits on and
+ * holds up over the drawn edges (transitive within PATH_NAME_BUDGET, else
+ * direct) and what finishing it would unblock, its step on the critical
+ * path shown at rest (Critical only), and last the focus words when the
+ * graph is about this node. Computed once per edge list, so it never
+ * changes under the reader's focus.
  */
 function nodeName(
   node: GraphNodeData,
-  waitsOn: number,
-  holdsUp: number,
-  focusWords: string | null
+  counts: PathNameCounts | undefined,
+  step: { k: number; s: number } | null,
+  focusWords: string | null,
+  frames: readonly string[] = []
 ): string {
   const parts = [node.label];
   if (node.sublabel !== undefined && node.sublabel !== '') {
     parts.push(node.sublabel);
   }
+  if (frames.length > 0) parts.push(`in ${frames.join(', ')}`);
   if (node.statusLabel !== undefined && node.statusLabel !== '') {
     parts.push(node.statusLabel);
   }
-  const tags = node.tags ?? [];
-  if (tags.length > 0) parts.push(tags.map((t) => t.toLowerCase()).join(', '));
+  const flags = [node.readiness?.label ?? '', ...(node.tags ?? [])].filter(
+    (flag) => flag !== ''
+  );
+  if (flags.length > 0) {
+    parts.push(flags.map((flag) => flag.toLowerCase()).join(', '));
+  }
   if (node.external === true) parts.push('outside this scope');
-  parts.push(`waits on ${waitsOn}, blocks ${holdsUp}`);
+  parts.push(
+    pathNamePhrase(
+      counts ?? { transitive: true, waitsOn: 0, holdsUp: 0, unblocks: 0 }
+    )
+  );
+  if (step !== null) {
+    parts.push(`step ${step.k} of ${step.s} on the critical path`);
+  }
   if (focusWords !== null && focusWords !== '') parts.push(focusWords);
   return `${parts.join('. ')}.`;
+}
+
+/** The ids of edges marked `cross`, keyed as drawn (the first of a
+    repeated pair wins, layoutGraph's rule). */
+function crossKeysOf(edges: DependencyGraphProps['edges']): Set<string> {
+  const keys = new Set<string>();
+  const seen = new Set<string>();
+  for (const edge of edges) {
+    const key = edgeKey(edge.from, edge.to);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (edge.cross === true) keys.add(key);
+  }
+  return keys;
 }
 
 /**
@@ -149,16 +293,20 @@ function onScrollbar(
 /**
  * Next node for a key: Home/End jump to the first/last box in focus
  * order; along the rank axis an arrow jumps to the nearest box (by centre)
- * in the neighbouring rank; across it, it steps within the rank.
+ * in the neighbouring rank; across it, it steps within the rank. In a
+ * clustered layout an arrow moves to the nearest box that way instead
+ * (nearestThatWay).
  */
 function neighbour(
   nodes: readonly LaidOutNode[],
   current: LaidOutNode,
   key: string,
-  horizontal: boolean
+  horizontal: boolean,
+  clustered = false
 ): LaidOutNode | null {
   if (key === 'Home') return nodes[0] ?? null;
   if (key === 'End') return nodes[nodes.length - 1] ?? null;
+  if (clustered) return nearestThatWay(nodes, current, key);
   const forward = horizontal ? 'ArrowRight' : 'ArrowDown';
   const back = horizontal ? 'ArrowLeft' : 'ArrowUp';
   const down = horizontal ? 'ArrowDown' : 'ArrowRight';
@@ -194,14 +342,24 @@ function neighbour(
 /**
  * A dependency graph drawn as a technical figure: hairline boxes with mono
  * labels, blockers on the left (or top), 1px edges with small arrowheads,
- * the status hues for risk (amber chains, dashed red cycles, a red flood
- * for overdue, a 2px rule in the node's tone), dashes for project
- * crossings, grey for what is already resolved. The purple accent is never
- * a status here: it is the hover flood and the keyboard focus.
+ * dashes for project crossings, dots for what no longer blocks. The
+ * `highlight` picks the emphasis: `risk` (default) the status hues for
+ * risk (amber chains, dashed red cycles, a red flood for overdue, a 2px
+ * rule in the node's tone); `status` each node's readiness (a 1px green
+ * edge when ready, the 2px amber rule when blocked, red when stuck) and
+ * green dots for unblocked edges; `critical` the numbered critical path
+ * with the rest receding. The purple accent is never a status here: it is
+ * the hover flood, the keyboard focus and the upstream path.
  *
- * - Hover or focus a node: its upstream chain (everything it transitively
- *   waits on) stays lit and the rest dims. With nothing hovered, the
- *   selected node's chain stays lit.
+ * - Hover, focus, a touch tap or a selection on a node lights both paths:
+ *   what it transitively waits on (accent rings and lines) and what waits
+ *   on it (ink rings and lines), with a square tag on what finishing it alone
+ *   would unblock; the rest dims, its words and status marks still
+ *   legible. Under `critical` it lights the longest chain through it. The
+ *   readout line under the drawing says the same in words.
+ * - On a touch screen the first tap on a node traces it (a pin) and a
+ *   second tap opens it; a tap on the background or Escape drops the pin.
+ *   Mouse, pen, keyboard and assistive-tech activation open at once.
  * - Nodes are buttons in rank order behind one Tab stop (a roving
  *   tabindex: the last node focused, else the selected one, else the
  *   first). Enter selects (onSelect); arrows move between neighbouring
@@ -228,38 +386,133 @@ export function DependencyGraph({
   emptyMessage,
   direction = 'LR',
   cluster,
+  clusters,
   toolbar,
   hint = 'Drag to pan · Ctrl + wheel to zoom',
   layout: givenLayout,
   focusId = null,
   focusLabel = 'focus',
   coveredRight,
+  highlight = 'risk',
+  readout,
+  pathWords,
   className,
 }: DependencyGraphProps): ReactNode {
   // A host-computed layout is used as is; dagre runs only without one.
   const layout = useMemo(
-    () => givenLayout ?? layoutGraph(nodes, edges, { direction, cluster }),
-    [givenLayout, nodes, edges, direction, cluster]
+    () =>
+      givenLayout ??
+      layoutGraph(nodes, edges, { direction, cluster, clusters }),
+    [givenLayout, nodes, edges, direction, cluster, clusters]
+  );
+  const framesOf = useMemo(
+    () => frameLabels(nodes, clusters),
+    [nodes, clusters]
   );
   const horizontal = layout.direction === 'LR';
   const byId = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
-  const blockers = useMemo(() => blockerIndex(edges), [edges]);
-  const waiters = useMemo(() => waiterIndex(edges), [edges]);
+  // The drawn graph indexed once per node and edge list: the path walks,
+  // the critical-path facts and every node's name counts.
+  const ctx = useMemo(() => pathContext(nodes, edges), [nodes, edges]);
+  const nameCounts = useMemo(() => pathNameCounts(ctx), [ctx]);
+  const crossKeys = useMemo(() => crossKeysOf(edges), [edges]);
+  const words = useMemo(() => resolvePathWords(pathWords), [pathWords]);
+  const drawn = (id: string | null): string | null =>
+    id !== null && byId.has(id) ? id : null;
 
   const [hoverId, setHoverId] = useState<string | null>(null);
   // The node holding keyboard focus (not the `focusId` prop, which names
   // the node the whole graph is about).
   const [focusedId, setFocusedId] = useState<string | null>(null);
-  const candidate = hoverId ?? focusedId ?? selectedId;
-  const activeId = candidate !== null && byId.has(candidate) ? candidate : null;
-  const chain = useMemo(
-    () => (activeId === null ? null : upstreamChain(activeId, blockers)),
-    [activeId, blockers]
+  // A touch tap's pin: the first tap on a node traces it without opening.
+  const [pinId, setPinId] = useState<string | null>(null);
+  // The node a touch press went down on, until its click (or a cancel,
+  // which a scroll sends) reads it: only a real touch press pins.
+  const pendingTouch = useRef<string | null>(null);
+  const pinnedId = drawn(pinId);
+  // A touch press focuses the node in Chromium: that focus is the tap's,
+  // not the keyboard's, so it never lights the paths on its own (the pin
+  // does), and Escape dropping the pin clears the trace.
+  const touchFocus = useRef<string | null>(null);
+  // The node the reader is on right now (pointer, keyboard focus, touch
+  // pin): drawn with the accent flood on every input, unlike a selection
+  // or a chain's focus, which light their paths at rest.
+  const pointedId =
+    [hoverId, focusedId, pinnedId].find((id) => drawn(id) !== null) ?? null;
+  // The node whose paths are lit: hover, else keyboard focus, else the
+  // touch pin, else the selection; under Critical, else the chain's focus.
+  const activeId =
+    [
+      hoverId,
+      focusedId,
+      pinnedId,
+      selectedId,
+      highlight === 'critical' ? focusId : null,
+    ].find((id) => drawn(id) !== null) ?? null;
+  const paths = useMemo(
+    () =>
+      activeId === null || highlight === 'critical'
+        ? null
+        : nodePaths(activeId, ctx),
+    [activeId, highlight, ctx]
   );
-  const lit = useMemo(
-    () => (chain === null ? null : new Set([chain.id, ...chain.nodeIds])),
-    [chain]
+  const nextIds = useMemo(() => new Set(paths?.next ?? []), [paths]);
+  // Critical: the chain through the active node, else the graph-wide one.
+  const shownChain = useMemo(
+    () =>
+      highlight !== 'critical' ? null : longestChain(ctx.chains, activeId),
+    [highlight, ctx, activeId]
   );
+  // The chain the names count steps on: the one shown at rest (through
+  // the selection, else the focus, else graph-wide), so a name never
+  // changes under hover.
+  const restId = drawn(selectedId) ?? drawn(focusId);
+  const nameChain = useMemo(
+    () => (highlight !== 'critical' ? null : longestChain(ctx.chains, restId)),
+    [highlight, ctx, restId]
+  );
+  const showing =
+    highlight === 'critical'
+      ? activeId !== null || shownChain !== null
+      : paths !== null;
+
+  /** A node's highlight state, undefined at rest. */
+  const nodeState = (id: string): HighlightState | undefined => {
+    if (!showing) return undefined;
+    if (id === activeId) return 'active';
+    if (highlight === 'critical') {
+      return shownChain?.steps.has(id) === true ? 'chain' : 'dim';
+    }
+    if (paths?.upIds.has(id) === true) return 'lit';
+    if (paths?.downIds.has(id) === true) return 'down';
+    return 'dim';
+  };
+
+  /** An edge's highlight state, undefined at rest. */
+  const edgeState = (key: string): HighlightState | undefined => {
+    if (!showing) return undefined;
+    if (highlight === 'critical') {
+      return shownChain?.edgeKeys.has(key) === true ? 'chain' : 'dim';
+    }
+    if (paths?.upEdgeKeys.has(key) === true) return 'lit';
+    if (paths?.downEdgeKeys.has(key) === true) return 'down';
+    return 'dim';
+  };
+
+  // The readout's subject: the lit node, else the node the graph is about.
+  const subjectId = activeId ?? drawn(focusId);
+  const readoutLine = useMemo(() => {
+    if (subjectId === null) return null;
+    return describePaths(
+      subjectId,
+      ctx,
+      words,
+      highlight,
+      highlight === 'critical' && subjectId === activeId
+        ? shownChain
+        : undefined
+    );
+  }, [subjectId, ctx, words, highlight, activeId, shownChain]);
 
   // The one node Tab reaches. Focus moves it; a new selection from
   // outside (a drawer's "Waits on" list) moves it too, so Tab returns to
@@ -498,6 +751,14 @@ export function DependencyGraph({
   // - + 0 zoom while focus is anywhere in the graph (never with ctrl/cmd,
   // which is the browser's own page zoom).
   function onFrameKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    // A key press ends any touch gesture; Escape drops a touch pin, and
+    // with it any trace a focus left by that tap still holds.
+    pendingTouch.current = null;
+    touchFocus.current = null;
+    if (event.key === 'Escape' && pinnedId !== null) {
+      setPinId(null);
+      setFocusedId(null);
+    }
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (isTyping(event.target)) return;
     if (event.key === '+' || event.key === '=') {
@@ -521,10 +782,48 @@ export function DependencyGraph({
       onSelect(node.id);
       return;
     }
-    const next = neighbour(layout.nodes, node, event.key, horizontal);
+    const next = neighbour(
+      layout.nodes,
+      node,
+      event.key,
+      horizontal,
+      layout.clustered === true
+    );
     if (next === null) return;
     event.preventDefault();
     focusNode(next.id);
+  }
+
+  /**
+   * A click on a node, before it opens: true when it came from a touch
+   * press on this node that is not yet pinned, which only pins it (traces
+   * its paths). A second tap, and any click without a touch press first
+   * (mouse, keyboard, a screen reader's activation), opens as usual and
+   * drops the pin.
+   */
+  function pinsOnly(id: string): boolean {
+    const touched = pendingTouch.current === id;
+    pendingTouch.current = null;
+    // A tap on a node that already had focus fires no focus event.
+    touchFocus.current = null;
+    if (touched && pinnedId !== id) {
+      setPinId(id);
+      return true;
+    }
+    if (touched || pinnedId !== null) setPinId(null);
+    return false;
+  }
+
+  // A tap or click on the background (not on a node) drops the pin.
+  function onViewportClick(event: ReactMouseEvent<HTMLDivElement>) {
+    if (pinnedId === null) return;
+    if (
+      event.target instanceof Element &&
+      event.target.closest('[data-graph-node]') !== null
+    ) {
+      return;
+    }
+    setPinId(null);
   }
 
   // A node is the focusable element itself, or (for a link node) the
@@ -538,6 +837,41 @@ export function DependencyGraph({
     target?.focus();
   }
 
+  // A table ignores width and overflow, so the visually-hidden wrapper is
+  // a div. The drawing already carries the summary, so the caption names
+  // the table rather than repeating it. Built once per edge list: a hover
+  // re-renders the graph, and a row per edge would be diffed each time.
+  const edgeTable = useMemo(
+    () => (
+      <div className="srOnly">
+        <table>
+          <caption>
+            Every edge: each blocker and the node that waits on it
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Blocker</th>
+              <th scope="col">Waiting</th>
+              <th scope="col">Edge</th>
+              <th scope="col">Relations</th>
+            </tr>
+          </thead>
+          <tbody>
+            {layout.edges.map((edge) => (
+              <tr key={edge.key}>
+                <td>{byId.get(edge.from)?.label ?? edge.from}</td>
+                <td>{byId.get(edge.to)?.label ?? edge.to}</td>
+                <td>{EDGE_WORDS[edge.kind]}</td>
+                <td>{edge.weight}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    ),
+    [layout.edges, byId]
+  );
+
   if (nodes.length === 0) {
     return (
       <p className={cx('empty', styles.emptyState, className)}>
@@ -550,10 +884,147 @@ export function DependencyGraph({
   const frameStyle = {
     '--graph-h': `${layout.height}px`,
   } as CSSProperties;
-  const labelOf = (id: string) => byId.get(id)?.label ?? id;
+  const openable = (id: string): boolean => {
+    const href = byId.get(id)?.href;
+    return onSelect !== undefined || (href !== undefined && href !== '');
+  };
+  // While a touch pin is what lights the paths, the readout says that a
+  // second tap opens the node.
+  const readoutParts =
+    readoutLine === null
+      ? []
+      : pinnedId !== null && activeId === pinnedId && openable(pinnedId)
+        ? [...readoutLine.parts, words.tapAgain]
+        : readoutLine.parts;
+  const linkNodes = nodes.some((n) => n.href !== undefined && n.href !== '');
+
+  /**
+   * A frame: a cluster's hairline box (hatched when muted, dashed when
+   * external; its title is drawn above the arrows by renderClusterTitle),
+   * or a hatched group box with its title on the rule. Decorative: each
+   * node's name says which frames it sits in.
+   */
+  const renderGroup = (group: LaidOutGroup): ReactNode => {
+    const position = {
+      left: group.x,
+      top: group.y,
+      width: group.width,
+      height: group.height,
+    };
+    if (group.kind !== 'cluster') {
+      return (
+        <div
+          key={group.id}
+          className={styles.group}
+          style={position}
+          aria-hidden="true"
+        >
+          <span className={styles.groupTitle}>{group.label}</span>
+        </div>
+      );
+    }
+    return (
+      <div
+        key={group.id}
+        className={cx(
+          styles.cluster,
+          group.muted === true && styles.clusterMuted,
+          group.external === true && styles.clusterExternal
+        )}
+        style={position}
+        aria-hidden="true"
+        data-graph-cluster={group.id}
+        data-depth={group.depth}
+        data-muted={group.muted === true ? '' : undefined}
+        data-external={group.external === true ? '' : undefined}
+      />
+    );
+  };
+
+  /**
+   * A cluster's mono caps title inside its frame's top-left corner, on a
+   * paper patch drawn above the arrows, so an arrow running into a box
+   * near the top of a frame passes behind the title instead of through
+   * its letters. Decorative, like the frame.
+   */
+  const renderClusterTitle = (group: LaidOutGroup): ReactNode =>
+    group.kind !== 'cluster' ? null : (
+      <span
+        key={group.id}
+        className={cx(
+          styles.clusterTitle,
+          group.depth === 0 && styles.clusterTitleTop,
+          group.muted === true && styles.clusterTitleMuted
+        )}
+        style={{
+          left: group.x + CLUSTER_METRICS.titleX,
+          top: group.y + CLUSTER_METRICS.titleTop,
+          maxWidth: Math.max(0, group.width - CLUSTER_METRICS.titleX * 2),
+        }}
+        aria-hidden="true"
+        data-graph-cluster-title={group.id}
+        title={group.label}
+      >
+        {group.label}
+      </span>
+    );
+
+  /** One edge's drawing; the overlay copy carries no data hooks. */
+  const renderEdge = (
+    edge: LaidOutEdge,
+    state: HighlightState | undefined,
+    overlay: boolean
+  ): ReactNode => (
+    <g
+      key={edge.key}
+      className={cx(
+        styles.edge,
+        EDGE_CLASS[edge.kind],
+        state === undefined ? undefined : STATE_CLASS[state]
+      )}
+      data-edge={overlay ? undefined : edge.key}
+      data-kind={overlay ? undefined : edge.kind}
+      data-state={overlay ? undefined : state}
+      data-cross={crossKeys.has(edge.key) ? '' : undefined}
+    >
+      <path className={styles.edgeLine} d={edge.path} />
+      <path className={styles.edgeArrow} d={edge.arrow} />
+      {edge.label !== null ? (
+        <g className={styles.weight}>
+          <rect
+            x={edge.label.x + 0.5}
+            y={edge.label.y + 0.5}
+            width={edge.label.width - 1}
+            height={edge.label.height - 1}
+          />
+          <text
+            x={edge.label.x + edge.label.width / 2}
+            y={edge.label.y + edge.label.height / 2}
+            dominantBaseline="central"
+            textAnchor="middle"
+          >
+            {edge.weight}
+          </text>
+        </g>
+      ) : null}
+    </g>
+  );
+  // Lit, down and critical edges are drawn a second time above the rest,
+  // so a path line never runs under a receding one where they cross.
+  const overlayEdges = showing
+    ? OVERLAY_ORDER.flatMap((state) =>
+        layout.edges
+          .filter((edge) => edgeState(edge.key) === state)
+          .map((edge) => renderEdge(edge, state, true))
+      )
+    : [];
 
   return (
-    <div className={cx(styles.graph, className)} onKeyDown={onFrameKeyDown}>
+    <div
+      className={cx(styles.graph, className)}
+      data-highlight={highlight}
+      onKeyDown={onFrameKeyDown}
+    >
       <div className={styles.toolbar}>
         {toolbar !== undefined && toolbar !== null ? (
           <div className={styles.toolbarStart}>{toolbar}</div>
@@ -612,6 +1083,7 @@ export function DependencyGraph({
         onPointerMove={onPointerMove}
         onPointerUp={endPan}
         onPointerCancel={endPan}
+        onClick={onViewportClick}
       >
         <div
           ref={canvasRef}
@@ -626,21 +1098,7 @@ export function DependencyGraph({
               transform: zoom === 1 ? undefined : `scale(${zoom})`,
             }}
           >
-            {layout.groups.map((group) => (
-              <div
-                key={group.id}
-                className={styles.group}
-                style={{
-                  left: group.x,
-                  top: group.y,
-                  width: group.width,
-                  height: group.height,
-                }}
-                aria-hidden="true"
-              >
-                <span className={styles.groupTitle}>{group.label}</span>
-              </div>
-            ))}
+            {layout.groups.map((group) => renderGroup(group))}
 
             <svg
               className={styles.edges}
@@ -650,95 +1108,87 @@ export function DependencyGraph({
               role="img"
               aria-label={ariaSummary}
             >
-              {layout.edges.map((edge) => {
-                const state: HighlightState | undefined =
-                  chain === null
-                    ? undefined
-                    : chain.edgeKeys.has(edge.key)
-                      ? 'lit'
-                      : 'dim';
-                return (
-                  <g
-                    key={edge.key}
-                    className={cx(
-                      styles.edge,
-                      EDGE_CLASS[edge.kind],
-                      state === undefined ? undefined : STATE_CLASS[state]
-                    )}
-                    data-edge={edge.key}
-                    data-kind={edge.kind}
-                    data-state={state}
-                  >
-                    <path className={styles.edgeLine} d={edge.path} />
-                    <path className={styles.edgeArrow} d={edge.arrow} />
-                    {edge.label !== null ? (
-                      <g className={styles.weight}>
-                        <rect
-                          x={edge.label.x + 0.5}
-                          y={edge.label.y + 0.5}
-                          width={edge.label.width - 1}
-                          height={edge.label.height - 1}
-                        />
-                        <text
-                          x={edge.label.x + edge.label.width / 2}
-                          y={edge.label.y + edge.label.height / 2}
-                          dominantBaseline="central"
-                          textAnchor="middle"
-                        >
-                          {edge.weight}
-                        </text>
-                      </g>
-                    ) : null}
-                  </g>
-                );
-              })}
+              {layout.edges.map((edge) =>
+                renderEdge(edge, edgeState(edge.key), false)
+              )}
+              {overlayEdges.length > 0 ? (
+                <g aria-hidden="true" data-overlay="">
+                  {overlayEdges}
+                </g>
+              ) : null}
             </svg>
+
+            {layout.groups.map((group) => renderClusterTitle(group))}
 
             {layout.nodes.map((box) => {
               const node = byId.get(box.id);
               if (node === undefined) return null;
               const tags = node.tags ?? [];
-              const overdue = tags.includes('OVERDUE');
+              // The red overdue flood is a Risk tint; elsewhere the
+              // OVERDUE chip carries the red on its own.
+              const flood = tags.includes('OVERDUE') && highlight === 'risk';
               const inCycle = tags.includes('CYCLE');
               const selected = box.id === selectedId;
               const focus = box.id === focusId;
-              const state: HighlightState | undefined =
-                lit === null
-                  ? undefined
-                  : box.id === activeId
-                    ? 'active'
-                    : lit.has(box.id)
-                      ? 'lit'
-                      : 'dim';
+              const state = nodeState(box.id);
+              const readiness = node.readiness;
+              const drawnTone = shownTone(node, highlight);
               // A status tone (or a host's accent) draws the 2px rule in
-              // its hue through the data-tone hook (tokens.css); muted
+              // its hue through the data-tone hook (tokens.css); a ready
+              // node under Status only a 1px edge in the green; muted
               // keeps its own faint look.
               const tone =
-                node.tone === 'default' || node.tone === 'muted'
+                drawnTone === 'default' || drawnTone === 'muted'
                   ? undefined
-                  : node.tone;
+                  : drawnTone;
+              const edgeOnly =
+                highlight === 'status' &&
+                readiness !== undefined &&
+                tone === 'success';
+              const step = shownChain?.steps.get(box.id);
+              const next = nextIds.has(box.id);
+              const pointed = box.id === pointedId;
               const classes = cx(
                 styles.node,
-                tone !== undefined && styles.toned,
-                node.tone === 'muted' && styles.toneMuted,
+                tone !== undefined &&
+                  (edgeOnly ? styles.toneEdge : styles.toned),
+                drawnTone === 'muted' && styles.toneMuted,
                 node.external === true && styles.external,
-                overdue && styles.overdueNode,
+                flood && styles.overdueNode,
                 inCycle && styles.cycle,
                 selected && styles.selected,
                 focus && styles.focus,
-                state === undefined ? undefined : STATE_CLASS[state]
+                state === undefined ? undefined : STATE_CLASS[state],
+                pointed && styles.pointed
               );
+              // The readiness chip leads the chips in every highlight (the
+              // layout never moves); only Status tones it. A node with no
+              // dependencies gets none: its name and the readout say it.
+              const chipWord =
+                readiness?.state === 'independent'
+                  ? ''
+                  : (readiness?.label ?? '');
+              const chipTone =
+                highlight === 'status' &&
+                readiness !== undefined &&
+                readiness.tone !== 'default'
+                  ? readiness.tone
+                  : undefined;
               const position: CSSProperties = {
                 left: box.x,
                 top: box.y,
                 width: box.width,
                 height: box.height,
               };
+              const nameStep = nameChain?.steps.get(box.id);
               const name = nodeName(
                 node,
-                blockers.get(box.id)?.length ?? 0,
-                waiters.get(box.id)?.length ?? 0,
-                focus ? focusLabel : null
+                nameCounts.get(box.id),
+                nameChain !== null && nameStep !== undefined
+                  ? { k: nameStep, s: nameChain.stepCount }
+                  : null,
+                focus ? focusLabel : null,
+                framesOf.get(box.id)
               );
               const body = (
                 <>
@@ -761,35 +1211,80 @@ export function DependencyGraph({
                         {box.sublabelLine}
                       </span>
                     ) : null}
-                    {tags.length > 0 ? (
+                    {chipWord !== '' || tags.length > 0 ? (
                       <span className={styles.tags}>
-                        {tags.map((tag) => (
+                        {chipWord !== '' ? (
                           <span
-                            key={tag}
                             className={cx(
                               styles.tag,
-                              tag === 'UNASSIGNED' && styles.tagWarning
+                              readiness?.state === 'ready' && styles.readyChip,
+                              chipTone !== undefined && styles.tagToned
                             )}
+                            data-tone={chipTone}
+                            data-readiness-chip=""
                           >
-                            {tag}
+                            {chipWord}
                           </span>
-                        ))}
+                        ) : null}
+                        {tags.map((tag) => {
+                          const red = tag === 'OVERDUE' && !flood;
+                          return (
+                            <span
+                              key={tag}
+                              className={cx(
+                                styles.tag,
+                                tag === 'UNASSIGNED' && styles.tagWarning,
+                                red && styles.tagToned
+                              )}
+                              data-tone={red ? 'danger' : undefined}
+                            >
+                              {tag}
+                            </span>
+                          );
+                        })}
                       </span>
                     ) : null}
                   </span>
+                  {next ? (
+                    <span
+                      className={styles.next}
+                      aria-hidden="true"
+                      data-next-pill=""
+                    >
+                      {words.next}
+                    </span>
+                  ) : null}
+                  {step !== undefined ? (
+                    <span
+                      className={styles.step}
+                      aria-hidden="true"
+                      data-step-badge=""
+                    >
+                      {step}
+                    </span>
+                  ) : null}
                 </>
               );
               const handlers = {
                 'data-graph-node': box.id,
                 'data-state': state,
+                'data-pointed': pointed ? '' : undefined,
                 'data-focus': focus ? '' : undefined,
+                'data-readiness': readiness?.state,
+                'data-next': next ? '' : undefined,
+                'data-step': step,
                 ref: (el: HTMLElement | null) => {
                   if (el === null) nodeRefs.current.delete(box.id);
                   else nodeRefs.current.set(box.id, el);
                 },
                 onFocus: () => {
-                  setFocusedId(box.id);
                   setRovingId(box.id);
+                  // The focus a touch press gave it: the pin traces it.
+                  if (touchFocus.current === box.id) {
+                    touchFocus.current = null;
+                    return;
+                  }
+                  setFocusedId(box.id);
                 },
                 onBlur: () =>
                   setFocusedId((current) =>
@@ -802,6 +1297,15 @@ export function DependencyGraph({
                   setHoverId((current) =>
                     current === box.id ? null : current
                   ),
+                onPointerDown: (event: ReactPointerEvent) => {
+                  const touch = event.pointerType === 'touch';
+                  pendingTouch.current = touch ? box.id : null;
+                  touchFocus.current = touch ? box.id : null;
+                },
+                onPointerCancel: () => {
+                  pendingTouch.current = null;
+                  touchFocus.current = null;
+                },
                 onKeyDown: (event: ReactKeyboardEvent<HTMLElement>) =>
                   onNodeKeyDown(event, box),
               };
@@ -818,7 +1322,9 @@ export function DependencyGraph({
                     aria-label={name}
                     aria-describedby={helpId}
                     title={node.label}
-                    onClick={() => onSelect(box.id)}
+                    onClick={() => {
+                      if (!pinsOnly(box.id)) onSelect(box.id);
+                    }}
                     {...handlers}
                   >
                     {body}
@@ -839,6 +1345,9 @@ export function DependencyGraph({
                       data-tone={tone}
                       aria-label={name}
                       title={node.label}
+                      onClick={(event) => {
+                        if (pinsOnly(box.id)) event.preventDefault();
+                      }}
                     >
                       {body}
                     </Link>
@@ -856,6 +1365,7 @@ export function DependencyGraph({
                   aria-label={name}
                   aria-describedby={helpId}
                   title={node.label}
+                  onClick={() => pinsOnly(box.id)}
                   {...handlers}
                 >
                   {body}
@@ -866,41 +1376,56 @@ export function DependencyGraph({
         </div>
       </div>
 
+      {/* What the reader is tracing, in words: the lit node's paths, else
+          the host's summary for this highlight and how to trace a node.
+          Plain text, not a live region: it would chatter on hover. */}
+      {readout !== null ? (
+        <p className={styles.readout} data-graph-readout="">
+          {readoutLine !== null ? (
+            <>
+              <span className={styles.readoutSubject}>
+                {readoutLine.subject}
+              </span>
+              {readoutParts.map((part, i) => (
+                <Fragment key={i}>
+                  <span className={styles.readoutSep}> · </span>
+                  <span>{part}</span>
+                </Fragment>
+              ))}
+            </>
+          ) : (
+            <>
+              {readout !== undefined && readout !== '' ? (
+                <>
+                  <span className={styles.readoutIdle}>{readout}</span>{' '}
+                </>
+              ) : null}
+              <span className={styles.readoutHint}>
+                <span className={styles.hintHover}>
+                  {highlight === 'critical' ? words.hintCritical : words.hint}
+                </span>
+                <span className={styles.hintTap}>
+                  {highlight === 'critical'
+                    ? words.tapHintCritical
+                    : words.tapHint}
+                </span>
+              </span>
+            </>
+          )}
+        </p>
+      ) : null}
+
       {/* Key help every node points at (aria-describedby). */}
       <p id={helpId} className="srOnly">
         {onSelect !== undefined
           ? 'Arrow keys move between nodes, Home and End jump to the first and last, Enter selects. Minus, plus and 0 zoom.'
           : 'Arrow keys move between nodes, Home and End jump to the first and last. Minus, plus and 0 zoom.'}
+        {onSelect !== undefined || linkNodes
+          ? " On a touch screen, the first tap traces a box's paths and a second tap opens it."
+          : " On a touch screen, a tap traces a box's paths."}
       </p>
 
-      {/* A table ignores width and overflow, so the visually-hidden
-          wrapper is a div. The drawing already carries the summary, so
-          the caption names the table rather than repeating it. */}
-      <div className="srOnly">
-        <table>
-          <caption>
-            Every edge: each blocker and the node that waits on it
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col">Blocker</th>
-              <th scope="col">Waiting</th>
-              <th scope="col">Edge</th>
-              <th scope="col">Relations</th>
-            </tr>
-          </thead>
-          <tbody>
-            {layout.edges.map((edge) => (
-              <tr key={edge.key}>
-                <td>{labelOf(edge.from)}</td>
-                <td>{labelOf(edge.to)}</td>
-                <td>{EDGE_WORDS[edge.kind]}</td>
-                <td>{edge.weight}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {edgeTable}
     </div>
   );
 }

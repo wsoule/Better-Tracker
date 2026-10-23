@@ -52,11 +52,12 @@ export const defaultGraphPathWords: GraphPathWords = {
   selfLoop: 'Blocks itself',
   blockersDone: 'Blockers done: {names}',
   holdsUp: 'Holds up {n}',
-  holdsUpNone: 'Nothing waits on it',
+  holdsUpNone: 'Nothing here waits on it',
   unblock: 'Done would unblock {n}: {names}',
   next: 'Ready next',
   notDrawn: '{n} not drawn',
   done: 'Done',
+  empty: 'No issues',
   noLongerBlocks: 'No longer blocks {names}',
   step: 'Step {k} of {s}',
   through: 'Longest chain through it: {n} {unit}: {names}',
@@ -64,6 +65,8 @@ export const defaultGraphPathWords: GraphPathWords = {
   tapAgain: 'Tap again to open',
   hint: 'Point at or focus a box to trace what it waits on and holds up.',
   tapHint: 'Tap a box to trace what it waits on and holds up.',
+  hintCritical: 'Point at or focus a box to show the longest chain through it.',
+  tapHintCritical: 'Tap a box to show the longest chain through it.',
   more: '+{n} more',
 };
 
@@ -77,10 +80,11 @@ export const PATH_GROUP_CAP = 6;
 const NAME_CLIP = 32;
 
 /**
- * Most walk steps (`V × (V + E)` over the drawn graph) the accessible
- * names may spend on transitive counts; above it they fall back to direct
- * counts, so a host with no draw limit never runs a quadratic walk in
- * render (architecture §8.4 Graph).
+ * Most walk steps (`V × (V + E)`, V the drawn nodes on a blocking edge:
+ * a node on none walks nothing) the accessible names may spend on
+ * transitive counts; above it they fall back to direct counts, so a host
+ * with no draw limit never runs a quadratic walk in render (architecture
+ * §8.4 Graph).
  */
 export const PATH_NAME_BUDGET = 250_000;
 
@@ -222,6 +226,15 @@ export interface PathNameCounts {
   holdsUp: number;
   /** Done would unblock this many (the host's count when it gives one). */
   unblocks: number;
+  /**
+   * The host counts something about the node that is not drawn: an open
+   * blocker beyond its drawn in-edges, or a node finishing it would
+   * unblock. The name then scopes its counts to the drawn graph, so
+   * "holds up 0" never sits beside "done would unblock 1" unexplained.
+   */
+  outside?: boolean;
+  /** Of `unblocks`, the ones not drawn. */
+  unblocksNotDrawn?: number;
 }
 
 /* ---- the drawn graph -------------------------------------------------------- */
@@ -324,7 +337,7 @@ function nextOf(ctx: PathContext, id: string): string[] {
     const target = edge.to;
     if (target === id) continue;
     const readiness = ctx.nodes.get(target)?.readiness;
-    if (readiness?.state === 'done') continue;
+    if (readiness?.state === 'done' || readiness?.state === 'empty') continue;
     const blockers = readiness?.blockedBy ?? blockingIn(ctx, target);
     if (blockers === 1) next.push(target);
   }
@@ -352,7 +365,7 @@ function otherEnds(
 
 /**
  * Both paths of `id` over the drawn graph and every fact the readout and
- * the "Ready next" pills need; null when `id` is not drawn. O(V + E).
+ * the "Ready next" tags need; null when `id` is not drawn. O(V + E).
  */
 export function nodePaths(id: string, ctx: PathContext): NodePaths | null {
   const node = ctx.nodes.get(id);
@@ -377,10 +390,11 @@ export function nodePaths(id: string, ctx: PathContext): NodePaths | null {
   // resolved in-edge may come from an open blocker: "Blockers done" is
   // only true of an open subject. Without readiness, resolved always
   // means the blocker is closed.
-  const blockersDone =
-    node.readiness?.state === 'done'
-      ? []
-      : otherEnds(ctx.resolvedBlockers, id, 'from');
+  const closed =
+    node.readiness?.state === 'done' || node.readiness?.state === 'empty';
+  const blockersDone = closed
+    ? []
+    : otherEnds(ctx.resolvedBlockers, id, 'from');
   return {
     id,
     upstream,
@@ -824,11 +838,17 @@ export function describePaths(
           names: nameList(namesOf(ctx, paths.noLongerBlocks), w),
         });
 
-  if (readiness?.state === 'done') {
+  if (readiness?.state === 'done' || readiness?.state === 'empty') {
     const label = node.statusLabel;
-    parts.push(label !== undefined && label !== '' ? label : w.done);
+    const word = readiness.state === 'done' ? w.done : w.empty;
+    parts.push(label !== undefined && label !== '' ? label : word);
     if (noLongerBlocks !== null) parts.push(noLongerBlocks);
     return { subject, parts };
+  }
+
+  // Neither blocks nor waits on anything: the word is the whole story.
+  if (readiness?.state === 'independent' && readiness.label !== '') {
+    return { subject, parts: [readiness.label] };
   }
 
   if (readiness !== undefined && readiness.label !== '') {
@@ -883,17 +903,26 @@ function reachCount(
 
 /**
  * The counts every drawn node's accessible name carries. Within
- * PATH_NAME_BUDGET (`V × (V + E)` walk steps) they are transitive, one
- * walk up and one down per node; above it the direct blocking in- and
+ * PATH_NAME_BUDGET (`V × (V + E)` walk steps, V the nodes on a blocking
+ * edge, since a node on none walks nothing) they are transitive, one walk
+ * up and one down per node; above it the direct blocking in- and
  * out-edges, so the cost stays O(V + E) in a host with no draw limit.
  */
 export function pathNameCounts(
   ctx: PathContext
 ): ReadonlyMap<string, PathNameCounts> {
-  const v = ctx.order.length;
+  const ends = new Set<string>();
+  for (const edge of ctx.blocking) {
+    ends.add(edge.from);
+    ends.add(edge.to);
+  }
+  const v = ends.size;
   const transitive = v * (v + ctx.blocking.length) <= PATH_NAME_BUDGET;
   const counts = new Map<string, PathNameCounts>();
   for (const id of ctx.order) {
+    const drawnNext = nextOf(ctx, id).length;
+    const unblocks = unblockCount(ctx, id, drawnNext);
+    const unblocksNotDrawn = unblocks - drawnNext;
     counts.set(id, {
       transitive,
       waitsOn: transitive
@@ -902,7 +931,9 @@ export function pathNameCounts(
       holdsUp: transitive
         ? reachCount(id, ctx.waiters, 'to')
         : (ctx.waiters.get(id)?.length ?? 0),
-      unblocks: unblockCount(ctx, id, nextOf(ctx, id).length),
+      unblocks,
+      outside: unblocksNotDrawn > 0 || blockersNotDrawnOf(ctx, id) > 0,
+      unblocksNotDrawn,
     });
   }
   return counts;
@@ -910,12 +941,17 @@ export function pathNameCounts(
 
 /**
  * The counts as name words: "waits on 1, holds up 3; done would unblock
- * 2", or over the budget the direct "waits on 1, blocks 2".
+ * 2", or over the budget the direct "waits on 1, blocks 2". When the host
+ * counts something about the node that is not drawn, the counts are
+ * scoped to the drawn graph and the outside part said: "waits on 1, holds
+ * up 0 in this graph; done would unblock 1 (1 not drawn)".
  */
 export function pathNamePhrase(counts: PathNameCounts): string {
   const holds = counts.transitive ? 'holds up' : 'blocks';
-  const base = `waits on ${counts.waitsOn}, ${holds} ${counts.holdsUp}`;
-  return counts.unblocks > 0
-    ? `${base}; done would unblock ${counts.unblocks}`
-    : base;
+  const scope = counts.outside === true ? ' in this graph' : '';
+  const base = `waits on ${counts.waitsOn}, ${holds} ${counts.holdsUp}${scope}`;
+  if (counts.unblocks <= 0) return base;
+  const notDrawn = counts.unblocksNotDrawn ?? 0;
+  const tail = notDrawn > 0 ? ` (${notDrawn} not drawn)` : '';
+  return `${base}; done would unblock ${counts.unblocks}${tail}`;
 }

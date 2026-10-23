@@ -1,29 +1,174 @@
-import type {
-  GraphEdgeData,
-  GraphNodeData,
-  SegmentedOption,
+import {
+  type GraphClusterData,
+  type GraphEdgeData,
+  type GraphHighlight,
+  type GraphNodeData,
+  type GraphNodeReadiness,
+  longestChain,
+  longestChains,
+  type SegmentedOption,
 } from '@better-tracker/ui';
 
 // Fixture props for /ui-gallery/graph: a fictional workspace (Atlas,
 // Billing, Mobile, Search, Identity) drawn at the two levels the planner's
 // /graph page shows (architecture §2.10). Shapes are the UI package's own
 // GraphNodeData / GraphEdgeData, i.e. what the planner's adapter would
-// produce from core's DependencyGraph.
+// produce from core's DependencyGraph, with the readiness facts (§2.10
+// "Readiness") worked out from the drawn edges by withReadiness, so every
+// highlight (Status, Risk, Critical path) has something to show. As on the
+// planner's page, every item is drawn, related or not (owner decision
+// 2026-10-23), and the "Frames" switch draws the labelled frames
+// (`clusters`) the planner draws by parent.
 
 export interface GraphFixture {
   id: string;
   title: string;
   nodes: GraphNodeData[];
   edges: GraphEdgeData[];
+  /** The frames by `group` ("Atlas", "Atlas › M3 Cutover" nested in it). */
+  clusters: GraphClusterData[];
   ariaSummary: string;
   emptyMessage: string;
 }
 
+/**
+ * The labelled frames of a fixture, from each node's `group`: "Atlas"
+ * frames Atlas's boxes, "Atlas › M3 Cutover" a milestone frame nested in
+ * Atlas's, as the planner draws an issue graph spanning projects. Each
+ * node gets the innermost frame as its `cluster`. External nodes'
+ * frames are dashed.
+ */
+function withClusters(nodes: readonly GraphNodeData[]): {
+  nodes: GraphNodeData[];
+  clusters: GraphClusterData[];
+} {
+  const clusters = new Map<string, GraphClusterData>();
+  const framed = nodes.map((node) => {
+    const parts = node.group?.split(' › ') ?? [];
+    let parent: string | undefined;
+    for (const part of parts) {
+      const id = parent === undefined ? part : `${parent}/${part}`;
+      const known = clusters.get(id);
+      if (known === undefined) {
+        clusters.set(id, {
+          id,
+          label: part,
+          ...(parent === undefined ? {} : { parent }),
+          ...(node.external === true ? { external: true } : {}),
+        });
+      } else if (node.external !== true && known.external === true) {
+        delete known.external;
+      }
+      parent = id;
+    }
+    return parent === undefined ? { ...node } : { ...node, cluster: parent };
+  });
+  return { nodes: framed, clusters: [...clusters.values()] };
+}
+
+/**
+ * The fixture's readiness, as a host works it out (the planner's comes
+ * from core, over the whole mirror; here the drawn edges are all there
+ * is): a done node (the `done` status) is done; an open one on no edge
+ * has no dependencies (neutral, no chip); an open one is blocked by its
+ * open blockers along edges that still block, and ready otherwise; it
+ * unblocks the open nodes it alone blocks. The Status tone is green
+ * when ready, amber when blocked, red when blocked on a CYCLE, faint when
+ * done. Boxes say "Clear" / "Waiting on N", issues "Ready" / "Blocked by
+ * N". Every edge whose ends sit in different groups (projects) is marked
+ * `cross`; issues are named by their id ("ATL-42") in the readout.
+ */
+function withReadiness(
+  nodes: readonly GraphNodeData[],
+  edges: readonly GraphEdgeData[],
+  unit: 'box' | 'issue'
+): {
+  nodes: GraphNodeData[];
+  edges: GraphEdgeData[];
+  clusters: GraphClusterData[];
+} {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const done = (id: string) => byId.get(id)?.status === 'done';
+  const linked = new Set(edges.flatMap((edge) => [edge.from, edge.to]));
+  const blockers = new Map<string, Set<string>>();
+  for (const edge of edges) {
+    if (edge.kind === 'resolved' || done(edge.from) || done(edge.to)) continue;
+    const set = blockers.get(edge.to) ?? new Set<string>();
+    set.add(edge.from);
+    blockers.set(edge.to, set);
+  }
+  const unblocks = new Map<string, number>();
+  for (const [waiting, set] of blockers) {
+    const [only] = set;
+    if (set.size === 1 && only !== undefined && only !== waiting) {
+      unblocks.set(only, (unblocks.get(only) ?? 0) + 1);
+    }
+  }
+  const readinessOf = (node: GraphNodeData): GraphNodeReadiness => {
+    if (done(node.id)) {
+      return {
+        state: 'done',
+        label: '',
+        tone: 'muted',
+        blockedBy: 0,
+        unblocks: 0,
+      };
+    }
+    if (!linked.has(node.id)) {
+      return {
+        state: 'independent',
+        label: 'No dependencies',
+        tone: 'default',
+        blockedBy: 0,
+        unblocks: 0,
+      };
+    }
+    const blockedBy = blockers.get(node.id)?.size ?? 0;
+    const cycle = node.tags?.includes('CYCLE') === true;
+    if (blockedBy > 0) {
+      return {
+        state: 'blocked',
+        label:
+          unit === 'box'
+            ? `Waiting on ${blockedBy}`
+            : `Blocked by ${blockedBy}`,
+        tone: cycle ? 'danger' : 'warning',
+        blockedBy,
+        unblocks: unblocks.get(node.id) ?? 0,
+      };
+    }
+    return {
+      state: 'ready',
+      label: unit === 'box' ? 'Clear' : 'Ready',
+      tone: 'success',
+      blockedBy: 0,
+      unblocks: unblocks.get(node.id) ?? 0,
+    };
+  };
+  const framed = withClusters(nodes);
+  return {
+    nodes: framed.nodes.map((node) => ({
+      ...node,
+      ...(unit === 'issue' ? { key: node.id } : {}),
+      readiness: readinessOf(node),
+    })),
+    clusters: framed.clusters,
+    edges: edges.map((edge) => ({
+      ...edge,
+      cross:
+        byId.get(edge.from)?.group?.split(' › ')[0] !==
+        byId.get(edge.to)?.group?.split(' › ')[0],
+    })),
+  };
+}
+
 // ---- milestone level ------------------------------------------------------
-// Twelve milestones across five projects: an overdue Atlas cutover holding
-// up Billing (cross-project, aggregated), a risk chain from an unassigned
-// Search milestone through Mobile, a 2-cycle inside Identity, and resolved
-// edges from milestones that already shipped.
+// Fourteen milestones across five projects: an overdue Atlas cutover
+// holding up Billing (cross-project, aggregated), a risk chain from an
+// unassigned Search milestone through Mobile, a 2-cycle inside Identity,
+// resolved edges from milestones that already shipped, and two on no
+// relation (a Search milestone with no dependencies, a shipped Mobile
+// release), drawn all the same.
 
 const milestoneNodes: GraphNodeData[] = [
   {
@@ -109,6 +254,26 @@ const milestoneNodes: GraphNodeData[] = [
     href: '/timeline?milestone=search-m2',
   },
   {
+    id: 'search-m3',
+    label: 'Query suggestions',
+    sublabel: 'Search · due Dec 4',
+    tone: 'default',
+    status: 'on_track',
+    statusLabel: 'On track',
+    group: 'Search',
+    href: '/timeline?milestone=search-m3',
+  },
+  {
+    id: 'mobile-m0',
+    label: 'Store release 4.1',
+    sublabel: 'Mobile · done Oct 6',
+    tone: 'muted',
+    status: 'done',
+    statusLabel: 'Complete',
+    group: 'Mobile',
+    href: '/timeline?milestone=mobile-m0',
+  },
+  {
     id: 'mobile-m1',
     label: 'Offline sync',
     sublabel: 'Mobile · due Nov 5',
@@ -170,10 +335,9 @@ const milestoneEdges: GraphEdgeData[] = [
 export const MILESTONE_GRAPH: GraphFixture = {
   id: 'milestones',
   title: 'Milestones',
-  nodes: milestoneNodes,
-  edges: milestoneEdges,
+  ...withReadiness(milestoneNodes, milestoneEdges, 'box'),
   ariaSummary:
-    'Dependency graph of 12 milestones in 5 projects: Atlas M3 Cutover is overdue and holds up Atlas M4 and Billing Invoices v2; unassigned Search Index rebuild holds up Mobile Offline sync and Store release; Identity SSO rollout and Audit log export wait on each other.',
+    'Dependency graph of 14 milestones in 5 projects: Atlas M3 Cutover is overdue and holds up Atlas M4 and Billing Invoices v2; unassigned Search Index rebuild holds up Mobile Offline sync and Store release; Identity SSO rollout and Audit log export wait on each other.',
   emptyMessage: 'No milestone waits on another. Nothing to draw.',
 };
 
@@ -310,8 +474,7 @@ const issueEdges: GraphEdgeData[] = [
 export const ISSUE_GRAPH: GraphFixture = {
   id: 'issues',
   title: 'Issues in Atlas',
-  nodes: issueNodes,
-  edges: issueEdges,
+  ...withReadiness(issueNodes, issueEdges, 'issue'),
   ariaSummary:
     'Dependency graph of 7 Atlas issues and 3 external issues: unassigned ATL-43 Backfill orders table waits on the overdue dual-write shim and on Billing BIL-12, and holds up the read-path switch, the rehearsal and Mobile MOB-30; ATL-51 and ATL-53 wait on each other.',
   emptyMessage: 'No issue in Atlas blocks another.',
@@ -437,8 +600,7 @@ export const CHAIN_GRAPH: GraphFixture & { focusId: string } = {
   id: 'chain',
   title: 'Blocking chain of ATL-43',
   focusId: 'ATL-43',
-  nodes: chainNodes,
-  edges: chainEdges,
+  ...withReadiness(chainNodes, chainEdges, 'issue'),
   ariaSummary:
     'Blocking chain of ATL-43 Backfill orders table: it waits on the dual-write shim (which waits on Platform PLT-9), on Billing BIL-12 and on the finished legacy snapshot; it holds up the read-path switch, which holds up Mobile MOB-30, and the legacy archive.',
   emptyMessage: 'ATL-43 neither blocks nor waits on another issue.',
@@ -509,41 +671,73 @@ function escapeLabel(text: string): string {
   );
 }
 
-/**
- * The gallery's stand-in for core's toMermaid (the gallery imports only the
- * UI package): `flowchart LR`, positional ids, quoted labels, `-->` open and
- * `-.->` resolved edges, counts on aggregated edges, overdue/risk/cycle/
- * external classes.
- */
-export function toMermaid(fixture: GraphFixture): string {
-  const ids = new Map(fixture.nodes.map((node, i) => [node.id, `n${i}`]));
-  const lines = ['flowchart LR'];
-  fixture.nodes.forEach((node, i) => {
-    const sub =
-      node.sublabel !== undefined && node.sublabel !== ''
-        ? `<br/>${escapeLabel(node.sublabel)}`
-        : '';
-    lines.push(`  n${i}["${escapeLabel(node.label)}${sub}"]`);
-  });
-  const risk: number[] = [];
-  fixture.edges.forEach((edge, i) => {
-    const arrow = edge.kind === 'resolved' ? '-.->' : '-->';
-    const count =
-      edge.weight !== undefined && edge.weight > 1 ? `|${edge.weight}|` : '';
-    lines.push(`  ${ids.get(edge.from)} ${arrow}${count} ${ids.get(edge.to)}`);
-    if (edge.kind === 'risk') risk.push(i);
-  });
-  lines.push(
-    '  classDef overdue stroke:#d92d20,stroke-width:2px',
-    '  classDef risk stroke:#bd790a,stroke-width:2px',
-    '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
-    '  classDef external stroke-dasharray:3 3'
-  );
+/** Mermaid's style lines for one highlight, as core's mermaidParts writes
+    them (hexes: the light theme's --red / --amber / --green marks). */
+function mermaidStyles(
+  fixture: GraphFixture,
+  ids: ReadonlyMap<string, string>,
+  highlight: GraphHighlight
+): string[] {
+  const lines: string[] = [];
   const classed = (test: (node: GraphNodeData) => boolean) =>
     fixture.nodes
       .filter(test)
       .map((node) => ids.get(node.id))
       .join(',');
+  const links = (test: (edge: GraphEdgeData) => boolean) =>
+    fixture.edges.flatMap((edge, i) => (test(edge) ? [i] : [])).join(',');
+  const external = classed((node) => node.external === true);
+  const tone = (node: GraphNodeData) => node.readiness?.tone;
+  if (highlight === 'status') {
+    lines.push(
+      '  classDef ready stroke:#16853c',
+      '  classDef blocked stroke:#bd790a,stroke-width:2px',
+      '  classDef stuck stroke:#d92d20,stroke-width:2px,stroke-dasharray:5 3',
+      '  classDef quiet opacity:0.6',
+      '  classDef external stroke-dasharray:3 3,opacity:0.7'
+    );
+    for (const [name, want] of [
+      ['ready', 'success'],
+      ['blocked', 'warning'],
+      ['stuck', 'danger'],
+      ['quiet', 'muted'],
+    ] as const) {
+      const list = classed((node) => tone(node) === want);
+      if (list !== '') lines.push(`  class ${list} ${name}`);
+    }
+    if (external !== '') lines.push(`  class ${external} external`);
+    const unblocked = links((edge) => edge.kind === 'resolved');
+    if (unblocked !== '') lines.push(`  linkStyle ${unblocked} stroke:#16853c`);
+    return lines;
+  }
+  if (highlight === 'critical') {
+    const chain = longestChain(longestChains(fixture.nodes, fixture.edges));
+    if (chain !== null) {
+      const steps = chain.groups
+        .map((group) => group.map((id) => ids.get(id)).join(' + '))
+        .join(' → ');
+      lines.push(`  %% Critical path: ${steps} (${chain.length} nodes)`);
+      lines.push('  classDef critical stroke-width:3px');
+    }
+    lines.push('  classDef external stroke-dasharray:3 3,opacity:0.7');
+    if (chain !== null) {
+      lines.push(
+        `  class ${chain.nodeIds.map((id) => ids.get(id)).join(',')} critical`
+      );
+      const on = new Set(chain.edges.map((e) => `${e.from}->${e.to}`));
+      const chainLinks = links((edge) => on.has(`${edge.from}->${edge.to}`));
+      if (chainLinks !== '')
+        lines.push(`  linkStyle ${chainLinks} stroke-width:3px`);
+    }
+    if (external !== '') lines.push(`  class ${external} external`);
+    return lines;
+  }
+  lines.push(
+    '  classDef overdue stroke:#d92d20,stroke-width:2px',
+    '  classDef risk stroke:#bd790a,stroke-width:2px',
+    '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
+    '  classDef external stroke-dasharray:3 3,opacity:0.7'
+  );
   // Overdue first and red, as the canvas floods it; never also amber risk.
   const overdue = (node: GraphNodeData) =>
     node.tags?.includes('OVERDUE') === true;
@@ -552,13 +746,98 @@ export function toMermaid(fixture: GraphFixture): string {
     (node) => node.tags?.includes('UNASSIGNED') === true && !overdue(node)
   );
   const cycleNodes = classed((node) => node.tags?.includes('CYCLE') === true);
-  const externalNodes = classed((node) => node.external === true);
   if (overdueNodes !== '') lines.push(`  class ${overdueNodes} overdue`);
   if (riskNodes !== '') lines.push(`  class ${riskNodes} risk`);
   if (cycleNodes !== '') lines.push(`  class ${cycleNodes} cycle`);
-  if (externalNodes !== '') lines.push(`  class ${externalNodes} external`);
-  if (risk.length > 0) {
-    lines.push(`  linkStyle ${risk.join(',')} stroke:#bd790a`);
+  if (external !== '') lines.push(`  class ${external} external`);
+  const risk = links((edge) => edge.kind === 'risk');
+  if (risk !== '') lines.push(`  linkStyle ${risk} stroke:#bd790a`);
+  return lines;
+}
+
+/**
+ * The gallery's stand-in for core's toMermaid (the gallery imports only the
+ * UI package): `flowchart LR`, positional ids, quoted labels whose second
+ * line ends in the readiness word ("Blocked by 1", "Clear"; none when done
+ * or with no dependencies), each node inside its frame's `subgraph c<k>`
+ * block (nested as the frames are; a frame with no node left out; pass no
+ * `clusters` when the frames are off), `-->` blocking and `-.->` unblocked
+ * edges, counts on aggregated edges, then the highlight's classes: Status
+ * by readiness, Risk the overdue / risk / cycle classes, Critical path the
+ * longest chain drawn 3px wide in no hue. Externals are dashed in every
+ * highlight.
+ */
+export function toMermaid(
+  fixture: GraphFixture,
+  highlight: GraphHighlight = 'status',
+  clusters: readonly GraphClusterData[] = fixture.clusters
+): string {
+  const ids = new Map(fixture.nodes.map((node, i) => [node.id, `n${i}`]));
+  const lines = ['flowchart LR'];
+  const nodeLine = (node: GraphNodeData, i: number): string => {
+    // As core: no word on a done node or on one with no dependencies.
+    const word =
+      node.readiness?.state === 'independent'
+        ? ''
+        : (node.readiness?.label ?? '');
+    const second = [node.sublabel ?? '', word]
+      .filter((part) => part !== '')
+      .map(escapeLabel)
+      .join(' · ');
+    const sub = second === '' ? '' : `<br/>${second}`;
+    return `n${i}["${escapeLabel(node.label)}${sub}"]`;
+  };
+  // As core's clusteredNodeLines: nodes with no known frame first, then
+  // each frame (in `clusters` order among siblings) with its nodes before
+  // the frames inside it.
+  const indexOf = new Map(clusters.map((cluster, k) => [cluster.id, k]));
+  const members = new Map<string | null, number[]>();
+  fixture.nodes.forEach((node, i) => {
+    const key =
+      node.cluster !== undefined && indexOf.has(node.cluster)
+        ? node.cluster
+        : null;
+    members.set(key, [...(members.get(key) ?? []), i]);
+  });
+  const children = new Map<string | null, GraphClusterData[]>();
+  for (const cluster of clusters) {
+    const parent =
+      cluster.parent !== undefined && indexOf.has(cluster.parent)
+        ? cluster.parent
+        : null;
+    children.set(parent, [...(children.get(parent) ?? []), cluster]);
   }
+  const filled = (cluster: GraphClusterData, seen: Set<string>): boolean => {
+    if (seen.has(cluster.id)) return false;
+    seen.add(cluster.id);
+    return (
+      (members.get(cluster.id)?.length ?? 0) > 0 ||
+      (children.get(cluster.id) ?? []).some((child) => filled(child, seen))
+    );
+  };
+  const written = new Set<string>();
+  const write = (parent: string | null, depth: number): void => {
+    const pad = '  '.repeat(depth);
+    for (const i of members.get(parent) ?? []) {
+      lines.push(`${pad}${nodeLine(fixture.nodes[i], i)}`);
+    }
+    for (const cluster of children.get(parent) ?? []) {
+      if (written.has(cluster.id) || !filled(cluster, new Set())) continue;
+      written.add(cluster.id);
+      lines.push(
+        `${pad}subgraph c${indexOf.get(cluster.id) ?? 0}["${escapeLabel(cluster.label)}"]`
+      );
+      write(cluster.id, depth + 1);
+      lines.push(`${pad}end`);
+    }
+  };
+  write(null, 1);
+  fixture.edges.forEach((edge) => {
+    const arrow = edge.kind === 'resolved' ? '-.->' : '-->';
+    const count =
+      edge.weight !== undefined && edge.weight > 1 ? `|${edge.weight}|` : '';
+    lines.push(`  ${ids.get(edge.from)} ${arrow}${count} ${ids.get(edge.to)}`);
+  });
+  lines.push(...mermaidStyles(fixture, ids, highlight));
   return lines.join('\n');
 }

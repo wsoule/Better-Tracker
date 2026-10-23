@@ -72,6 +72,10 @@ describe('public API (docs/architecture.md §3)', () => {
     'findIssue',
     'isRiskNode',
     'isOverdueNode',
+    'readinessLabel',
+    'readinessClass',
+    'escapeMermaidLabel',
+    'mermaidParts',
     'toMermaid',
     'buildWeekView',
     'buildTimelineView',
@@ -95,6 +99,7 @@ describe('public API (docs/architecture.md §3)', () => {
     'ISSUE_FIELD_LABEL',
     'GRAPH_LEVELS_WITHIN',
     'DEFAULT_GRAPH_LEVEL',
+    'MERMAID_HUES',
   ])('exports constant %s', (name) => {
     expect(typeof (core as Record<string, unknown>)[name]).toBe('object');
   });

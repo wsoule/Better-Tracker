@@ -10,6 +10,8 @@ import {
   GRAPH_LEVELS_WITHIN,
   isOverdueNode,
   isRiskNode,
+  MERMAID_HUES,
+  mermaidParts,
   resolveGraphScope,
   toMermaid,
 } from '../src/index';
@@ -20,6 +22,7 @@ import type {
   GraphEdge,
   GraphNode,
   GraphScope,
+  MermaidChain,
 } from '../src/index';
 import {
   at,
@@ -76,12 +79,75 @@ function todayEdge(e: GraphEdge): Record<string, unknown> {
 
 // Goldens captured on 2026-10-22 from the graph builder as it was before
 // the graph levels change (spec §13 commit 1): the milestone level and the
-// milestone and project issue levels must keep every field they had.
+// milestone and project issue levels must keep every field they had. Since
+// the owner decision of 2026-10-23 ("the graph shows every issue, not only
+// blocking ones") the milestone level also draws the milestones it used to
+// leave out (MILESTONES_DRAWN_SINCE) and the arrow between two paused ones
+// (EDGE_DRAWN_SINCE); every node and edge it drew before is unchanged.
 interface Golden {
   nodes: Record<string, unknown>[];
   edges: Record<string, unknown>[];
   cycles: string[][];
 }
+// The two LEVELS milestones the workspace milestone level left out before
+// 2026-10-23, in their display slots: mDone (no open issue: complete) right
+// after the overdue mB, and the paused project's mP2 right after mP (by
+// target date). The fields are the ones every golden node keeps.
+const MILESTONES_DRAWN_SINCE: Record<string, unknown>[] = [
+  {
+    id: 'mDone',
+    kind: 'milestone',
+    label: 'Done',
+    sublabel: 'Alpha',
+    url: null,
+    projectId: 'pA',
+    milestoneId: 'mDone',
+    ownerId: 'lead',
+    external: false,
+    open: false,
+    unassigned: false,
+    overdue: false,
+    inCycle: false,
+    waitsOnUnassigned: false,
+    waitsOnOverdue: false,
+    status: 'complete',
+  },
+  {
+    id: 'mP2',
+    kind: 'milestone',
+    label: 'P2',
+    sublabel: 'Paused',
+    url: null,
+    projectId: 'pP',
+    milestoneId: 'mP2',
+    ownerId: 'lead',
+    external: false,
+    open: true,
+    unassigned: false,
+    overdue: false,
+    inCycle: false,
+    waitsOnUnassigned: false,
+    waitsOnOverdue: false,
+    status: 'on_track',
+  },
+];
+
+// The one LEVELS edge the workspace milestone level left out before
+// 2026-10-23: the paused pP's mP blocks its own mP2, a relation with no end
+// in an active project. Since every milestone is drawn, both ends are
+// drawn boxes, so the arrow is drawn too (the timeline still leaves it
+// out: chartDependencies). It sorts between mA → mC and mP → mC.
+const EDGE_DRAWN_SINCE: Record<string, unknown> = {
+  from: 'mP',
+  to: 'mP2',
+  resolved: false,
+  crossProject: false,
+  crossOwner: false,
+  inCycle: false,
+  onRiskChain: false,
+  weight: 1,
+};
+
 const GOLDEN_MILESTONE_LEVEL: Golden = {
   nodes: [
     {
@@ -773,8 +839,22 @@ const GOLDEN_ISSUES_IN_P2: Golden = {
 };
 
 describe("today's output is kept", () => {
+  test('milestone level: every milestone, the old ones unchanged in order', () => {
+    const g = graph(LEVELS, { level: 'milestone' });
+    const [mDone, mP2] = MILESTONES_DRAWN_SINCE;
+    const [mB, mA, mP, mC, mA2] = GOLDEN_MILESTONE_LEVEL.nodes;
+    expect(g.nodes.map(todayNode)).toEqual([mB, mDone, mA, mP, mP2, mC, mA2]);
+    const [bToA, aToC, pToC] = GOLDEN_MILESTONE_LEVEL.edges;
+    expect(g.edges.map(todayEdge)).toEqual([
+      bToA,
+      aToC,
+      EDGE_DRAWN_SINCE,
+      pToC,
+    ]);
+    expect(g.cycles).toEqual(GOLDEN_MILESTONE_LEVEL.cycles);
+  });
+
   test.each([
-    ['milestone level', LEVELS, { level: 'milestone' }, GOLDEN_MILESTONE_LEVEL],
     ['issue level in a milestone', CROSS, M1, GOLDEN_ISSUES_IN_M1],
     [
       'issue level with cycles and a closed blocker',
@@ -1030,9 +1110,9 @@ describe('issue level: cross-project and cross-owner edges, external nodes', () 
       nodes: [],
       edges: [],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     });
   });
@@ -1045,8 +1125,21 @@ describe('milestone level', () => {
     { level: 'milestone' }
   );
 
-  test('nodes: active milestones with open issues plus edge endpoints, in display order', () => {
-    expect(g.nodes.map((n) => n.id)).toEqual(['mB', 'mA', 'mP', 'mC', 'mA2']);
+  test('nodes: every milestone, done and paused ones too, in display order', () => {
+    // mDone has no open issue and mP2 is in the paused project with no
+    // drawn edge: both are drawn since 2026-10-23 (every item of the
+    // level), quiet, in their compareMilestones slots.
+    expect(g.nodes.map((n) => n.id)).toEqual([
+      'mB',
+      'mDone',
+      'mA',
+      'mP',
+      'mP2',
+      'mC',
+      'mA2',
+    ]);
+    expect(node(g, 'mDone')).toMatchObject({ open: false, readiness: 'done' });
+    expect(node(g, 'mP2')).toMatchObject({ active: false, open: true });
     expect(node(g, 'mB')).toMatchObject({
       kind: 'milestone',
       label: 'B',
@@ -1064,9 +1157,12 @@ describe('milestone level', () => {
   });
 
   test('edges aggregate open relations into weights', () => {
+    // mP → mP2 joins two milestones of the paused pP: both are drawn, so
+    // their arrow is too (2026-10-23).
     expect(g.edges.map((e) => [e.from, e.to, e.weight])).toEqual([
       ['mB', 'mA', 2],
       ['mA', 'mC', 1],
+      ['mP', 'mP2', 1],
       ['mP', 'mC', 1],
     ]);
   });
@@ -1127,8 +1223,11 @@ describe('milestone level', () => {
 });
 
 describe('toMermaid', () => {
-  test('stable output with positional ids, arrows, weights and classes', () => {
-    const g = graph(
+  // Built by the real builder, so readiness, blocking and risk are core's
+  // own: ENG-1 (unassigned) waits on the external OPS-1, ENG-2 waits on
+  // ENG-1 and on the closed ENG-3.
+  function orion(): DependencyGraph {
+    return graph(
       {
         projects: [
           project('p1', { name: 'Orion' }),
@@ -1153,82 +1252,317 @@ describe('toMermaid', () => {
       },
       M1
     );
-    expect(toMermaid(g)).toBe(
+  }
+  // OPS-1 → ENG-1 → ENG-2, as the ui's longestChain would give it.
+  const ORION_CHAIN: MermaidChain = {
+    nodeIds: ['OPS-1', 'ENG-1', 'ENG-2'],
+    edges: [
+      { from: 'OPS-1', to: 'ENG-1' },
+      { from: 'ENG-1', to: 'ENG-2' },
+    ],
+  };
+
+  test('the body: positional ids, readiness words, subgraphs, arrows and weights', () => {
+    // m1's issues and the external OPS-1 span two projects, so each
+    // milestone's subgraph sits inside its project's.
+    expect(mermaidParts(orion()).body).toBe(
       [
         'flowchart LR',
-        '  n0["Ship #34;beta#34; #91;v2#93;<br/>ENG-1 · Unassigned"]',
-        '  n1["Docs #60;draft#62; #35;1<br/>ENG-2 · Ana"]',
-        '  n2["Old work<br/>ENG-3 · Ana"]',
-        '  n3["Infra #40;prod#41; setup<br/>OPS-1 · Ana"]',
+        '  subgraph c0["Orion"]',
+        '    subgraph c1["Milestone m1"]',
+        '      n0["Ship #34;beta#34; #91;v2#93;<br/>ENG-1 · Unassigned · Blocked by 1"]',
+        '      n1["Docs #60;draft#62; #35;1<br/>ENG-2 · Ana · Blocked by 1"]',
+        '      n2["Old work<br/>ENG-3 · Ana"]',
+        '    end',
+        '  end',
+        '  subgraph c2["Halo"]',
+        '    subgraph c3["Milestone m2"]',
+        '      n3["Infra #40;prod#41; setup<br/>OPS-1 · Ana · Ready"]',
+        '    end',
+        '  end',
         '  n0 --> n1',
         '  n2 -.-> n1',
         '  n3 --> n0',
-        '  classDef overdue stroke:#d92d20,stroke-width:2px',
-        '  classDef risk stroke:#bd790a,stroke-width:2px',
-        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
-        '  classDef external stroke-dasharray:3 3,opacity:0.7',
-        '  class n0,n1 risk',
-        '  class n3 external',
-        '  linkStyle 0 stroke:#bd790a',
         '',
       ].join('\n')
     );
   });
 
-  test('milestone graphs show weights and cycle classes', () => {
+  test('status is the default: readiness classes, unblocked links in green', () => {
+    const g = orion();
+    const { body, styles } = mermaidParts(g);
+    expect(styles.status).toBe(
+      [
+        '  classDef ready stroke:#16853c',
+        '  classDef blocked stroke:#bd790a,stroke-width:2px',
+        '  classDef stuck stroke:#d92d20,stroke-width:2px,stroke-dasharray:5 3',
+        '  classDef quiet opacity:0.6',
+        '  classDef external stroke-dasharray:3 3,opacity:0.7',
+        '  class n3 ready',
+        '  class n0,n1 blocked',
+        '  class n2 quiet',
+        '  class n3 external',
+        '  linkStyle 1 stroke:#16853c',
+        '',
+      ].join('\n')
+    );
+    expect(toMermaid(g)).toBe(body + styles.status);
+    expect(toMermaid(g, { highlight: 'status' })).toBe(toMermaid(g));
+  });
+
+  test('risk writes the earlier export: overdue, risk, cycle, risk-chain links', () => {
+    const g = orion();
+    expect(toMermaid(g, { highlight: 'risk' })).toBe(
+      mermaidParts(g).body +
+        [
+          '  classDef overdue stroke:#d92d20,stroke-width:2px',
+          '  classDef risk stroke:#bd790a,stroke-width:2px',
+          '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
+          '  classDef external stroke-dasharray:3 3,opacity:0.7',
+          '  class n0,n1 risk',
+          '  class n3 external',
+          '  linkStyle 0 stroke:#bd790a',
+          '',
+        ].join('\n')
+    );
+  });
+
+  test('critical: the given chain named, classed and widened, with no hue', () => {
+    const g = orion();
+    const critical = mermaidParts(g, { critical: ORION_CHAIN }).styles.critical;
+    expect(critical).toBe(
+      [
+        '  %% Critical path: n3 → n0 → n1 (3 issues)',
+        '  classDef critical stroke-width:3px',
+        '  classDef external stroke-dasharray:3 3,opacity:0.7',
+        '  class n0,n1,n3 critical',
+        '  class n3 external',
+        '  linkStyle 0,2 stroke-width:3px',
+        '',
+      ].join('\n')
+    );
+    expect(critical).not.toMatch(/stroke:|#[0-9a-f]{6}/i);
+    expect(toMermaid(g, { highlight: 'critical', critical: ORION_CHAIN })).toBe(
+      mermaidParts(g).body + critical
+    );
+  });
+
+  test('critical with no chain, or none of it drawn: only the frame classes', () => {
+    const g = orion();
+    const frame = [
+      '  classDef external stroke-dasharray:3 3,opacity:0.7',
+      '  class n3 external',
+      '',
+    ].join('\n');
+    expect(mermaidParts(g).styles.critical).toBe(frame);
+    expect(mermaidParts(g, { critical: null }).styles.critical).toBe(frame);
+    expect(
+      mermaidParts(g, {
+        critical: {
+          nodeIds: ['gone', 'away'],
+          edges: [{ from: 'gone', to: 'away' }],
+        },
+      }).styles.critical
+    ).toBe(frame);
+  });
+
+  test('the body is the same in every highlight; the chain only reaches critical', () => {
+    const g = orion();
+    const plain = mermaidParts(g);
+    const withChain = mermaidParts(g, { critical: ORION_CHAIN });
+    expect(withChain.body).toBe(plain.body);
+    expect(withChain.styles.status).toBe(plain.styles.status);
+    expect(withChain.styles.risk).toBe(plain.styles.risk);
+    for (const highlight of ['status', 'risk', 'critical'] as const) {
+      expect(toMermaid(g, { highlight, critical: ORION_CHAIN })).toBe(
+        plain.body + withChain.styles[highlight]
+      );
+    }
+  });
+
+  test('an edge into a closed issue no longer blocks: dotted, green in status', () => {
+    const g = graph(
+      {
+        issues: [inM1('A-1'), inM1('A-2', { stateId: STATE.done })],
+        relations: blocks(['A-1', 'A-2']),
+      },
+      M1
+    );
+    expect(g.edges.map((e) => [e.resolved, e.blocking])).toEqual([
+      [false, false],
+    ]);
+    const { body, styles } = mermaidParts(g);
+    expect(body).toContain('  n0 -.-> n1\n');
+    expect(styles.status).toContain('  linkStyle 0 stroke:#16853c\n');
+    expect(styles.risk).not.toContain('linkStyle');
+  });
+
+  test('box words: the readiness word is the second line without a sublabel', () => {
     const g: DependencyGraph = {
       scope: { level: 'milestone' },
       nodes: [
-        { ...baseNode('a'), label: 'Alpha', sublabel: 'P1', inCycle: true },
-        { ...baseNode('b'), label: 'Beta', sublabel: '', inCycle: true },
+        {
+          ...baseNode('a'),
+          label: 'Alpha',
+          sublabel: 'P1',
+          inCycle: true,
+          readiness: 'blocked',
+          blockedBy: 1,
+        },
+        {
+          ...baseNode('b'),
+          label: 'Beta',
+          sublabel: '',
+          inCycle: true,
+          holdsCycle: true,
+          readiness: 'blocked',
+          blockedBy: 1,
+          readyIssues: 0,
+        },
+        { ...baseNode('c'), label: 'Gamma', sublabel: '' },
+        {
+          ...baseNode('d'),
+          label: 'Delta',
+          sublabel: 'P2',
+          readiness: 'done',
+          openIssues: 0,
+          readyIssues: 0,
+        },
       ],
       edges: [
         { ...baseEdge('a', 'b'), weight: 3, inCycle: true },
         { ...baseEdge('b', 'a'), inCycle: true },
       ],
       cycles: [['a', 'b']],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     };
-    expect(toMermaid(g)).toMatchInlineSnapshot(`
-      "flowchart LR
-        n0["Alpha<br/>P1"]
-        n1["Beta"]
-        n0 -->|3| n1
-        n1 --> n0
-        classDef overdue stroke:#d92d20,stroke-width:2px
-        classDef risk stroke:#bd790a,stroke-width:2px
-        classDef cycle stroke:#d92d20,stroke-dasharray:5 3
-        classDef external stroke-dasharray:3 3,opacity:0.7
-        class n0,n1 cycle
-      "
-    `);
-  });
-
-  test('an empty graph is still valid Mermaid', () => {
-    expect(
-      toMermaid({
-        scope: { level: 'milestone' },
-        nodes: [],
-        edges: [],
-        cycles: [],
-        fallback: null,
-        unplacedRelations: 0,
-        unrelatedIssues: 0,
-        chain: null,
-      })
-    ).toBe(
+    const { body, styles } = mermaidParts(g);
+    expect(body).toBe(
       [
         'flowchart LR',
-        '  classDef overdue stroke:#d92d20,stroke-width:2px',
-        '  classDef risk stroke:#bd790a,stroke-width:2px',
-        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
-        '  classDef external stroke-dasharray:3 3,opacity:0.7',
+        '  n0["Alpha<br/>P1 · Waiting on 1"]',
+        '  n1["Beta<br/>Waiting on 1"]',
+        '  n2["Gamma<br/>Clear"]',
+        '  n3["Delta<br/>P2"]',
+        '  n0 -->|3| n1',
+        '  n1 --> n0',
         '',
       ].join('\n')
     );
+    // Beta: none of its issues can start and a cycle inside holds them.
+    expect(styles.status).toContain(
+      [
+        '  class n2 ready',
+        '  class n0 blocked',
+        '  class n1 stuck',
+        '  class n3 quiet',
+        '',
+      ].join('\n')
+    );
+    expect(styles.status).not.toContain('linkStyle');
+    // Risk keeps the drawn cycle's dashed red class.
+    expect(styles.risk).toContain('  class n0,n1 cycle\n');
+  });
+
+  test('a cycle on the critical path is one step; the noun is the node kind', () => {
+    const issues = (ids: string[]): GraphNode[] =>
+      ids.map((id) => ({ ...baseNode(id), kind: 'issue', label: id }));
+    const looped: DependencyGraph = {
+      scope: { level: 'issue', milestoneId: 'm1' },
+      nodes: issues(['a', 'b', 'c', 's']),
+      edges: [
+        baseEdge('a', 'b'),
+        baseEdge('b', 'a'),
+        baseEdge('b', 'c'),
+        baseEdge('s', 's'),
+        baseEdge('s', 'a'),
+      ],
+      cycles: [['a', 'b'], ['s']],
+      clusters: [],
+      fallback: null,
+      unplacedRelations: 0,
+      chain: null,
+    };
+    const critical = mermaidParts(looped, {
+      critical: {
+        nodeIds: ['s', 'a', 'b', 'c'],
+        edges: [
+          { from: 's', to: 'a' },
+          { from: 'a', to: 'b' },
+          { from: 'b', to: 'a' },
+          { from: 'b', to: 'c' },
+        ],
+      },
+    }).styles.critical;
+    // s blocks itself, but a step of one member needs no "+".
+    expect(critical).toContain(
+      '  %% Critical path: n3 → n0 + n1 → n2 (4 issues)\n'
+    );
+    expect(critical).toContain('  linkStyle 0,1,2,4 stroke-width:3px\n');
+
+    const boxes: DependencyGraph = {
+      scope: { level: 'milestone' },
+      nodes: [baseNode('mA'), baseNode('mB')],
+      edges: [baseEdge('mA', 'mB')],
+      cycles: [],
+      clusters: [],
+      fallback: null,
+      unplacedRelations: 0,
+      chain: null,
+    };
+    expect(
+      mermaidParts(boxes, {
+        critical: { nodeIds: ['mA', 'mB'], edges: [{ from: 'mA', to: 'mB' }] },
+      }).styles.critical
+    ).toContain('  %% Critical path: n0 → n1 (2 milestones)\n');
+  });
+
+  test('an empty graph is still valid Mermaid in every highlight', () => {
+    const empty: DependencyGraph = {
+      scope: { level: 'milestone' },
+      nodes: [],
+      edges: [],
+      cycles: [],
+      clusters: [],
+      fallback: null,
+      unplacedRelations: 0,
+      chain: null,
+    };
+    expect(mermaidParts(empty)).toEqual({
+      body: 'flowchart LR\n',
+      styles: {
+        status: [
+          '  classDef ready stroke:#16853c',
+          '  classDef blocked stroke:#bd790a,stroke-width:2px',
+          '  classDef stuck stroke:#d92d20,stroke-width:2px,stroke-dasharray:5 3',
+          '  classDef quiet opacity:0.6',
+          '  classDef external stroke-dasharray:3 3,opacity:0.7',
+          '',
+        ].join('\n'),
+        risk: [
+          '  classDef overdue stroke:#d92d20,stroke-width:2px',
+          '  classDef risk stroke:#bd790a,stroke-width:2px',
+          '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
+          '  classDef external stroke-dasharray:3 3,opacity:0.7',
+          '',
+        ].join('\n'),
+        critical: '  classDef external stroke-dasharray:3 3,opacity:0.7\n',
+      },
+    });
+  });
+
+  test('the purple accent is never written: it is not a status', () => {
+    const g = orion();
+    for (const highlight of ['status', 'risk', 'critical'] as const) {
+      const text = toMermaid(g, { highlight, critical: ORION_CHAIN });
+      expect(text.toLowerCase()).not.toContain('#9747ff');
+      for (const hex of text.match(/#[0-9a-f]{6}\b/gi) ?? []) {
+        expect(Object.values(MERMAID_HUES)).toContain(hex);
+      }
+    }
   });
 
   test.each([
@@ -1257,6 +1591,7 @@ function baseNode(id: string): GraphNode {
     milestoneId: id,
     ownerId: null,
     external: false,
+    clusterId: null,
     active: true,
     open: true,
     unassigned: false,
@@ -1268,6 +1603,7 @@ function baseNode(id: string): GraphNode {
     status: 'on_track',
     readiness: 'ready',
     blockedBy: 0,
+    unplacedBlockers: 0,
     unblocks: 0,
     openIssues: 1,
     readyIssues: 1,
@@ -1693,7 +2029,7 @@ describe('graphContainer and graphScopeFor', () => {
 describe('project level in the workspace', () => {
   const g = graph(ORG, { level: 'project' });
 
-  test('active projects with open issues are listed; paused ones only as edge ends', () => {
+  test('every project is drawn, paused ones (pP, pQ, pR) too', () => {
     expect(nodeList(g)).toEqual([
       ['pA', false],
       ['pC', false],
@@ -1713,13 +2049,15 @@ describe('project level in the workspace', () => {
   });
 
   test('edges count open relations between projects', () => {
-    // Bolt → Apollo twice (b3 is closed); Apollo's own a1 → a2 and the
-    // paused p1 → q1 make no edge; a3 has no milestone but counts here.
+    // Bolt → Apollo twice (b3 is closed); Apollo's own a1 → a2 makes no
+    // edge; a3 has no milestone but counts here. The paused p1 → q1 is an
+    // edge between two drawn (paused) projects since 2026-10-23.
     expect(edgeList(g)).toEqual([
       ['pA', 'pC', 1],
       ['pC', 'pB', 1],
       ['pS', 'pX', 1],
       ['pP', 'pC', 1],
+      ['pP', 'pQ', 1],
       ['pB', 'pA', 2],
       ['pQ', 'pB', 1],
       ['pR', 'pA', 1],
@@ -1727,7 +2065,8 @@ describe('project level in the workspace', () => {
     expect(g.cycles).toEqual([['pA', 'pC', 'pB']]);
     // o1 has no project, so o1 → a2 cannot be placed.
     expect(g.unplacedRelations).toBe(1);
-    expect(g.unrelatedIssues).toBe(0);
+    // Every issue is drawn now, so nothing is only counted.
+    expect('unrelatedIssues' in g).toBe(false);
     expect(g.chain).toBeNull();
   });
 
@@ -1746,6 +2085,9 @@ describe('project level in the workspace', () => {
       ['pC>pB', true, true, true, false, false],
       ['pS>pX', true, true, true, false, false],
       ['pP>pC', true, false, true, false, false],
+      // Paused and Quiet are in different initiatives; neither has a lead
+      // that differs from the other's.
+      ['pP>pQ', true, true, false, false, false],
       ['pB>pA', true, true, true, true, false],
       // Quiet and Bolt are both in Beam; Quiet has no lead.
       ['pQ>pB', true, false, false, false, false],
@@ -1836,8 +2178,10 @@ describe('initiative level in the workspace', () => {
   });
 
   test('edges sum the relations between initiatives; a mutual pair is a cycle', () => {
+    // iA → iB counts the paused p1 → q1 too (pP in iA, pQ in iB): both
+    // initiatives are drawn, so the relation is on their arrow.
     expect(edgeList(g)).toEqual([
-      ['iA', 'iB', 1],
+      ['iA', 'iB', 2],
       ['iA', 'none', 1],
       ['iB', 'iA', 2],
       ['iC', 'iA', 1],
@@ -2036,16 +2380,21 @@ describe('workspace milestone level: new facts', () => {
 });
 
 describe('issue level inside an initiative and the workspace', () => {
-  test('an initiative: relation ends only, one hop of externals', () => {
+  test('an initiative: every issue in it, one hop of externals', () => {
     const g = graph(ORG, { level: 'issue', initiativeId: 'iA' });
+    // Since 2026-10-23 every issue of Apollo, Comet, Shared and Parked is
+    // drawn: a5 (on no relation) and the closed d1, d2 too.
     expect(nodeList(g)).toEqual([
       ['a1', false],
       ['a2', false],
       ['a3', false],
       ['a4', false],
+      ['a5', false],
       ['c1', false],
       ['c2', false],
       ['c3', false],
+      ['d1', false],
+      ['d2', false],
       ['p1', false],
       ['s1', false],
       ['b1', true],
@@ -2057,12 +2406,21 @@ describe('issue level inside an initiative and the workspace', () => {
       ['r1', true],
       ['x1', true],
     ]);
-    // d1 → d2 is closed on both ends: history, not drawn. b3 → a1 is.
-    expect(g.nodes.some((n) => n.id === 'd1' || n.id === 'd2')).toBe(false);
+    // d1 → d2 is closed on both ends: drawn as an arrow that no longer
+    // blocks, like b3 → a1. q1 → b2 touches no issue of Apex.
+    expect(edge(g, 'd1', 'd2')).toMatchObject({
+      resolved: true,
+      blocking: false,
+    });
     expect(edge(g, 'b3', 'a1').resolved).toBe(true);
     expect(g.edges.some((e) => e.from === 'q1')).toBe(false);
-    // a5 is open in Apollo and on no relation: counted, not drawn.
-    expect(g.unrelatedIssues).toBe(1);
+    // a5 is open in Apollo and on no relation: drawn, with no dependencies.
+    expect(node(g, 'a5')).toMatchObject({
+      readiness: 'independent',
+      blockedBy: 0,
+      unblocks: 0,
+    });
+    expect(node(g, 'd2').readiness).toBe('done');
     expect(g.unplacedRelations).toBe(0);
     expect(node(g, 'o1').initiativeId).toBeNull();
     expect(node(g, 'p1')).toMatchObject({ active: false, initiativeId: 'iA' });
@@ -2090,39 +2448,52 @@ describe('issue level inside an initiative and the workspace', () => {
       ['o2', true],
       ['s1', true],
     ]);
-    // Nomad and Xeno hold no other open issue; o3 is in no container.
-    expect(issues.unrelatedIssues).toBe(0);
+    // Nomad and Xeno hold no other issue; o3 is in no container and on no
+    // relation, so it is not drawn here.
+    expect(issues.nodes.some((n) => n.id === 'o3')).toBe(false);
     const projects = graph(parts, { level: 'project', initiativeId: 'none' });
     // Only o2 → n1 touches the container and has an end with no project.
     expect(projects.unplacedRelations).toBe(1);
   });
 
-  test('the workspace: active projects’ relations, no externals', () => {
+  test('the workspace: every issue and every relation, no externals', () => {
     const g = graph(ORG, { level: 'issue' });
+    // Every issue of the mirror, open and closed, active and paused alike
+    // (owner decision 2026-10-23).
     expect(g.nodes.map((n) => n.id)).toEqual([
       'a1',
       'a2',
       'a3',
       'a4',
+      'a5',
       'b1',
       'b2',
       'b3',
       'c1',
       'c2',
       'c3',
+      'd1',
+      'd2',
+      'n1',
       'o1',
       'p1',
       'q1',
+      'q2',
       'r1',
       's1',
       'x1',
     ]);
     expect(g.nodes.every((n) => !n.external)).toBe(true);
-    // p1 → q1 joins two paused projects; q1 → b2 touches an active one.
-    expect(g.edges.some((e) => e.from === 'p1' && e.to === 'q1')).toBe(false);
+    // All 16 relations are arrows: p1 → q1 joins two paused projects and
+    // d1 → d2 two closed issues, both drawn now that both ends are.
+    expect(g.edges).toHaveLength(ORG.relations.length);
+    expect(edge(g, 'p1', 'q1').blocking).toBe(true);
+    expect(edge(g, 'd1', 'd2').blocking).toBe(false);
     expect(edge(g, 'q1', 'b2').onRiskChain).toBe(false);
-    // a5 and n1; q2 is paused, so not counted.
-    expect(g.unrelatedIssues).toBe(2);
+    // a5, n1 and the paused q2 are on no relation.
+    expect(
+      g.nodes.filter((n) => n.readiness === 'independent').map((n) => n.id)
+    ).toEqual(['a5', 'n1', 'q2']);
     expect(g.cycles).toEqual([['c2', 'c3']]);
   });
 });
@@ -2492,9 +2863,9 @@ describe('isOverdueNode per kind', () => {
 });
 
 describe('toMermaid overdue nodes', () => {
-  // The canvas floods an overdue node red (planner nodeTone's danger); the
-  // export classes it red too, never amber risk. What waits on it stays
-  // amber, and a cycle stays dashed red.
+  // The risk highlight: the canvas floods an overdue node red (planner
+  // nodeTone's danger); the export classes it red too, never amber risk.
+  // What waits on it stays amber, and a cycle stays dashed red.
   test('overdue is red, what waits on it amber, a cycle dashed red', () => {
     const g: DependencyGraph = {
       scope: { level: 'issue', milestoneId: 'm1' },
@@ -2525,17 +2896,17 @@ describe('toMermaid overdue nodes', () => {
       ],
       edges: [{ ...baseEdge('late', 'wait'), onRiskChain: true }],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     };
-    expect(toMermaid(g)).toBe(
+    expect(toMermaid(g, { highlight: 'risk' })).toBe(
       [
         'flowchart LR',
-        '  n0["Late<br/>ENG-1 · Ana"]',
-        '  n1["Waits<br/>ENG-2 · Bo"]',
-        '  n2["Loop<br/>ENG-3 · Cy"]',
+        '  n0["Late<br/>ENG-1 · Ana · Ready"]',
+        '  n1["Waits<br/>ENG-2 · Bo · Ready"]',
+        '  n2["Loop<br/>ENG-3 · Cy · Ready"]',
         '  n0 --> n1',
         '  classDef overdue stroke:#d92d20,stroke-width:2px',
         '  classDef risk stroke:#bd790a,stroke-width:2px',
@@ -2574,13 +2945,15 @@ describe('toMermaid overdue nodes', () => {
       ],
       edges: [baseEdge('late', 'task')],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     };
-    const text = toMermaid(g);
+    const text = toMermaid(g, { highlight: 'risk' });
     expect(text).not.toMatch(/^ {2}class .* (overdue|risk)$/m);
+    // Status fades them instead (readinessClass's quiet).
+    expect(toMermaid(g)).toContain('  class n0,n1 quiet\n');
     expect(g.nodes.map((n) => [isOverdueNode(n), isRiskNode(n)])).toEqual([
       [false, false],
       [false, false],
@@ -2622,17 +2995,17 @@ describe('toMermaid at every level', () => {
         { ...baseEdge('pb', 'ip'), weight: 2 },
       ],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     };
-    expect(toMermaid(g)).toBe(
+    expect(toMermaid(g, { highlight: 'risk' })).toBe(
       [
         'flowchart LR',
-        '  n0["Atlas billing migration<br/>Chloe Diaz"]',
-        '  n1["Fjord<br/>No lead"]',
-        '  n2["Platform reliability<br/>5 projects"]',
+        '  n0["Atlas billing migration<br/>Chloe Diaz · Clear"]',
+        '  n1["Fjord<br/>No lead · Clear"]',
+        '  n2["Platform reliability<br/>5 projects · Clear"]',
         '  n0 -->|3| n1',
         '  n1 -->|2| n2',
         '  classDef overdue stroke:#d92d20,stroke-width:2px',
@@ -2646,7 +3019,7 @@ describe('toMermaid at every level', () => {
     );
   });
 
-  test('a chain marks its focus; a cut chain says how much is shown', () => {
+  test('a chain marks its focus in every highlight; a cut chain says how much is shown', () => {
     const cut: DependencyGraph = {
       scope: { level: 'issue', issueId: 'f' },
       nodes: [
@@ -2665,24 +3038,48 @@ describe('toMermaid at every level', () => {
       ],
       edges: [baseEdge('u', 'f')],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: { focusId: 'f', upstream: 3, downstream: 0, hidden: 2 },
     };
     expect(toMermaid(cut)).toBe(
       [
         'flowchart LR',
-        '  n0["Focus<br/>ENG-1 · Ana"]',
-        '  n1["Up<br/>ENG-2 · Bo"]',
+        '  n0["Focus<br/>ENG-1 · Ana · Ready"]',
+        '  n1["Up<br/>ENG-2 · Bo · Ready"]',
         '  n1 --> n0',
         '  %% Showing the nearest 2 of 4 issues on this chain',
-        '  classDef overdue stroke:#d92d20,stroke-width:2px',
-        '  classDef risk stroke:#bd790a,stroke-width:2px',
-        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
+        '  classDef ready stroke:#16853c',
+        '  classDef blocked stroke:#bd790a,stroke-width:2px',
+        '  classDef stuck stroke:#d92d20,stroke-width:2px,stroke-dasharray:5 3',
+        '  classDef quiet opacity:0.6',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  classDef focus stroke-width:3px',
+        '  class n0,n1 ready',
         '  class n0 focus',
+        '',
+      ].join('\n')
+    );
+    const parts = mermaidParts(cut, {
+      critical: { nodeIds: ['u', 'f'], edges: [{ from: 'u', to: 'f' }] },
+    });
+    expect(parts.body).toContain(
+      '  %% Showing the nearest 2 of 4 issues on this chain\n'
+    );
+    for (const styles of Object.values(parts.styles)) {
+      expect(styles).toContain('  classDef focus stroke-width:3px\n');
+      expect(styles).toContain('  class n0 focus\n');
+    }
+    expect(parts.styles.critical).toBe(
+      [
+        '  %% Critical path: n1 → n0 (2 issues)',
+        '  classDef critical stroke-width:3px',
+        '  classDef external stroke-dasharray:3 3,opacity:0.7',
+        '  classDef focus stroke-width:3px',
+        '  class n0,n1 critical',
+        '  class n0 focus',
+        '  linkStyle 0 stroke-width:3px',
         '',
       ].join('\n')
     );

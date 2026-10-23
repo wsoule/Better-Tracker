@@ -186,7 +186,8 @@ export type {
 } from './timeline/types';
 
 // ---- graph family (src/graph): the dependency graph (architecture §8.4
-// Graph, §2.10) — the pure dagre layout, the upstream/downstream chain
+// Graph, §2.10) — the pure dagre layout (flat, or in labelled clusters
+// with packed grids and shelves, ./graph/pack), the upstream/downstream chain
 // helpers and path walks (both paths, "Ready next", the critical path and
 // the readout copy), the pan/zoom DependencyGraph, its legend and the Copy
 // Mermaid block. Props are typed in ./graph/types.
@@ -233,15 +234,25 @@ export type {
 export { DependencyGraph } from './graph/dependency-graph';
 export { defaultGraphLegend, GraphLegend } from './graph/graph-legend';
 export {
+  CLUSTER_METRICS,
   edgeKey,
   GRAPH_METRICS,
   layoutGraph,
   measureNode,
   type NodeMeasure,
 } from './graph/layout';
+export {
+  gridColumns,
+  packGrid,
+  packShelves,
+  type Packed,
+  type PackSize,
+  shelfWidth,
+} from './graph/pack';
 export { COPIED_MS, MermaidSource } from './graph/mermaid-source';
 export type {
   DependencyGraphProps,
+  GraphClusterData,
   GraphDirection,
   GraphEdgeData,
   GraphEdgeKind,

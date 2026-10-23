@@ -41,6 +41,16 @@ const READY_ISSUE = {
   readyIssues: 1,
 };
 
+// An open issue on no relation (owner decision 2026-10-23): it can start,
+// and it is not in the blocking flow, so it reads "No dependencies".
+const INDEPENDENT_ISSUE = {
+  readiness: 'independent',
+  blockedBy: 0,
+  unblocks: 0,
+  openIssues: 1,
+  readyIssues: 1,
+};
+
 const DONE_ISSUE = {
   readiness: 'done',
   blockedBy: 0,
@@ -57,7 +67,7 @@ function byId(nodes: readonly GraphNode[]): GraphNode[] {
 }
 
 describe('issue readiness', () => {
-  test('ready with no blocker, and with only a closed blocker', () => {
+  test('independent with no relation; ready with only a closed blocker', () => {
     const g = graph(
       {
         issues: [inM1('A'), inM1('B', { stateId: STATE.done }), inM1('C')],
@@ -65,8 +75,12 @@ describe('issue readiness', () => {
       },
       M1
     );
-    expect(readinessOf(node(g, 'A'))).toEqual(READY_ISSUE);
+    expect(readinessOf(node(g, 'A'))).toEqual(INDEPENDENT_ISSUE);
+    expect(readinessLabel(node(g, 'A'))).toBe('No dependencies');
+    expect(readinessClass(node(g, 'A'))).toBe('independent');
+    // C waited on B, which is done: it is in the blocking flow, unblocked.
     expect(readinessOf(node(g, 'C'))).toEqual(READY_ISSUE);
+    expect(readinessClass(node(g, 'C'))).toBe('ready');
     expect(readinessOf(node(g, 'B'))).toEqual(DONE_ISSUE);
     expect(readinessLabel(node(g, 'C'))).toBe('Ready');
     expect(edge(g, 'B', 'C')).toMatchObject({
@@ -105,29 +119,52 @@ describe('issue readiness', () => {
   });
 
   test('done when completed or canceled, whatever still blocks it', () => {
-    const g = graph(
-      {
-        issues: [
-          inM1('O'),
-          inM1('D', { stateId: STATE.done }),
-          inM1('K', { stateId: STATE.canceled }),
-          inM1('U', { stateId: STATE.duplicate }),
-        ],
-        relations: blocks(['O', 'D'], ['O', 'K'], ['O', 'U']),
-      },
-      M1
-    );
-    for (const id of ['D', 'K', 'U']) {
-      expect(readinessOf(node(g, id))).toEqual(DONE_ISSUE);
-      expect(readinessLabel(node(g, id))).toBe('');
+    const parts: GraphParts = {
+      issues: [
+        inM1('O'),
+        inM1('D', { stateId: STATE.done }),
+        inM1('K', { stateId: STATE.canceled }),
+        inM1('U', { stateId: STATE.duplicate }),
+      ],
+      relations: blocks(['O', 'D'], ['O', 'K'], ['O', 'U']),
+    };
+    // A milestone graph draws the done D but never a canceled or
+    // duplicate issue, nor its relations.
+    const g = graph(parts, M1);
+    expect(g.nodes.map((n) => n.id)).toEqual(['D', 'O']);
+    expect(g.edges.map((e) => [e.from, e.to])).toEqual([['O', 'D']]);
+    // O's chain walks its direct relations in any state, so K and U are
+    // drawn there.
+    const chain = graph(parts, { level: 'issue', issueId: 'O' });
+    for (const [h, id] of [
+      [g, 'D'],
+      [chain, 'K'],
+      [chain, 'U'],
+    ] as const) {
+      expect(readinessOf(node(h, id))).toEqual(DONE_ISSUE);
+      expect(readinessLabel(node(h, id))).toBe('');
       // An open blocker into a closed issue no longer blocks.
-      expect(edge(g, 'O', id)).toMatchObject({
+      expect(edge(h, 'O', id)).toMatchObject({
         resolved: false,
         blocking: false,
       });
     }
-    // O blocks only closed issues: finishing it frees nothing.
+    // O blocks only closed issues: finishing it frees nothing, and its
+    // relation to the done D keeps it in the blocking flow.
     expect(readinessOf(node(g, 'O'))).toEqual(READY_ISSUE);
+  });
+
+  test('a relation only to canceled issues leaves an issue independent', () => {
+    const g = graph(
+      {
+        issues: [inM1('O'), inM1('K', { stateId: STATE.canceled })],
+        relations: blocks(['K', 'O']),
+      },
+      M1
+    );
+    expect(g.nodes.map((n) => n.id)).toEqual(['O']);
+    expect(g.edges).toEqual([]);
+    expect(readinessOf(node(g, 'O'))).toEqual(INDEPENDENT_ISSUE);
   });
 
   test('blockers count even when they are not drawn: a chain side blocker', () => {
@@ -267,11 +304,36 @@ describe('LEVELS: milestones in the workspace', () => {
     expect(node(g, 'mC')).toMatchObject({ readiness: 'blocked', blockedBy: 2 });
   });
 
-  test('facts are mirror-wide: mP frees mP2, which this graph does not draw', () => {
+  test('mP frees mP2, and the arrow between the two paused boxes is drawn', () => {
+    // Both paused boxes are drawn (every milestone, since 2026-10-23), so
+    // the relation between them is an arrow too: a blocker a box counts is
+    // never "outside this graph" while it is drawn. (The timeline leaves
+    // inactive-to-inactive connectors out itself.)
     expect(node(g, 'mP').unblocks).toBe(1);
-    expect(g.nodes.some((n) => n.id === 'mP2')).toBe(false);
+    expect(node(g, 'mP2')).toMatchObject({
+      readiness: 'blocked',
+      blockedBy: 1,
+    });
+    expect(edge(g, 'mP', 'mP2')).toMatchObject({ blocking: true, weight: 1 });
     // Paused work is never loud.
     expect(readinessClass(node(g, 'mP'))).toBe('quiet');
+    expect(readinessClass(node(g, 'mP2'))).toBe('quiet');
+  });
+
+  test('a box that neither blocks nor waits on another reads "No dependencies"', () => {
+    // mA2's only relation is d1 → a2-1 with d1 done: no open relation
+    // leaves or enters the box.
+    expect(readinessOf(node(g, 'mA2'))).toEqual({
+      readiness: 'independent',
+      blockedBy: 0,
+      unblocks: 0,
+      openIssues: 1,
+      readyIssues: 1,
+    });
+    expect(readinessLabel(node(g, 'mA2'))).toBe('No dependencies');
+    expect(readinessClass(node(g, 'mA2'))).toBe('independent');
+    // mDone has no open issue at all: done, not independent.
+    expect(node(g, 'mDone').readiness).toBe('done');
   });
 
   test('aggregate edges always block', () => {
@@ -450,10 +512,54 @@ describe('stuck boxes: nothing in them can start and a cycle inside holds them',
 
   test('once the outside blocker is done, the issue it alone held starts', () => {
     expect(readinessClass(loopBox(false, false))).toBe('stuck');
+    // t3 can start, and with s1 done no open relation joins m1 to another
+    // box: the cycle inside is its own business, so it has no dependencies.
     const cleared = loopBox(true, false);
-    expect(cleared).toMatchObject({ readiness: 'ready', readyIssues: 1 });
-    expect(readinessLabel(cleared)).toBe('Clear');
-    expect(readinessClass(cleared)).toBe('ready');
+    expect(cleared).toMatchObject({
+      readiness: 'independent',
+      readyIssues: 1,
+      holdsCycle: true,
+    });
+    expect(readinessLabel(cleared)).toBe('No dependencies');
+    expect(readinessClass(cleared)).toBe('independent');
+  });
+
+  test('a box clear of outside blockers that still holds one up is ready, not independent', () => {
+    // m1 holds t1 ⇄ t2 and the ready t3, and t3 blocks s1 in m2.
+    const g = graph(
+      {
+        milestones: [milestone('m1', 'p1'), milestone('m2', 'p1')],
+        issues: [
+          inM1('t1'),
+          inM1('t2'),
+          inM1('t3'),
+          inM1('s1', { milestoneId: 'm2' }),
+        ],
+        relations: blocks(['t1', 't2'], ['t2', 't1'], ['t3', 's1']),
+      },
+      MILESTONES
+    );
+    expect(node(g, 'm1')).toMatchObject({
+      readiness: 'ready',
+      readyIssues: 1,
+      unblocks: 1,
+    });
+    expect(readinessLabel(node(g, 'm1'))).toBe('Clear');
+    expect(readinessClass(node(g, 'm1'))).toBe('ready');
+  });
+
+  test('blocking an issue with no unit keeps a box in the flow', () => {
+    // u1 has no milestone, so t3 → u1 is unplaced at the milestone level.
+    const g = graph(
+      {
+        milestones: [milestone('m1', 'p1')],
+        issues: [inM1('t3'), inM1('u1', { milestoneId: null })],
+        relations: blocks(['t3', 'u1']),
+      },
+      MILESTONES
+    );
+    expect(node(g, 'm1').readiness).toBe('ready');
+    expect(g.unplacedRelations).toBe(1);
   });
 
   test('boxes whose arrows form a cycle, each holding ready work, wait and are not stuck', () => {
@@ -549,6 +655,7 @@ function flowNode(overrides: Partial<GraphNode>): GraphNode {
     milestoneId: 'n',
     ownerId: null,
     external: false,
+    clusterId: null,
     active: true,
     open: true,
     unassigned: false,
@@ -560,6 +667,7 @@ function flowNode(overrides: Partial<GraphNode>): GraphNode {
     status: 'on_track',
     readiness: 'ready',
     blockedBy: 0,
+    unplacedBlockers: 0,
     unblocks: 0,
     openIssues: 1,
     readyIssues: 1,
@@ -661,6 +769,21 @@ describe('readinessClass', () => {
       flowNode({ kind: 'project', external: true }),
       'ready',
     ],
+    [
+      'an issue with no dependencies',
+      flowNode({ kind: 'issue', readiness: 'independent' }),
+      'independent',
+    ],
+    [
+      'a box with no dependencies',
+      flowNode({ readiness: 'independent', openIssues: 4, readyIssues: 4 }),
+      'independent',
+    ],
+    [
+      'a paused issue with no dependencies',
+      flowNode({ kind: 'issue', readiness: 'independent', active: false }),
+      'quiet',
+    ],
   ] as const)('%s → %s', (_name, n, expected) => {
     expect(readinessClass(n)).toBe(expected);
   });
@@ -715,7 +838,185 @@ describe('readinessLabel', () => {
       }),
       '',
     ],
+    [
+      'issue, no dependencies',
+      flowNode({ kind: 'issue', readiness: 'independent' }),
+      'No dependencies',
+    ],
+    [
+      'project, no dependencies',
+      flowNode({ kind: 'project', readiness: 'independent' }),
+      'No dependencies',
+    ],
   ] as const)('%s → %j', (_name, n, expected) => {
     expect(readinessLabel(n)).toBe(expected);
+  });
+});
+
+describe('paused work and empty boxes (review fixes, 2026-10-23)', () => {
+  // I1 = {pA active, pP paused}, I2 = {pB active, pQ paused}; p1 (pP)
+  // blocks q1 (pQ). Both initiatives are active, so both are drawn loud.
+  const PAUSED_ACROSS: GraphParts = {
+    initiatives: [
+      initiative('I1', { name: 'One', sortOrder: 1 }),
+      initiative('I2', { name: 'Two', sortOrder: 2 }),
+    ],
+    projects: [
+      project('pA', { name: 'Alpha', initiativeIds: ['I1'] }),
+      project('pP', {
+        name: 'PausedP',
+        initiativeIds: ['I1'],
+        statusType: 'paused',
+      }),
+      project('pB', { name: 'Bravo', initiativeIds: ['I2'] }),
+      project('pQ', {
+        name: 'PausedQ',
+        initiativeIds: ['I2'],
+        statusType: 'paused',
+      }),
+    ],
+    milestones: [
+      milestone('mA', 'pA'),
+      milestone('mP', 'pP'),
+      milestone('mB', 'pB'),
+      milestone('mQ', 'pQ'),
+    ],
+    issues: [
+      at('a1', 'mA', 'pA'),
+      at('p1', 'mP', 'pP'),
+      at('b1', 'mB', 'pB'),
+      at('q1', 'mQ', 'pQ'),
+    ],
+    relations: blocks(['p1', 'q1']),
+  };
+
+  test('initiative level: a relation between two paused projects is an arrow between the drawn initiatives', () => {
+    const g = graph(PAUSED_ACROSS, { level: 'initiative' });
+    expect(g.nodes.map((n) => [n.id, n.active, n.readiness])).toEqual([
+      ['I1', true, 'ready'],
+      ['I2', true, 'blocked'],
+    ]);
+    expect(node(g, 'I2').blockedBy).toBe(1);
+    expect(node(g, 'I1').unblocks).toBe(1);
+    // The blocker I2 counts is I1, drawn: so is the arrow.
+    expect(g.edges.map((e) => [e.from, e.to, e.weight])).toEqual([
+      ['I1', 'I2', 1],
+    ]);
+  });
+
+  test('workspace milestones: a paused chain head is drawn with its arrow', () => {
+    const g = graph(
+      {
+        projects: [
+          project('pP', { name: 'Paused', statusType: 'paused' }),
+          project('pA', { name: 'Active' }),
+        ],
+        milestones: [
+          milestone('mP1', 'pP', { name: 'P1' }),
+          milestone('mP2', 'pP', { name: 'P2' }),
+          milestone('mA', 'pA', { name: 'A' }),
+        ],
+        issues: [
+          at('x1', 'mP1', 'pP'),
+          at('x2', 'mP2', 'pP'),
+          at('a1', 'mA', 'pA'),
+        ],
+        relations: blocks(['x1', 'x2'], ['x2', 'a1']),
+      },
+      MILESTONES
+    );
+    expect(g.edges.map((e) => `${e.from}>${e.to}`)).toEqual([
+      'mP1>mP2',
+      'mP2>mA',
+    ]);
+    expect(node(g, 'mP2').blockedBy).toBe(1);
+  });
+
+  test('a box no issue counts toward is empty, not done', () => {
+    const g = graph(
+      {
+        projects: [project('pA', { name: 'Alpha' })],
+        milestones: [
+          milestone('mDone', 'pA', { name: 'Done' }),
+          milestone('mVoid', 'pA', { name: 'Void' }),
+          milestone('mGone', 'pA', { name: 'Gone' }),
+        ],
+        issues: [
+          at('d1', 'mDone', 'pA', { stateId: STATE.done }),
+          at('c1', 'mGone', 'pA', { stateId: STATE.canceled }),
+        ],
+        relations: [],
+      },
+      MILESTONES
+    );
+    // Done: an issue counts toward it and none is open.
+    expect(readinessOf(node(g, 'mDone'))).toEqual({
+      readiness: 'done',
+      blockedBy: 0,
+      unblocks: 0,
+      openIssues: 0,
+      readyIssues: 0,
+    });
+    // Empty: nothing counts toward it at all ("No issues yet").
+    expect(node(g, 'mVoid')).toMatchObject({
+      readiness: 'empty',
+      status: 'empty',
+      openIssues: 0,
+    });
+    // A canceled issue still counts, as milestone progress counts it: its
+    // status is complete, and so is its readiness.
+    expect(node(g, 'mGone')).toMatchObject({
+      readiness: 'done',
+      status: 'complete',
+    });
+    expect(readinessLabel(node(g, 'mVoid'))).toBe('');
+    expect(readinessClass(node(g, 'mVoid'))).toBe('quiet');
+  });
+
+  test('an initiative whose only project counts toward another one is empty', () => {
+    const g = graph(
+      {
+        initiatives: [
+          initiative('I1', { name: 'One', sortOrder: 1 }),
+          initiative('I2', { name: 'Two', sortOrder: 2 }),
+        ],
+        projects: [
+          project('pS', { name: 'Shared', initiativeIds: ['I1', 'I2'] }),
+        ],
+        milestones: [milestone('mS', 'pS')],
+        issues: [at('s1', 'mS', 'pS')],
+        relations: [],
+      },
+      { level: 'initiative' }
+    );
+    expect(g.nodes.map((n) => [n.id, n.readiness])).toEqual([
+      ['I1', 'independent'],
+      ['I2', 'empty'],
+    ]);
+  });
+
+  test('blockers with no unit at this level are counted apart (unplacedBlockers)', () => {
+    // a1 (in mA) waits on b1 (in mB) and on n1, n2 (no milestone).
+    const g = graph(
+      {
+        projects: [project('pA', { name: 'Alpha' })],
+        milestones: [milestone('mA', 'pA'), milestone('mB', 'pA')],
+        issues: [
+          at('a1', 'mA', 'pA'),
+          at('b1', 'mB', 'pA'),
+          at('n1', 'mA', 'pA', { milestoneId: null }),
+          at('n2', 'mA', 'pA', { milestoneId: null }),
+        ],
+        relations: blocks(['b1', 'a1'], ['n1', 'a1'], ['n2', 'a1']),
+      },
+      MILESTONES
+    );
+    expect(node(g, 'mA')).toMatchObject({
+      readiness: 'blocked',
+      blockedBy: 3,
+      unplacedBlockers: 2,
+    });
+    expect(node(g, 'mB')).toMatchObject({ unplacedBlockers: 0 });
+    expect(g.unplacedRelations).toBe(2);
   });
 });

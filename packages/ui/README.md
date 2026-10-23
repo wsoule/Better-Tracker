@@ -337,12 +337,20 @@ The other shared vocabularies:
   `warning` for blocked projects) turns the count into a square chip in that
   colour.
 - Graph: `GraphNodeTone` (any `UiTone`: `danger` / `warning` / `success` /
-  `info` draw a 2px rule in the hue, `muted` a faint box with its status mark in
-  grey, `accent` a purple rule for a host's own emphasis, never a status),
-  `GraphNodeTag` (`UNASSIGNED` a filled amber chip, inverted on the red flood;
-  `OVERDUE` floods the box red, `CYCLE` a dashed red outline, or any string),
-  `GraphEdgeKind` (`default`, `risk` amber, `cycle` dashed red, `cross`,
-  `resolved`). `GraphLegendMark` adds `node-warning` (the amber rule).
+  `info` draw a 2px rule in the hue, `muted` a faint box: a done one keeps its
+  filled ink done square, any other status mark turns `--grey` (shape kept; a
+  missing input stays hatched), `accent` a purple rule for a host's own
+  emphasis, never a status), `GraphNodeTag` (`UNASSIGNED` a filled amber chip,
+  inverted on the red flood; `OVERDUE` floods the box red, `CYCLE` a dashed red
+  outline, or any string), `GraphEdgeKind` (`default`, `risk` amber, `cycle`
+  dashed red, `cross`, `resolved`). `GraphLegendMark` adds `node-warning` (the
+  amber rule), the Status highlight's `node-ready` (1px green edge),
+  `node-blocked` (2px amber) and `node-stuck` (2px red), the Critical path's
+  `node-chain` (ink ring and step) and `node-faded`, the edges `edge-unblocked`
+  (green dots) and `edge-chain` (2.5px ink), the Paths row's `path-active` (the
+  accent flood of the box being read), `path-up` (accent ring), `path-down` (ink
+  ring), `path-next` (the square "Ready next" tag) and `path-chain` (as
+  `node-chain`), and the frames `cluster` and `cluster-muted`.
 - `ToastKind`: `info`, `error`.
 
 Every status mark carries a text label for assistive tech (`label` /
@@ -389,15 +397,55 @@ the types for the rest.
 
 Pure helpers are exported too: the timeline's date scale (`createScale`,
 `xForDate`, …), the graph layout (`layoutGraph`, `upstreamChain`, …), the
-palette's `fuzzyMatch`, and the collapsed-group storage helpers.
+graph's path walks (`pathContext`, `nodePaths`, `longestChains`, `longestChain`,
+`describePaths`, …), the palette's `fuzzyMatch`, and the collapsed-group storage
+helpers.
 
 ### Graph and timeline options
 
 - `DependencyGraph` `layout`: a `GraphLayout` the host computed with
   `layoutGraph` from the same `nodes`, `edges` and options. It is used as is, so
   a server render can lay the graph out once and the client (a phone included)
-  never runs dagre; `direction` and `cluster` are then ignored. `layoutGraph` is
-  pure and carries no `'use client'`, so it runs on a server.
+  never runs dagre; `direction`, `cluster` and the layout of `clusters` are then
+  ignored (pass the same `clusters` anyway: the names use them). `layoutGraph`
+  is pure and carries no `'use client'`, so it runs on a server.
+- `DependencyGraph` `clusters` (and `layoutGraph`'s `clusters` option): a graph
+  of every item, framed by parent. Each `GraphClusterData` (`id`, `label`,
+  `parent`, `muted`, `external`) is a labelled frame, nested through `parent`;
+  `GraphNodeData.cluster` names a node's innermost frame (unknown or none: the
+  top level). Inside each frame the nodes and frames on an arrow flow along the
+  direction by dagre, over that frame's own items only, with the ends of arrows
+  that leave it drifting to its far side; the nodes on no arrow pack into a
+  compact grid under the flow (done and empty ones last; two or more nodes get
+  at least two columns), and frames on no arrow onto shelves under that. When
+  frames in a flow would chain into a row longer than `CLUSTER_METRICS.flowMax`
+  (2400px, or 1.25 times their shelf width), they go onto shelves in flow order
+  instead and their arrows are drawn without a dagre route; when the flow's
+  longest chain alone (`flowChain`, a lower bound on dagre's own acyclic graph)
+  already passes that, dagre is not run for it at all. dagre's edge weights are
+  whole numbers: a fractional one can leave network-simplex pivoting forever.
+  Arrows between frames leave the blocker's far side and enter the waiting box's
+  near side, following dagre's lane to the far side of each frame they leave and
+  from the near side of each they enter (in a flow small enough for
+  network-simplex the frame's ports rank after and before its whole flow; in a
+  bigger one they sit beside their own items, to keep its cost down), so they
+  pass the other boxes there instead of running behind them; arrows inside one
+  frame keep their dagre route. Top to bottom, a frame's grid sits under its
+  flow, in the way of the arrows leaving it, so frames read best left to right
+  (every host uses `LR`). Given at all, even empty, `clusters` also packs the
+  loose top-level nodes, so a host with no frames for a level (the planner's
+  initiative level) still gets no long column. Frames are drawn decoratively
+  (`data-graph-cluster`, `data-depth`, `data-muted`, `data-external`): a 1px
+  `--grey-2` hairline, a mono caps title in the top-left on a paper patch above
+  the arrows (ink at the top level, `--muted` nested), hatched with a `--grey`
+  rule when muted, dashed when external; each node's accessible name says the
+  frames it sits in ("in Beta, Orion"). The layout carries `clustered: true`;
+  its nodes come in reading order (frame by frame) and the arrow keys move to
+  the nearest box that way. The legend draws frames as `cluster` and
+  `cluster-muted`. Flows of more than `CLUSTER_METRICS.simplexItems` items or
+  `simplexLinks` links rank with dagre's tight-tree instead of network-simplex,
+  which keeps one big, dense frame near 0.5 s for 500 nodes and 800 edges
+  (network-simplex: about 5 s).
 - `DependencyGraph` `focusId`: the node the graph is about (one issue's chain,
   say). It gets a 2px ink rule inside its box and lights nothing, unlike
   `selectedId`; its accessible name ends with `focusLabel` (default "focus"),
@@ -413,10 +461,85 @@ palette's `fuzzyMatch`, and the collapsed-group storage helpers.
   far as it takes to show the whole box when that is less, so what it waits on
   (to its left) stays in view. When the panel would leave less than 240px of the
   frame (a phone's full-width sheet) nothing moves.
-- **Cap what you draw.** One layout costs about 0.45 s at 200 nodes and 300
-  edges (dagre network-simplex; edges dominate) and grows fast past that. Decide
-  a limit in the host and offer a narrower graph instead of drawing a bigger
-  one, or part of one.
+- `DependencyGraph` `highlight`: what the drawing emphasises. `risk` (the
+  default, so a host that passes nothing keeps its look) draws the risk tones:
+  the red overdue flood, the 2px rule in a node's `tone`, amber risk chains.
+  `status` tones each node by its readiness instead: a 1px green edge when
+  ready, the 2px amber rule when blocked, red when stuck, faint when done (its
+  filled ink done square kept), empty or paused (its mark in `--grey`), and
+  unblocked edges as green dots. `critical` numbers the critical path and lets
+  the rest recede. Switching never moves a box: the layout ignores the
+  highlight, so one `layout` serves all three. The frame carries
+  `data-highlight`; nodes carry `data-state` (`active`, `lit`, `down`, `chain`,
+  `dim`), `data-pointed` (the box being read), `data-readiness`, `data-next` and
+  `data-step`.
+- `GraphNodeData.readiness` (`GraphNodeReadiness`: `state` ready, blocked, done,
+  independent or empty (a box nothing counts toward, walked like done but read
+  as its `statusLabel` or "No issues", never "Done"); the chip `label`, "Ready",
+  "Blocked by 2", "Clear", `''` when done or empty; an independent node (on no
+  relation at all) has the word "No dependencies" in its name and readout but no
+  chip, and draws neutral; the Status `tone`; `blockedBy`; `unblocks`;
+  `canStart`). Count `blockedBy` (open blockers) and `unblocks` (what finishing
+  it alone frees) over all of your data, not only what is drawn: the readout
+  says the difference is "not drawn". Set `canStart: false` on a box whose open
+  work all waits inside it, so "start with" never points at it. The readiness
+  chip leads a node's chips in every highlight (toned only under Status), so
+  measure with `measureNode` or `layoutGraph` from the same data. Without
+  `readiness` the Status highlight falls back to `tone` and the walks to the
+  drawn edges. `GraphNodeData.key` (an id such as "ENG-23") is how the readout
+  names a node; else its label.
+- Edges: the `resolved` kind means one end is done (the blocker, or the node
+  that waited), so it no longer blocks; it is drawn as dots and never walked.
+  `GraphEdgeData.cross` marks an edge that crosses a project (or owner) boundary
+  whatever its kind; Status and Critical path dash it while it blocks and is not
+  a cycle.
+- Paths: hover, keyboard focus, a touch tap or the selection lights what the
+  node transitively waits on (an accent ring and accent lines) and what waits on
+  it (an ink ring and ink lines), over the drawn edges; a `pathWords.next` tag
+  ("Ready next", a square mono tag on the box's top rule) marks each node that
+  finishing it alone would unblock. The node being read (hover, keyboard focus,
+  a touch pin; not the selection) is flooded in the accent on every input, with
+  a 4px double `CanvasText` outline in forced colours (the selected node gets
+  one too, its ink fill being dropped there). Receding nodes grey their words
+  directly and nothing but the flood and the rings fades, so a hover stays cheap
+  on hundreds of nodes. Accessible names give the same counts ("waits on 1,
+  holds up 3; done would unblock 2"; "waits on 1, holds up 0 in this graph; done
+  would unblock 1 (1 not drawn)" when your readiness counts more than is drawn),
+  transitive while `V × (V + E)` stays within `PATH_NAME_BUDGET` (V counting
+  only the nodes on a blocking edge, so a graph of every item with few arrows
+  stays transitive) and direct above it, so a host with no draw limit never runs
+  a quadratic walk in render.
+- The critical path is the longest chain of blocking drawn edges, a cycle
+  counted as one step weighing its member count, ties going to display order;
+  with a node active, the longest chain through it; in a chain graph at rest,
+  the one through `focusId`. It is computed in O(V + E) per edge list, shown
+  only when it holds two or more nodes, and its names carry "step k of s on the
+  critical path".
+- `DependencyGraph` `readout`: one plain (not live) line under the frame names
+  the node being read and its paths ("ENG-23 · Blocked by 1 · Waits on 1 open,
+  start with ENG-12 · Holds up 1 · Done would unblock 1: OPS-20"); with nothing
+  active it shows this text (your summary for the highlight) and how to trace a
+  node (`hint` / `tapHint`, or `hintCritical` / `tapHintCritical` under Critical
+  path: "show the longest chain through it"). With nothing drawn waiting on the
+  node it says "Nothing here waits on it" (`holdsUpNone`). `null` hides the
+  line. `pathWords` (`Partial<GraphPathWords>`, defaults in
+  `defaultGraphPathWords`) rewords any part, the tag included.
+- Touch: on a touch press (`pointerType === 'touch'`) the first tap traces a
+  node and a second tap opens it (`onSelect`, or its link); on a node that opens
+  nothing a second tap drops the pin again. A tap on the background or Escape
+  drops the pin and its trace (the focus a tap gives a button in Chromium never
+  traces on its own). Mouse, pen, keyboard and assistive-tech activation open at
+  once.
+- **Cap what you draw.** Without `clusters` one layout costs about 0.45 s at 200
+  nodes and 300 edges (dagre network-simplex; edges dominate) and grows fast
+  past that (about 1.3 s at 400 and 600). With `clusters` (measured 2026-10-23
+  after the review fixes on workspace-shaped graphs: frames per project and
+  milestone, a fifth of the issues done) the layout alone is about 0.1 s at 200
+  and 300, 0.3 s at 500 and 800 and 0.35–0.75 s at 700 and 1000 whatever the
+  shape, from one milestone holding everything (0.64 s) to 140 projects; a hover
+  at 700 nodes still costs about a tenth of a second of frames on a slow
+  machine. Decide a limit in the host and offer a narrower graph instead of
+  drawing a bigger one, or part of one.
 - `TimelineGroup.link` (`TimelineGroupLink`: `label`, `href`, optional
   `ariaLabel`): a quiet mono link with a group's "N projects", rendered through
   the host `<Link>`: in the chart's group row it sits under the count, in one

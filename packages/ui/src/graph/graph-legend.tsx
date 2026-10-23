@@ -8,7 +8,8 @@ import type {
   GraphLegendProps,
 } from './types';
 
-/** Every mark DependencyGraph draws, in the order a reader meets them. */
+/** Every mark DependencyGraph draws under its default (Risk) highlight,
+    in the order a reader meets them, then what pointing at a node lights. */
 export const defaultGraphLegend: GraphLegendItem[] = [
   { mark: 'node', label: 'Node', note: 'blockers sit left of what waits' },
   { mark: 'node-overdue', label: 'Overdue', note: 'past its date' },
@@ -27,8 +28,19 @@ export const defaultGraphLegend: GraphLegendItem[] = [
   },
   { mark: 'edge-cycle', label: 'Cycle', note: 'both ends wait' },
   { mark: 'edge-cross', label: 'Cross-project', note: 'leaves its project' },
-  { mark: 'edge-resolved', label: 'Resolved', note: 'blocker closed' },
+  {
+    mark: 'edge-resolved',
+    label: 'Unblocked',
+    note: 'one end is done: no longer blocking',
+  },
   { mark: 'weight', label: 'Count', note: 'relations on one edge' },
+  {
+    mark: 'path-up',
+    label: 'Waits on',
+    note: 'what the box you point at waits on',
+  },
+  { mark: 'path-down', label: 'Holds up', note: 'what waits on it' },
+  { mark: 'path-next', label: 'Ready next', note: 'ready once it is done' },
 ];
 
 const EDGE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
@@ -37,6 +49,8 @@ const EDGE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
   'edge-cycle': styles.edgeCycle,
   'edge-cross': styles.edgeCross,
   'edge-resolved': styles.edgeResolved,
+  'edge-unblocked': styles.edgeUnblocked,
+  'edge-chain': styles.edgeChain,
 };
 
 const NODE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
@@ -48,7 +62,37 @@ const NODE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
   'node-cycle': styles.nodeCycle,
   'node-muted': styles.nodeMuted,
   'node-focus': styles.nodeFocus,
+  'node-ready': styles.nodeReady,
+  'node-blocked': styles.nodeBlocked,
+  'node-stuck': styles.nodeStuck,
+  'node-chain': styles.nodeChain,
+  'node-faded': styles.nodeFaded,
+  'path-active': styles.pathActive,
+  'path-up': styles.pathUp,
+  'path-down': styles.pathDown,
+  'path-next': styles.pathNext,
+  'path-chain': styles.pathChain,
+  cluster: styles.cluster,
+  'cluster-muted': styles.clusterMuted,
 };
+
+/** Swatches that carry a small mark of their own: the step number of a
+    box on the critical path, the "Ready next" tag riding a box. */
+const BADGE: Partial<Record<GraphLegendMark, 'step' | 'next'>> = {
+  'node-chain': 'step',
+  'path-chain': 'step',
+  'path-next': 'next',
+};
+
+/** The legend row a mark belongs to: what boxes (and the frames around
+    them) look like, what the lines mean, and what pointing at a box
+    lights. */
+function rowOf(mark: GraphLegendMark): 'Nodes' | 'Edges' | 'Paths' {
+  if (mark.startsWith('path')) return 'Paths';
+  return mark.startsWith('node') || mark.startsWith('cluster')
+    ? 'Nodes'
+    : 'Edges';
+}
 
 /** The small drawing beside a legend label, in the graph's own marks.
     `data-mark` names the mark for hosts' and tests' queries. */
@@ -75,31 +119,35 @@ function Swatch({ mark }: { mark: GraphLegendMark }): ReactNode {
       </svg>
     );
   }
+  const badge = BADGE[mark];
   return (
     <span
       className={cx(styles.node, NODE_SWATCH[mark])}
       data-mark={mark}
       aria-hidden="true"
-    />
+    >
+      {badge === 'step' ? <span className={styles.step}>1</span> : null}
+      {badge === 'next' ? <span className={styles.next} /> : null}
+    </span>
   );
 }
 
 /**
  * The graph's key, in the Matrix legend idiom: one hairline strip, a mono
- * NODES / EDGES key per row, then swatch + bold mono name + muted note.
- * Notes drop away on narrower screens; the names carry the meaning.
+ * NODES / EDGES / PATHS key per row, then swatch + bold mono name + muted
+ * note. Notes drop away on narrower screens; the names carry the meaning.
  */
 export function GraphLegend({
   items = defaultGraphLegend,
   label = 'Graph legend',
   className,
 }: GraphLegendProps): ReactNode {
-  const nodeItems = items.filter((item) => item.mark.startsWith('node'));
-  const edgeItems = items.filter((item) => !item.mark.startsWith('node'));
-  const rows = [
-    { key: 'Nodes', list: nodeItems },
-    { key: 'Edges', list: edgeItems },
-  ].filter((row) => row.list.length > 0);
+  const rows = (['Nodes', 'Edges', 'Paths'] as const)
+    .map((key) => ({
+      key,
+      list: items.filter((item) => rowOf(item.mark) === key),
+    }))
+    .filter((row) => row.list.length > 0);
   return (
     <div
       className={cx(styles.legend, className)}

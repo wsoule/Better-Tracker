@@ -40,6 +40,7 @@ const e = (
 const ready = (unblocks = 0, label = 'Ready'): GraphNodeReadiness => ({
   state: 'ready',
   label,
+  tone: 'success',
   blockedBy: 0,
   unblocks,
 });
@@ -48,11 +49,18 @@ const blocked = (
   blockedBy: number,
   unblocks = 0,
   label = `Blocked by ${blockedBy}`
-): GraphNodeReadiness => ({ state: 'blocked', label, blockedBy, unblocks });
+): GraphNodeReadiness => ({
+  state: 'blocked',
+  label,
+  tone: 'warning',
+  blockedBy,
+  unblocks,
+});
 
 const DONE: GraphNodeReadiness = {
   state: 'done',
   label: '',
+  tone: 'muted',
   blockedBy: 0,
   unblocks: 0,
 };
@@ -327,12 +335,16 @@ describe('accessible name counts', () => {
       waitsOn: 0,
       holdsUp: 29,
       unblocks: 1,
+      outside: false,
+      unblocksNotDrawn: 0,
     });
     expect(counts.get('n15')).toEqual({
       transitive: true,
       waitsOn: 15,
       holdsUp: 14,
       unblocks: 1,
+      outside: false,
+      unblocksNotDrawn: 0,
     });
     expect(pathNamePhrase(counts.get('n29')!)).toBe('waits on 29, holds up 0');
   });
@@ -355,6 +367,8 @@ describe('accessible name counts', () => {
       waitsOn: 1,
       holdsUp: 1,
       unblocks: 1,
+      outside: false,
+      unblocksNotDrawn: 0,
     });
     expect(pathNamePhrase(counts.get('n100')!)).toBe(
       'waits on 1, blocks 1; done would unblock 1'
@@ -364,6 +378,20 @@ describe('accessible name counts', () => {
   test("done would unblock reads the host's count when it has one", () => {
     const ctx = pathContext([issue('a', ready(3))], []);
     expect(pathNameCounts(ctx).get('a')?.unblocks).toBe(3);
+  });
+
+  test('counts the graph does not draw scope the name to the drawn graph', () => {
+    // ENG-5 frees one issue the graph does not draw: "holds up 0" is about
+    // what is drawn, and the name says so instead of contradicting itself.
+    const frees = pathNameCounts(pathContext([issue('ENG-5', ready(1))], []));
+    expect(pathNamePhrase(frees.get('ENG-5')!)).toBe(
+      'waits on 0, holds up 0 in this graph; done would unblock 1 (1 not drawn)'
+    );
+    // A blocker the graph does not draw scopes it too.
+    const waits = pathNameCounts(pathContext([issue('W', blocked(1))], []));
+    expect(pathNamePhrase(waits.get('W')!)).toBe(
+      'waits on 0, holds up 0 in this graph'
+    );
   });
 });
 
@@ -596,7 +624,7 @@ describe('describePaths', () => {
 
   test('a leaf', () => {
     expect(line('OPS-20', CHAIN)).toBe(
-      'OPS-20 · Blocked by 1 · Waits on 2 open, start with ENG-12 · Nothing waits on it'
+      'OPS-20 · Blocked by 1 · Waits on 2 open, start with ENG-12 · Nothing here waits on it'
     );
   });
 
@@ -609,7 +637,7 @@ describe('describePaths', () => {
       [e('ENG-2', 'ENG-26', 'resolved')]
     );
     expect(line('ENG-26', ctx)).toBe(
-      'ENG-26 · Ready · Blockers done: ENG-2 · Nothing waits on it'
+      'ENG-26 · Ready · Blockers done: ENG-2 · Nothing here waits on it'
     );
     expect(line('ENG-2', ctx)).toBe('ENG-2 · Done · No longer blocks ENG-26');
   });
@@ -652,7 +680,7 @@ describe('describePaths', () => {
       [e('S-1', 'S-1', 'cycle')]
     );
     expect(line('S-1', ctx)).toBe(
-      'S-1 · Blocked by 1 · Blocks itself · Nothing waits on it'
+      'S-1 · Blocked by 1 · Blocks itself · Nothing here waits on it'
     );
   });
 
@@ -663,14 +691,14 @@ describe('describePaths', () => {
       [e('S-2', 'S-2', 'cycle')]
     );
     expect(line('S-2', ctx)).toBe(
-      'S-2 · Blocked by 2 (1 not drawn) · Waits on 1 outside this graph · Nothing waits on it'
+      'S-2 · Blocked by 2 (1 not drawn) · Waits on 1 outside this graph · Nothing here waits on it'
     );
   });
 
   test('only unblocks what is not drawn', () => {
     const ctx = pathContext([issue('ENG-5', ready(1))], []);
     expect(line('ENG-5', ctx)).toBe(
-      'ENG-5 · Ready · Nothing open blocks it · Nothing waits on it · Done would unblock 1: 1 not drawn'
+      'ENG-5 · Ready · Nothing open blocks it · Nothing here waits on it · Done would unblock 1: 1 not drawn'
     );
   });
 
@@ -692,7 +720,7 @@ describe('describePaths', () => {
       [e('deadlock', 'after')]
     );
     expect(line('after', ctx, BOX_WORDS)).toBe(
-      'After · Waiting on 1 · Waits on 1 · Nothing waits on it'
+      'After · Waiting on 1 · Waits on 1 · Nothing here waits on it'
     );
   });
 

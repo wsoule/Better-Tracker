@@ -2,10 +2,14 @@
 // of 2026-10-22, "graphs at every level"): four zoom levels (initiative,
 // project, milestone, issue), each drawn for the whole workspace or inside
 // one initiative, project or milestone, plus one issue's blocking chain.
-// Above the issue level a box waits on another when an open issue in it is
-// blocked by an open issue in the other, and the edge counts how many. Risk
-// flags follow open blockers through the whole (viewer's) mirror, not just
-// the drawn nodes, so a chain that leaves the scope still counts.
+// Every level draws every item of its container (owner decision
+// 2026-10-23, "the graph shows every issue, not only blocking ones"),
+// framed in labelled clusters by parent; blocking relations are the
+// arrows. Above the issue level a box waits on another when an open issue
+// in it is blocked by an open issue in the other, and the edge counts how
+// many. Risk flags follow open blockers through the whole (viewer's)
+// mirror, not just the drawn nodes, so a chain that leaves the scope still
+// counts.
 
 import { nextMilestoneId } from './assess';
 import { countLabel } from './labels';
@@ -21,10 +25,12 @@ import { findIssue, isOpenState, issueStateType } from './snapshot';
 import type {
   DependencyGraph,
   EvalContext,
+  GraphCluster,
   GraphContainer,
   GraphFallback,
   GraphLevel,
   GraphNode,
+  GraphReadiness,
   GraphEdge,
   GraphScope,
   Issue,
@@ -460,6 +466,14 @@ function sortEdges(nodes: readonly GraphNode[], edges: GraphEdge[]): void {
 // and project activity.
 interface GraphFacts {
   isOpen: (issue: Issue) => boolean;
+  /** Canceled (Linear's Duplicate maps here): never drawn as a node. */
+  isCanceled: (issue: Issue) => boolean;
+  /**
+   * It has a blocks relation, either way (a self-loop counts), with a
+   * mirrored issue that is not canceled: it is in the blocking flow. An
+   * open issue without one is `independent` ("No dependencies").
+   */
+  related: (issue: Issue) => boolean;
   isUnassigned: (issue: Issue) => boolean;
   isOverdue: (issue: Issue) => boolean;
   waitsOnUnassigned: ReadonlySet<string>;
@@ -569,6 +583,20 @@ function graphFacts(
 ): GraphFacts {
   const isOpen = (issue: Issue): boolean =>
     isOpenState(issueStateType(snapshot, issue));
+  const isCanceled = (issue: Issue): boolean =>
+    issueStateType(snapshot, issue) === 'canceled';
+  const related = (issue: Issue): boolean => {
+    for (const ids of [
+      snapshot.blockersOf.get(issue.id),
+      snapshot.blocking.get(issue.id),
+    ]) {
+      for (const id of ids ?? []) {
+        const other = snapshot.issues.get(id);
+        if (other !== undefined && !isCanceled(other)) return true;
+      }
+    }
+    return false;
+  };
   const isUnassigned = (issue: Issue): boolean =>
     isOpen(issue) && issue.assigneeId === null;
   const isOverdue = (issue: Issue): boolean =>
@@ -583,6 +611,8 @@ function graphFacts(
     activeStatuses.has(project.statusType);
   return {
     isOpen,
+    isCanceled,
+    related,
     isUnassigned,
     isOverdue,
     waitsOnUnassigned,
@@ -607,8 +637,8 @@ function graphFacts(
 }
 
 // The parts of a graph each level builder fills (the dispatcher adds the
-// resolved scope and the fallback).
-type GraphBody = Omit<DependencyGraph, 'scope' | 'fallback'>;
+// resolved scope, the fallback and the clusters).
+type GraphBody = Omit<DependencyGraph, 'scope' | 'fallback' | 'clusters'>;
 
 // The containers an aggregate level or a container issue level is drawn
 // inside (a chain has its own builder).
@@ -652,7 +682,9 @@ function issueUnder(
 
 // An issue as an issue-level node: today's fields plus its first
 // initiative, its project's activity, whether it sits on a cycle and its
-// readiness (open blockers anywhere in the viewer's mirror).
+// readiness (open blockers anywhere in the viewer's mirror; independent
+// when it has no relation to an issue that is not canceled). The cluster
+// is filled in by graphClusters.
 function issueNode(
   snapshot: Snapshot,
   facts: GraphFacts,
@@ -681,6 +713,7 @@ function issueNode(
     milestoneId: issue.milestoneId,
     ownerId: issue.assigneeId,
     external,
+    clusterId: null,
     active: facts.active(issue),
     open,
     unassigned: facts.isUnassigned(issue),
@@ -690,8 +723,15 @@ function issueNode(
     waitsOnUnassigned: facts.waitsOnUnassigned.has(issue.id),
     waitsOnOverdue: facts.waitsOnOverdue.has(issue.id),
     status: issueStateType(snapshot, issue),
-    readiness: !open ? 'done' : blockedBy > 0 ? 'blocked' : 'ready',
+    readiness: !open
+      ? 'done'
+      : blockedBy > 0
+        ? 'blocked'
+        : facts.related(issue)
+          ? 'ready'
+          : 'independent',
     blockedBy,
+    unplacedBlockers: 0,
     // Only open blockers are counted, so a closed issue frees nothing.
     unblocks: facts.soleBlockerOf.get(issue.id) ?? 0,
     openIssues: open ? 1 : 0,
@@ -739,129 +779,52 @@ function containerOrder<T>(
 }
 
 /**
- * Issue level inside one milestone or project (unchanged since before the
- * graph levels): the container's issues, open and closed, every relation
- * touching one, and one hop of external blockers and blocked issues.
- */
-function scopedIssueGraph(
-  snapshot: Snapshot,
-  facts: GraphFacts,
-  container: Extract<GraphContainer, { kind: 'milestone' | 'project' }>
-): GraphBody {
-  const scopeIssues =
-    container.kind === 'milestone'
-      ? (snapshot.issuesByMilestone.get(container.id) ?? [])
-      : (snapshot.issuesByProject.get(container.id) ?? []);
-  const inScope = new Set(scopeIssues.map((issue) => issue.id));
-
-  const pairs = new Set<string>();
-  const relationPairs: { blocker: Issue; blocked: Issue }[] = [];
-  const externals = new Map<string, Issue>();
-  // Records one blocks relation touching the scope, and its outside end.
-  const addRelation = (blockerId: string, blockedId: string): void => {
-    const pair = `${blockerId}\u0000${blockedId}`;
-    if (pairs.has(pair)) return;
-    const blocker = snapshot.issues.get(blockerId);
-    const blocked = snapshot.issues.get(blockedId);
-    if (blocker === undefined || blocked === undefined) return;
-    pairs.add(pair);
-    relationPairs.push({ blocker, blocked });
-    for (const end of [blocker, blocked]) {
-      if (!inScope.has(end.id)) externals.set(end.id, end);
-    }
-  };
-  for (const issue of scopeIssues) {
-    for (const blockerId of snapshot.blockersOf.get(issue.id) ?? []) {
-      addRelation(blockerId, issue.id);
-    }
-    for (const blockedId of snapshot.blocking.get(issue.id) ?? []) {
-      addRelation(issue.id, blockedId);
-    }
-  }
-
-  const nodes: GraphNode[] = [
-    ...[...scopeIssues]
-      .sort(compareIssues)
-      .map((issue) => issueNode(snapshot, facts, issue, false)),
-    ...[...externals.values()]
-      .sort(compareIssues)
-      .map((issue) => issueNode(snapshot, facts, issue, true)),
-  ];
-  const edges = relationPairs.map(({ blocker, blocked }) =>
-    issueEdge(snapshot, facts, blocker, blocked)
-  );
-  sortEdges(nodes, edges);
-  const cycles = markCycles(nodes, edges);
-  return {
-    nodes,
-    edges,
-    cycles,
-    unplacedRelations: 0,
-    unrelatedIssues: 0,
-    chain: null,
-  };
-}
-
-/**
- * Issue level inside an initiative or the whole workspace: only the ends
- * of counted relations are nodes, so the graph stays bounded by the
- * relations. A relation counts when it touches the container, one end is
- * open (closed↔closed is history) and, in the workspace, one end is in an
- * active project. Open issues on no counted relation are only counted
- * (`unrelatedIssues`).
+ * Issue level inside a container (§2.10; owner decision 2026-10-23, "the
+ * graph shows every issue, not only blocking ones"): every issue under
+ * the container that is not canceled (open and done alike; a canceled or
+ * duplicate issue is never drawn), every relation touching one whose two
+ * ends are not canceled, and the outside end of such a relation as an
+ * external, one hop away (never in the workspace, which holds every
+ * issue). Nodes in the container come first, then externals, each in
+ * issue order. O(issues + relations) plus sorting.
  */
 function containerIssueGraph(
   snapshot: Snapshot,
   facts: GraphFacts,
-  container: Extract<GraphContainer, { kind: 'workspace' | 'initiative' }>
+  container: MemberContainer
 ): GraphBody {
   const under = issueUnder(snapshot, facts, container);
-  const inWorkspace = container.kind === 'workspace';
+  const drawn = new Map<string, Issue>();
+  for (const issue of snapshot.issues.values()) {
+    if (!facts.isCanceled(issue) && under(issue)) drawn.set(issue.id, issue);
+  }
   const relationPairs: { blocker: Issue; blocked: Issue }[] = [];
-  const ends = new Map<string, Issue>();
-  for (const blocked of snapshot.issues.values()) {
-    const blockers = snapshot.blockersOf.get(blocked.id);
-    if (blockers === undefined) continue;
-    const blockedUnder = under(blocked);
-    const blockedOpen = facts.isOpen(blocked);
-    const blockedActive = facts.active(blocked);
-    for (const blockerId of blockers) {
+  const externals = new Map<string, Issue>();
+  for (const [blockedId, blockerIds] of snapshot.blockersOf) {
+    const blocked = snapshot.issues.get(blockedId);
+    if (blocked === undefined || facts.isCanceled(blocked)) continue;
+    for (const blockerId of blockerIds) {
       const blocker = snapshot.issues.get(blockerId);
-      if (blocker === undefined) continue;
-      if (!blockedUnder && !under(blocker)) continue;
-      if (!blockedOpen && !facts.isOpen(blocker)) continue;
-      if (inWorkspace && !blockedActive && !facts.active(blocker)) continue;
+      if (blocker === undefined || facts.isCanceled(blocker)) continue;
+      if (!drawn.has(blocker.id) && !drawn.has(blocked.id)) continue;
       relationPairs.push({ blocker, blocked });
-      ends.set(blocker.id, blocker);
-      ends.set(blocked.id, blocked);
+      for (const end of [blocker, blocked]) {
+        if (!drawn.has(end.id)) externals.set(end.id, end);
+      }
     }
   }
 
-  let unrelatedIssues = 0;
-  for (const issue of snapshot.issues.values()) {
-    if (ends.has(issue.id) || !facts.isOpen(issue) || !under(issue)) continue;
-    if (inWorkspace && !facts.active(issue)) continue;
-    unrelatedIssues += 1;
-  }
-
   const nodes = containerOrder(
-    [...ends.values()],
-    (issue) => !under(issue),
+    [...drawn.values(), ...externals.values()],
+    (issue) => !drawn.has(issue.id),
     compareIssues
-  ).map((issue) => issueNode(snapshot, facts, issue, !under(issue)));
+  ).map((issue) => issueNode(snapshot, facts, issue, !drawn.has(issue.id)));
   const edges = relationPairs.map(({ blocker, blocked }) =>
     issueEdge(snapshot, facts, blocker, blocked)
   );
   sortEdges(nodes, edges);
   const cycles = markCycles(nodes, edges);
-  return {
-    nodes,
-    edges,
-    cycles,
-    unplacedRelations: 0,
-    unrelatedIssues,
-    chain: null,
-  };
+  return { nodes, edges, cycles, unplacedRelations: 0, chain: null };
 }
 
 type AggregateLevel = Exclude<GraphLevel, 'issue'>;
@@ -888,7 +851,12 @@ const NO_UNIT_FACTS: UnitFacts = {
 // The readiness fields of a graph node (§2.10 "Readiness").
 type NodeReadiness = Pick<
   GraphNode,
-  'readiness' | 'blockedBy' | 'unblocks' | 'openIssues' | 'readyIssues'
+  | 'readiness'
+  | 'blockedBy'
+  | 'unplacedBlockers'
+  | 'unblocks'
+  | 'openIssues'
+  | 'readyIssues'
 >;
 
 // Who holds a unit's open issues up, folded over all of them (kept apart
@@ -906,11 +874,18 @@ interface UnitFlow {
  * The readiness of every unit from its folded flow (§2.10 "Readiness"):
  * one O(units) pass counts, per unit u, the units whose only blocker
  * (units and unplaced blockers alike) is u, so `unblocks` is exact. A unit
- * with no open issue is done; one with a blocker unit or an unplaced
- * blocker waits; otherwise it is clear, even with blocked issues inside.
+ * no issue counts toward (`counted` says which have one) is empty; one
+ * with issues but no open one is done; one with a blocker unit or an unplaced
+ * blocker waits; one that also holds up no other unit's (or unplaced) open
+ * issue, with something in it that can start, is independent ("No
+ * dependencies"); otherwise it is clear, even with blocked issues inside.
+ * `blocking` holds the units with an open issue that is an open blocker
+ * of another unit's or an unplaced open issue.
  */
 function unitReadiness(
-  flows: ReadonlyMap<string, UnitFlow>
+  flows: ReadonlyMap<string, UnitFlow>,
+  blocking: ReadonlySet<string>,
+  counted: ReadonlySet<string>
 ): (unit: string, open: number) => NodeReadiness {
   const unblocks = new Map<string, number>();
   for (const flow of flows.values()) {
@@ -922,12 +897,21 @@ function unitReadiness(
     const flow = flows.get(unit);
     const blockedBy =
       flow === undefined ? 0 : flow.blockers.size + flow.unplaced.size;
+    const readyIssues = flow?.ready ?? 0;
+    // A clear unit with nothing ready is stuck behind a cycle inside: it
+    // keeps "None ready", never "No dependencies".
+    const independent = !blocking.has(unit) && readyIssues > 0;
+    let readiness: GraphReadiness;
+    if (open === 0) readiness = counted.has(unit) ? 'done' : 'empty';
+    else if (blockedBy > 0) readiness = 'blocked';
+    else readiness = independent ? 'independent' : 'ready';
     return {
-      readiness: open === 0 ? 'done' : blockedBy > 0 ? 'blocked' : 'ready',
+      readiness,
       blockedBy,
+      unplacedBlockers: flow?.unplaced.size ?? 0,
       unblocks: unblocks.get(unit) ?? 0,
       openIssues: open,
-      readyIssues: flow?.ready ?? 0,
+      readyIssues,
     };
   };
 }
@@ -966,6 +950,40 @@ function unitMapper(
           : null;
     case 'initiative':
       return (issue) => issueHome(snapshot, facts, issue);
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+}
+
+/**
+ * Every unit of an aggregate level the mirror holds, in mirror order: its
+ * milestones, its projects, or its initiatives plus NO_INITIATIVE_ID when
+ * a project has no initiative. The graph draws each one under the
+ * container (owner decision 2026-10-23).
+ */
+function levelUnits(
+  snapshot: Snapshot,
+  facts: GraphFacts,
+  level: AggregateLevel
+): string[] {
+  switch (level) {
+    case 'milestone':
+      return [...snapshot.milestones.keys()];
+    case 'project':
+      return [...snapshot.projects.keys()];
+    case 'initiative': {
+      const units = [...snapshot.initiatives.keys()];
+      if (
+        [...snapshot.projects.keys()].some(
+          (id) => facts.homeOf(id) === NO_INITIATIVE_ID
+        )
+      ) {
+        units.push(NO_INITIATIVE_ID);
+      }
+      return units;
+    }
     default: {
       const unreachable: never = level;
       return unreachable;
@@ -1015,13 +1033,15 @@ function unitUnderMapper(
  * An aggregate level (initiative, project or milestone) inside the
  * workspace, an initiative or a project (§2.10): one fold over the issue
  * relations with a unit mapper per level. A relation b blocks w counts
- * when both ends are open, one end is under the container and, in the
- * workspace, one end is in an active project; it becomes the edge
+ * when both ends are open and one end is under the container (paused work
+ * included: since every unit is drawn, a relation between two paused
+ * projects is an arrow between two drawn boxes, 2026-10-23; the timeline
+ * leaves those out itself); it becomes the edge
  * unit(b) → unit(w) (none inside one unit), whose weight counts relations
  * and which is on a risk chain when one counted blocker is risky. Nodes are
- * the units of open issues under the container (in the workspace: in
- * active projects) plus every edge end; node facts fold over all of a
- * unit's open issues.
+ * every unit under the container, open, done, empty or inactive alike
+ * (owner decision 2026-10-23), plus every edge end; node facts fold over
+ * all of a unit's open issues.
  */
 function aggregateGraph(
   snapshot: Snapshot,
@@ -1034,18 +1054,32 @@ function aggregateGraph(
   const under = issueUnder(snapshot, facts, container);
   const unitOf = unitMapper(snapshot, facts, level);
   const unitUnder = unitUnderMapper(snapshot, facts, level, container);
-  const inWorkspace = container.kind === 'workspace';
 
   // Node facts and readiness flow of every unit (over all of its open
-  // issues, with no container filter), and the units listed without an
-  // edge.
+  // issues, with no container filter), and the units that hold up another
+  // unit's (or an unplaced) open issue.
   const unitFacts = new Map<string, UnitFacts>();
   const flows = new Map<string, UnitFlow>();
-  const listed = new Set<string>();
+  const blocking = new Set<string>();
+  // Units some issue (in any state, as milestone progress counts them)
+  // counts toward: a unit with none is empty, not done.
+  const counted = new Set<string>();
   for (const issue of snapshot.issues.values()) {
-    if (!facts.isOpen(issue)) continue;
+    if (!facts.isOpen(issue)) {
+      const unit = unitOf(issue);
+      if (unit !== null) counted.add(unit);
+      continue;
+    }
     const unit = unitOf(issue);
-    if (unit === null) continue;
+    if (unit !== null) counted.add(unit);
+    if (unit === null) {
+      for (const blockerId of facts.openBlockers.get(issue.id) ?? []) {
+        const blocker = snapshot.issues.get(blockerId);
+        const from = blocker === undefined ? null : unitOf(blocker);
+        if (from !== null) blocking.add(from);
+      }
+      continue;
+    }
     const current = unitFacts.get(unit) ?? { ...NO_UNIT_FACTS };
     current.open += 1;
     current.unassigned ||= facts.isUnassigned(issue);
@@ -1066,11 +1100,12 @@ function aggregateGraph(
       if (blocker === undefined) continue;
       // A blocker in the same unit is the unit's own business.
       const from = unitOf(blocker);
-      if (from === null) flow.unplaced.add(blockerId);
-      else if (from !== unit) flow.blockers.add(from);
-    }
-    if (under(issue) && (!inWorkspace || facts.active(issue))) {
-      listed.add(unit);
+      if (from === null) {
+        flow.unplaced.add(blockerId);
+      } else if (from !== unit) {
+        flow.blockers.add(from);
+        blocking.add(from);
+      }
     }
   }
 
@@ -1083,13 +1118,11 @@ function aggregateGraph(
     const blockers = snapshot.blockersOf.get(blocked.id);
     if (blockers === undefined || !facts.isOpen(blocked)) continue;
     const blockedUnder = under(blocked);
-    const blockedActive = facts.active(blocked);
     const to = unitOf(blocked);
     for (const blockerId of blockers) {
       const blocker = snapshot.issues.get(blockerId);
       if (blocker === undefined || !facts.isOpen(blocker)) continue;
       if (!blockedUnder && !under(blocker)) continue;
-      if (inWorkspace && !blockedActive && !facts.active(blocker)) continue;
       const from = unitOf(blocker);
       if (from === null || to === null) {
         unplacedRelations += 1;
@@ -1112,13 +1145,15 @@ function aggregateGraph(
     }
   }
 
-  const unitIds = new Set(listed);
+  const unitIds = new Set(
+    levelUnits(snapshot, facts, level).filter((unit) => unitUnder(unit))
+  );
   for (const { from, to } of summaries.values()) {
     unitIds.add(from);
     unitIds.add(to);
   }
   const describe = describeUnit(snapshot, assessments, facts, level);
-  const readinessOf = unitReadiness(flows);
+  const readinessOf = unitReadiness(flows, blocking, counted);
   const nodes = containerOrder(
     [...unitIds],
     (unit) => !unitUnder(unit),
@@ -1146,14 +1181,7 @@ function aggregateGraph(
   }));
   sortEdges(nodes, edges);
   const cycles = markCycles(nodes, edges);
-  return {
-    nodes,
-    edges,
-    cycles,
-    unplacedRelations,
-    unrelatedIssues: 0,
-    chain: null,
-  };
+  return { nodes, edges, cycles, unplacedRelations, chain: null };
 }
 
 // Display order of one aggregate level's units: milestones in milestone
@@ -1244,6 +1272,7 @@ function describeUnit(
     external: boolean
   ) => ({
     external,
+    clusterId: null,
     open: folded.open > 0,
     unassigned: folded.unassigned,
     overdue: folded.overdue,
@@ -1492,7 +1521,6 @@ function chainGraph(
     edges,
     cycles,
     unplacedRelations: 0,
-    unrelatedIssues: 0,
     chain: {
       focusId: focus.id,
       upstream: up.size - 1,
@@ -1502,18 +1530,227 @@ function chainGraph(
   };
 }
 
+// A cluster as graphClusters builds it, before its members are counted.
+interface ClusterSpec {
+  id: string;
+  kind: GraphCluster['kind'];
+  refId: string | null;
+  label: string;
+  projectId: string | null;
+  /** Display rank, compared item by item (an outer rank comes first). */
+  rank: readonly number[];
+}
+
+/**
+ * The labelled frames of a graph (§2.10 "Clusters", owner decision
+ * 2026-10-23), so unconnected boxes sit with their parent rather than in
+ * one long column: per node, the chain of clusters it is drawn in, outer
+ * first. Issue level: its milestone ("No milestone" for an issue of a
+ * project in none, "No project" for an issue with no mirrored project),
+ * nested in its project when the drawn issues span more than one project
+ * (a milestone name alone would be ambiguous there). Milestone level: its
+ * project. Project level: its first initiative ("No initiative"), and no
+ * cluster in a mirror without initiatives, where all would share one. The
+ * initiative level has none. Sets each node's `clusterId` to its innermost
+ * cluster and returns only the clusters with a node in them, parents
+ * before children; siblings with a node in the container come first, then
+ * the ones holding only externals, each in display order (projects in
+ * timeline order, milestones by compareMilestones, initiatives by
+ * compareInitiatives, every "No …" last). O(nodes) plus sorting.
+ */
+function graphClusters(
+  snapshot: Snapshot,
+  ctx: EvalContext,
+  assessments: ReadonlyMap<string, MilestoneAssessment>,
+  level: GraphLevel,
+  nodes: GraphNode[]
+): GraphCluster[] {
+  const last = Number.MAX_SAFE_INTEGER;
+  const projectRank = new Map<string, number>();
+  orderProjects(snapshot).forEach((project, i) =>
+    projectRank.set(project.id, i)
+  );
+  const milestoneRank = new Map<string, number>();
+  [...snapshot.milestones.values()]
+    .sort(compareMilestones(snapshot, ctx, assessments))
+    .forEach((milestone, i) => milestoneRank.set(milestone.id, i));
+  const initiativeRank = new Map<string, number>();
+  [...snapshot.initiatives.values()]
+    .sort(compareInitiatives)
+    .forEach((initiative, i) => initiativeRank.set(initiative.id, i));
+
+  const mirroredProject = (id: string | null): string | null =>
+    id !== null && snapshot.projects.has(id) ? id : null;
+  const projectSpec = (id: string | null): ClusterSpec =>
+    id === null
+      ? {
+          id: 'project:none',
+          kind: 'project',
+          refId: null,
+          label: 'No project',
+          projectId: null,
+          rank: [last],
+        }
+      : {
+          id: `project:${id}`,
+          kind: 'project',
+          refId: id,
+          label: snapshot.projects.get(id)?.name ?? id,
+          projectId: id,
+          rank: [projectRank.get(id) ?? last - 1],
+        };
+  // A milestone of `projectId`, or its "No milestone".
+  const milestoneSpec = (
+    projectId: string,
+    milestoneId: string | null
+  ): ClusterSpec => {
+    const outer = projectRank.get(projectId) ?? last - 1;
+    const milestone =
+      milestoneId === null ? undefined : snapshot.milestones.get(milestoneId);
+    return milestone === undefined || milestone.projectId !== projectId
+      ? {
+          id: `milestone:none:${projectId}`,
+          kind: 'milestone',
+          refId: null,
+          label: 'No milestone',
+          projectId,
+          rank: [outer, last],
+        }
+      : {
+          id: `milestone:${milestone.id}`,
+          kind: 'milestone',
+          refId: milestone.id,
+          label: milestone.name,
+          projectId,
+          rank: [outer, milestoneRank.get(milestone.id) ?? last - 1],
+        };
+  };
+  const initiativeSpec = (id: string): ClusterSpec => ({
+    id: `initiative:${id}`,
+    kind: 'initiative',
+    refId: id,
+    label: snapshot.initiatives.get(id)?.name ?? 'No initiative',
+    projectId: null,
+    rank: [initiativeRank.get(id) ?? last],
+  });
+
+  let pathOf: (node: GraphNode) => ClusterSpec[];
+  switch (level) {
+    case 'issue': {
+      const nest =
+        new Set(nodes.map((node) => mirroredProject(node.projectId))).size > 1;
+      pathOf = (node) => {
+        const projectId = mirroredProject(node.projectId);
+        if (projectId === null) return [projectSpec(null)];
+        const milestone = milestoneSpec(projectId, node.milestoneId);
+        return nest ? [projectSpec(projectId), milestone] : [milestone];
+      };
+      break;
+    }
+    case 'milestone':
+      pathOf = (node) => [projectSpec(mirroredProject(node.projectId))];
+      break;
+    case 'project':
+      pathOf =
+        snapshot.initiatives.size === 0
+          ? () => []
+          : (node) => [initiativeSpec(node.initiativeId ?? NO_INITIATIVE_ID)];
+      break;
+    case 'initiative':
+      pathOf = () => [];
+      break;
+    default: {
+      const unreachable: never = level;
+      return unreachable;
+    }
+  }
+
+  // Each cluster once, with its parent and whether its nodes are active
+  // or external (folded over the whole subtree).
+  const found = new Map<
+    string,
+    {
+      spec: ClusterSpec;
+      parentId: string | null;
+      active: boolean;
+      external: boolean;
+    }
+  >();
+  for (const node of nodes) {
+    const path = pathOf(node);
+    let parentId: string | null = null;
+    for (const spec of path) {
+      const entry = found.get(spec.id);
+      if (entry === undefined) {
+        found.set(spec.id, {
+          spec,
+          parentId,
+          active: node.active,
+          external: node.external,
+        });
+      } else {
+        entry.active ||= node.active;
+        entry.external &&= node.external;
+      }
+      parentId = spec.id;
+    }
+    node.clusterId = parentId;
+  }
+
+  // Parents before children: a depth-first walk over siblings in order.
+  const children = new Map<string | null, string[]>();
+  for (const [id, entry] of found) {
+    const list = children.get(entry.parentId);
+    if (list === undefined) children.set(entry.parentId, [id]);
+    else list.push(id);
+  }
+  const compare = (a: string, b: string): number => {
+    const ea = found.get(a);
+    const eb = found.get(b);
+    if (ea === undefined || eb === undefined) return 0;
+    if (ea.external !== eb.external) return ea.external ? 1 : -1;
+    const length = Math.max(ea.spec.rank.length, eb.spec.rank.length);
+    for (let i = 0; i < length; i++) {
+      const byRank = (ea.spec.rank[i] ?? 0) - (eb.spec.rank[i] ?? 0);
+      if (byRank !== 0) return byRank;
+    }
+    return a < b ? -1 : a > b ? 1 : 0;
+  };
+  const clusters: GraphCluster[] = [];
+  const visit = (parentId: string | null): void => {
+    for (const id of [...(children.get(parentId) ?? [])].sort(compare)) {
+      const entry = found.get(id);
+      if (entry === undefined) continue;
+      const { spec } = entry;
+      clusters.push({
+        id,
+        kind: spec.kind,
+        refId: spec.refId,
+        label: spec.label,
+        parentId: entry.parentId,
+        projectId: spec.projectId,
+        active: entry.active,
+        external: entry.external,
+      });
+      visit(id);
+    }
+  };
+  visit(null);
+  return clusters;
+}
+
 /**
  * Builds the dependency graph for a scope (§2.10). The scope is resolved
  * first (resolveGraphScope): an invalid scope or an unknown id gives an
  * empty graph for the scope as given; a scope naming initiatives in a
  * mirror without any is drawn for the whole workspace, with `fallback`
- * set. Then: the issue level inside a milestone or project (its issues
- * and one hop of externals, unchanged), inside an initiative or the
- * workspace (relation ends only), an aggregate level (one node per
- * initiative, project or milestone, edges counting the issue relations
- * between them), or one issue's chain. Nodes come in display order (in
- * the container first, then externals) and edges in node order, so the
- * output is stable.
+ * set. Then: the issue level inside any container (every issue that is
+ * not canceled, and one hop of externals), an aggregate level (one node
+ * per initiative, project or milestone under the container, edges
+ * counting the issue relations between them), or one issue's chain; and
+ * the clusters the nodes are framed in (graphClusters). Nodes come in
+ * display order (in the container first, then externals) and edges in
+ * node order, so the output is stable.
  */
 export function buildDependencyGraph(
   snapshot: Snapshot,
@@ -1528,9 +1765,9 @@ export function buildDependencyGraph(
       nodes: [],
       edges: [],
       cycles: [],
+      clusters: [],
       fallback: null,
       unplacedRelations: 0,
-      unrelatedIssues: 0,
       chain: null,
     };
   }
@@ -1549,21 +1786,13 @@ export function buildDependencyGraph(
               edges: [],
               cycles: [],
               unplacedRelations: 0,
-              unrelatedIssues: 0,
               chain: null,
             }
           : chainGraph(snapshot, facts, focus);
       break;
     }
     case 'milestone':
-      body = scopedIssueGraph(snapshot, facts, container);
-      break;
     case 'project':
-      body =
-        level === 'issue'
-          ? scopedIssueGraph(snapshot, facts, container)
-          : aggregateGraph(snapshot, ctx, assessments, facts, level, container);
-      break;
     case 'initiative':
     case 'workspace':
       body =
@@ -1576,5 +1805,14 @@ export function buildDependencyGraph(
       return unreachable;
     }
   }
-  return { scope: resolved, ...body, fallback: resolution.fallback };
+  const clusters =
+    container.kind === 'chain'
+      ? []
+      : graphClusters(snapshot, ctx, assessments, level, body.nodes);
+  return {
+    scope: resolved,
+    ...body,
+    clusters,
+    fallback: resolution.fallback,
+  };
 }
