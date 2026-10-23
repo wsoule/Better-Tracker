@@ -542,88 +542,10 @@ describe('the global focus ring', () => {
   });
 });
 
-/** Every CSS file under src. */
-function cssFiles(): string[] {
-  return sourceFiles(srcDir).filter((file) => file.endsWith('.css'));
-}
-
-/**
- * The rules of a stylesheet as [selector, body] pairs, innermost first
- * (an @media wrapper is skipped; the rules inside it are returned).
- */
-function cssRules(css: string): [string, string][] {
-  return [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => [
-    (match[1] ?? '').trim(),
-    match[2] ?? '',
-  ]);
-}
-
-// Guards for the sheets not yet restyled: the Gr8r look has no floods, so
-// a migrated sheet passes these trivially; a sheet that still floods a
-// block to ink or to a colour must keep its text and marks readable there
-// until its lane removes the flood (contract §2).
-describe('a remaining flood keeps its contents readable', () => {
-  test('a block that floods with ink also swaps accent, status and dim text', () => {
-    const missing: string[] = [];
-    for (const file of cssFiles()) {
-      const css = readCss(path.relative(srcDir, file));
-      for (const match of css.matchAll(/\{([^{}]*)\}/g)) {
-        const body = match[1] ?? '';
-        if (!/--background:\s*var\(--ink\)/.test(body)) continue;
-        for (const name of [
-          '--accent-ink',
-          '--accent-ink-hover',
-          '--grey-2-ink',
-          '--red-ink',
-          '--amber-ink',
-          '--green-ink',
-          '--blue-ink',
-        ]) {
-          if (!new RegExp(`${name}:`).test(body)) {
-            missing.push(`${path.relative(srcDir, file)}: ${name}`);
-          }
-        }
-      }
-    }
-    expect(missing).toEqual([]);
-  });
-
-  // A block that fills with a colour and retints its ink for its contents
-  // (`--foreground: var(--on-accent)`) must turn the status mark hues to
-  // that ink too: a red, amber, green or grey mark is under 3:1 on the
-  // purple or the red. The swap may sit in the block itself or in a rule
-  // that extends its selector; the graph's node glyph reads its hues
-  // through --glyph-<hue> (and its grey through --glyph-ink).
-  test('every on-colour flood swaps --red, --amber, --green and --grey', () => {
-    const missing: string[] = [];
-    for (const file of cssFiles()) {
-      const rules = cssRules(readCss(path.relative(srcDir, file)));
-      for (const [selector, body] of rules) {
-        if (!/--foreground:\s*var\(--on-[\w-]+\)/.test(body)) continue;
-        const group = rules
-          .filter(
-            ([other]) =>
-              other === selector ||
-              [' ', '.', ':'].some((next) => other.startsWith(selector + next))
-          )
-          .map(([, groupBody]) => groupBody)
-          .join('\n');
-        for (const hue of ['red', 'amber', 'green', 'grey']) {
-          const glyph = hue === 'grey' ? '--glyph-ink' : `--glyph-${hue}`;
-          if (!new RegExp(`(--${hue}|${glyph}):`).test(group)) {
-            missing.push(
-              `${path.relative(srcDir, file)} ${selector}: --${hue}`
-            );
-          }
-        }
-      }
-    }
-    expect(missing).toEqual([]);
-  });
-
-  // The sidebar no longer floods: a hovered item takes the --surface-3
-  // fill and its project marks keep their own hue, which holds 3:1 there
-  // and on the sidebar grey in both themes.
+// The sidebar no longer floods (the Analytics look did): a hovered item
+// takes the --surface-3 fill and its project marks keep their own hue,
+// which holds 3:1 there and on the sidebar grey in both themes.
+describe('the sidebar hover', () => {
   test('the sidebar item hover is a soft fill and its marks keep their hue', () => {
     const body = cssRule(
       'shell/app-shell.module.css',

@@ -15,11 +15,5 @@ export const geistMono = Geist_Mono({
   display: 'swap',
 });
 
-/** @deprecated The mono face is Geist Mono now; use `geistMono` (both
-    layouts and global-error do). Kept only so the branches still to be
-    merged (graph lock-on, API-key connect), whose layouts import the old
-    name, compile and get the new face; drop it after those merges. */
-export const jetbrainsMono = geistMono;
-
 /** localStorage key for the light/dark choice (themeScript + ThemeToggle). */
 export const THEME_STORAGE_KEY = 'milestone-planner-theme';
