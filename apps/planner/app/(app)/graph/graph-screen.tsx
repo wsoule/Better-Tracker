@@ -91,10 +91,11 @@ function initialBare(server: GraphHighlight): GraphHighlight {
 /* The graph's client island: the page header (trail, h1, receipts,
    notices), level tabs (route links) and the highlight switch (Status /
    Risk / Critical path) in the graph's toolbar, or the tabs alone in the
-   block bar when nothing is drawn, the highlight's legend, the pan/zoom
-   DependencyGraph laid out by the server (every item of the scope, in
-   labelled frames by parent; a chain's issue ruled as its focus) with its
-   readout line, Copy Mermaid in the highlight, the too-large state, and
+   block bar when nothing is drawn, the pan/zoom DependencyGraph laid out
+   by the server (every item of the scope, in labelled frames by parent; a
+   chain's issue ruled as its focus) with its readout line, the
+   highlight's legend under it, Copy Mermaid in the highlight, the
+   too-large state, and
    the slide-over for the selected node. An initiative, project or
    milestone node shows what it is, its drill-down links, where it stands,
    what it waits on and what it holds up (the same paths the graph
@@ -295,27 +296,6 @@ export default function GraphScreen({
           <BlockBar index="01" title={model.blockTitle} meta={model.meta}>
             {drawn ? null : tabs}
           </BlockBar>
-          {drawn ? (
-            // Every highlight's legend in one grid cell, the others hidden
-            // (and inert), so the cell is always as tall as the tallest and
-            // switching never moves the switch or the drawing below it.
-            <div className={css.legends}>
-              {GRAPH_HIGHLIGHTS.map((mode) => (
-                <div
-                  key={mode}
-                  className={css.legendSlot}
-                  data-shown={mode === highlight ? '' : undefined}
-                  aria-hidden={mode === highlight ? undefined : true}
-                  inert={mode !== highlight}
-                >
-                  <GraphLegend
-                    items={model.legends[mode]}
-                    label={`Graph legend: ${GRAPH_HIGHLIGHT_LABEL[mode]}`}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : null}
           {model.tooLarge !== null ? (
             <TooLargeBlock tooLarge={model.tooLarge} carry={carry} />
           ) : (
@@ -344,6 +324,30 @@ export default function GraphScreen({
               pathWords={model.pathWords}
             />
           )}
+          {drawn ? (
+            // The key under the drawing, as under a figure, so the first
+            // screen is the drawing, on a phone too (2026-10-23 review: above
+            // it, the legend pushed the canvas below the fold). Every
+            // highlight's legend in one grid cell, the others hidden (and
+            // inert), so the cell is always as tall as the tallest and
+            // switching never moves what follows it.
+            <div className={css.legends}>
+              {GRAPH_HIGHLIGHTS.map((mode) => (
+                <div
+                  key={mode}
+                  className={css.legendSlot}
+                  data-shown={mode === highlight ? '' : undefined}
+                  aria-hidden={mode === highlight ? undefined : true}
+                  inert={mode !== highlight}
+                >
+                  <GraphLegend
+                    items={model.legends[mode]}
+                    label={`Graph legend: ${GRAPH_HIGHLIGHT_LABEL[mode]}`}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
           {drawn && mermaid !== null ? (
             <MermaidSource
               source={mermaid}

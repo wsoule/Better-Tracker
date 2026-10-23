@@ -323,8 +323,10 @@ test.describe('graph highlights', () => {
     await page.setViewportSize({ width: 1366, height: 900 });
     await page.goto('/graph?level=issue');
     const switcher = page.getByRole('radiogroup', { name: 'Highlight' });
-    // Page positions, not canvas ones: the legend above the drawing has a
-    // different height per mode, which must not push anything down.
+    // Page positions, not canvas ones: each mode's legend (under the
+    // drawing) has its own height, which must not move anything. (Critical
+    // path scrolls the frame only when no step of its path shows; here
+    // ENG-12, its step 1, does.)
     const where = () =>
       page.evaluate(() => {
         const top = (selector: string) =>
@@ -337,6 +339,8 @@ test.describe('graph highlights', () => {
           top('[data-graph-viewport]'),
         ];
       });
+    // The drawing is on the page (streamed in) before anything is measured.
+    await expect(box(page, 'iss-eng-12')).toBeVisible();
     const before = await where();
     for (const label of ['Risk', 'Critical path', 'Status', 'Critical path']) {
       await switcher.getByRole('radio', { name: label }).click();

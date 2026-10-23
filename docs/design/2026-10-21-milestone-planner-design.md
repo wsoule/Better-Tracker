@@ -574,8 +574,10 @@ else changes.
   level tab, the trail or a panel link; a link that says Status keeps Status
   on a reload even when you usually use Risk; switching while an issue opens
   never cancels it.
-- **The legend above the graph keeps one height,** so switching the highlight
-  never moves the switch or the drawing.
+- **The legend sits under the graph and keeps one height,** so the first
+  screen is the drawing (above it, the legend pushed the canvas below the fold,
+  on a phone entirely; 2026-10-23 showcase review) and switching the highlight
+  never moves the switch, the drawing or what follows.
 - **Hovering stays smooth on big graphs:** the rest of the graph dims at once
   instead of fading (about four times cheaper at the limit).
 - **Large workspaces lay out in under a second** at the 700 boxes / 1,000

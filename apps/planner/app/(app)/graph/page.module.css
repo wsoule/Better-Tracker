@@ -54,10 +54,10 @@
   margin-top: -1px;
 }
 
-/* Every highlight's legend stacked in one grid cell, only the current one
-   shown: the cell keeps the tallest legend's height, so switching the
-   highlight never moves the switch or the drawing (the shown legend's
-   hairline box stretches to the cell). */
+/* Every highlight's legend stacked in one grid cell under the drawing,
+   only the current one shown: the cell keeps the tallest legend's height,
+   so switching the highlight never moves what follows it (the shown
+   legend's hairline box stretches to the cell). */
 .legends {
   display: grid;
 }

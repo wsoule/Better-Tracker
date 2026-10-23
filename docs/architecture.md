@@ -3681,50 +3681,52 @@ hover floods on controls, and the timeline's today.
     no active project, and an open issue of an inactive one), `+N MORE` (a chain
     issue leading on past the cap).
   - **Legends** per level and highlight (`model.legends`, the screen shows its
-    own mode's, labelled "Graph legend: Status" and so on; all three sit stacked
-    in one grid cell, the others hidden and inert, so the cell keeps the tallest
-    one's height and a switch never moves the switch or the drawing below it),
-    in rows Nodes, Edges, Paths. Status: issues Ready "nothing open blocks it",
-    No dependencies "it neither blocks nor waits on another issue" (a plain box;
-    not in a chain), Blocked "an open issue blocks it", Stuck "on a blocking
-    cycle (it may run outside this graph)", In a cycle, Done or paused "closed,
-    or in a paused project (Inactive)", External / Focus as they apply, Blocks
-    "the blocker is still open", Unblocked "one end is done: no longer blocking"
-    (green dots), Cycle, Cross-project; boxes Clear "nothing outside it holds it
-    up", No dependencies "it neither waits on nor holds up another <level>",
-    Waiting "an open issue in it waits on another <level>", Stuck "nothing
-    inside can start: a cycle inside holds it", In a cycle, the level's faint
-    box (below), External, Blocks, Cycle, the level's cross arrow, Count.
-    Critical path: Critical path "numbered in order; each waits on the one
-    before", Off the path "faded", In a cycle, External / Focus, the chain's
-    arrow "the longest chain of open blockers, counted in issues" (milestones,
-    projects, initiatives), Blocks, Cycle, Unblocked (issue levels). Every
-    highlight but Critical path ends with the Paths row: Reading "the box you
-    point at, focus or tap" (the accent flood), Waits on "what the box you point
-    at waits on", Holds up "what waits on it" ("…, through box arrows" above the
-    issue level), Ready next "ready once it is done" (Clear next "clear once it
-    is finished"); Critical path's is Reading, then "through the box you point
-    at: the longest chain it is on", drawn as the chain's own ink ring and step
-    (never the accent ring, which means Waits on). In forced colours the edge
-    swatches turn `CanvasText` like the drawn edges, keeping their dashes. The
-    Risk legends are the ones below, with "Resolved — blocker closed" now
-    "Unblocked — one end is done". Risk: initiatives and projects ("blockers sit
-    left of what waits", Overdue = a project's milestone is past due, At risk =
-    a project's next milestone, In a cycle, Inactive = no active project /
-    paused or not started, Blocks, Risk chain = a blocking issue is unassigned
-    or overdue or waits on one, Cycle, Cross-initiative at the project level
-    with initiatives, Count); milestones (the muted swatch reads "Complete or
-    inactive — nothing open, or a paused project"); issues unchanged, except
-    that the workspace's issue level (which has no externals) leaves out
-    External; a chain: the issue legend without External plus "Focus — the issue
-    this chain is about". Wherever frames are drawn the level's box reads "in a
-    frame, blockers sit left of what waits" instead: each frame's flow runs left
-    to right, but the frames pack onto shelves that wrap, so an arrow between
-    two frames can run back (2026-10-23 showcase review: 41 of 247 arrows at the
-    workspace issue level, none inside a frame). Inside an initiative or a
-    project, the aggregate legends add "External — outside this initiative /
-    this project". Swatches draw the canvas's own hues: Overdue the red flood
-    (`node-overdue`), At risk / Needs action the 2px amber rule
+    own mode's, labelled "Graph legend: Status" and so on, under the drawing and
+    its readout, as a figure's key: above it, the legend's 190–290px pushed the
+    canvas below the fold, a phone's first screen showing none of it, 2026-10-23
+    showcase review; all three sit stacked in one grid cell, the others hidden
+    and inert, so the cell keeps the tallest one's height and a switch never
+    moves what follows it), in rows Nodes, Edges, Paths. Status: issues Ready
+    "nothing open blocks it", No dependencies "it neither blocks nor waits on
+    another issue" (a plain box; not in a chain), Blocked "an open issue blocks
+    it", Stuck "on a blocking cycle (it may run outside this graph)", In a
+    cycle, Done or paused "closed, or in a paused project (Inactive)", External
+    / Focus as they apply, Blocks "the blocker is still open", Unblocked "one
+    end is done: no longer blocking" (green dots), Cycle, Cross-project; boxes
+    Clear "nothing outside it holds it up", No dependencies "it neither waits on
+    nor holds up another <level>", Waiting "an open issue in it waits on another
+    <level>", Stuck "nothing inside can start: a cycle inside holds it", In a
+    cycle, the level's faint box (below), External, Blocks, Cycle, the level's
+    cross arrow, Count. Critical path: Critical path "numbered in order; each
+    waits on the one before", Off the path "faded", In a cycle, External /
+    Focus, the chain's arrow "the longest chain of open blockers, counted in
+    issues" (milestones, projects, initiatives), Blocks, Cycle, Unblocked (issue
+    levels). Every highlight but Critical path ends with the Paths row: Reading
+    "the box you point at, focus or tap" (the accent flood), Waits on "what the
+    box you point at waits on", Holds up "what waits on it" ("…, through box
+    arrows" above the issue level), Ready next "ready once it is done" (Clear
+    next "clear once it is finished"); Critical path's is Reading, then "through
+    the box you point at: the longest chain it is on", drawn as the chain's own
+    ink ring and step (never the accent ring, which means Waits on). In forced
+    colours the edge swatches turn `CanvasText` like the drawn edges, keeping
+    their dashes. The Risk legends are the ones below, with "Resolved — blocker
+    closed" now "Unblocked — one end is done". Risk: initiatives and projects
+    ("blockers sit left of what waits", Overdue = a project's milestone is past
+    due, At risk = a project's next milestone, In a cycle, Inactive = no active
+    project / paused or not started, Blocks, Risk chain = a blocking issue is
+    unassigned or overdue or waits on one, Cycle, Cross-initiative at the
+    project level with initiatives, Count); milestones (the muted swatch reads
+    "Complete or inactive — nothing open, or a paused project"); issues
+    unchanged, except that the workspace's issue level (which has no externals)
+    leaves out External; a chain: the issue legend without External plus "Focus
+    — the issue this chain is about". Wherever frames are drawn the level's box
+    reads "in a frame, blockers sit left of what waits" instead: each frame's
+    flow runs left to right, but the frames pack onto shelves that wrap, so an
+    arrow between two frames can run back (2026-10-23 showcase review: 41 of 247
+    arrows at the workspace issue level, none inside a frame). Inside an
+    initiative or a project, the aggregate legends add "External — outside this
+    initiative / this project". Swatches draw the canvas's own hues: Overdue the
+    red flood (`node-overdue`), At risk / Needs action the 2px amber rule
     (`node-warning`), In a cycle the dashed red outline, Risk chain amber, Cycle
     dashed red, Inactive / Closed / Complete the faint box.
   - **Panels** (the same slide-over; links in this order, a link to the page
