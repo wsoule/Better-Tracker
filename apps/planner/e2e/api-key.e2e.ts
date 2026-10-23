@@ -232,6 +232,38 @@ test('5b. a key pasted into the address bar is dropped before the page renders',
   await page.close();
 });
 
+test('5c. a key in any other URL never comes back either', async () => {
+  const page = await ana.newPage();
+  const key = encodeURIComponent(E2E_KEYS.member);
+  // What Next renders without a real page, and /tasks.
+  for (const [from, to] of [
+    [`/apiary?q=${key}`, /\/apiary$/],
+    [`/_next/static/${key}`, /\/week$/],
+    [`/favicon.ico?x=${key}`, /\/favicon\.ico$/],
+    [`/tasks?q=${key}&state=all`, /\/issues\?state=all$/],
+  ] as const) {
+    await page.goto(from);
+    await expect(page).toHaveURL(to);
+    expect(needlesIn(page.url())).toEqual([]);
+    expect(needlesIn(await page.content())).toEqual([]);
+  }
+  // A prefetch is turned away the same way, and an API route refuses.
+  const prefetch = await page.request.get(`/issues?q=${key}`, {
+    headers: { 'next-router-prefetch': '1', rsc: '1' },
+    maxRedirects: 0,
+  });
+  expect(prefetch.status()).toBe(303);
+  expect(needlesIn(JSON.stringify(prefetch.headers()))).toEqual([]);
+  const api = await page.request.get(`/api/issues/options?q=${key}`, {
+    maxRedirects: 0,
+  });
+  expect(api.status()).toBe(400);
+  expect(((await api.json()) as { error: { code: string } }).error.code).toBe(
+    'key_in_url'
+  );
+  await page.close();
+});
+
 test('6. a key from another workspace is refused without naming this one', async ({
   browser,
   baseURL,

@@ -18,16 +18,9 @@ const nextConfig: NextConfig = {
   experimental: {
     serverComponentsHmrCache: false,
   },
-  // /tasks is the owner's word for the Issues page (owner request
-  // 2026-10-22, "every issue in one list"): a real 307 to /issues, query
-  // kept. A page-level redirect() under (app) would stream under its
-  // loading.tsx as a client-side refresh with status 200 (architecture
-  // §8.1).
-  redirects() {
-    return Promise.resolve([
-      { source: '/tasks', destination: '/issues', permanent: false },
-    ]);
-  },
+  // No redirects here: they run before proxy.ts, so in api_key mode their
+  // Location would echo a key held in the URL. /tasks → /issues is the
+  // route handler app/tasks/route.ts (architecture §8.1).
   // Security headers on every response (CSP, HSTS, framing, referrer;
   // lib/security-headers.ts). In api_key mode proxy.ts adds a stricter
   // nonce CSP to every page at request time; browsers enforce both, so

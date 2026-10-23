@@ -27,13 +27,14 @@ function decodedOnce(text: string): string {
 }
 
 /**
- * Where a page request whose URL holds a Linear credential goes instead
- * (proxy.ts, LINEAR_AUTH=api_key; architecture §8.1 "No key in a page
- * URL"): the same path without the query parameters that hold one, or "/"
- * when the path itself does. Null when the URL holds none, so the request
- * goes ahead. A key pasted into the address bar or a link would otherwise
- * come back in the page: Next echoes the request URL (path and query) in
- * the RSC payload of every page it renders, whatever the page does with it.
+ * Where a request whose URL holds a Linear credential goes instead
+ * (proxy.ts, LINEAR_AUTH=api_key, every request; architecture §8.1 "No key
+ * in a URL"): the same path without the query parameters that hold one, or
+ * "/" when the path itself does. Null when the URL holds none, so the
+ * request goes ahead. A key pasted into the address bar or a link would
+ * otherwise come back in the page: Next echoes the request URL (path and
+ * query) in the RSC payload of every page it renders, whatever the page
+ * does with it.
  */
 export function urlWithoutKeys(
   pathname: string,

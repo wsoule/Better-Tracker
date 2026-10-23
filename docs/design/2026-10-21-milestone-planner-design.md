@@ -766,9 +766,10 @@ the OAuth app and demo mode stay as they are.
 - Settings → Status shows when the person's key will be forgotten and whose key
   reads Linear (names, never keys), with "Forget my key and sign out";
 - a key pasted by mistake into a comment, a title or a description is not sent
-  to Linear, one typed into a search is not searched, and a page address that
-  holds one (pasted into the address bar) is opened without it, so the page
-  never shows it back;
+  to Linear, one typed into a search is not searched, and any address that
+  holds one (pasted into the address bar, even a mistyped or made-up one) is
+  opened without it, so no page shows it back (final stage, 2026-10-23: every
+  address, not only real pages);
 - the worker's scheduled jobs do nothing in this mode (its cron can stay; it
   exits at once).
 

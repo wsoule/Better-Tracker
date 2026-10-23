@@ -2589,7 +2589,7 @@ merge of the branch. Gr8r is a reference only; nothing is imported from it.
 | `PATCH /api/milestones/[id]`     | not a guest       | `{ targetDate?, weight?, doneMeans? }`; `targetDate` needs Linear write access                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `PATCH /api/projects/[id]`       | write access      | `{ leadId }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `/issues`                        | signed in         | the Issues page: every issue the person can see; the URL is the whole view (`?q=&initiative=&project=&milestone=&assignee=&team=&state=&priority=&quick=&group=&sections=&sort=&dir=&limit=`); `?issue=<key>` opens the slide-over (§8.5); read-only for a guest                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `/tasks`                         | all               | a 307 to `/issues` (a `next.config.ts` redirect, query kept), never a page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `/tasks`                         | all               | a 307 to `/issues` (the route handler `app/tasks/route.ts`, query kept), never a page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `/issues/[id]`                   | signed in         | the issue page (§8.5), by identifier (`/issues/ENG-24`) or id; edit controls for anyone with Linear write access (never a guest)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `GET /api/issues/[id]`           | signed in         | `{ result: IssueDetailResult }` by id or identifier, private, never cached (the pages render the issue on the server)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `GET /api/issues/options`        | signed in         | `{ options: IssueListOptions, mirrorVersion }`: the Issues page's picker data (initiatives, projects with their milestones, people, teams with their states) as the person may see it, fetched on the first popover open; private, never cached                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -2661,8 +2661,8 @@ binding):
   connection had already ended, so the planner could not tell whose key to
   forget; it may still be connected in another browser; paste it again and sign
   out to forget it everywhere). A browser that still sends a cookie the vault no
-  longer knows (idle, time limit, too many browsers, restart) sees "CONNECTION
-  ENDED" on `/`.
+  longer knows (idle, time limit, too many browsers, restart) sees "Connection
+  ended" (muted) on `/`.
 - `POST /api/auth/key` (`lib/api-key-connect.ts handleConnect`, a route handler
   on purpose: Next logs Server Function arguments in development) checks, in
   this order: (1) api_key mode, else 404; (2) with a test endpoint
@@ -2704,19 +2704,32 @@ binding):
   `SameSite=Lax`, and with **no `Max-Age` or `Expires`** (a browser-session
   cookie; the vault's limits end the session). The token is the vault's opaque
   random token; only its SHA-256 is kept.
-- **No key in a page URL** (`proxy.ts`, api_key mode only; verify stage
-  2026-10-23): Next echoes the request URL (path and query) in every rendered
-  page's RSC payload, so a key pasted into the address bar or a link would come
-  back in the page whatever the page does with it. Before anything renders, a
-  page request whose path or query (raw or decoded once) holds a
-  credential-shaped run gets a **303** to the same path without the query
-  parameters that hold one, or to `/` when the path does (`lib/key-text.ts`
-  `urlWithoutKeys`; a `returnTo` holding one is dropped too). The host's HTTP
-  log may still record the URL the browser sent; the search box and palette
-  refusals below keep the planner from ever producing one.
+- **No key in a URL** (`proxy.ts`, api_key mode only; verify stage 2026-10-23,
+  widened to every request in the final stage): Next echoes the request URL
+  (path and query) in every rendered page's RSC payload, so a key pasted into
+  the address bar or a link would come back in the page whatever the page does
+  with it. That includes what Next renders for a typo path (`/apiary`), a
+  prefetch, a missing static file (`/_next/static/…`, `/favicon.ico/…`) and a
+  query on an icon. So `proxy.ts` has **no matcher** and sees every request
+  before anything renders or answers: one whose path or query (raw or decoded
+  once) holds a credential-shaped run gets a **303** to the same path without
+  the query parameters that hold one, or to `/` when the path does
+  (`lib/key-text.ts` `urlWithoutKeys`; a `returnTo` holding one is dropped too),
+  and an API route (`/api` or below) a **400** `key_in_url` with the refusal
+  sentence, so no route handler sees it; both are `Cache-Control: no-store`.
+  `next.config.ts` has no `redirects()` (they run before the proxy, and their
+  Location would echo the URL; `/tasks` is a route handler, §8.1 frame details).
+  What remains is Next's own slash normalising, which also runs before the
+  proxy: a trailing slash (`/issues/?q=…`) or a repeated slash or backslash gets
+  a 308 whose Location is the URL the browser sent, tidied; it goes back only to
+  that browser, nothing renders it, and the next request is cleaned as above.
+  The host's HTTP log may still record the URL the browser sent; the search box
+  and palette refusals below keep the planner from ever producing one.
 - **Nonce CSP** (`proxy.ts`, Next 16's Proxy on the Node runtime, read at
   request time so one build serves every mode): in api_key mode only, every page
-  (not `/api`, static assets or prefetches) gets a fresh 16-byte nonce and
+  (not `/api` or below, `/_next/static/…`, `/_next/image`, `/icon.svg`,
+  `/favicon.ico` or a prefetch, matched in code by whole path segment, so
+  `/apiary` is a page) gets a fresh 16-byte nonce and
   `contentSecurityPolicy({ nonce })` (`lib/security-headers.ts`):
   `script-src 'self' 'nonce-…' 'strict-dynamic'`, `form-action 'self'`,
   `worker-src 'none'`, `upgrade-insecure-requests` on https, the rest as above.
@@ -2784,13 +2797,15 @@ Auth and frame details (decided while building `apps/planner`; binding):
   single root 404); like every `(app)` page it streams under
   `(app)/loading.tsx`, so `redirect()`/`notFound()` there are client-side (meta
   refresh / `noindex`, status 200). Unmatched `/api/*` paths answer a JSON 404.
-- `/tasks` → `/issues` is a `next.config.ts` `redirects()` entry
-  (`permanent: false`, a real 307 that keeps the query), because a page-level
+- `/tasks` → `/issues` is the route handler `app/tasks/route.ts` (a real 307
+  with a relative Location that keeps the query), because a page-level
   `redirect()` under `(app)` would stream under `loading.tsx` as a client-side
-  refresh with status 200 (above). The Issues page lives in the
-  `app/(app)/issues/(list)/` route group, beside `issues/[id]/`, so its
-  `loading.tsx` never wraps the issue page (Next's `loading.js` wraps every page
-  below its folder).
+  refresh with status 200 (above). It is not a `next.config.ts` `redirects()`
+  entry: those run before `proxy.ts`, so in api_key mode their Location would
+  echo a key held in the URL ("No key in a URL" above); `next.config.ts` has no
+  redirects. The Issues page lives in the `app/(app)/issues/(list)/` route
+  group, beside `issues/[id]/`, so its `loading.tsx` never wraps the issue page
+  (Next's `loading.js` wraps every page below its folder).
 - `app/global-error.tsx` is the styled last resort when a root layout throws
   (the engine cannot start or read the session: database unreachable,
   configuration incomplete), which `(app)/error.tsx` does not wrap: the
@@ -5407,19 +5422,22 @@ not read; a deploy that still sets it boots normally and logs one warning
     device, an unknown or missing cookie landing on `signed_out=ended`, the
     OAuth routes redirecting), `test/workspace-routes.test.ts` (the resync
     answer carries no counts), `test/http-api-key.test.ts` (`no_reader` 503, the
-    401 sentence), `test/proxy.test.ts` and `test/security-headers.test.ts` (the
-    nonce policy only in api_key mode, a fresh nonce per page, API routes and
-    prefetches skipped), `test/api-key-render.test.tsx` (the connect form, the
-    notices, the three Status rows, the read-only-key notice, the key-refusing
-    inputs), `test/api-key-routes-demo.test.ts` (the real route files over a
-    real api_key engine whose gateway talks to the e2e's fake Linear in-process:
-    an edit with the member's key, a replayed cookie after sign-out 401, a
-    read-only key, a guest alone 503 `no_reader`) and
-    `test/no-key-leak-static.test.ts` (no `'use server'` module mentions
-    `apiKey`, no code assigns `process.env`, the connect form is a Server
-    Component, every inline script carries the nonce, the image's
-    `--disable-sigusr1` and `ulimit -c 0`, no `instrumentation.ts` or
-    `middleware.ts`).
+    401 sentence), `test/proxy.test.ts` and `test/security-headers.test.ts` (no
+    matcher and no `next.config.ts` redirects; a key in any URL, a typo path, a
+    missing static file, an icon's query or a prefetch, sent on without it with
+    a `no-store` 303, and in an API URL refused with 400 `key_in_url`; `/tasks`
+    a relative 307; the nonce policy only in api_key mode, a fresh nonce per
+    page, API routes, static assets and prefetches skipped by whole path
+    segment), `test/api-key-render.test.tsx` (the connect form, the notices, the
+    three Status rows, the read-only-key notice, the key-refusing inputs),
+    `test/api-key-routes-demo.test.ts` (the real route files over a real api_key
+    engine whose gateway talks to the e2e's fake Linear in-process: an edit with
+    the member's key, a replayed cookie after sign-out 401, a read-only key, a
+    guest alone 503 `no_reader`) and `test/no-key-leak-static.test.ts` (no
+    `'use server'` module mentions `apiKey`, no code assigns `process.env`, the
+    connect form is a Server Component, every inline script carries the nonce,
+    the image's `--disable-sigusr1` and `ulimit -c 0`, no `instrumentation.ts`
+    or `middleware.ts`).
   - browser (`e2e/api-key.e2e.ts`, `playwright.api-key.config.ts`, moon
     `planner:test-e2e-api-key`, a CI target): the production build in api_key
     mode against a local fake Linear GraphQL server
@@ -5430,17 +5448,18 @@ not read; a deploy that still sets it boots normally and logs one warning
     password field, framing refused, every script nonced), a bad shape, a
     revoked key, a member connecting (My week, the session cookie, Settings →
     Status), an edit that reaches the fake with that member's key, a key pasted
-    into the address bar dropped by the proxy before the page renders, another
-    workspace refused without naming this one, a read-only key refused once by
-    Linear and then by the planner, per-viewer visibility, sign-out on every
-    device (and a second sign-out with the stale cookie landing on
-    `signed_out=ended`, "Already disconnected", never "every browser"),
-    cross-site, `Origin: null` and multipart posts refused, the eleventh failure
-    from one `X-Real-IP` limited while another connects, and no test key (or a
-    fragment of one) in any response, the server log, the build output or the
-    fake's request log (keys travel only in its `Authorization` header). Then
-    `e2e/scan-api-key-leaks.ts` scans every file the server wrote under
-    `E2E_ARTIFACTS_DIR` (the PGlite directory, `server.log`, the server's
+    into the address bar dropped by the proxy before the page renders (and in a
+    typo path, a missing static file, an icon's query, `/tasks`, a prefetch and
+    an API URL), another workspace refused without naming this one, a read-only
+    key refused once by Linear and then by the planner, per-viewer visibility,
+    sign-out on every device (and a second sign-out with the stale cookie
+    landing on `signed_out=ended`, "Already disconnected", never "every
+    browser"), cross-site, `Origin: null` and multipart posts refused, the
+    eleventh failure from one `X-Real-IP` limited while another connects, and no
+    test key (or a fragment of one) in any response, the server log, the build
+    output or the fake's request log (keys travel only in its `Authorization`
+    header). Then `e2e/scan-api-key-leaks.ts` scans every file the server wrote
+    under `E2E_ARTIFACTS_DIR` (the PGlite directory, `server.log`, the server's
     `TMPDIR`) byte by byte, and every table of that database through SQL (a byte
     scan alone would miss TOAST-compressed jsonb).
 - image: CI's `image` job builds `deploy/Dockerfile` and starts both services
