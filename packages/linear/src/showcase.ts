@@ -645,11 +645,83 @@ function labelsFor(row: IssueRow): string[] {
 }
 
 /**
+ * How a new showcase issue gets a due date, by where its milestone's
+ * target stands against `today`: `share` is the part of the issues of
+ * the kind that carry one (picked by the identifier's hash), `lead` the
+ * most days before the target it falls, and `floorToday` keeps open work
+ * in a milestone that is not yet overdue from being overdue itself. Open
+ * work in an overdue milestone is overdue too, so only some of it is
+ * dated; most open work rides on its milestone alone.
+ */
+const DUE_RULES: Readonly<
+  Record<
+    'closed' | 'overdue' | 'soon' | 'weeks' | 'later' | 'none',
+    { share: number; lead: number; floorToday: boolean }
+  >
+> = {
+  // Done work keeps the date it was due by (on or before its milestone's).
+  closed: { share: 0.2, lead: 4, floorToday: false },
+  // Open work in a milestone past its target: overdue.
+  overdue: { share: 0.5, lead: 3, floorToday: false },
+  // Open work in a milestone due within two days: mostly today or tomorrow.
+  soon: { share: 0.65, lead: 2, floorToday: true },
+  // Open work in a milestone due in 3 to 14 days.
+  weeks: { share: 0.33, lead: 5, floorToday: true },
+  // Open work in a milestone further out.
+  later: { share: 0.25, lead: 7, floorToday: true },
+  // Open work with no milestone date: a date of its own, 4 to 25 days out.
+  none: { share: 0.17, lead: 0, floorToday: true },
+};
+
+/**
+ * A new showcase issue's due date for `today`, or null: about a quarter
+ * of the showcase's issues carry one (DUE_RULES), never after its
+ * milestone's target and never before the day it was filed (an issue that
+ * cannot meet both carries none); canceled and duplicate issues carry
+ * none. `target` is the milestone's target date (a showcase or a base
+ * milestone), or null.
+ */
+function showcaseDueDate(
+  row: IssueRow,
+  target: IsoDate | null,
+  today: IsoDate
+): IsoDate | null {
+  if (row.state === 'canceled' || row.state === 'duplicate') return null;
+  const id = row.identifier;
+  const closed = row.state === 'done';
+  if (closed && target === null) return null;
+  const kind = closed
+    ? 'closed'
+    : target === null
+      ? 'none'
+      : target < today
+        ? 'overdue'
+        : target <= addDays(today, 2)
+          ? 'soon'
+          : target <= addDays(today, 14)
+            ? 'weeks'
+            : 'later';
+  const rule = DUE_RULES[kind];
+  if (hash(`${id}:due?`) % 100 >= rule.share * 100) return null;
+  let due =
+    target === null
+      ? addDays(today, pick(id, 'due', 4, 25))
+      : addDays(target, -pick(id, 'due', 0, rule.lead));
+  if (rule.floorToday && due < today) due = today;
+  const filed = addDays(today, -deriveTiming(row)[0]);
+  if (due < filed) {
+    if (target !== null && filed > target) return null;
+    due = filed;
+  }
+  return due;
+}
+
+/**
  * The showcase's issue-page content for `today`: the base content
  * (createFixtureIssueDetails) plus fields for every new issue (labels from
  * its title, an estimate on its team's scale for most, a due date for
- * some open ones near their milestone, descriptions on the issues the
- * story runs through), the new teams' labels and scales, and a seeded
+ * about a quarter (showcaseDueDate), descriptions on the issues the story
+ * runs through), the new teams' labels and scales, and a seeded
  * discussion on the critical path, the hubs and the cycles.
  */
 export function createShowcaseIssueDetails(
@@ -668,6 +740,10 @@ export function createShowcaseIssueDetails(
   const issueFields: Record<string, FixtureIssueFields> = {
     ...base.issueFields,
   };
+  // A base milestone's target, for the new issues planned into it.
+  const baseTargets = new Map(
+    createFixtureWorkspace(today).milestones.map((m) => [m.id, m.targetDate])
+  );
   for (const row of ISSUE_ROWS) {
     const id = idOf(row.identifier);
     const scale = estimateScales[`team-${row.team}`];
@@ -676,13 +752,14 @@ export function createShowcaseIssueDetails(
       row.state !== 'triage' &&
       options.length > 0 &&
       hash(`${row.identifier}:estimate?`) % 6 !== 0;
-    const due = row.milestone?.due ?? null;
-    const open =
-      row.state !== 'done' &&
-      row.state !== 'canceled' &&
-      row.state !== 'duplicate';
-    const dated =
-      open && due !== null && hash(`${row.identifier}:due?`) % 6 === 0;
+    const target =
+      row.milestone !== null
+        ? row.milestone.due === null
+          ? null
+          : addDays(today, row.milestone.due)
+        : row.milestoneId === null
+          ? null
+          : (baseTargets.get(row.milestoneId) ?? null);
     issueFields[id] = {
       description: SHOWCASE_DESCRIPTIONS[row.identifier] ?? null,
       labelIds: labelsFor(row),
@@ -691,10 +768,7 @@ export function createShowcaseIssueDetails(
             hash(`${row.identifier}:estimate`) % Math.min(options.length, 4)
           ]?.value ?? null)
         : null,
-      dueDate:
-        dated && due !== null
-          ? addDays(today, due - pick(row.identifier, 'due', 0, 3))
-          : null,
+      dueDate: showcaseDueDate(row, target, today),
     };
   }
   const first = base.seededComments.length;

@@ -1263,8 +1263,21 @@ scenario fixture tests pin; the showcase is a second dataset for live demos.
   as missing inputs) and about 365 issues (418, about 73% open, every state and
   priority, unassigned and unplanned work, open issues with no project), with
   issue-page content (labels from the title, estimates on the team's scale, due
-  dates on some open issues, descriptions and a seeded discussion on the issues
-  the story runs through).
+  dates, descriptions and a seeded discussion on the issues the story runs
+  through).
+- **Due dates** (`Issue.dueDate`, which the mirror reads since the Issues view):
+  98 of the 418 issues (23%; the base keeps its own 9), all relative to `today`
+  and picked by the identifier's hash, so the same issues on any day. Each falls
+  on or a few days before its milestone's target (base milestones included),
+  never before the issue was filed, and none is on a canceled issue. Open work
+  in a milestone that is not yet overdue is never overdue itself; half of the
+  open work in an overdue milestone is, which with the base's two makes 9
+  overdue open issues (five in Plume's Streaming ingestion, two in Ridge's EU
+  data residency, Atlas's two in Dual-write). Two in three open issues of a
+  milestone due within two days carry a date, so 5 are due today and 5 tomorrow;
+  a quarter to a third of the rest of the open work in dated milestones, a sixth
+  of the open work with no milestone date (4 to 25 days out) and a fifth of the
+  closed work carry one.
 - **Blocking relations (247)** follow three flow rules, so the layered layout
   reads left to right: a blocker's milestone is due no later than the blocked
   issue's (undated last); cross-project relations follow one project order
@@ -1296,7 +1309,11 @@ scenario fixture tests pin; the showcase is a second dataset for live demos.
   its milestone level 67 boxes, its project level 21 and its initiative level 5;
   the guest's issue level is 70. A new relation adds only an arrow, so a shared
   demo takes some 750 visitor-made relations before its issue level shows "Too
-  many to draw".
+  many to draw". Measured on this sandbox (production build),
+  `GET /graph?level=issue` for a member takes 0.36–0.50 s on a fresh server
+  (`buildGraphPage` 174 ms, most of it the framed layout) and 0.10–0.19 s once
+  its layout is cached (`buildGraphPage` 7 ms), a slide-over opening on it or a
+  `?highlight=` in its URL included, since both reuse the same layout.
 - **Deterministic**: the tables are text (one row per issue, `A > B > C`
   relation chains) parsed at load; the builder throws on a reference Linear
   would refuse. Timestamps a row leaves out come from an FNV-1a hash of the
@@ -4032,7 +4049,11 @@ not read; a deploy that still sets it boots normally and logs one warning
   the designed cycles as the only ones, the critical path as the unique longest
   chain, the hubs, linked and unlinked work in every milestone, core's graph at
   every level and container (cycles per level), the guest's view, issue-page
-  content and the store.
+  content, the due dates (the share, the exact overdue, today and tomorrow sets,
+  each date against its milestone's target and the day the issue was filed, the
+  same issues on any day, the gateway carrying them) and the store.
+  `test/base-snapshot.test.ts` also pins that the mirror reads the base
+  snapshot's issues plus only their due dates.
 - store: every method against in-memory PGlite; concurrency guards (second
   `startRun` returns null; duplicate notification returns false; job claims).
   With `TEST_DATABASE_URL` the same suite also runs on real Postgres, including
@@ -4110,11 +4131,14 @@ not read; a deploy that still sets it boots normally and logs one warning
   (`test/showcase-pages.test.ts`), `/graph` at every level and inside an
   initiative, a project, a milestone and a chain, `/timeline`, `/projects` and
   `/week` build their models through the pages' engine calls and adapters, draw
-  (never "Too many to draw") with a layout and Mermaid text, no box's sublabel
-  is cut, and each page's server time is measured against a budget. A milestone
-  box keeps its date on any day, cross-year dates included, in both demo
-  workspaces (`test/adapters-graph-sublabel.test.ts`), and the layout cache
-  reuses only an identical drawing (`test/graph-layout-cache.test.ts`).
+  (never "Too many to draw") with a layout and Mermaid text (a body and each
+  highlight's styles), no box's sublabel is cut, every workspace level draws
+  every box and arrow for Chloe and for Gus (406 boxes and 247 arrows at Chloe's
+  issue level), a highlight in the URL or a slide-over reuses the same layout,
+  and each page's server time is measured against a budget. A milestone box
+  keeps its date on any day, cross-year dates included, in both demo workspaces
+  (`test/adapters-graph-sublabel.test.ts`), and the layout cache reuses only an
+  identical drawing, frames included (`test/graph-layout-cache.test.ts`).
 - planner (issue list): `test/adapters-issue-list.test.ts` (the URL grammar:
   canonical order, defaults left out, `state=all`, `me` and `none`, dropped
   values, the 50-value and 200-character caps, `limit` steps, invalid section

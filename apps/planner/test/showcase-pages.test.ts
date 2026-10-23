@@ -9,6 +9,7 @@ import { createLogger } from '@better-tracker/logger';
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import { buildGraphPage, parseGraphParams } from '../lib/adapters/graph';
+import { GRAPH_DRAW_LIMITS } from '../lib/adapters/graph-scope';
 import { buildProjectsPage } from '../lib/adapters/projects';
 import { statusRows } from '../lib/adapters/settings';
 import { buildTimelinePage } from '../lib/adapters/timeline';
@@ -129,6 +130,44 @@ describe('showcase pages', () => {
       }
     });
   }
+
+  // Every level draws every item in scope (owner decision 2026-10-23,
+  // "the graph is there to show all issues"): for a member and for the
+  // guest, each workspace level draws all its boxes and arrows in full,
+  // inside the draw limits (700 boxes, 1,000 arrows). Gus has no
+  // initiatives, so his initiative level is his project level.
+  test('/graph: every workspace level draws in full for Chloe and Gus', async () => {
+    const levels = ['initiative', 'project', 'milestone', 'issue'] as const;
+    const drawn = async (actor: Actor) => {
+      const out: Record<string, [number, number]> = {};
+      for (const level of levels) {
+        const graph = await engine.getGraph(WORKSPACE, { level }, actor);
+        const model = await graphPage({ level }, actor);
+        expect(model.tooLarge).toBeNull();
+        // Every box and arrow of the scope is drawn and laid out.
+        expect(model.nodes.length).toBe(graph.nodes.length);
+        expect(model.edges.length).toBe(graph.edges.length);
+        expect(model.layout?.nodes.length).toBe(graph.nodes.length);
+        expect(model.nodes.length).toBeLessThanOrEqual(GRAPH_DRAW_LIMITS.nodes);
+        expect(model.edges.length).toBeLessThanOrEqual(GRAPH_DRAW_LIMITS.edges);
+        out[level] = [model.nodes.length, model.edges.length];
+      }
+      return out;
+    };
+    expect(await drawn(member)).toEqual({
+      initiative: [5, 7],
+      project: [21, 27],
+      milestone: [67, 54],
+      // Every non-canceled issue: 406 boxes, all 247 relations.
+      issue: [406, 247],
+    });
+    expect(await drawn(guest)).toEqual({
+      initiative: [8, 2],
+      project: [8, 2],
+      milestone: [24, 7],
+      issue: [70, 35],
+    });
+  });
 
   // No highlight moves a box (the island switches modes on its own; the
   // page never reads ?highlight= into the model), and a slide-over opening

@@ -945,7 +945,7 @@ describe('showcase: issue-page content', () => {
       }
     }
     expect(estimated).toBeGreaterThan(250);
-    expect(dated).toBeGreaterThan(30);
+    expect(dated).toBe(98);
     expect(Object.keys(details.estimateScales).sort()).toEqual(
       data.teams.map((t) => t.id).sort()
     );
@@ -976,6 +976,158 @@ describe('showcase: issue-page content', () => {
       if (id === 'ENG-60') continue;
       expect(description ?? '').not.toBe('');
     }
+  });
+});
+
+// Issue due dates (Issue.dueDate, read by the mirror since the Issues view,
+// 2026-10-22): about a quarter of the issues carry one, as in a real
+// workspace where most work rides on its milestone, all relative to
+// today, a few overdue and a few due today or tomorrow, and never at odds
+// with the milestone they are planned into.
+describe('showcase: due dates', () => {
+  /** Days from `today` to `date`. */
+  const daysFrom = (today: string, date: string) =>
+    Math.round((Date.parse(date) - Date.parse(today)) / DAY_MS);
+
+  /** The due-date facts of the showcase on `today`. */
+  function dueFacts(today: string) {
+    const workspace = createShowcaseWorkspace(today);
+    const fields = createShowcaseIssueDetails(today).issueFields;
+    const types = new Map(workspace.states.map((x) => [x.id, x.type]));
+    const targets = new Map(
+      workspace.milestones.map((m) => [m.id, m.targetDate])
+    );
+    const rows = workspace.issues.map((i) => {
+      const type = types.get(i.stateId);
+      return {
+        issue: i,
+        due: fields[i.id]?.dueDate ?? null,
+        open: type !== 'completed' && type !== 'canceled',
+        canceled: type === 'canceled',
+        target:
+          i.milestoneId === null ? null : (targets.get(i.milestoneId) ?? null),
+      };
+    });
+    const openDated = rows.filter((r) => r.open && r.due !== null);
+    const keys = (list: typeof rows) =>
+      list.map((r) => r.issue.identifier).sort();
+    return {
+      rows,
+      dated: rows.filter((r) => r.due !== null).length,
+      overdue: keys(openDated.filter((r) => daysFrom(today, r.due ?? '') < 0)),
+      dueToday: keys(
+        openDated.filter((r) => daysFrom(today, r.due ?? '') === 0)
+      ),
+      dueTomorrow: keys(
+        openDated.filter((r) => daysFrom(today, r.due ?? '') === 1)
+      ),
+    };
+  }
+
+  const facts = dueFacts(TODAY);
+
+  test('a realistic minority: about a quarter of the issues', () => {
+    expect(facts.dated).toBe(98);
+    const share = facts.dated / data.issues.length;
+    expect(share).toBeGreaterThanOrEqual(0.2);
+    expect(share).toBeLessThanOrEqual(0.3);
+    // The base keeps its own 9; the new issues carry the rest.
+    const baseDated = facts.rows.filter(
+      (r) => baseIssueIds.has(r.issue.id) && r.due !== null
+    ).length;
+    expect(baseDated).toBe(9);
+    // Closed work keeps a date too, but most dates are on open work.
+    const closedDated = facts.rows.filter(
+      (r) => !r.open && r.due !== null
+    ).length;
+    expect(closedDated).toBe(25);
+    expect(facts.rows.filter((r) => r.canceled && r.due !== null)).toEqual([]);
+  });
+
+  test('a few overdue, a few due today or tomorrow', () => {
+    expect(facts.overdue).toEqual([
+      'DATA-46',
+      'DATA-48',
+      'DATA-50',
+      'ENG-10',
+      'ENG-12',
+      'ENG-165',
+      'ENG-167',
+      'ENG-256',
+      'ENG-257',
+    ]);
+    expect(facts.dueToday).toEqual([
+      'ENG-234',
+      'ENG-235',
+      'GRO-52',
+      'OPS-77',
+      'OPS-81',
+    ]);
+    expect(facts.dueTomorrow).toEqual([
+      'ENG-188',
+      'ENG-232',
+      'ENG-54',
+      'GRO-54',
+      'OPS-90',
+    ]);
+  });
+
+  test('relative to today: the same issues on any day', () => {
+    for (const today of ['2026-10-23', '2026-12-30', '2027-03-01']) {
+      const other = dueFacts(today);
+      expect(other.dated).toBe(facts.dated);
+      expect(other.overdue).toEqual(facts.overdue);
+      expect(other.dueToday).toEqual(facts.dueToday);
+      expect(other.dueTomorrow).toEqual(facts.dueTomorrow);
+      // Each date sits the same number of days from that day.
+      other.rows.forEach((row, index) => {
+        const mine = facts.rows[index];
+        expect(row.issue.id).toBe(mine?.issue.id ?? '');
+        expect(row.due === null).toBe((mine?.due ?? null) === null);
+        if (row.due !== null && mine?.due != null) {
+          expect(daysFrom(today, row.due)).toBe(daysFrom(TODAY, mine.due));
+        }
+      });
+    }
+  });
+
+  test('consistent with their milestones and when they were filed', () => {
+    for (const row of facts.rows) {
+      if (row.due === null || baseIssueIds.has(row.issue.id)) continue;
+      // Never after the milestone's target.
+      if (row.target !== null) expect(row.due <= row.target).toBe(true);
+      // Never before the issue was filed.
+      expect(row.due >= row.issue.createdAt.slice(0, 10)).toBe(true);
+      // Open work is overdue only in a milestone that is overdue itself.
+      if (row.open && row.due < TODAY) {
+        expect(row.target !== null && row.target < TODAY).toBe(true);
+      }
+    }
+    // Open work in a milestone due within two days is due by then, and
+    // most of it carries a date.
+    const soon = facts.rows.filter(
+      (r) =>
+        r.open &&
+        !baseIssueIds.has(r.issue.id) &&
+        r.target !== null &&
+        r.target >= TODAY &&
+        daysFrom(TODAY, r.target) <= 2
+    );
+    const soonDated = soon.filter((r) => r.due !== null);
+    expect(soonDated.length * 2).toBeGreaterThan(soon.length);
+    for (const r of soonDated) expect((r.due ?? '') >= TODAY).toBe(true);
+  });
+
+  test('the mirror reads them: every issue the gateway returns carries its date', async () => {
+    const gateway = createFixtureGateway(
+      createShowcaseStore(TODAY),
+      'user-chloe'
+    );
+    const issues = (await gateway.fetchWorkspace()).issues;
+    expect(issues.filter((i) => i.dueDate != null)).toHaveLength(facts.dated);
+    const due = new Map(facts.rows.map((r) => [r.issue.id, r.due]));
+    for (const i of issues)
+      expect(i.dueDate ?? null).toBe(due.get(i.id) ?? null);
   });
 });
 
