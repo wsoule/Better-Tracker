@@ -609,6 +609,75 @@ describe('the clustered layout', () => {
     }
   });
 
+  test('a band thinner than a box is left as dagre drew it', () => {
+    // s → h → two waiting boxes: s and h sit half a box down, less than
+    // CLUSTER_METRICS.liftMin, so the ranks stay where dagre put them.
+    const nodes = ['s', 'h', 'w1', 'w2'].map((id) => issue(id, 'p'));
+    const edges: GraphEdgeData[] = [
+      { from: 's', to: 'h', kind: 'default' },
+      { from: 'h', to: 'w1', kind: 'default' },
+      { from: 'h', to: 'w2', kind: 'default' },
+    ];
+    const layout = layoutGraph(nodes, edges, {
+      clusters: [{ id: 'p', label: 'Pulse' }],
+    });
+    const top = frameOf(layout, 'p').y + CLUSTER_METRICS.padTop;
+    const band = nodeOf(layout, 's').y - top;
+    expect(band).toBeGreaterThan(0);
+    expect(band).toBeLessThan(CLUSTER_METRICS.liftMin);
+    expect(Math.min(nodeOf(layout, 'w1').y, nodeOf(layout, 'w2').y)).toBe(top);
+  });
+
+  test('an arrow leaving a frame runs out level to its side first', () => {
+    // The demo's Dual-write: a1 holds up b1 in the next frame, and two
+    // loose boxes with long names make a grid under a1 wider than its
+    // flow. Straight from a1's port to the frames' route the arrow cut
+    // across that grid; it now runs out to the frame's far side (2px in)
+    // first, level with a1.
+    const long = (id: string, cluster: string) => ({
+      ...issue(id, cluster),
+      label: `Issue ${id} with a much longer name than the others`,
+    });
+    const nodes = [
+      issue('a1', 'fa', READY),
+      long('l1', 'fa'),
+      long('l2', 'fa'),
+      issue('b1', 'fb', BLOCKED),
+      issue('b2', 'fb'),
+    ];
+    const edges: GraphEdgeData[] = [
+      { from: 'a1', to: 'b1', kind: 'cross', cross: true },
+    ];
+    const layout = layoutGraph(nodes, edges, {
+      clusters: [
+        { id: 'fa', label: 'Atlas' },
+        { id: 'fb', label: 'Beacon' },
+      ],
+    });
+    const fa = frameOf(layout, 'fa');
+    const a1 = nodeOf(layout, 'a1');
+    const arrow = layout.edges.find((e) => e.key === 'a1->b1');
+    const points = arrow?.points ?? [];
+    expect(fa.x + fa.width).toBeGreaterThan(a1.x + a1.width + 60);
+    const out = points.find((p) => p.x === fa.x + fa.width - 2);
+    expect(out).toBeDefined();
+    expect(out?.y).toBeGreaterThanOrEqual(a1.y);
+    expect(out?.y).toBeLessThanOrEqual(a1.y + a1.height);
+    for (const other of layout.nodes) {
+      if (other.id === 'a1' || other.id === 'b1') continue;
+      const behind = curvePoints(arrow?.path ?? '').filter(
+        (p) =>
+          p.x > other.x + 2 &&
+          p.x < other.x + other.width - 2 &&
+          p.y > other.y + 2 &&
+          p.y < other.y + other.height - 2
+      );
+      expect(`behind ${other.id}: ${behind.length}`).toBe(
+        `behind ${other.id}: 0`
+      );
+    }
+  });
+
   test('an edge inside one frame keeps its dagre route', () => {
     const layout = laid();
     const a1 = nodeOf(layout, 'a1');

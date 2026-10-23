@@ -87,6 +87,12 @@ export const CLUSTER_METRICS = {
   /** How far an arrow between frames leaves and enters a box straight. */
   lead: 28,
   /**
+   * The least empty band above a flow's first rank that liftOpening
+   * closes: about a box's height. A thinner one is left, since moving
+   * ranks bends the arrows between them and can put one behind a box.
+   */
+  liftMin: 64,
+  /**
    * A flow holding frames may run this long along the direction, or
    * flowSpread times the width its frames would take on shelves, before
    * its frames go onto shelves instead (layoutFrame).
@@ -901,19 +907,23 @@ function flowChain(
  * stacks higher than the first ones (a tall frame or several boxes at the
  * far end) everything before it hangs below an empty band, and reading
  * starts in blank space: about 130px above the workspace issue level's
- * first box. Each rank rises by the space that lies above it and above
- * every rank before it (its items' and the arrows' points counted), so
- * the band goes and the ranks from the first to the highest one keep
- * their places relative to each other; nothing rises past an arrow or a
- * box, and the ranks from the highest one on stay put.
+ * first box. When that band is at least C.liftMin (about a box) tall, each
+ * rank rises by the space that lies above it and above every rank before
+ * it (its items' and the arrows' points counted), so the band goes and the
+ * ranks from the first to the highest one keep their places relative to
+ * each other; nothing rises past an arrow or a box, and the ranks from the
+ * highest one on stay put. A thinner band is left: moving ranks bends the
+ * arrows between them, which can put one behind a box.
  *
  * A rank moves as one piece with the arrow points in its stretch (from
  * the end of the rank before it to its own far edge, so a point in the
  * gap between two ranks goes with the later one): items keep their order
  * across the direction and an arrow its slot between them, and only the
  * curves between two ranks that rise by different amounts get steeper.
- * The routes to and from the frame's ports move the same way. Mutates
- * dagre's output in place.
+ * The routes to and from the frame's ports move the same way. A route's
+ * end on the side of its box that faces along the direction moves with
+ * the box; one on another side is found again from the risen points.
+ * Mutates dagre's output in place.
  */
 function liftOpening(
   g: InstanceType<typeof graphlib.Graph>,
@@ -966,7 +976,7 @@ function liftOpening(
     floor = Math.min(floor, value);
     return floor - top;
   });
-  if (lift[0] <= 0) return;
+  if (lift[0] < C.liftMin) return;
   const raise = (p: Point) => {
     const by = lift[stretchOf(along(p))];
     if (horizontal) p.y -= by;
@@ -983,6 +993,58 @@ function liftOpening(
     }
     for (const p of route.points ?? []) raise(p);
   };
+  // dagre ends a route where the line from the box's centre to the next
+  // point leaves the box. An end on the side facing along the direction
+  // (where most arrows leave and enter) rises with its box and stays; one
+  // on another side is found again from the risen points, since its box
+  // may now sit level with the curve (a route that moved as one piece gets
+  // the same end back).
+  const node = (key: string) => g.node(key) as DagreNode;
+  const facing = (box: DagreNode, p: Point, end: 'out' | 'in'): boolean => {
+    const half = (horizontal ? box.width : box.height) / 2;
+    const side = along(box) + (end === 'out' ? half : -half);
+    return Math.abs(along(p) - side) < 0.5;
+  };
+  const ends: {
+    points: Point[];
+    from: DagreNode | null;
+    to: DagreNode | null;
+  }[] = [];
+  links.forEach(([, link], i) => {
+    const points = drawn[i]?.points;
+    if (points === undefined || points.length < 2 || link.from === link.to) {
+      return;
+    }
+    const from = node(link.from);
+    const to = node(link.to);
+    ends.push({
+      points,
+      from: facing(from, points[0], 'out') ? null : from,
+      to: facing(to, points[points.length - 1], 'in') ? null : to,
+    });
+  });
+  for (const key of outs) {
+    const points = (g.edge(key, PORT_OUT) as DagreEdge | undefined)?.points;
+    if (points !== undefined && points.length >= 2) {
+      const box = node(key);
+      ends.push({
+        points,
+        from: facing(box, points[0], 'out') ? null : box,
+        to: null,
+      });
+    }
+  }
+  for (const key of ins) {
+    const points = (g.edge(PORT_IN, key) as DagreEdge | undefined)?.points;
+    if (points !== undefined && points.length >= 2) {
+      const box = node(key);
+      ends.push({
+        points,
+        from: null,
+        to: facing(box, points[points.length - 1], 'in') ? null : box,
+      });
+    }
+  }
   for (const key of items) raise(g.node(key) as DagreNode);
   for (const route of drawn) raiseRoute(route);
   for (const key of outs) {
@@ -991,34 +1053,10 @@ function liftOpening(
   for (const key of ins) {
     raiseRoute(g.edge(PORT_IN, key) as DagreEdge | undefined);
   }
-  // dagre ends a route where the line from the box's centre to the next
-  // point leaves the box; a box that rose more than that point now meets
-  // its curve on another side, so each end is found again (a route that
-  // moved as one piece gets the same ends back).
-  const node = (key: string) => g.node(key) as DagreNode;
-  links.forEach(([, link], i) => {
-    const points = drawn[i]?.points;
-    if (points === undefined || points.length < 2 || link.from === link.to) {
-      return;
-    }
+  for (const { points, from, to } of ends) {
     const last = points.length - 1;
-    const from = node(link.from);
-    const to = node(link.to);
-    points[0] = boxExit(from, last > 1 ? points[1] : to);
-    points[last] = boxExit(to, last > 1 ? points[last - 1] : from);
-  });
-  for (const key of outs) {
-    const points = (g.edge(key, PORT_OUT) as DagreEdge | undefined)?.points;
-    if (points !== undefined && points.length >= 2) {
-      points[0] = boxExit(node(key), points[1]);
-    }
-  }
-  for (const key of ins) {
-    const points = (g.edge(PORT_IN, key) as DagreEdge | undefined)?.points;
-    if (points !== undefined && points.length >= 2) {
-      const last = points.length - 1;
-      points[last] = boxExit(node(key), points[last - 1]);
-    }
+    if (from !== null) points[0] = boxExit(from, points[1]);
+    if (to !== null) points[last] = boxExit(to, points[last - 1]);
   }
 }
 
@@ -1643,6 +1681,48 @@ function layoutClustered(
       y: r(frame.originY + Math.min(bottom, Math.max(top, p.y))),
     }));
   };
+  // Where an arrow crosses a frame's far side (leaving) or near side
+  // (entering), 2px inside its border, level with the point beside it.
+  // A frame's grid and shelves sit under its flow and are often wider, so
+  // an arrow that left its port route straight for the next frame's route
+  // cut across them; running out level to the side first keeps it in the
+  // flow's lane (when that run passes no box: clearRun).
+  const frameSide = (
+    frame: Frame,
+    end: 'out' | 'in',
+    beside: Point
+  ): Point | null => {
+    if (frame.data === null) return null;
+    const left = frame.originX - C.padX + 2;
+    const right = frame.originX - C.padX + frame.width - 2;
+    const top = frame.originY - C.padTop + 2;
+    const bottom = frame.originY - C.padTop + frame.height - 2;
+    if (horizontal) {
+      return {
+        x: r(end === 'out' ? right : left),
+        y: r(Math.min(bottom, Math.max(top, beside.y))),
+      };
+    }
+    return {
+      x: r(Math.min(right, Math.max(left, beside.x))),
+      y: r(end === 'out' ? bottom : top),
+    };
+  };
+  // The straight run from a to b passes no box but the arrow's own two.
+  const clearRun = (a: Point, b: Point, own1: Box, own2: Box): boolean =>
+    placed.every((n) => {
+      if (n === own1 || n === own2) return true;
+      const x0 = Math.min(a.x, b.x);
+      const x1 = Math.max(a.x, b.x);
+      const y0 = Math.min(a.y, b.y);
+      const y1 = Math.max(a.y, b.y);
+      return (
+        x1 < n.x - 1 ||
+        x0 > n.x + n.width + 1 ||
+        y1 < n.y - 1 ||
+        y0 > n.y + n.height + 1
+      );
+    });
   const laidEdges: LaidOutEdge[] = [];
   for (const { edge, key, frame, link, outWay, inWay } of kept) {
     const route = frame.routes.get(link);
@@ -1681,14 +1761,31 @@ function layoutClustered(
       if (backward) {
         points = [start, leave, ...routed.slice(1, -1), enter, end];
       } else {
-        const out = outWay.flatMap(({ frame: f, item }) =>
-          portWay(f, f.ports.get(item)?.out?.slice(1, -1) ?? null)
-        );
-        const into = [...inWay]
-          .reverse()
-          .flatMap(({ frame: f, item }) =>
-            portWay(f, f.ports.get(item)?.in?.slice(1, -1) ?? null)
-          );
+        const out: Point[] = [];
+        let last = leave;
+        for (const { frame: f, item } of outWay) {
+          const way = portWay(f, f.ports.get(item)?.out?.slice(1, -1) ?? null);
+          out.push(...way);
+          last = way.at(-1) ?? last;
+          const side = frameSide(f, 'out', last);
+          if (side !== null && clearRun(last, side, fromBox, toBox)) {
+            out.push(side);
+            last = side;
+          }
+        }
+        const into: Point[] = [];
+        let next = enter;
+        for (const { frame: f, item } of inWay) {
+          const way = portWay(f, f.ports.get(item)?.in?.slice(1, -1) ?? null);
+          next = way[0] ?? next;
+          const side = frameSide(f, 'in', next);
+          if (side !== null && clearRun(side, next, fromBox, toBox)) {
+            into.unshift(side, ...way);
+            next = side;
+          } else {
+            into.unshift(...way);
+          }
+        }
         const middle = [...out, ...routed.slice(1, -1), ...into];
         points = [
           start,

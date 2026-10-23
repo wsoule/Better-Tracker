@@ -3538,38 +3538,46 @@ hover floods on controls, and the timeline's today.
     tight-tree. dagre centres each rank on its neighbours, so a later rank that
     stacks higher left the first ones hanging under an empty band (about 130px
     above the showcase's first box at the workspace issue level, 2026-10-23
-    integration); after dagre each rank of a flow rises by the space above it
-    and above every rank before it (`liftOpening`; arrow points count as content
-    and move with their rank, a point between two ranks with the later one, and
-    each route's ends are found again on its boxes' borders), so every frame's
-    flow starts in its top-left corner. dagre's edge weights are whole numbers
-    (a link 100 per edge, twice for a risk or cycle edge, a port edge 100, a
-    port-ranking edge 1): a fractional weight could leave a network-simplex cut
-    value at -2e-16 that never settles, and the server's render looped forever
-    on about 1 small project in 100 (2026-10-23 review). An arrow between frames
-    leaves the blocker's far side and enters the waiting box's near side,
-    following dagre's lane to the far side of each frame it leaves and from the
-    near side of each it enters (in a flow small enough for network-simplex,
-    each frame's ports rank after and before its whole flow; in a bigger one
-    they sit beside their own items, which saves about 0.35 s at 600 boxes in
-    one frame), so it passes the other boxes there instead of running behind
-    them (a regression test pins the demo's Dual-write → Search v2 beta beside
-    Read path switch). Arrows between shelved frames still have no route, so in
-    a big, dense workspace many long arrows cross boxes. Arrow keys move to the
-    nearest box that way (columns are per frame). A frame is a 1px `--grey-2`
-    hairline (3.23 / 5.93 on the paper), square, no fill or shadow, its name a
-    mono caps 9px title on a paper patch drawn over the arrows: ink at the top
-    (21.00 / 16.37), `--muted` nested (7.00 / 7.60), `--grey-2-ink` in a paused
-    frame (5.10 / 5.93); a paused frame is hatched (the base's `--hatch`) with a
-    `--grey` rule (3.54 / 3.76 on the paper, 3.11 / 3.12 on its hatch line); an
-    outside one is dashed. Forced colours draw frames `CanvasText`, paused ones
-    `GrayText` with no hatch, outside ones still dashed. Frames are decorative
-    (`aria-hidden`): the names carry them. A done box keeps its filled ink done
-    square even when faint. The legends end their Nodes row with the frame:
-    "Milestone — a frame of its issues, inside its project's" ("a frame of its
-    issues" in one project), "Project — a frame of its milestones", "Initiative
-    — a frame of its projects (each under its first initiative)", and "Inactive
-    — a hatched frame of paused work" when one is drawn.
+    integration); after dagre, when that band is at least `liftMin` (64px, about
+    a box) tall, each rank of a flow rises by the space above it and above every
+    rank before it (`liftOpening`; arrow points count as content and move with
+    their rank, a point between two ranks with the later one; a route's end on
+    the side facing along the direction moves with its box, any other end is
+    found again on its border), so every frame's flow starts in its top-left
+    corner. A thinner band is left: moving ranks bends the arrows between them,
+    and at the milestone level closing bands under 64px put 4 more of 54 arrows
+    behind a box. dagre's edge weights are whole numbers (a link 100 per edge,
+    twice for a risk or cycle edge, a port edge 100, a port-ranking edge 1): a
+    fractional weight could leave a network-simplex cut value at -2e-16 that
+    never settles, and the server's render looped forever on about 1 small
+    project in 100 (2026-10-23 review). An arrow between frames leaves the
+    blocker's far side and enters the waiting box's near side, following dagre's
+    lane to the far side of each frame it leaves and from the near side of each
+    it enters, and running level to that side (2px inside the border) before it
+    crosses to the next frame when the run passes no box: a frame's grid and
+    shelves sit under its flow and are often wider, and an arrow that left its
+    port route straight for the next frame's route cut across them (in a flow
+    small enough for network-simplex, each frame's ports rank after and before
+    its whole flow; in a bigger one they sit beside their own items, which saves
+    about 0.35 s at 600 boxes in one frame), so it passes the other boxes there
+    instead of running behind them (a regression test pins the demo's Dual-write
+    → Search v2 beta beside Read path switch). Arrows between shelved frames
+    still have no route, so in a big, dense workspace many long arrows cross
+    boxes. Arrow keys move to the nearest box that way (columns are per frame).
+    A frame is a 1px `--grey-2` hairline (3.23 / 5.93 on the paper), square, no
+    fill or shadow, its name a mono caps 9px title on a paper patch drawn over
+    the arrows: ink at the top (21.00 / 16.37), `--muted` nested (7.00 / 7.60),
+    `--grey-2-ink` in a paused frame (5.10 / 5.93); a paused frame is hatched
+    (the base's `--hatch`) with a `--grey` rule (3.54 / 3.76 on the paper, 3.11
+    / 3.12 on its hatch line); an outside one is dashed. Forced colours draw
+    frames `CanvasText`, paused ones `GrayText` with no hatch, outside ones
+    still dashed. Frames are decorative (`aria-hidden`): the names carry them. A
+    done box keeps its filled ink done square even when faint. The legends end
+    their Nodes row with the frame: "Milestone — a frame of its issues, inside
+    its project's" ("a frame of its issues" in one project), "Project — a frame
+    of its milestones", "Initiative — a frame of its projects (each under its
+    first initiative)", and "Inactive — a hatched frame of paused work" when one
+    is drawn.
   - **Draw limits and cost.** At most 700 boxes and 1,000 arrows
     (`GRAPH_DRAW_LIMITS`, §8.1; 200 and 300 before every item was drawn), the
     largest size that lays out in about a second here, whatever the shape.

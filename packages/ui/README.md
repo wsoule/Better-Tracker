@@ -555,30 +555,34 @@ or middle click still opens the link.
   (2400px, or 1.25 times their shelf width), they go onto shelves in flow order
   instead and their arrows are drawn without a dagre route; when the flow's
   longest chain alone (`flowChain`, a lower bound on dagre's own acyclic graph)
-  already passes that, dagre is not run for it at all. After dagre, each rank of
-  a flow rises by the space above it and above every rank before it, so a frame
-  starts in its top-left corner even when a later rank stacks higher (dagre
-  centres ranks on each other); arrow points move with their rank and route ends
-  are found again on the box borders. dagre's edge weights are whole numbers: a
-  fractional one can leave network-simplex pivoting forever. Arrows between
-  frames leave the blocker's far side and enter the waiting box's near side,
-  following dagre's lane to the far side of each frame they leave and from the
-  near side of each they enter (in a flow small enough for network-simplex the
-  frame's ports rank after and before its whole flow; in a bigger one they sit
-  beside their own items, to keep its cost down), so they pass the other boxes
-  there instead of running behind them; arrows inside one frame keep their dagre
-  route. Top to bottom, a frame's grid sits under its flow, in the way of the
-  arrows leaving it, so frames read best left to right (every host uses `LR`).
-  Given at all, even empty, `clusters` also packs the loose top-level nodes, so
-  a host with no frames for a level (the planner's initiative level) still gets
-  no long column. Frames are drawn decoratively (`data-graph-cluster`,
-  `data-depth`, `data-muted`, `data-external`): a 1px `--grey-2` hairline, a
-  mono caps title in the top-left on a paper patch above the arrows (ink at the
-  top level, `--muted` nested), hatched with a `--grey` rule when muted, dashed
-  when external; each node's accessible name says the frames it sits in ("in
-  Beta, Orion"). The layout carries `clustered: true`; its nodes come in reading
-  order (frame by frame) and the arrow keys move to the nearest box that way.
-  The legend draws frames as `cluster` and `cluster-muted`. Flows of more than
+  already passes that, dagre is not run for it at all. After dagre, when the
+  band above a flow's first rank is at least `CLUSTER_METRICS.liftMin` (a box)
+  tall, each rank rises by the space above it and above every rank before it, so
+  a frame starts in its top-left corner even when a later rank stacks higher
+  (dagre centres ranks on each other); arrow points move with their rank, and a
+  route end not on its box's facing side is found again on the border. A thinner
+  band stays, since moving ranks bends the arrows between them. dagre's edge
+  weights are whole numbers: a fractional one can leave network-simplex pivoting
+  forever. Arrows between frames leave the blocker's far side and enter the
+  waiting box's near side, following dagre's lane to the far side of each frame
+  they leave and from the near side of each they enter, running level to that
+  side before crossing to the next frame when the run passes no box (in a flow
+  small enough for network-simplex the frame's ports rank after and before its
+  whole flow; in a bigger one they sit beside their own items, to keep its cost
+  down), so they pass the other boxes there instead of running behind them;
+  arrows inside one frame keep their dagre route. Top to bottom, a frame's grid
+  sits under its flow, in the way of the arrows leaving it, so frames read best
+  left to right (every host uses `LR`). Given at all, even empty, `clusters`
+  also packs the loose top-level nodes, so a host with no frames for a level
+  (the planner's initiative level) still gets no long column. Frames are drawn
+  decoratively (`data-graph-cluster`, `data-depth`, `data-muted`,
+  `data-external`): a 1px `--grey-2` hairline, a mono caps title in the top-left
+  on a paper patch above the arrows (ink at the top level, `--muted` nested),
+  hatched with a `--grey` rule when muted, dashed when external; each node's
+  accessible name says the frames it sits in ("in Beta, Orion"). The layout
+  carries `clustered: true`; its nodes come in reading order (frame by frame)
+  and the arrow keys move to the nearest box that way. The legend draws frames
+  as `cluster` and `cluster-muted`. Flows of more than
   `CLUSTER_METRICS.simplexItems` items or `simplexLinks` links rank with dagre's
   tight-tree instead of network-simplex, which keeps one big, dense frame near
   0.5 s for 500 nodes and 800 edges (network-simplex: about 5 s).
