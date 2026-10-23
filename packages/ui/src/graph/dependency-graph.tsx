@@ -101,16 +101,16 @@ function firstFrameNodes(layout: GraphLayout): readonly LaidOutNode[] {
  * Where a graph with nothing to centre on (no focus, no selection) opens,
  * as frame scroll offsets at zoom `k`. dagre leaves empty space around a
  * layered drawing, so a big graph scrolled to (0, 0) can show no box at
- * all. Blockers sit left of what waits (above it, top-down), so the flow
- * starts at the drawing's first layer: the frame stays at the start of
- * the flow axis and slides along the other axis to the band, starting at
- * a box, where the most boxes of that first frame-length show whole (the
- * earliest such band on a tie). A framed drawing (`clustered`) opens on
- * its first frame instead, which the packing puts at the top-left: it
- * stays at (0, 0) while that frame shows a box whole there, and otherwise
- * slides to the band of that frame's own boxes, never to a later frame.
- * Null, so nothing moves, when the frame has no size, the drawing fits it
- * across, or no box fits its flow length.
+ * all. In an unframed drawing blockers sit left of what waits (above it,
+ * top-down), so the flow starts at the drawing's first layer: the frame
+ * stays at the start of the flow axis and slides along the other axis to
+ * the band, starting at a box, where the most boxes of that first
+ * frame-length show whole (the earliest such band on a tie). A framed
+ * drawing (`clustered`) opens on its first frame instead, which the
+ * packing puts at the top-left: it stays at (0, 0) while that frame shows
+ * a box whole there, and otherwise slides to the band of that frame's own
+ * boxes, never to a later frame. Null, so nothing moves, when the frame
+ * has no size, the drawing fits it across, or no box fits its flow length.
  */
 function openingScroll(
   layout: GraphLayout,

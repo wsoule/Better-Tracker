@@ -3691,12 +3691,16 @@ hover floods on controls, and the timeline's today.
     inactive — nothing open, or a paused project"); issues unchanged, except
     that the workspace's issue level (which has no externals) leaves out
     External; a chain: the issue legend without External plus "Focus — the issue
-    this chain is about". Inside an initiative or a project, the aggregate
-    legends add "External — outside this initiative / this project". Swatches
-    draw the canvas's own hues: Overdue the red flood (`node-overdue`), At risk
-    / Needs action the 2px amber rule (`node-warning`), In a cycle the dashed
-    red outline, Risk chain amber, Cycle dashed red, Inactive / Closed /
-    Complete the faint box.
+    this chain is about". Wherever frames are drawn the level's box reads "in a
+    frame, blockers sit left of what waits" instead: each frame's flow runs left
+    to right, but the frames pack onto shelves that wrap, so an arrow between
+    two frames can run back (2026-10-23 showcase review: 41 of 247 arrows at the
+    workspace issue level, none inside a frame). Inside an initiative or a
+    project, the aggregate legends add "External — outside this initiative /
+    this project". Swatches draw the canvas's own hues: Overdue the red flood
+    (`node-overdue`), At risk / Needs action the 2px amber rule
+    (`node-warning`), In a cycle the dashed red outline, Risk chain amber, Cycle
+    dashed red, Inactive / Closed / Complete the faint box.
   - **Panels** (the same slide-over; links in this order, a link to the page
     itself left out). An initiative: breadcrumb "Initiative" ("Projects with no
     initiative"), its status mark, Target date, Projects ("5 projects · 1

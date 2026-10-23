@@ -653,6 +653,26 @@ describe('every item drawn, framed by parent', () => {
     expect(chain.nodes.every((n) => n.cluster === undefined)).toBe(true);
   });
 
+  // Frames pack onto shelves that wrap, so an arrow between two frames
+  // can run right to left (the showcase review counted 41 of 247 at the
+  // workspace issue level); only inside a frame does the flow always run
+  // left to right, and the Risk legend's box says so where frames are
+  // drawn. One flow (the initiative level, a chain) keeps the plain note.
+  test('the Risk legend says blockers sit left in a frame wherever frames are drawn', () => {
+    const boxNote = (scope: GraphScope) =>
+      page(scope).legends.risk.find((item) => item.mark === 'node')?.note;
+    const framed = 'in a frame, blockers sit left of what waits';
+    expect(boxNote({ level: 'issue' })).toBe(framed);
+    expect(boxNote({ level: 'milestone' })).toBe(framed);
+    expect(boxNote({ level: 'project' })).toBe(framed);
+    expect(boxNote({ level: 'initiative' })).toBe(
+      'blockers sit left of what waits'
+    );
+    expect(boxNote({ level: 'issue', issueId: 'ENG-23' })).toBe(
+      'blockers sit left of what waits'
+    );
+  });
+
   test('a paused project’s frame is muted, and the legend says so', () => {
     const model = page({ level: 'issue' });
     expect(

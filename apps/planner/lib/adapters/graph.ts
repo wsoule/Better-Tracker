@@ -1240,8 +1240,17 @@ function detailClause(parts: readonly (string | null)[]): string {
 
 /* ---- legends -------------------------------------------------------------- */
 
+/** The Risk legend's note on the level's box. It holds across a drawing
+    laid out as one flow (the initiative level, a chain, the project level
+    of a mirror without initiatives); a framed drawing lays out each frame
+    on its own and packs the frames on shelves that wrap, so an arrow
+    between two frames can run right to left, and the note then says it
+    holds in a frame (FRAMED_FLOW_NOTE, §8.4 "Graph": Canvas). */
+const FLOW_NOTE = 'blockers sit left of what waits';
+const FRAMED_FLOW_NOTE = 'in a frame, blockers sit left of what waits';
+
 const MILESTONE_LEGEND: GraphLegendItem[] = [
-  { mark: 'node', label: 'Milestone', note: 'blockers sit left of what waits' },
+  { mark: 'node', label: 'Milestone', note: FLOW_NOTE },
   { mark: 'node-overdue', label: 'Overdue', note: 'past its date' },
   { mark: 'node-warning', label: 'At risk', note: 'due soon and at risk' },
   { mark: 'node-cycle', label: 'In a cycle', note: 'waits on itself' },
@@ -1262,7 +1271,7 @@ const MILESTONE_LEGEND: GraphLegendItem[] = [
 ];
 
 const ISSUE_LEGEND: GraphLegendItem[] = [
-  { mark: 'node', label: 'Issue', note: 'blockers sit left of what waits' },
+  { mark: 'node', label: 'Issue', note: FLOW_NOTE },
   { mark: 'node-overdue', label: 'Overdue', note: 'its milestone is past due' },
   { mark: 'node-warning', label: 'Needs action', note: 'open and unassigned' },
   { mark: 'node-cycle', label: 'In a cycle', note: 'waits on itself' },
@@ -1315,7 +1324,7 @@ function aggregateLegend(
   cross: GraphLegendItem | null
 ): GraphLegendItem[] {
   return [
-    { mark: 'node', label: kind, note: 'blockers sit left of what waits' },
+    { mark: 'node', label: kind, note: FLOW_NOTE },
     {
       mark: 'node-overdue',
       label: 'Overdue',
@@ -1358,9 +1367,19 @@ function withExternal(
 }
 
 /** The Risk highlight's legend: the level's boxes and arrows (today's
-    look, "Resolved" now "Unblocked"), then the Paths row. */
-function riskLegend(ctx: PageContext): GraphLegendItem[] {
-  return [...riskMarks(ctx), ...pathItems(ctx.scope.level !== 'issue')];
+    look, "Resolved" now "Unblocked"), then the Paths row. `framed` when
+    the graph draws frames, so the box's note says the flow holds in a
+    frame (FLOW_NOTE). */
+function riskLegend(ctx: PageContext, framed: boolean): GraphLegendItem[] {
+  const marks = riskMarks(ctx);
+  return [
+    ...(framed
+      ? marks.map((item) =>
+          item.note === FLOW_NOTE ? { ...item, note: FRAMED_FLOW_NOTE } : item
+        )
+      : marks),
+    ...pathItems(ctx.scope.level !== 'issue'),
+  ];
 }
 
 function riskMarks(ctx: PageContext): GraphLegendItem[] {
@@ -1780,7 +1799,7 @@ function legendsFor(
   const frames = frameItems(ctx.scope.level, clusters);
   return {
     status: [...statusLegend(ctx), ...frames],
-    risk: [...riskLegend(ctx), ...frames],
+    risk: [...riskLegend(ctx, frames.length > 0), ...frames],
     critical: [...criticalLegend(ctx), ...frames],
   };
 }

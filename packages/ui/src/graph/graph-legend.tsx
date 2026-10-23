@@ -11,7 +11,11 @@ import type {
 /** Every mark DependencyGraph draws under its default (Risk) highlight,
     in the order a reader meets them, then what pointing at a node lights. */
 export const defaultGraphLegend: GraphLegendItem[] = [
-  { mark: 'node', label: 'Node', note: 'blockers sit left of what waits' },
+  {
+    mark: 'node',
+    label: 'Node',
+    note: 'in a frame, blockers sit left of what waits',
+  },
   { mark: 'node-overdue', label: 'Overdue', note: 'past its date' },
   {
     mark: 'node-warning',
