@@ -112,6 +112,27 @@
 
 /* ---- the frame ---------------------------------------------------------- */
 
+/* Critical path's step control: the zoom group's look (hairline cells,
+   mono caps, the accent on hover) over the frame's bottom-left corner,
+   clear of the horizontal scrollbar. Its anchor is a 0px-tall box right
+   under the frame, so it moves nothing around it. */
+.stepsAnchor {
+  position: relative;
+  height: 0;
+}
+
+.steps {
+  position: absolute;
+  bottom: 14px;
+  left: 8px;
+  z-index: 3;
+  display: flex;
+}
+
+.steps .zoomValue {
+  min-width: 112px;
+}
+
 /* Fixed footprint from the layout's height at 100% (plus room for a thin
    scrollbar), capped by the viewport: zooming changes what is inside the
    frame, never the page around it. */

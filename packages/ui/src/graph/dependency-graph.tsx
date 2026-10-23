@@ -1,6 +1,6 @@
 'use client';
 
-import { Maximize, Minus, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize, Minus, Plus } from 'lucide-react';
 import {
   type CSSProperties,
   Fragment,
@@ -449,6 +449,9 @@ function neighbour(
  *   would unblock; the rest dims, its words and status marks still
  *   legible. Under `critical` it lights the longest chain through it. The
  *   readout line under the drawing says the same in words.
+ * - Under `critical` a step control over the frame's bottom-left corner
+ *   (and ] / [) walks the path shown at rest step by step, centring each;
+ *   entering `critical` scrolls the frame to step 1 unless a step shows.
  * - On a touch screen the first tap on a node traces it (a pin) and a
  *   second tap opens it; a tap on the background or Escape drops the pin.
  *   Mouse, pen, keyboard and assistive-tech activation open at once.
@@ -522,22 +525,58 @@ export function DependencyGraph({
   // which a scroll sends) reads it: only a real touch press pins.
   const pendingTouch = useRef<string | null>(null);
   const pinnedId = drawn(pinId);
+  // The critical path's step the reader walked to with the step control
+  // or [ and ] (Critical only): lit like a pin until they point elsewhere,
+  // press Escape, tap the background or switch the highlight.
+  const [walkId, setWalkId] = useState<string | null>(null);
+  const [walkHighlight, setWalkHighlight] = useState(highlight);
+  if (highlight !== walkHighlight) {
+    setWalkHighlight(highlight);
+    setWalkId(null);
+  }
   // A touch press focuses the node in Chromium: that focus is the tap's,
   // not the keyboard's, so it never lights the paths on its own (the pin
   // does), and Escape dropping the pin clears the trace.
   const touchFocus = useRef<string | null>(null);
+  // The chain the names count steps on: the one shown at rest (through
+  // the selection, else the focus, else graph-wide), so a name never
+  // changes under hover. The step control walks it too.
+  const restId = drawn(selectedId) ?? drawn(focusId);
+  const nameChain = useMemo(
+    () => (highlight !== 'critical' ? null : longestChain(ctx.chains, restId)),
+    [highlight, ctx, restId]
+  );
+  // Each step's box in order (a cycle's step: its first member).
+  const chainSteps = useMemo(
+    () =>
+      nameChain === null
+        ? []
+        : nameChain.groups
+            .map((group) => group[0])
+            .filter((id) => id !== undefined),
+    [nameChain]
+  );
+  const walkStep =
+    walkId === null || nameChain === null
+      ? null
+      : (nameChain.steps.get(walkId) ?? null);
+  const walkedId = walkStep === null ? null : walkId;
   // The node the reader is on right now (pointer, keyboard focus, touch
-  // pin): drawn with the accent flood on every input, unlike a selection
-  // or a chain's focus, which light their paths at rest.
+  // pin, a walked step): drawn with the accent flood on every input,
+  // unlike a selection or a chain's focus, which light their paths at
+  // rest.
   const pointedId =
-    [hoverId, focusedId, pinnedId].find((id) => drawn(id) !== null) ?? null;
+    [hoverId, focusedId, pinnedId, walkedId].find((id) => drawn(id) !== null) ??
+    null;
   // The node whose paths are lit: hover, else keyboard focus, else the
-  // touch pin, else the selection; under Critical, else the chain's focus.
+  // touch pin, else the walked step, else the selection; under Critical,
+  // else the chain's focus.
   const activeId =
     [
       hoverId,
       focusedId,
       pinnedId,
+      walkedId,
       selectedId,
       highlight === 'critical' ? focusId : null,
     ].find((id) => drawn(id) !== null) ?? null;
@@ -549,19 +588,16 @@ export function DependencyGraph({
     [activeId, highlight, ctx]
   );
   const nextIds = useMemo(() => new Set(paths?.next ?? []), [paths]);
-  // Critical: the chain through the active node, else the graph-wide one.
+  // Critical: the chain through the active node, else the graph-wide one;
+  // on a walked step, the chain being walked (so its numbers hold).
   const shownChain = useMemo(
     () =>
-      highlight !== 'critical' ? null : longestChain(ctx.chains, activeId),
-    [highlight, ctx, activeId]
-  );
-  // The chain the names count steps on: the one shown at rest (through
-  // the selection, else the focus, else graph-wide), so a name never
-  // changes under hover.
-  const restId = drawn(selectedId) ?? drawn(focusId);
-  const nameChain = useMemo(
-    () => (highlight !== 'critical' ? null : longestChain(ctx.chains, restId)),
-    [highlight, ctx, restId]
+      highlight !== 'critical'
+        ? null
+        : activeId !== null && activeId === walkedId
+          ? nameChain
+          : longestChain(ctx.chains, activeId),
+    [highlight, ctx, activeId, walkedId, nameChain]
   );
   const showing =
     highlight === 'critical'
@@ -737,9 +773,62 @@ export function DependencyGraph({
   // animation; it happens once, so later selections never move the
   // drawing under the reader. With neither, it opens where the flow starts,
   // or on its first frame when framed (openingScroll), so a big graph never
-  // opens on dagre's empty corner or in the middle of a later frame.
+  // opens on dagre's empty corner or in the middle of a later frame; under
+  // Critical it then goes on to the path's first step unless a step already
+  // shows (revealChain).
   const centredRef = useRef(false);
   const centreId = focusId ?? selectedId;
+
+  /** Scrolls the frame (never the page) so box `id` sits in the middle of
+      its uncovered part, as far as the drawing's edges allow. */
+  const centreOnBox = useCallback(
+    (id: string) => {
+      const viewport = viewportRef.current;
+      const box = layout.nodes.find((n) => n.id === id);
+      if (viewport === null || box === undefined) return;
+      const k = zoomRef.current;
+      const visibleWidth = viewport.clientWidth - reserveRef.current;
+      viewport.scrollLeft = Math.max(
+        0,
+        (box.x + box.width / 2) * k - visibleWidth / 2
+      );
+      viewport.scrollTop = Math.max(
+        0,
+        (box.y + box.height / 2) * k - viewport.clientHeight / 2
+      );
+    },
+    [layout]
+  );
+
+  /**
+   * Brings the critical path being shown at rest into view: unless one of
+   * its step boxes already shows whole in the frame, the frame scrolls to
+   * step 1. On a big graph the path can run across the whole canvas, so
+   * nothing of it may show where the frame is; the step control walks on
+   * from there.
+   */
+  const revealChain = useCallback(() => {
+    const viewport = viewportRef.current;
+    const first = chainSteps[0];
+    if (viewport === null || nameChain === null || first === undefined) {
+      return;
+    }
+    const k = zoomRef.current;
+    const left = viewport.scrollLeft;
+    const top = viewport.scrollTop;
+    const right = left + viewport.clientWidth - reserveRef.current;
+    const bottom = top + viewport.clientHeight;
+    const shows = layout.nodes.some(
+      (n) =>
+        nameChain.steps.has(n.id) &&
+        n.x * k >= left &&
+        (n.x + n.width) * k <= right &&
+        n.y * k >= top &&
+        (n.y + n.height) * k <= bottom
+    );
+    if (!shows) centreOnBox(first);
+  }, [chainSteps, nameChain, layout, centreOnBox]);
+
   useIsomorphicLayoutEffect(() => {
     const viewport = viewportRef.current;
     if (centredRef.current || !hasNodes || viewport === null) return;
@@ -752,9 +841,11 @@ export function DependencyGraph({
         viewport.clientHeight,
         zoomRef.current
       );
-      if (start === null) return;
-      viewport.scrollLeft = start.left;
-      viewport.scrollTop = start.top;
+      if (start !== null) {
+        viewport.scrollLeft = start.left;
+        viewport.scrollTop = start.top;
+      }
+      if (highlight === 'critical') revealChain();
       return;
     }
     const box =
@@ -774,7 +865,44 @@ export function DependencyGraph({
       0,
       (box.y + box.height / 2) * k - viewport.clientHeight / 2
     );
-  }, [hasNodes, centreId, layout, horizontal]);
+  }, [hasNodes, centreId, layout, horizontal, highlight, revealChain]);
+
+  // Switching to Critical path (or Back to an entry that shows it) brings
+  // the path into view: the reader asked for it, so the frame may move.
+  // Any other change of highlight leaves the frame where it is.
+  const shownHighlight = useRef(highlight);
+  useIsomorphicLayoutEffect(() => {
+    const was = shownHighlight.current;
+    shownHighlight.current = highlight;
+    if (highlight === 'critical' && was !== 'critical' && centredRef.current) {
+      revealChain();
+    }
+  }, [highlight, revealChain]);
+
+  /**
+   * Walks the critical path being shown at rest by `delta` steps: the
+   * step's box lights like a pin and the frame centres it. `moveFocus`
+   * when the walk came from a key on a box: it starts from that box's
+   * step (else the walked one) and focus follows, as an arrow key's would.
+   * From the step control it starts from the walked step; with neither,
+   * from before step 1.
+   */
+  function walk(delta: 1 | -1, moveFocus: boolean) {
+    const count = chainSteps.length;
+    if (count === 0) return;
+    const focusStep =
+      focusedId === null ? undefined : nameChain?.steps.get(focusedId);
+    const at = moveFocus
+      ? (focusStep ?? walkStep ?? 0)
+      : (walkStep ?? focusStep ?? 0);
+    const next = Math.min(count, Math.max(1, at + delta));
+    if (at !== 0 && next === at) return;
+    const id = chainSteps[next - 1];
+    if (id === undefined) return;
+    setWalkId(id);
+    centreOnBox(id);
+    if (moveFocus) focusNode(id, true);
+  }
 
   // Link nodes render through the host's <Link>, whose props carry no
   // tabIndex or aria-describedby, so the roving tab stop and the key help
@@ -866,8 +994,21 @@ export function DependencyGraph({
       setPinId(null);
       setFocusedId(null);
     }
+    if (event.key === 'Escape') setWalkId(null);
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (isTyping(event.target)) return;
+    if (
+      (event.key === ']' || event.key === '[') &&
+      highlight === 'critical' &&
+      chainSteps.length > 0
+    ) {
+      event.preventDefault();
+      const onBox =
+        event.target instanceof Element &&
+        event.target.closest('[data-graph-node]') !== null;
+      walk(event.key === ']' ? 1 : -1, onBox);
+      return;
+    }
     if (event.key === '+' || event.key === '=') {
       event.preventDefault();
       zoomAround(zoomRef.current * ZOOM_STEP);
@@ -921,9 +1062,10 @@ export function DependencyGraph({
     return false;
   }
 
-  // A tap or click on the background (not on a node) drops the pin.
+  // A tap or click on the background (not on a node) drops the pin and
+  // the walked step.
   function onViewportClick(event: ReactMouseEvent<HTMLDivElement>) {
-    if (pinnedId === null) return;
+    if (pinnedId === null && walkId === null) return;
     if (
       event.target instanceof Element &&
       event.target.closest('[data-graph-node]') !== null
@@ -931,17 +1073,19 @@ export function DependencyGraph({
       return;
     }
     setPinId(null);
+    setWalkId(null);
   }
 
   // A node is the focusable element itself, or (for a link node) the
-  // anchor inside its positioned wrapper.
-  function focusNode(id: string) {
+  // anchor inside its positioned wrapper. `keepScroll` when the frame was
+  // already scrolled to it (a walked step), so focus moves nothing else.
+  function focusNode(id: string, keepScroll = false) {
     const el = nodeRefs.current.get(id);
     if (el === undefined) return;
     const target = el.matches('a, button, [tabindex]')
       ? el
       : el.querySelector<HTMLElement>('a');
-    target?.focus();
+    target?.focus(keepScroll ? { preventScroll: true } : undefined);
   }
 
   // A table ignores width and overflow, so the visually-hidden wrapper is
@@ -1004,6 +1148,51 @@ export function DependencyGraph({
         ? [...readoutLine.parts, words.tapAgain]
         : readoutLine.parts;
   const linkNodes = nodes.some((n) => n.href !== undefined && n.href !== '');
+
+  // Critical path: the step control over the frame's bottom-left corner,
+  // to walk the path shown at rest from step to step ([ and ] do the
+  // same). A big graph spreads its path over the whole canvas, where Fit
+  // cannot show it and no step may be in view.
+  const stepCount = chainSteps.length;
+  const stepControl =
+    highlight === 'critical' && stepCount > 0 ? (
+      <div className={styles.stepsAnchor}>
+        <div
+          className={styles.steps}
+          role="group"
+          aria-label="Critical path steps"
+          data-graph-steps=""
+        >
+          <button
+            type="button"
+            className={styles.zoomButton}
+            onClick={() => walk(-1, false)}
+            disabled={walkStep === null || walkStep <= 1}
+            aria-label="Previous step"
+            aria-keyshortcuts="["
+            title="Previous step ([)"
+          >
+            <ChevronLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+          <output className={styles.zoomValue} aria-live="polite">
+            {walkStep === null
+              ? `${stepCount} steps`
+              : `Step ${walkStep} of ${stepCount}`}
+          </output>
+          <button
+            type="button"
+            className={styles.zoomButton}
+            onClick={() => walk(1, false)}
+            disabled={walkStep !== null && walkStep >= stepCount}
+            aria-label={walkStep === null ? 'Go to step 1' : 'Next step'}
+            aria-keyshortcuts="]"
+            title={walkStep === null ? 'Go to step 1 (])' : 'Next step (])'}
+          >
+            <ChevronRight size={14} strokeWidth={1.5} aria-hidden="true" />
+          </button>
+        </div>
+      </div>
+    ) : null;
 
   /**
    * A frame: a cluster's hairline box (hatched when muted, dashed when
@@ -1482,6 +1671,7 @@ export function DependencyGraph({
           </div>
         </div>
       </div>
+      {stepControl}
 
       {/* What the reader is tracing, in words: the lit node's paths, else
           the host's summary for this highlight and how to trace a node.
@@ -1527,6 +1717,9 @@ export function DependencyGraph({
         {onSelect !== undefined
           ? 'Arrow keys move between nodes, Home and End jump to the first and last, Enter selects. Minus, plus and 0 zoom.'
           : 'Arrow keys move between nodes, Home and End jump to the first and last. Minus, plus and 0 zoom.'}
+        {stepCount > 0
+          ? ' Right and left square brackets move along the critical path.'
+          : null}
         {onSelect !== undefined || linkNodes
           ? " On a touch screen, the first tap traces a box's paths and a second tap opens it."
           : " On a touch screen, a tap traces a box's paths."}

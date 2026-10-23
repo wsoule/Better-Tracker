@@ -3454,7 +3454,19 @@ hover floods on controls, and the timeline's today.
       share a number and all count; ties go to display order; shown only from 2
       boxes), each box on it with a 2px ink outline and an ink step square, its
       arrows 2.5px ink; everything else recedes. A chain graph's path runs
-      through its focus.
+      through its focus. On a big graph the path can span the whole canvas (the
+      showcase's workspace issue level: 13 steps over 6,600px, with no step in
+      view on arrival and Fit stopping at 30%; 2026-10-23 review), so switching
+      to Critical path, Back or Forward to an entry that shows it, or arriving
+      on it with nothing to centre scrolls the frame (never the page) to step 1
+      unless a step of the path shown at rest already shows whole. A **step
+      control** over the frame's bottom-left corner, in the zoom group's look
+      ("13 STEPS" ‹ ›, then "STEP 2 OF 13"), walks that path: › goes to step 1
+      first, then to each next step, ‹ back; the walked step lights like a touch
+      pin (the accent flood, the readout on it, the path's own numbers kept) and
+      the frame centres it. `]` and `[` do the same from anywhere in the graph,
+      moving focus along when pressed on a box; Escape or a tap on the
+      background drops the walked step, as does switching the highlight.
 
     In every highlight each open box in the blocking flow leads its chips with
     its **readiness chip** ("Ready", "Blocked by 2"; above the issue level

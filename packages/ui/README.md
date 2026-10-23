@@ -671,7 +671,13 @@ or middle click still opens the link.
   with a node active, the longest chain through it; in a chain graph at rest,
   the one through `focusId`. It is computed in O(V + E) per edge list, shown
   only when it holds two or more nodes, and its names carry "step k of s on the
-  critical path".
+  critical path". Entering `critical` (a new `highlight`, or the first paint
+  with no `focusId` or `selectedId` to centre) scrolls the frame to step 1 of
+  the path shown at rest unless one of its steps already shows whole. A step
+  control over the frame's bottom-left corner (`data-graph-steps`: ‹, "3 steps"
+  / "Step 2 of 3", ›) and the keys `]` / `[` walk that path: the walked step is
+  the box being read (the accent flood, the readout) and the frame centres it;
+  Escape, a tap on the background or another highlight drops it.
 - `DependencyGraph` `readout`: one plain (not live) line under the frame names
   the node being read and its paths ("ENG-23 · Blocked by 1 · Waits on 1 open,
   start with ENG-12 · Holds up 1 · Done would unblock 1: OPS-20"); with nothing
