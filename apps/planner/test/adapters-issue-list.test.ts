@@ -823,7 +823,7 @@ describe('the page model', () => {
   });
 
   // One rule for "Unassigned" on every screen (§8.2 "Assignee", as the
-  // milestone drawer, the graph register and the issue page): amber
+  // milestone drawer, the graph slide-over and the issue page): amber
   // wherever the issue is open and its project active (or it has none),
   // in any milestone and in triage too; grey in an inactive project or
   // once closed. The amber one says "Needs assignee", so the two never

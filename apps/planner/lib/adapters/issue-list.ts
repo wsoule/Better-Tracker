@@ -980,7 +980,7 @@ export const ISSUE_LIST_NEEDS_ASSIGNEE = 'Needs assignee';
 // (architecture §8.2): Blocked and Holds up as filled amber chips (the
 // projects register's filled BLOCKED); an open unassigned issue of an
 // active project (or of none) with an amber "Needs assignee", the same
-// rule as the drawer, the graph register and the issue page (the words
+// rule as the drawer, the graph slide-over and the issue page (the words
 // differ from the grey "Unassigned" so the hue is never alone); its own
 // due date red when overdue and amber when due today or tomorrow, with
 // "Overdue" / "Today" / "Tomorrow" under it (the issue page). A closed
