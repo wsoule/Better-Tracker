@@ -116,3 +116,31 @@ export function formatInstant(iso: string, timeZone: string): string {
     timeZoneName: 'short',
   }).format(date);
 }
+
+/** "9:12 AM"-style clock time in `timeZone`, as formatInstant writes it
+    (Settings → Status, for times within a day of now). */
+export function formatClock(iso: string, timeZone: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone,
+  }).format(date);
+}
+
+/** Whether two instants fall on the same calendar day in `timeZone`. */
+export function sameLocalDay(a: string, b: string, timeZone: string): boolean {
+  const day = new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone,
+  });
+  const first = new Date(a);
+  const second = new Date(b);
+  if (Number.isNaN(first.getTime()) || Number.isNaN(second.getTime())) {
+    return false;
+  }
+  return day.format(first) === day.format(second);
+}

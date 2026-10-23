@@ -101,7 +101,13 @@ import {
 } from './queries';
 
 export interface LinearGatewayOptions {
-  accessToken: string;
+  /** An OAuth access token. Exactly one of accessToken and apiKey. */
+  accessToken?: string;
+  /**
+   * A personal API key's getter, read before every request attempt
+   * (GraphqlClientOptions.apiKey). Exactly one of accessToken and apiKey.
+   */
+  apiKey?: () => string | null;
   /** Defaults to the global fetch. */
   fetch?: FetchLike;
   logger?: LinearLogger;
@@ -394,13 +400,18 @@ async function writing<T>(action: string, run: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Creates a gateway that talks to Linear with one access token. */
+/**
+ * Creates a gateway that talks to Linear with one credential: an OAuth
+ * access token, or a personal API key read through its getter.
+ */
 export function createLinearGateway(
   options: LinearGatewayOptions
 ): LinearGateway {
   const logger = options.logger ?? noopLogger;
   const client: GraphqlClient = createGraphqlClient({
-    accessToken: options.accessToken,
+    ...(options.apiKey === undefined
+      ? { accessToken: options.accessToken }
+      : { apiKey: options.apiKey }),
     fetch: options.fetch,
     endpoint: options.endpoint,
     logger,

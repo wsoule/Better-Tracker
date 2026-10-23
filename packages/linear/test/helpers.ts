@@ -252,3 +252,71 @@ export async function caught(promise: Promise<unknown>): Promise<unknown> {
   }
   throw new Error('expected the promise to reject');
 }
+
+// --- a fake workspace over graphqlFetch ------------------------------------
+
+/**
+ * Serves `pages` of a root connection keyed by the incoming `after` cursor:
+ * page i is returned for cursor `c{i}` (null for the first page).
+ */
+export function pagedHandler(
+  field: string,
+  pages: unknown[][]
+): GraphqlHandler {
+  return (variables) => {
+    const after = variables['after'];
+    const index = typeof after === 'string' ? Number(after.slice(1)) : 0;
+    const nodes = pages[index] ?? [];
+    const next = index + 1 < pages.length ? `c${index + 1}` : null;
+    return dataResponse({ [field]: connection(nodes, next) });
+  };
+}
+
+/** The root connections fetchWorkspace pages, by operation name. */
+export const WORKSPACE_CONNECTIONS: Readonly<Record<string, string>> = {
+  Users: 'users',
+  Teams: 'teams',
+  WorkflowStates: 'workflowStates',
+  Initiatives: 'initiatives',
+  Projects: 'projects',
+  ProjectMilestones: 'projectMilestones',
+  ProjectIssues: 'issues',
+  OpenIssuesWithoutProject: 'issues',
+  IssueRelations: 'issueRelations',
+  TeamMemberships: 'teamMemberships',
+};
+
+/** What workspaceHandlers serves: the identity, and pages per connection. */
+export interface FakeWorkspace {
+  /** Answers `Identity`; defaults to user-1 in org-1 (Acme). */
+  identity?: {
+    viewer: Record<string, unknown>;
+    organization: { id: string; name: string; urlKey: string };
+  };
+  /** Pages of nodes per operation name (WORKSPACE_CONNECTIONS); default one empty page. */
+  pages?: Partial<Record<keyof typeof WORKSPACE_CONNECTIONS, unknown[][]>>;
+}
+
+/**
+ * The handler set behind fetchWorkspace (Identity and every root
+ * connection), for graphqlFetch. The gateway tests and the e2e fake Linear
+ * server (apps/planner/e2e/fake-linear-server.ts) share it.
+ */
+export function workspaceHandlers(
+  workspace: FakeWorkspace = {}
+): Record<string, GraphqlHandler> {
+  const identity = workspace.identity ?? {
+    viewer: userNode('user-1'),
+    organization: { id: 'org-1', name: 'Acme', urlKey: 'acme' },
+  };
+  const handlers: Record<string, GraphqlHandler> = {
+    Identity: () => dataResponse(identity),
+  };
+  for (const [operation, field] of Object.entries(WORKSPACE_CONNECTIONS)) {
+    handlers[operation] = pagedHandler(
+      field,
+      workspace.pages?.[operation] ?? [[]]
+    );
+  }
+  return handlers;
+}

@@ -134,7 +134,8 @@ function engine() {
         workspaceId,
         ok: true,
         version: 4,
-        counts: {},
+        // Counts of the whole mirror, private teams included (§2.13).
+        counts: { teams: 3, projects: 3, milestones: 3, issues: 6 },
         durationMs: 12,
         error: null,
       });
@@ -295,6 +296,20 @@ describe('POST /api/sync', () => {
     expect(status).toBe(200);
     expect((body.sync as { ok: boolean }).ok).toBe(true);
     expect(calls.syncs).toEqual(['org-1']);
+  });
+
+  test('the answer carries no counts of the whole mirror (a hidden team stays hidden)', async () => {
+    const { body } = await read(
+      await resync(json('POST', {}), member(), createResyncCooldown())
+    );
+    expect(body.sync).toEqual({
+      workspaceId: 'org-1',
+      ok: true,
+      version: 4,
+      durationMs: 12,
+      error: null,
+    });
+    expect(JSON.stringify(body)).not.toContain('counts');
   });
 
   test('options are refused; a lost installation is 403', async () => {

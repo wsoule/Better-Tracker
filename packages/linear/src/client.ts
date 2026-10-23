@@ -1,7 +1,13 @@
 // A minimal GraphQL client for Linear over plain fetch (no SDK at runtime).
 // It owns transport concerns only: auth header, retries with bounded backoff
 // (rate limits honour Linear's reset headers), and mapping every failure to a
-// LinearApiError kind the engine can act on. Tokens never reach the logs.
+// LinearApiError kind the engine can act on. Credentials never reach the
+// logs or the errors: an OAuth token is sent as `Bearer <token>`, a personal
+// API key raw (architecture §4.1 "Personal API keys", F1), and every text a
+// failure carries (the fetch error, Linear's own messages) is scrubbed of
+// the credential sent and of anything credential-shaped first.
+
+import { redactLinearSecrets } from '@better-tracker/core';
 
 import { LinearApiError } from './gateway';
 import {
@@ -26,7 +32,19 @@ export interface LinearLogger {
 }
 
 export interface GraphqlClientOptions {
-  accessToken: string;
+  /**
+   * An OAuth access token, sent as `Bearer <token>`. Exactly one of
+   * accessToken and apiKey.
+   */
+  accessToken?: string;
+  /**
+   * A personal API key's getter, read before every attempt (the first try,
+   * each retry, after each rate-limit wait) and sent raw, without `Bearer`
+   * (F1). Returning null fails the request at once as `unauthorized`: the
+   * key was forgotten, so work already running stops using it. The client
+   * never keeps what it returns. Exactly one of accessToken and apiKey.
+   */
+  apiKey?: () => string | null;
   /** Defaults to the global fetch. */
   fetch?: FetchLike;
   /** Defaults to https://api.linear.app/graphql. */
@@ -124,8 +142,12 @@ export function operationName(query: string): string {
 }
 
 // Narrows a response body's `errors` array; anything that is not an object
-// with a message is skipped rather than trusted.
-export function parseGraphqlErrors(body: unknown): GraphqlErrorInfo[] {
+// with a message is skipped rather than trusted. `scrub` cleans every text
+// Linear returned (the client passes its credential scrubber).
+export function parseGraphqlErrors(
+  body: unknown,
+  scrub: (text: string) => string = redactLinearSecrets
+): GraphqlErrorInfo[] {
   if (!isRecord(body)) return [];
   const out: GraphqlErrorInfo[] = [];
   for (const raw of arrayAt(body, 'errors')) {
@@ -135,15 +157,13 @@ export function parseGraphqlErrors(body: unknown): GraphqlErrorInfo[] {
       (part): part is string | number =>
         typeof part === 'string' || typeof part === 'number'
     );
+    const presentable = optionalString(extensions, 'userPresentableMessage');
     out.push({
-      message: optionalString(raw, 'message') ?? 'Unknown GraphQL error',
+      message: scrub(optionalString(raw, 'message') ?? 'Unknown GraphQL error'),
       path,
       code: optionalString(extensions, 'code'),
       type: optionalString(extensions, 'type'),
-      userPresentableMessage: optionalString(
-        extensions,
-        'userPresentableMessage'
-      ),
+      userPresentableMessage: presentable === null ? null : scrub(presentable),
     });
   }
   return out;
@@ -290,10 +310,59 @@ function describeCause(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
 
-/** Creates a client bound to one access token. */
+/**
+ * What an HTTP header value may hold here: printable ASCII, with at most
+ * the one space after `Bearer`. Checked before every fetch, because Node
+ * (undici) and Bun echo an invalid header's value in their error (F11).
+ */
+const SAFE_AUTHORIZATION = /^[\x21-\x7e]+(?: [\x21-\x7e]+)?$/;
+
+/** Shortest prefix-less tail of a credential that is worth scrubbing. */
+const MIN_SCRUBBED_TAIL = 16;
+
+/**
+ * The text of a failure with the credential sent on this attempt replaced
+ * by `[redacted]`, then every credential-shaped run (core's
+ * redactLinearSecrets), so neither an echoed key nor an echoed OAuth token
+ * reaches an error message or a log. The credential's secret part without
+ * its `lin_api_` / `lin_oauth_` prefix is scrubbed too: an answer that
+ * quoted only that part would otherwise slip past both, and a sync failure's
+ * text is kept in the store.
+ */
+function scrubber(credential: string): (text: string) => string {
+  const tail = credential.replace(/^lin_(?:api|oauth)_/, '');
+  const secrets = [credential];
+  if (tail !== credential && tail.length >= MIN_SCRUBBED_TAIL) {
+    secrets.push(tail);
+  }
+  return (text: string): string => {
+    if (credential === '') return redactLinearSecrets(text);
+    let scrubbed = text;
+    for (const secret of secrets) {
+      scrubbed = scrubbed.replaceAll(secret, '[redacted]');
+    }
+    return redactLinearSecrets(scrubbed);
+  };
+}
+
+/**
+ * Creates a client bound to one credential: an OAuth access token, or a
+ * personal API key read through a getter. A personal key is read through
+ * `apiKey()` before each attempt and lives only in the caller's store of
+ * keys; nothing this client returns, logs or throws contains it.
+ */
 export function createGraphqlClient(
   options: GraphqlClientOptions
 ): GraphqlClient {
+  const hasToken = typeof options.accessToken === 'string';
+  const hasKey = typeof options.apiKey === 'function';
+  if (hasToken === hasKey) {
+    throw new Error(
+      'createGraphqlClient needs exactly one of accessToken or apiKey'
+    );
+  }
+  const accessToken = options.accessToken;
+  const apiKey = options.apiKey;
   const fetchImpl: FetchLike = options.fetch ?? globalThis.fetch;
   const endpoint = options.endpoint ?? LINEAR_GRAPHQL_ENDPOINT;
   const logger = options.logger ?? noopLogger;
@@ -303,7 +372,21 @@ export function createGraphqlClient(
   const maxRateLimitWaitMs =
     options.maxRateLimitWaitMs ?? DEFAULT_MAX_RATE_LIMIT_WAIT_MS;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const authorization = `Bearer ${options.accessToken}`;
+
+  // The credential for one attempt and its Authorization value, or null
+  // when the key getter has nothing (forgotten).
+  function credentialForAttempt(): {
+    credential: string;
+    authorization: string;
+  } | null {
+    if (apiKey !== undefined) {
+      const key = apiKey();
+      if (typeof key !== 'string' || key === '') return null;
+      return { credential: key, authorization: key };
+    }
+    const token = accessToken ?? '';
+    return { credential: token, authorization: `Bearer ${token}` };
+  }
 
   async function request<T>(
     query: string,
@@ -316,6 +399,20 @@ export function createGraphqlClient(
 
     for (let attempt = 0; ; attempt++) {
       const canRetry = attempt < maxRetries;
+      const held = credentialForAttempt();
+      if (held === null) {
+        throw new LinearApiError(
+          'unauthorized',
+          `No Linear credential is held for ${op}`
+        );
+      }
+      if (!SAFE_AUTHORIZATION.test(held.authorization)) {
+        throw new LinearApiError(
+          'unauthorized',
+          'The Linear credential has characters an HTTP header cannot carry.'
+        );
+      }
+      const scrub = scrubber(held.credential);
       let response: Response;
       try {
         response = await fetchImpl(endpoint, {
@@ -323,33 +420,44 @@ export function createGraphqlClient(
           headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json',
-            Authorization: authorization,
+            Authorization: held.authorization,
           },
           body,
           signal: AbortSignal.timeout(timeoutMs),
+          // Never in Next's Data Cache, and a redirect must not resend the
+          // body (and with it the request) anywhere else (F14).
+          cache: 'no-store',
+          redirect: 'error',
         });
       } catch (cause) {
+        const described = scrub(describeCause(cause));
         if (idempotent && canRetry) {
           const waitMs = backoffMs(attempt);
           logger.warn('linear request failed; retrying', {
             operation: op,
             attempt,
             waitMs,
-            error: describeCause(cause),
+            error: described,
           });
           await sleep(waitMs);
           continue;
         }
+        // Never the raw fetch error: its message or a nested cause could
+        // carry the credential (F11). Only the scrubbed text and its name.
         throw new LinearApiError(
           'network',
-          `Linear ${op} request failed: ${describeCause(cause)}`,
-          { cause }
+          `Linear ${op} request failed: ${described}`,
+          {
+            cause: Object.assign(new Error(described), {
+              name: cause instanceof Error ? scrub(cause.name) : 'Error',
+            }),
+          }
         );
       }
 
       const status = response.status;
       const json = await readJsonBody(response);
-      const errors = parseGraphqlErrors(json);
+      const errors = parseGraphqlErrors(json, scrub);
 
       // Rate limiting arrives as HTTP 429, or HTTP 400 with RATELIMITED.
       if (status === 429 || errors.some(isRateLimitError)) {
@@ -380,7 +488,9 @@ export function createGraphqlClient(
       if (status === 401) {
         throw new LinearApiError(
           'unauthorized',
-          `Linear rejected the access token (${op})`
+          apiKey === undefined
+            ? `Linear rejected the access token (${op})`
+            : `Linear rejected the API key (${op})`
         );
       }
       if (status === 403) {

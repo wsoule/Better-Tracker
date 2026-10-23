@@ -11,6 +11,10 @@
 //   assigned issue is never planned again (idempotent by construction).
 // - A failure on one issue is recorded and the run continues.
 // - Whatever throws after startRun still finishes the run as `failed`.
+// - api_key mode (owner request 2026-10-23): only a signed-in person starts
+//   a run, it plans over what that person can see, and its live writes go
+//   out with their own key; a key Linear refuses (forgotten, revoked, or
+//   read-only) stops the whole run instead of failing every issue.
 
 import {
   allocationComment,
@@ -98,6 +102,7 @@ function authorize(input: AllocationRunInput): void {
   }
   const { actor } = input;
   if (actor === null) return;
+  // (api_key mode refuses actor null in runAllocation, before startRun.)
   if (actor.session.workspaceId !== input.workspaceId) {
     throw new EngineAuthError(
       'wrong_workspace',
@@ -194,10 +199,22 @@ interface LiveCounts {
   commentFailures: number;
 }
 
+/** api_key mode: the re-check found nothing under the starter's key. */
+export const NOT_FOR_YOUR_KEY_MESSAGE =
+  'Linear did not return this issue for your key: it was deleted, or your key cannot see it.';
+
+// An EngineAuthError from the gateway (api_key mode: the key was
+// forgotten, revoked, or may only read) ends the whole live loop: every
+// further write would fail the same way.
+function stopsTheRun(error: unknown): boolean {
+  return error instanceof EngineAuthError;
+}
+
 // Applies one planned assignment live: re-check, assign (+ move to Todo),
 // patch the mirror, then comment. Never throws for Linear failures on this
 // issue; they become a `failed` entry (or an error on the applied entry
-// when only the comment failed).
+// when only the comment failed). An EngineAuthError (stopsTheRun) is
+// rethrown after recording what already happened.
 async function applyAction(
   rt: EngineRuntime,
   gateway: LinearGateway,
@@ -216,12 +233,23 @@ async function applyAction(
   try {
     current = await gateway.fetchIssue(action.issueId);
   } catch (error) {
+    if (stopsTheRun(error)) throw error;
     counts.failed += 1;
     issueLog.error('could not re-check the issue before assigning', { error });
     await rt.store.appendRunEntries(runId, [
       assignEntry(action, 'failed', {
         error: `Re-check failed: ${errorMessage(error)}`,
       }),
+    ]);
+    return;
+  }
+
+  // With personal keys a missing issue may only be one the key cannot see.
+  if (current === null && rt.config.auth === 'api_key') {
+    counts.failed += 1;
+    issueLog.info("the re-check found nothing under the starter's key");
+    await rt.store.appendRunEntries(runId, [
+      assignEntry(action, 'failed', { error: NOT_FOR_YOUR_KEY_MESSAGE }),
     ]);
     return;
   }
@@ -257,6 +285,7 @@ async function applyAction(
       ...(toStateId === null ? {} : { stateId: toStateId }),
     });
   } catch (error) {
+    if (stopsTheRun(error)) throw error;
     counts.failed += 1;
     issueLog.error('assigning the issue failed', { error });
     await rt.store.appendRunEntries(runId, [
@@ -317,6 +346,7 @@ async function applyAction(
         error: `Assigned, but the comment failed: ${errorMessage(error)}`,
       }),
     ]);
+    if (stopsTheRun(error)) throw error;
   }
 }
 
@@ -349,6 +379,13 @@ export async function runAllocation(
 ): Promise<AllocationRun> {
   authorize(input);
   const { workspaceId, mode, trigger, actor } = input;
+  const apiKeyMode = rt.config.auth === 'api_key';
+  if (apiKeyMode && actor === null) {
+    throw new EngineAuthError(
+      'not_signed_in',
+      'With personal API keys, an allocation run must be started by someone signed in.'
+    );
+  }
   await requireInstallation(rt, workspaceId);
 
   const run = await rt.store.startRun({
@@ -375,9 +412,21 @@ export async function runAllocation(
     blockedProjects: 0,
     skippedIssues: 0,
   };
+  const live: LiveCounts = {
+    applied: 0,
+    failed: 0,
+    stale: 0,
+    commentFailures: 0,
+  };
   try {
     if (input.syncFirst !== false) await fullSync(rt, workspaceId);
-    const loaded = await loadWorkspace(rt, workspaceId);
+    // With personal keys the run plans over the starter's own view, so it
+    // never plans (or calls Linear) for an issue they cannot see.
+    const loaded = await loadWorkspace(
+      rt,
+      workspaceId,
+      apiKeyMode && actor !== null ? { viewer: actor } : {}
+    );
     const plan = loaded.allocationPlan;
     summary.blockedProjects = plan.totals.blockedProjects;
     summary.skippedIssues = plan.totals.skippedIssues;
@@ -395,14 +444,13 @@ export async function runAllocation(
       );
       summary.wouldAssign = actions.length;
     } else {
-      const counts: LiveCounts = {
-        applied: 0,
-        failed: 0,
-        stale: 0,
-        commentFailures: 0,
-      };
+      const counts = live;
       if (actions.length > 0) {
-        const gateway = await rt.linear.forApp(workspaceId);
+        // api_key mode writes with the starter's own key, credited to them.
+        const gateway =
+          apiKeyMode && actor !== null
+            ? await rt.linear.forSession(actor.session)
+            : await rt.linear.forApp(workspaceId);
         for (const action of actions) {
           await applyAction(
             rt,
@@ -428,6 +476,9 @@ export async function runAllocation(
     return { ...run, ...result, summary, finishedAt };
   } catch (error) {
     log.error('allocation run failed', { error });
+    // A run stopped part-way still reports what it already wrote.
+    summary.assigned = live.applied;
+    summary.failed = live.failed;
     try {
       await rt.store.finishRun(run.id, {
         status: 'failed',

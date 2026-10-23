@@ -470,6 +470,11 @@ export async function handleWebhook(
     log.debug('webhook ignored in demo mode');
     return 'ignored';
   }
+  // Personal API keys: no webhooks (the route answers 404 before this).
+  if (rt.config.auth === 'api_key') {
+    log.warn('webhook ignored: this planner uses personal API keys');
+    return 'ignored';
+  }
 
   if (deliveryId !== null) {
     try {

@@ -4,6 +4,7 @@ import {
   themeScript,
 } from '@better-tracker/ui';
 import type { Metadata } from 'next';
+import { headers } from 'next/headers';
 import type { ReactNode } from 'react';
 
 import { SIDEBAR_STORAGE_KEY } from '../../lib/adapters/shell';
@@ -32,13 +33,16 @@ export const metadata: Metadata = {
    sidebar shell (nav with this week's count, the PROJECTS list, breadcrumb,
    palette, phone tabs). Signed out: the Analytics bar alone, around the
    landing page or an error. The two inline scripts apply the saved theme
-   and the collapsed rail before first paint. Pages decide on /setup
-   redirects themselves (lib/load.ts); the frame only renders. */
+   and the collapsed rail before first paint; they carry the request's
+   CSP nonce (`x-nonce`, set by proxy.ts in api_key mode, absent
+   otherwise). Pages decide on /setup redirects themselves (lib/load.ts);
+   the frame only renders. */
 export default async function AppLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   const { engine, actor } = await getPageContext();
   const demo = engine.mode === 'fixture';
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
 
   let body: ReactNode;
   if (actor === null) {
@@ -77,9 +81,13 @@ export default async function AppLayout({
     >
       <body>
         <script
+          nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: themeScript(THEME_STORAGE_KEY) }}
         />
         <script
+          nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: sidebarCollapseScript(SIDEBAR_STORAGE_KEY),
           }}

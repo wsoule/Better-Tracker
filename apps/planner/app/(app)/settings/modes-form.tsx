@@ -4,6 +4,8 @@ import { Notice, Switch } from '@better-tracker/ui';
 import { type FormEvent, useState } from 'react';
 
 import {
+  API_KEY_ALLOCATION_CONSEQUENCE,
+  API_KEY_DIGESTS_OFF,
   MODE_CONSEQUENCE,
   type ModesState,
   modesPatch,
@@ -12,7 +14,7 @@ import {
 } from '../../../lib/adapters/settings';
 import FormBar from './form-bar';
 import css from './page.module.css';
-import { SettingBlock, SettingRow } from './setting-rows';
+import { SettingBlock, SettingRow, SettingValue } from './setting-rows';
 import { useSaveSettings } from './use-save-settings';
 
 /* Settings → Modes: the allocation (dry run / live) and warnings
@@ -22,8 +24,16 @@ import { useSaveSettings } from './use-save-settings';
    Turning either live shows an amber note on what the save will start.
    Anyone signed in may switch either
    one (owner decision 2026-10-22: no roles), including allocation going
-   live; the engine records the switch in the audit log. */
-export default function ModesForm({ initial }: { initial: ModesState }) {
+   live; the engine records the switch in the audit log. With personal
+   API keys (`apiKeyMode`) no digest is ever sent, so warnings is a plain
+   "off" row, and allocation only ever runs when someone starts it. */
+export default function ModesForm({
+  initial,
+  apiKeyMode = false,
+}: {
+  initial: ModesState;
+  apiKeyMode?: boolean;
+}) {
   const [state, setState] = useState(initial);
   // A save (or someone else's) refreshes `initial`: follow it.
   const [synced, setSynced] = useState(initial);
@@ -55,7 +65,11 @@ export default function ModesForm({ initial }: { initial: ModesState }) {
       <SettingBlock>
         <SettingRow
           title="Allocation"
-          help={MODE_CONSEQUENCE.allocation[state.allocationMode]}
+          help={
+            apiKeyMode
+              ? API_KEY_ALLOCATION_CONSEQUENCE[state.allocationMode]
+              : MODE_CONSEQUENCE.allocation[state.allocationMode]
+          }
           control={
             <Switch
               label="Live"
@@ -72,30 +86,39 @@ export default function ModesForm({ initial }: { initial: ModesState }) {
             />
           }
         />
-        <SettingRow
-          title="Warnings"
-          help={MODE_CONSEQUENCE.warnings[state.warningsMode]}
-          control={
-            <Switch
-              label="Live"
-              aria-label="Warnings live"
-              note={state.warningsMode === 'live' ? undefined : 'preview'}
-              checked={state.warningsMode === 'live'}
-              disabled={saving}
-              onChange={(on) =>
-                setState((s) => ({
-                  ...s,
-                  warningsMode: on ? 'live' : 'preview',
-                }))
-              }
-            />
-          }
-        />
+        {apiKeyMode ? (
+          <SettingRow
+            title="Warnings"
+            help={API_KEY_DIGESTS_OFF}
+            control={<SettingValue tone="muted">Off</SettingValue>}
+          />
+        ) : (
+          <SettingRow
+            title="Warnings"
+            help={MODE_CONSEQUENCE.warnings[state.warningsMode]}
+            control={
+              <Switch
+                label="Live"
+                aria-label="Warnings live"
+                note={state.warningsMode === 'live' ? undefined : 'preview'}
+                checked={state.warningsMode === 'live'}
+                disabled={saving}
+                onChange={(on) =>
+                  setState((s) => ({
+                    ...s,
+                    warningsMode: on ? 'live' : 'preview',
+                  }))
+                }
+              />
+            }
+          />
+        )}
       </SettingBlock>
       {allocationGoingLive ? (
         <Notice label="Live allocation" tone="warning">
-          After saving, the next daily run and every Run now write to Linear:
-          assignee, Backlog → Todo, and a comment on each issue.
+          {apiKeyMode
+            ? 'After saving, every Run now writes to Linear with the key of whoever starts it: assignee, Backlog → Todo, and a comment on each issue.'
+            : 'After saving, the next daily run and every Run now write to Linear: assignee, Backlog → Todo, and a comment on each issue.'}
         </Notice>
       ) : null}
       {goingLive ? (

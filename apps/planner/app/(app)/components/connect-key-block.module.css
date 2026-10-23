@@ -1,0 +1,91 @@
+/* The connect card (api_key mode) in Gr8r's sign-in card (the landing
+   page's .card): any notice, the centred headline and one line under it,
+   what happens to the key in quiet running copy, then the field (the
+   shared .input: a --control-border edge, the field focus ring, the red
+   edge when refused), its help line and the one primary button, full
+   width. Tokens only; sentence case throughout. */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(100%, 440px);
+}
+
+/* In the narrow card a notice's lead-in sits above its sentence. */
+.card > :global(.notice) {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+}
+
+.title {
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.sub {
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.about {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lead,
+.trust {
+  font-size: var(--fs-sm);
+  line-height: var(--lh-long);
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+
+/* The one caution: whoever runs the server could capture a key. */
+.trust {
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+}
+
+.form .input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--h-lg);
+}
+
+/* Help under a field: Gr8r's quiet note. */
+.hint {
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+  text-wrap: pretty;
+}
+
+.actions {
+  margin-top: 10px;
+}

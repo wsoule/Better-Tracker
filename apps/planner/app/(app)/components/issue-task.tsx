@@ -56,6 +56,7 @@ import {
   type IssueWriteKind,
   issueWriteOutcome,
 } from '../../../lib/issue-writes';
+import { refuseKeyText } from '../../../lib/key-text';
 import css from './issue-task.module.css';
 import ReadOnlyNotice from './read-only-notice';
 
@@ -165,6 +166,8 @@ export function useIssueWrites(issueId: string): {
           )
         ),
       search: async (query: string, signal: AbortSignal) => {
+        // A pasted API key never goes into the search URL (lib/key-text).
+        if (refuseKeyText(query) !== null) return [];
         const body = await getJson(
           `/api/issues/search?q=${encodeURIComponent(query)}&near=${encodeURIComponent(issueId)}`,
           signal

@@ -4,10 +4,14 @@
 // once instead of failing one variable per restart.
 
 import { isValidTimeZone } from '@better-tracker/core';
-import type { FixtureDataset } from '@better-tracker/linear';
+import {
+  type FixtureDataset,
+  LINEAR_GRAPHQL_ENDPOINT,
+} from '@better-tracker/linear';
 import { parseEncryptionKey } from '@better-tracker/store';
 
-import type { EngineConfig } from './types';
+import { API_KEY_IDLE_MS, API_KEY_MAX_MS } from './key-vault';
+import type { EngineConfig, LinearAuthMode } from './types';
 
 /** Process environment, or any plain map of variables (tests). */
 export type EngineEnv = Readonly<Record<string, string | undefined>>;
@@ -33,6 +37,29 @@ export const DEFAULT_DAILY_LEASE_MINUTES = 45;
 export const OAUTH_CALLBACK_PATH = '/api/auth/linear/callback';
 
 const MAX_SESSION_DAYS = 365;
+/** Minutes between background syncs in api_key mode (SYNC_INTERVAL_MINUTES). */
+export const DEFAULT_API_KEY_SYNC_INTERVAL_MINUTES = 15;
+const MAX_SYNC_INTERVAL_MINUTES = 1440;
+/** What LINEAR_WORKSPACE may hold: a URL key or an organization id. */
+const WORKSPACE_PIN = /^[A-Za-z0-9-]{1,64}$/;
+/** Hosts that count as this machine (APP_URL "loopback"). */
+const LOOPBACK_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '[::1]'];
+/** The only hosts LINEAR_API_URL (test-only) may point at. */
+const TEST_ENDPOINT_HOSTS: readonly string[] = ['127.0.0.1', '[::1]'];
+
+/**
+ * Variables api_key mode neither needs nor reads; boot logs one warning
+ * for each one a deploy still sets (apiKeyUnusedEnvVariables).
+ */
+export const API_KEY_UNUSED_ENV_VARIABLES: readonly string[] = [
+  'TOKEN_ENCRYPTION_KEY',
+  'LINEAR_CLIENT_ID',
+  'LINEAR_CLIENT_SECRET',
+  'LINEAR_WEBHOOK_SECRET',
+  'SESSION_SECRET',
+  'SLACK_BOT_TOKEN',
+  'SESSION_DAYS',
+];
 
 /**
  * Variables earlier versions read that no longer do anything, each with the
@@ -73,6 +100,109 @@ export function fixtureDatasetFromEnv(env: EngineEnv): FixtureDataset | null {
  */
 export function isFixtureEnv(env: EngineEnv): boolean {
   return fixtureDatasetFromEnv(env) !== null;
+}
+
+/**
+ * How the planner reaches Linear, without validating anything (the
+ * webhook route, the proxy and the worker read it before or without
+ * booting): `api_key` when LINEAR_AUTH is `api_key` (whatever else is
+ * set; loadEngineConfigFromEnv refuses the conflict with LINEAR_FIXTURE),
+ * else `demo` when LINEAR_FIXTURE turns on demo mode, else `oauth`. An
+ * unknown LINEAR_AUTH reads as oauth here and is reported at boot.
+ */
+export function linearAuthFromEnv(env: EngineEnv): LinearAuthMode {
+  if (read(env, 'LINEAR_AUTH')?.toLowerCase() === 'api_key') return 'api_key';
+  return isFixtureEnv(env) ? 'demo' : 'oauth';
+}
+
+/** Whether LINEAR_AUTH=api_key (linearAuthFromEnv). */
+export function isApiKeyEnv(env: EngineEnv): boolean {
+  return linearAuthFromEnv(env) === 'api_key';
+}
+
+/**
+ * The variables of API_KEY_UNUSED_ENV_VARIABLES this environment sets, in
+ * a stable order; boot logs "X is unused when LINEAR_AUTH=api_key" for
+ * each. Empty outside api_key mode.
+ */
+export function apiKeyUnusedEnvVariables(env: EngineEnv): string[] {
+  if (!isApiKeyEnv(env)) return [];
+  return API_KEY_UNUSED_ENV_VARIABLES.filter(
+    (name) => read(env, name) !== null
+  );
+}
+
+// Whether a URL's host is this machine (localhost, 127.0.0.1, [::1]).
+function isLoopbackUrl(url: string): boolean {
+  try {
+    return LOOPBACK_HOSTS.includes(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Node flags api_key mode refuses (security S1), or null when the process
+ * runs without them: any `--inspect…` or `--debug…` flag, which can open
+ * a debugger onto the memory where connected keys live, and the heap
+ * snapshot flags, which would write that memory to disk. When deployed,
+ * `--disable-sigusr1` is also required, so a signal cannot open the
+ * inspector. A speed bump, not a wall: a shell in the container can still
+ * read process memory (architecture §7 "API-key mode", R7).
+ */
+export function processFlagProblem(input: {
+  execArgv: readonly string[];
+  nodeOptions: string;
+  deployed: boolean;
+}): string | null {
+  const flags = [
+    ...input.execArgv,
+    ...input.nodeOptions.split(/\s+/).filter((flag) => flag !== ''),
+  ];
+  for (const flag of flags) {
+    const name = flag.split('=')[0] ?? flag;
+    if (
+      name.startsWith('--inspect') ||
+      name.startsWith('--debug') ||
+      name === '--heapsnapshot-near-heap-limit' ||
+      name === '--heapsnapshot-signal'
+    ) {
+      return `${flag} is refused when LINEAR_AUTH=api_key: it can expose or dump the server's memory, where connected keys live`;
+    }
+  }
+  if (input.deployed && !flags.includes('--disable-sigusr1')) {
+    return 'Set NODE_OPTIONS=--disable-sigusr1 when LINEAR_AUTH=api_key is deployed (deploy/Dockerfile sets it), so a signal cannot open the inspector';
+  }
+  return null;
+}
+
+// LINEAR_API_URL (test-only): a URL on 127.0.0.1 or [::1], without user
+// info. Returns the endpoint, or the problem.
+function parseTestEndpoint(
+  value: string,
+  appUrlLoopback: boolean
+): { endpoint: string } | { error: string } {
+  if (!appUrlLoopback) {
+    return {
+      error: 'LINEAR_API_URL is test-only: it needs a loopback APP_URL',
+    };
+  }
+  const refused = {
+    error:
+      'LINEAR_API_URL may only point at a local test server (127.0.0.1 or [::1])',
+  };
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return refused;
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return refused;
+  }
+  if (parsed.username !== '' || parsed.password !== '') return refused;
+  if (!TEST_ENDPOINT_HOSTS.includes(parsed.hostname)) return refused;
+  return { endpoint: value };
 }
 
 // Splits a comma-separated list, dropping blanks and repeats.
@@ -137,13 +267,33 @@ export function retiredEnvVariables(env: EngineEnv): string[] {
  * Builds the EngineConfig from the environment and validates every variable
  * the engine reads. Demo mode (`LINEAR_FIXTURE=1`, or `showcase` for the
  * larger demo workspace) needs nothing: APP_URL
- * defaults to http://localhost:3000 and OAuth is off. Otherwise APP_URL,
- * TOKEN_ENCRYPTION_KEY, LINEAR_CLIENT_ID and LINEAR_CLIENT_SECRET are
- * required. Throws one Error listing every missing or invalid variable.
+ * defaults to http://localhost:3000 and OAuth is off. OAuth mode (the
+ * default) requires APP_URL, TOKEN_ENCRYPTION_KEY, LINEAR_CLIENT_ID and
+ * LINEAR_CLIENT_SECRET. `LINEAR_AUTH=api_key` needs only APP_URL (https
+ * when deployed) and, when deployed, LINEAR_WORKSPACE; it refuses
+ * inspector and heap-snapshot flags (processFlagProblem, read from
+ * `execArgv` and NODE_OPTIONS). `migrateOnly` (the worker's migrate,
+ * which never handles a key) skips those three deployed-only checks.
+ * Throws one Error listing every missing or invalid variable.
  */
-export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
+export function loadEngineConfigFromEnv(
+  env: EngineEnv,
+  options: { execArgv?: readonly string[]; migrateOnly?: boolean } = {}
+): EngineConfig {
   const problems: string[] = [];
   const fixture = isFixtureEnv(env);
+  const authRaw = read(env, 'LINEAR_AUTH')?.toLowerCase() ?? null;
+  if (authRaw !== null && authRaw !== 'oauth' && authRaw !== 'api_key') {
+    problems.push('LINEAR_AUTH must be oauth (default) or api_key');
+  }
+  const apiKeyMode = authRaw === 'api_key';
+  if (apiKeyMode && fixture) {
+    problems.push(
+      'LINEAR_AUTH=api_key cannot be combined with LINEAR_FIXTURE (demo mode); unset one'
+    );
+  }
+  // OAuth's credentials are required (and read) only in OAuth mode.
+  const oauthMode = !fixture && !apiKeyMode;
 
   const fixtureRaw = read(env, 'LINEAR_FIXTURE')?.toLowerCase() ?? null;
   if (
@@ -167,9 +317,9 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
     else appUrl = parsed.url;
   }
 
-  const key = read(env, 'TOKEN_ENCRYPTION_KEY');
+  const key = apiKeyMode ? null : read(env, 'TOKEN_ENCRYPTION_KEY');
   if (key === null) {
-    if (!fixture) {
+    if (oauthMode) {
       problems.push(
         'TOKEN_ENCRYPTION_KEY is required (32 random bytes, base64)'
       );
@@ -184,9 +334,9 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
     }
   }
 
-  const clientId = read(env, 'LINEAR_CLIENT_ID');
-  const clientSecret = read(env, 'LINEAR_CLIENT_SECRET');
-  if (!fixture) {
+  const clientId = apiKeyMode ? null : read(env, 'LINEAR_CLIENT_ID');
+  const clientSecret = apiKeyMode ? null : read(env, 'LINEAR_CLIENT_SECRET');
+  if (oauthMode) {
     if (clientId === null) problems.push('LINEAR_CLIENT_ID is required');
     if (clientSecret === null) {
       problems.push('LINEAR_CLIENT_SECRET is required');
@@ -209,7 +359,8 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
   );
 
   let sessionDays = DEFAULT_SESSION_DAYS;
-  const rawSessionDays = read(env, 'SESSION_DAYS');
+  // Ignored with personal API keys: their limits are fixed (key-vault.ts).
+  const rawSessionDays = apiKeyMode ? null : read(env, 'SESSION_DAYS');
   if (rawSessionDays !== null) {
     const parsed = Number(rawSessionDays);
     if (
@@ -243,6 +394,16 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
     problems.push('LOG_LEVEL must be one of debug, info, warn, error');
   }
 
+  let apiKey: EngineConfig['apiKey'] = null;
+  if (apiKeyMode && !fixture) {
+    apiKey = readApiKeyConfig(env, {
+      appUrl: rawAppUrl === null ? null : appUrl,
+      execArgv: options.execArgv ?? process.execArgv,
+      migrateOnly: options.migrateOnly === true,
+      problems,
+    });
+  }
+
   if (problems.length > 0) {
     throw new Error(
       `Invalid environment for ${appName}:\n${problems.map((p) => `- ${p}`).join('\n')}`
@@ -250,12 +411,14 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
   }
 
   return {
+    auth: fixture ? 'demo' : apiKeyMode ? 'api_key' : 'oauth',
+    apiKey,
     appName,
     appUrl,
     defaultTimezone,
     bootstrapWatcherEmails,
     oauth:
-      fixture || clientId === null || clientSecret === null
+      !oauthMode || clientId === null || clientSecret === null
         ? null
         : {
             clientId,
@@ -263,5 +426,90 @@ export function loadEngineConfigFromEnv(env: EngineEnv): EngineConfig {
             redirectUri: `${appUrl}${OAUTH_CALLBACK_PATH}`,
           },
     sessionDays,
+  };
+}
+
+// The api_key-mode part of the config (§2.2): deployed, the workspace pin,
+// the background sync interval, the test-only endpoint and the process
+// flags. Problems are added to `problems`. A `migrateOnly` process (the
+// worker's migrate) never handles a key, so the checks that protect keys
+// on a deployed planner (an https APP_URL, the pin, the process flags)
+// are skipped for it.
+function readApiKeyConfig(
+  env: EngineEnv,
+  input: {
+    appUrl: string | null;
+    execArgv: readonly string[];
+    migrateOnly: boolean;
+    problems: string[];
+  }
+): NonNullable<EngineConfig['apiKey']> {
+  const { problems } = input;
+  const loopback = input.appUrl !== null && isLoopbackUrl(input.appUrl);
+  const deployed =
+    read(env, 'NODE_ENV') === 'production' &&
+    input.appUrl !== null &&
+    !loopback;
+  const guardKeys = deployed && !input.migrateOnly;
+  if (guardKeys && input.appUrl?.startsWith('https://') !== true) {
+    problems.push(
+      'APP_URL must be https:// when LINEAR_AUTH=api_key is deployed (keys must only travel over HTTPS)'
+    );
+  }
+
+  const workspacePin = read(env, 'LINEAR_WORKSPACE');
+  if (workspacePin === null) {
+    if (guardKeys) {
+      problems.push(
+        "LINEAR_WORKSPACE is required when LINEAR_AUTH=api_key is deployed: set it to your Linear workspace's URL key (linear.app/<key>), so nobody else can bind this planner"
+      );
+    }
+  } else if (!WORKSPACE_PIN.test(workspacePin)) {
+    problems.push(
+      'LINEAR_WORKSPACE must be a Linear workspace URL key or organization id (letters, digits and dashes, at most 64)'
+    );
+  }
+
+  let syncMinutes = DEFAULT_API_KEY_SYNC_INTERVAL_MINUTES;
+  const rawSync = read(env, 'SYNC_INTERVAL_MINUTES');
+  if (rawSync !== null) {
+    const value = Number(rawSync);
+    if (
+      !/^\d+$/.test(rawSync) ||
+      value < 1 ||
+      value > MAX_SYNC_INTERVAL_MINUTES
+    ) {
+      problems.push(
+        `SYNC_INTERVAL_MINUTES must be a whole number of minutes from 1 to ${MAX_SYNC_INTERVAL_MINUTES}`
+      );
+    } else {
+      syncMinutes = value;
+    }
+  }
+
+  let endpoint = LINEAR_GRAPHQL_ENDPOINT;
+  const rawEndpoint = read(env, 'LINEAR_API_URL');
+  if (rawEndpoint !== null) {
+    const parsed = parseTestEndpoint(rawEndpoint, loopback);
+    if ('error' in parsed) problems.push(parsed.error);
+    else endpoint = parsed.endpoint;
+  }
+
+  const flagProblem = input.migrateOnly
+    ? null
+    : processFlagProblem({
+        execArgv: input.execArgv,
+        nodeOptions: read(env, 'NODE_OPTIONS') ?? '',
+        deployed,
+      });
+  if (flagProblem !== null) problems.push(flagProblem);
+
+  return {
+    idleMs: API_KEY_IDLE_MS,
+    absoluteMs: API_KEY_MAX_MS,
+    syncIntervalMs: syncMinutes * 60_000,
+    workspacePin,
+    endpoint,
+    deployed,
   };
 }

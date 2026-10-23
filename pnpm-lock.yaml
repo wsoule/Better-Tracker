@@ -405,6 +405,10 @@ importers:
         version: 7.0.2
 
   packages/logger:
+    dependencies:
+      '@better-tracker/core':
+        specifier: workspace:*
+        version: link:../core
     devDependencies:
       tsdown:
         specifier: 'catalog:'

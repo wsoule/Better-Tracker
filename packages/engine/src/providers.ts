@@ -213,6 +213,12 @@ export function createLinearProvider(
         log.error('linear installation is revoked; reinstall needed');
         throw lostAccess();
       }
+      // A blank token is an api_key-mode binding row (or one adopted from
+      // an earlier install): this OAuth process has no grant to act with.
+      if (installation.tokens.accessToken === '') {
+        log.error('linear installation has no token (bound by api_key mode)');
+        throw lostAccess();
+      }
       let tokens = installation.tokens;
       if (needsRefresh(tokens, clock(), marginMs)) {
         // The grant the refresh tried, when Linear said it is dead (a

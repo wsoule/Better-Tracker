@@ -1,4 +1,4 @@
-import { isFixtureEnv } from '@better-tracker/engine';
+import { isFixtureEnv, linearAuthFromEnv } from '@better-tracker/engine';
 import {
   parseWebhookEvent,
   verifyWebhookSignature,
@@ -31,9 +31,15 @@ function empty(status: number): Response {
  * detail for a caller who cannot sign). A verified event is handed to the
  * engine in after(), deduped by the Linear-Delivery header. Event types
  * the planner does not use are acked and dropped, so Linear never disables
- * the webhook over them. Demo mode has no webhooks and acks everything.
+ * the webhook over them. Demo mode has no webhooks and acks everything;
+ * api_key mode answers a bare 404.
  */
 export async function POST(request: Request): Promise<Response> {
+  // Personal API keys: no webhooks at all (nothing stored could process
+  // them), refused before the body is read.
+  if (linearAuthFromEnv(process.env) === 'api_key') {
+    return new Response(null, { status: 404 });
+  }
   if (isFixtureEnv(process.env)) return empty(200);
 
   const raw = await readLimitedText(request, MAX_WEBHOOK_BYTES);

@@ -1,5 +1,6 @@
 import { isFixtureEnv } from '@better-tracker/engine';
 import { themeScript } from '@better-tracker/ui';
+import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { connection } from 'next/server';
 import type { ReactNode } from 'react';
@@ -25,6 +26,8 @@ export default async function GalleryLayout({
   if (process.env.NODE_ENV === 'production' && !isFixtureEnv(process.env)) {
     notFound();
   }
+  // The request's CSP nonce (proxy.ts, api_key mode only).
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html
       lang="en"
@@ -33,6 +36,8 @@ export default async function GalleryLayout({
     >
       <body>
         <script
+          nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: themeScript(THEME_STORAGE_KEY) }}
         />
         {children}

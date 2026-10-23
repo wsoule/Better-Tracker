@@ -44,3 +44,16 @@ export function isStoreNotFoundError(
     found && (kind === undefined || (error as StoreNotFoundError).kind === kind)
   );
 }
+
+/**
+ * Thrown by a credential-free store (opened with `encryptionKey: null`,
+ * LINEAR_AUTH=api_key) when asked to keep a Linear credential: that mode's
+ * personal API keys live only in the planner's memory, so a token reaching
+ * the store is a bug. The message never includes a value.
+ */
+export class StoreCredentialError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoreCredentialError';
+  }
+}

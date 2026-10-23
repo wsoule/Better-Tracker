@@ -13,11 +13,17 @@ import {
   type WarningsMode,
   type WorkspaceSettings,
 } from '@better-tracker/core';
-import type { Engine, WarningRunResult } from '@better-tracker/engine';
+import type {
+  Engine,
+  KeyConnectionStatus,
+  WarningRunResult,
+} from '@better-tracker/engine';
 import type { ChipTone, NavTabItem, UiTone } from '@better-tracker/ui';
 
 import {
   dueLabel,
+  formatClock,
+  sameLocalDay,
   formatDate,
   formatInstant,
   formatLongDate,
@@ -123,6 +129,21 @@ export function parseSettingsSection(
   );
 }
 
+/** Settings → Status's sentence with personal API keys (no installation
+    or webhook to describe). */
+export const API_KEY_STATUS_DESCRIPTION =
+  'Your key and when it is forgotten, whose key reads Linear for the planner and the last sync, and today’s digest preview.';
+
+/** The sentence under a section's title, worded for the auth mode. */
+export function sectionDescription(
+  section: SettingsSection,
+  options: { apiKeyMode: boolean }
+): string {
+  return options.apiKeyMode && section.id === 'status'
+    ? API_KEY_STATUS_DESCRIPTION
+    : section.description;
+}
+
 /** The vertical sub-nav, with the current section marked. */
 export function sectionTabs(current: SettingsSectionId): NavTabItem[] {
   return SETTINGS_SECTIONS.map((section) => ({
@@ -165,6 +186,24 @@ export const MODE_CONSEQUENCE = {
       'Preview: digests are built and kept in the planner’s outbox; nobody is messaged.',
   },
 } as const;
+
+/** Allocation's consequences with personal API keys: no daily run. */
+export const API_KEY_ALLOCATION_CONSEQUENCE = {
+  live: 'Live: Run now assigns each project’s next-milestone issues to its lead in Linear with your own key, moves them Backlog → Todo and comments why. Nothing runs on a schedule.',
+  dry_run:
+    'Dry run: runs record what they would assign; nothing is written to Linear. Nothing runs on a schedule.',
+} as const;
+
+/** The warnings row with personal API keys (Settings → Modes). */
+export const API_KEY_DIGESTS_OFF = 'Digests: off with personal API keys';
+
+/** Settings → Watchers with personal API keys. */
+export const API_KEY_WATCHERS_NOTE =
+  'With personal API keys no digests are sent: watchers see warnings only in the preview.';
+
+/** Settings → Schedule with personal API keys. */
+export const API_KEY_SCHEDULE_NOTE =
+  'No scheduled runs with personal API keys (DAILY_RUN_AT does nothing).';
 
 /** The note under the warnings switch while it would go live. */
 export const WARNINGS_GO_LIVE_NOTE =
@@ -380,21 +419,32 @@ export interface ReadOnlySettingRow {
 
 /** Settings → Modes for a Linear guest: each mode and what it does now. */
 export function modesReadOnlyRows(
-  settings: Pick<WorkspaceSettings, 'allocationMode' | 'warningsMode'>
+  settings: Pick<WorkspaceSettings, 'allocationMode' | 'warningsMode'>,
+  options: { apiKeyMode?: boolean } = {}
 ): ReadOnlySettingRow[] {
+  const apiKeyMode = options.apiKeyMode === true;
   return [
     {
       id: 'allocation',
       label: 'Allocation',
       value: settings.allocationMode === 'live' ? 'Live' : 'Dry run',
-      sub: MODE_CONSEQUENCE.allocation[settings.allocationMode],
+      sub: apiKeyMode
+        ? API_KEY_ALLOCATION_CONSEQUENCE[settings.allocationMode]
+        : MODE_CONSEQUENCE.allocation[settings.allocationMode],
     },
-    {
-      id: 'warnings',
-      label: 'Warnings',
-      value: settings.warningsMode === 'live' ? 'Live' : 'Preview',
-      sub: MODE_CONSEQUENCE.warnings[settings.warningsMode],
-    },
+    apiKeyMode
+      ? {
+          id: 'warnings',
+          label: 'Warnings',
+          value: 'Off',
+          sub: API_KEY_DIGESTS_OFF,
+        }
+      : {
+          id: 'warnings',
+          label: 'Warnings',
+          value: settings.warningsMode === 'live' ? 'Live' : 'Preview',
+          sub: MODE_CONSEQUENCE.warnings[settings.warningsMode],
+        },
   ];
 }
 
@@ -588,6 +638,82 @@ export interface StatusRow {
   toneDetail?: true;
 }
 
+/** What Settings → Status shows with personal API keys (api_key mode). */
+export interface ApiKeyStatusInput {
+  /** engine.getKeyConnection(actor); null when the vault no longer has it. */
+  keyConnection: KeyConnectionStatus | null;
+  /** SYNC_INTERVAL_MINUTES. */
+  syncMinutes: number;
+}
+
+/** Scheduled jobs with personal API keys: none (the Status row's words). */
+export const API_KEY_JOBS_OFF =
+  'Nothing is stored that could read Linear. Runs happen when someone starts one; no digests are sent.';
+
+// The three api_key-mode rows (architecture §8.4): the person's key and its
+// limits, whose key reads the mirror (with the last sync), and that no job
+// runs on a schedule. They name people, never a key.
+function apiKeyStatusRows(
+  input: ApiKeyStatusInput,
+  syncState: SyncState,
+  timeZone: string
+): StatusRow[] {
+  const { keyConnection } = input;
+  const rows: StatusRow[] = [];
+  rows.push(
+    keyConnection === null
+      ? {
+          id: 'key',
+          label: 'Your key',
+          value: 'Not connected',
+          sub: 'Paste it again on the home page',
+          tone: 'warning',
+        }
+      : {
+          id: 'key',
+          label: 'Your key',
+          value: `Connected ${formatClock(keyConnection.connectedAt, timeZone)} · forgotten by ${formatClock(keyConnection.expiresAt, timeZone)}${sameLocalDay(keyConnection.connectedAt, keyConnection.expiresAt, timeZone) ? '' : ' tomorrow'}, or after ${Math.round(keyConnection.idleMinutes / 60)} h idle`,
+          sub: 'Held in the planner’s memory only; never saved',
+          tone: 'success',
+        }
+  );
+  const reader = keyConnection?.reader ?? null;
+  const failed = syncState?.lastFullSyncStatus === 'failed';
+  const last =
+    syncState?.lastFullSyncAt == null
+      ? 'not synced yet'
+      : `${failed ? 'last sync failed' : 'last synced'} ${formatInstant(syncState.lastFullSyncAt, timeZone)}`;
+  rows.push(
+    reader === null
+      ? {
+          id: 'reader',
+          label: 'Mirror read with',
+          value: 'Nobody’s',
+          sub: `No workspace member is connected; showing the last copy · ${last}`,
+          tone: 'warning',
+        }
+      : {
+          id: 'reader',
+          label: 'Mirror read with',
+          value: `${reader.userName}’s key`,
+          sub:
+            failed && syncState?.lastFullSyncError != null
+              ? `${syncState.lastFullSyncError} · ${last}`
+              : `Refreshed every ${input.syncMinutes} min while a member is connected · ${last}`,
+          tone: failed ? 'danger' : 'default',
+          ...(failed ? { toneDetail: true as const } : {}),
+        }
+  );
+  rows.push({
+    id: 'jobs',
+    label: 'Scheduled jobs',
+    value: 'Off',
+    sub: API_KEY_JOBS_OFF,
+    tone: 'muted',
+  });
+  return rows;
+}
+
 export function statusRows(input: {
   installation: Installation | null;
   syncState: SyncState;
@@ -596,8 +722,13 @@ export function statusRows(input: {
   demo: boolean;
   /** Which demo workspace LINEAR_FIXTURE chose (the base one if unset). */
   demoWorkspace?: 'base' | 'showcase' | null;
+  /** Set in api_key mode: the three key rows replace the install rows. */
+  apiKey?: ApiKeyStatusInput | null;
 }): StatusRow[] {
   const { installation, syncState, users, timeZone } = input;
+  if (input.apiKey != null) {
+    return apiKeyStatusRows(input.apiKey, syncState, timeZone);
+  }
   const rows: StatusRow[] = [];
   if (input.demo) {
     const showcase = input.demoWorkspace === 'showcase';

@@ -38,7 +38,9 @@ export async function GET(request: Request): Promise<Response> {
   const clear = clearOauthCookie(secure);
   const fail = (code: string): Response =>
     redirectWithCookies(authErrorLocation(code), [clear]);
-  if (engine.mode === 'fixture') return redirectWithCookies('/', [clear]);
+  if (engine.mode === 'fixture' || engine.config.auth === 'api_key') {
+    return redirectWithCookies('/', [clear]);
+  }
 
   let secret: string;
   try {

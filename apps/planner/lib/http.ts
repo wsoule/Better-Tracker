@@ -51,8 +51,11 @@ export function retryAfterSeconds(
  * Maps engine and Linear errors to HTTP responses; logs the unexpected.
  * Engine errors are recognised by name as well as class (lib/engine-errors:
  * the cached engine may come from another bundle's copy of the package).
- * not_signed_in is a 401; every other auth code is a 403, including
- * read_only (a Linear guest, who may look but not change anything).
+ * not_signed_in is a 401; no_reader (api_key mode: no workspace member
+ * has a key connected, so nothing can read Linear) a 503, so the client
+ * does not read it as signed out; every other auth code is a 403,
+ * including read_only (a Linear guest, who may look but not change
+ * anything).
  * `returnTo` is the page a needs_write_scope answer's grant link comes
  * back to; the engine's rate_limited is a 429 with Retry-After when Linear
  * said when its limit resets.
@@ -67,7 +70,8 @@ export function errorResponse(
     if (authCode === 'needs_write_scope') {
       return needsWriteScope(message, options.returnTo);
     }
-    const status = authCode === 'not_signed_in' ? 401 : 403;
+    const status =
+      authCode === 'not_signed_in' ? 401 : authCode === 'no_reader' ? 503 : 403;
     return jsonError(status, authCode, message);
   }
   const inputCode = engineInputCode(error);
@@ -170,6 +174,14 @@ export async function requireApiActor(
     const refused = rejectCrossOrigin(request, engine.config.appUrl);
     if (refused !== null) return refused;
   }
-  if (actor === null) return jsonError(401, 'not_signed_in', 'Sign in first.');
+  if (actor === null) {
+    return jsonError(
+      401,
+      'not_signed_in',
+      engine.config.auth === 'api_key'
+        ? 'Connect your Linear API key first.'
+        : 'Sign in first.'
+    );
+  }
   return { engine, actor };
 }

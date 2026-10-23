@@ -2,7 +2,9 @@ import type { User } from '@better-tracker/core';
 
 // Copy and rows for the landing page ("/"): what each ?auth_error code
 // means in plain words, the demo-mode person picker, and the list of what
-// the tool does (design doc §2, said concretely).
+// the tool does (design doc §2, said concretely). With personal API keys
+// (LINEAR_AUTH=api_key) the connect form's codes get their own sentences,
+// and the list says what changes in that mode.
 
 const AUTH_ERROR_MESSAGE: Record<string, string> = {
   access_denied:
@@ -40,17 +42,79 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
   internal: 'Something went wrong on the server. It was logged; try again.',
 };
 
+/**
+ * The connect form's codes (api_key mode, POST /api/auth/key) and the
+ * sentences that differ from OAuth's there.
+ */
+const API_KEY_ERROR_MESSAGE: Record<string, string> = {
+  invalid_request:
+    'The connect form did not arrive complete. Paste your key again.',
+  key_shape:
+    'That does not look like a Linear personal API key (they start with lin_api_). Copy it again from Linear: Settings → Security & access → Personal API keys.',
+  key_rejected:
+    'Linear did not accept that key: it may be mistyped, revoked or expired. Create a new one in Linear and paste it.',
+  key_cannot_read:
+    'That key cannot read Linear. The planner needs a key with at least Read access (Read and Write to edit).',
+  key_wrong_workspace:
+    'That key belongs to a different Linear workspace from the one this planner serves.',
+  guest_cannot_bind:
+    'A member of the workspace has to connect first: a guest cannot choose the workspace this planner serves.',
+  connect_rate_limited:
+    'Too many tries from here in the last few minutes. Wait ten minutes, then paste your key again.',
+  insecure_transport:
+    'The key was sent over an unencrypted connection, so the planner refused it. Open the planner with https:// and try again.',
+  key_capacity:
+    'Too many people are connected to the planner right now. Try again later.',
+  linear_unreachable:
+    'Linear could not be reached to check the key. Try again in a minute.',
+  linear_rate_limited:
+    'Linear is rate-limiting this key right now. Wait a minute and try again.',
+  not_signed_in:
+    'That Linear account cannot connect: it is deactivated, or it is an app user rather than a person.',
+  read_only:
+    'The planner is read-only for you: you are a guest in Linear, your key only allows reading, or the planner has not synced your Linear account yet. You can look at everything Linear shows you, but not change anything here.',
+  wrong_workspace:
+    'That key belongs to a different Linear workspace from the one this planner serves.',
+  not_installed:
+    'This planner serves no Linear workspace yet: a workspace member connects their key first.',
+};
+
+/** The connect form's codes that refuse the key itself (its shape, or
+    Linear's answer about it), as opposed to the server, the limits or
+    the network: the field is then drawn as refused. */
+const KEY_REFUSALS: ReadonlySet<string> = new Set([
+  'key_shape',
+  'key_rejected',
+  'key_cannot_read',
+  'key_wrong_workspace',
+]);
+
+/** Whether an ?auth_error code refused the pasted key itself. */
+export function isKeyRefusal(code: string | undefined): boolean {
+  return code !== undefined && KEY_REFUSALS.has(code);
+}
+
 const CODE_PATTERN = /^[a-z_]{1,40}$/;
 
 /**
  * The sentence for an ?auth_error code; null when there is none. Codes
  * come from the URL, so only known shapes are echoed back, and Linear API
- * failures without their own sentence share one.
+ * failures without their own sentence share one. `apiKeyMode` uses the
+ * connect form's sentences first.
  */
-export function authErrorMessage(code: string | undefined): string | null {
+export function authErrorMessage(
+  code: string | undefined,
+  options: { apiKeyMode?: boolean } = {}
+): string | null {
   if (code === undefined || code === '') return null;
   if (!CODE_PATTERN.test(code)) {
-    return 'Sign-in did not finish. Start again.';
+    return options.apiKeyMode === true
+      ? 'Connecting did not finish. Paste your key again.'
+      : 'Sign-in did not finish. Start again.';
+  }
+  if (options.apiKeyMode === true) {
+    const keyed = API_KEY_ERROR_MESSAGE[code];
+    if (keyed !== undefined) return keyed;
   }
   const known = AUTH_ERROR_MESSAGE[code];
   if (known !== undefined) return known;
@@ -65,6 +129,20 @@ export function firstParam(
   value: string | string[] | undefined
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
+}
+
+/**
+ * Which sign-out notice "/" shows (api_key mode), from ?signed_out: "1"
+ * when the planner forgot the key in every browser, "ended" when it could
+ * not tell whose key it was (this browser's connection had already
+ * ended), anything else none.
+ */
+export function signedOutNotice(
+  value: string | undefined
+): 'everywhere' | 'ended' | null {
+  if (value === '1') return 'everywhere';
+  if (value === 'ended') return 'ended';
+  return null;
 }
 
 export interface DemoUserRow {
@@ -144,3 +222,36 @@ export const LANDING_FEATURES: readonly LandingFeature[] = [
     body: 'A milestone counts when it has a target date, a “done means…” line, a project lead and at least one issue. Whatever is missing is shown, and a next milestone with a gap stops allocation for its project.',
   },
 ];
+
+/**
+ * What the planner does, for the landing page: LANDING_FEATURES, or with
+ * personal API keys (`apiKeyMode`) the same list with allocation run only
+ * when someone starts it, warnings as a preview only, and "connect"
+ * instead of "sign in" (owner request 2026-10-23).
+ */
+export function landingFeatures(options: {
+  apiKeyMode: boolean;
+}): readonly LandingFeature[] {
+  if (!options.apiKeyMode) return LANDING_FEATURES;
+  return LANDING_FEATURES.map((feature) => {
+    switch (feature.key) {
+      case 'timeline':
+        return {
+          ...feature,
+          body: 'Every active project’s milestones on one date axis, with progress and risk. Anyone connected drags a bar’s end to move that milestone’s target date in Linear, as themselves.',
+        };
+      case 'allocation':
+        return {
+          ...feature,
+          body: 'Unassigned issues in a project’s next milestone go to the project lead, with a Linear comment saying why; ones still in Backlog move to Todo. It runs when someone starts it, over what they can see, written as that person in Linear. Triage issues are never handed out, and a dry run comes first.',
+        };
+      case 'warnings':
+        return {
+          ...feature,
+          body: 'Preview only: no digests are sent with personal API keys. Settings shows which milestones due within a week are at risk, and who would hear about them.',
+        };
+      default:
+        return feature;
+    }
+  });
+}

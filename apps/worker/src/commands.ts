@@ -103,6 +103,31 @@ export const EXIT_FAILED = 1;
 export const EXIT_USAGE = 2;
 
 /**
+ * What a command does in api_key mode (LINEAR_AUTH=api_key, owner request
+ * 2026-10-23); the caller (run.ts) asks only in that mode, before the
+ * engine is built. Personal API keys live only in the planner's memory,
+ * so nothing here could read or write Linear. `tick` and `serve` exit 0
+ * with a note (a leftover Railway cron stays quiet); `sync`, `daily`,
+ * `allocate` and `warn` exit 1 with a sentence. Null for `migrate`, which
+ * boots as always (it only opens the store and migrates).
+ */
+export function apiKeyModeOutcome(
+  command: CommandName
+): { code: number; line: string } | null {
+  if (command === 'migrate') return null;
+  if (command === 'tick' || command === 'serve') {
+    return {
+      code: EXIT_OK,
+      line: "api-key mode: no scheduled sync, allocation or digests (keys live only in the planner's memory)",
+    };
+  }
+  return {
+    code: EXIT_FAILED,
+    line: `${command}: off when LINEAR_AUTH=api_key: keys live only in the planner's memory; start a run or a resync from the planner`,
+  };
+}
+
+/**
  * The process exit code for a command: 1 when any workspace failed or a
  * workspace-independent step (listing workspaces, cleanup) failed, so cron
  * failures are loud; otherwise 0. No workspaces at all is not a failure.

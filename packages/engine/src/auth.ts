@@ -50,6 +50,7 @@ import {
   type OAuthStart,
   type ReadOnlyReason,
   type SignInResult,
+  type SignOutResult,
 } from './types';
 
 const DAY_MS = 86_400_000;
@@ -95,7 +96,14 @@ export function publicInstallation(installation: Installation): Installation {
   return { ...installation, tokens: redactTokens(installation.tokens) };
 }
 
+/** What every OAuth entry point says in api_key mode. */
+export const OAUTH_OFF_MESSAGE =
+  'Linear OAuth is off: this planner uses personal API keys.';
+
 function requireOAuth(rt: EngineRuntime): OAuthClientConfig {
+  if (rt.config.auth === 'api_key') {
+    throw new EngineInputError('invalid', OAUTH_OFF_MESSAGE);
+  }
   if (rt.config.oauth === null) {
     throw new EngineInputError(
       'invalid',
@@ -245,7 +253,7 @@ export function readOnlyReasonFor(
  * for the page anyway. A failed sync leaves the mirror null and is logged;
  * readOnlyReasonFor then fails closed (`not_synced`).
  */
-async function mirrorForPerson(
+export async function mirrorForPerson(
   rt: EngineRuntime,
   workspaceId: string
 ): Promise<{ view: MirrorView | null; installed: boolean }> {
@@ -257,7 +265,11 @@ async function mirrorForPerson(
   try {
     await fullSync(rt, workspaceId);
   } catch (error) {
-    rt.logger.warn(
+    // api_key mode with no member connected: expected, not a failure.
+    const noReader =
+      error instanceof EngineAuthError && error.code === 'no_reader';
+    (noReader ? rt.logger.info : rt.logger.warn).call(
+      rt.logger,
       'the first sync failed; everyone is read-only until it lands',
       { workspaceId, error }
     );
@@ -507,17 +519,14 @@ export async function authenticate(
 export async function signOut(
   rt: EngineRuntime,
   sessionToken: string
-): Promise<void> {
-  if (typeof sessionToken !== 'string' || sessionToken === '') return;
+): Promise<SignOutResult> {
+  const unknown: SignOutResult = { known: false, keysForgotten: 0 };
+  if (typeof sessionToken !== 'string' || sessionToken === '') return unknown;
   const session = await rt.store.getSession(sessionToken, rt.nowIso());
   await rt.store.deleteSession(sessionToken);
-  if (
-    session === null ||
-    rt.linear.mode === 'fixture' ||
-    rt.config.oauth === null
-  ) {
-    return;
-  }
+  if (session === null) return unknown;
+  const result: SignOutResult = { known: true, keysForgotten: 0 };
+  if (rt.linear.mode === 'fixture' || rt.config.oauth === null) return result;
   const log = rt.logger.child({
     workspaceId: session.workspaceId,
     userId: session.userId,
@@ -531,6 +540,7 @@ export async function signOut(
       error: revoked.error,
     });
   }
+  return result;
 }
 
 /** Fixture mode: the active people of the demo workspace, by name. */

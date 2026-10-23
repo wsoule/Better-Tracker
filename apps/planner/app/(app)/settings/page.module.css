@@ -498,3 +498,14 @@
     padding: 9px 12px;
   }
 }
+
+/* api_key mode: "Forget my key and sign out" under the Status rows (and
+   their actions), a row of its own like the form bars: no box, the
+   secondary button at the start. */
+.forgetKey {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 20px;
+}

@@ -185,6 +185,9 @@ wait on?").
 ### 7.4 Auto-allocation (scheduled)
 *(2026-10-22, §12: "on demand by a PM" now means on demand by anyone signed in,
 and anyone can switch it live in Settings, audited; it still starts in dry run.)*
+*(2026-10-23, §12: with personal API keys there is no daily run: allocation runs
+only when someone signed in starts it, over what they can see, written with
+their own key.)*
 
 Runs daily (and on demand by a PM). For each valid "next milestone" whose project has a
 lead: every open, unassigned, non-Triage issue in it is assigned to the lead and moved to
@@ -194,6 +197,8 @@ it skipped and why). A **dry-run mode** shows what it would do; v1 ships with dr
 on until Wyat switches it live.
 
 ### 7.5 One-week warnings (scheduled)
+*(2026-10-23, §12: with personal API keys no daily digest is sent; the warnings
+are only previewed in Settings.)*
 Daily. For each milestone that becomes at risk (§6.5) or overdue, notify the project
 lead, Wyat and Shanzer once (not again until its status changes or it goes overdue).
 The message names the milestone, due date, what's open, what's unassigned, and links to
@@ -230,9 +235,13 @@ and audited per issue. Issues are still created in Linear.
   allocation run log. *(2026-10-22, §12: the PM list is gone; the watcher list
   and the audit log of who changed what are owned here instead.)*
 - **Freshness:** Linear webhooks for changes + a periodic full resync to heal drift.
+  *(2026-10-23, §12: with personal API keys there are no webhooks; the planner
+  refreshes its copy on connect, on Resync and every 15 minutes while a
+  workspace member is connected.)*
 - Linear access via an OAuth app installed on the workspace (allows acting as the app
   for automation and as the signed-in user for PM edits — since 2026-10-22, §12,
-  for everyone's edits).
+  for everyone's edits). *(2026-10-23, §12: or, instead, each person's own
+  personal API key, held only in the planner server's memory.)*
 
 ## 9. Constraints
 
@@ -704,3 +713,81 @@ background, which that restyle's soft dark answers).
   step control walks the chain through the locked box;
 - on a phone the strip's buttons are wider but no taller (26px), so it covers
   no more of the box below.
+
+### 2026-10-23 — connect with your own Linear API key
+
+Owner, in their words: "Also update it so I can just give my own api key. Dont
+save it anywhere though make sure it is secure". It adds a way to reach Linear;
+the OAuth app and demo mode stay as they are.
+
+- **A third mode, `LINEAR_AUTH=api_key`,** chosen in the server's settings.
+  OAuth (the default) and demo mode (`LINEAR_FIXTURE`) are unchanged.
+- **Each person pastes their own personal API key** from Linear. It is held
+  only in the planner server's memory and never saved (not in the database, on
+  disk, in logs, the audit or the browser), logged or sent back. It is
+  forgotten when the person signs out (on every device at once), after 2 hours
+  without using the planner, 12 hours after connecting, and whenever the
+  planner restarts or is redeployed; then they paste it again. Signing out
+  does not revoke the key in Linear (Linear offers no way to); the person
+  revokes it there when they stop using the planner.
+- **Edits and comments go out with the person's own key,** so "always with
+  their own Linear token" (2026-10-21) holds: Linear shows them as the author.
+- **A Read-only key makes the person read-only, like a guest** (the same one
+  guard). Linear does not say what a key may do, so the planner finds out when
+  Linear first refuses one of that key's writes; from then on it refuses every
+  change itself and says why.
+- **Allocation keeps exactly its writes** (an issue's assignee and state, plus
+  one comment), but in this mode it runs only when someone signed in starts
+  it, over what that person can see, written with their key and so credited to
+  them in Linear. Nothing is automatic: there is no daily run, no digests (the
+  warnings are only previewed) and no webhooks. This narrows "the only
+  automatic write" and adds no new Linear write.
+- **The planner refreshes its copy of Linear** when someone connects, on
+  Resync, and every 15 minutes while a workspace member is connected, reading
+  with the key of the member who connected first (the one who chose the
+  workspace) or else the earliest-connected member's; a guest's key never reads
+  it, not even when Linear makes a connected member a guest (that key stops
+  reading at once and the next member's reads). What that account cannot see (a private team it is not in) is missing for
+  everyone until a wider key reads, and the run and audit logs then hide what
+  the copy does not hold. With nobody connected the planner shows its last
+  copy.
+- **One workspace:** `LINEAR_WORKSPACE` fixes which (required on a deployed
+  planner); locally the first member to connect chooses it. Keys of any other
+  workspace are refused.
+- **One planner instance,** since the keys live in that one server's memory.
+
+*Builder's calls, flagged for review:*
+- a key is checked once, when it is pasted (Linear is asked whose key it is);
+  the paste form is a password field the browser is told not to save, and it
+  posts only over HTTPS, from the planner's own page, with a limit on failed
+  tries per address;
+- the connect page says plainly that whoever runs the server could still
+  capture a key, so people connect only to a planner they trust;
+- Settings → Status shows when the person's key will be forgotten and whose key
+  reads Linear (names, never keys), with "Forget my key and sign out";
+- a key pasted by mistake into a comment, a title or a description is not sent
+  to Linear, one typed into a search is not searched, and a page address that
+  holds one (pasted into the address bar) is opened without it, so the page
+  never shows it back;
+- the worker's scheduled jobs do nothing in this mode (its cron can stay; it
+  exits at once).
+
+*Fix-stage calls (2026-10-23), same entry, flagged for review:*
+- signing out forgets the key in every browser even when that browser's own
+  connection had already ended (idle, time limit, or connected in too many
+  browsers): the planner remembers whose connection it was, without the key,
+  for 12 hours. When it cannot tell (after a restart, or later), the page says
+  the key may still be connected in another browser and how to forget it
+  there, instead of claiming it was forgotten everywhere;
+- a connect that fails after the key was checked (a database error) forgets
+  the key again, so a person told it failed never leaves it behind;
+- a guest who connects first never becomes "the member who chose the
+  workspace": the first member to connect does, reading first and becoming the
+  first watcher;
+- failed connect tries are counted as they start, so many at once cannot slip
+  past the limit, and the overall limit only refuses addresses that failed
+  themselves, so one address cannot lock everyone out after a deploy;
+- Resync's answer no longer carries counts of the whole copy, which could
+  reveal the size of a private team the person is not in (all modes);
+- a deployed planner must use the project's Postgres (`DATABASE_URL`); it
+  warns at boot when it would keep its data on the container's disk.

@@ -49,6 +49,12 @@ const DEAD_GRANT_MESSAGE =
   'Linear no longer accepts your sign-in; sign in again to see the description, labels and comments.';
 const NOT_AS_YOU_MESSAGE =
   'The planner could not read Linear as you right now (its Linear sign-in for you failed); the description, labels and comments could not be loaded.';
+/**
+ * api_key mode: the viewer's own key failed transiently. Another person's
+ * key never stands in (architecture §7 "API-key mode").
+ */
+export const KEY_UNANSWERED_MESSAGE =
+  "Linear did not answer for your key just now; showing the planner's copy only.";
 
 /**
  * True when getting the viewer's gateway failed for a transient reason,
@@ -94,7 +100,19 @@ async function readerFor(
   } catch (error) {
     if (error instanceof EngineAuthError && error.code === 'not_signed_in') {
       log.warn("the viewer's Linear grant is dead; showing the mirror only");
-      throw new NoViewerReader(DEAD_GRANT_MESSAGE);
+      throw new NoViewerReader(
+        rt.config.auth === 'api_key' ? error.message : DEAD_GRANT_MESSAGE
+      );
+    }
+    // With personal keys, nobody else's key ever reads for the viewer.
+    if (rt.config.auth === 'api_key') {
+      log.warn(
+        "cannot read Linear with the viewer's key; showing the mirror only",
+        {
+          error,
+        }
+      );
+      throw new NoViewerReader(KEY_UNANSWERED_MESSAGE);
     }
     if (!isTransientViewerFailure(error)) {
       log.error(
@@ -167,6 +185,17 @@ async function readLive(
       return { extra: null, labels: [], source: null, error: error.message };
     }
     log.warn('live issue read failed; showing the mirror only', { error });
+    const transient =
+      isLinearApiError(error) &&
+      (error.kind === 'network' ||
+        error.kind === 'server' ||
+        error.kind === 'rate_limited');
+    if (rt.config.auth === 'api_key' && transient) {
+      return { extra: null, labels: [], source, error: KEY_UNANSWERED_MESSAGE };
+    }
+    if (error instanceof EngineAuthError) {
+      return { extra: null, labels: [], source, error: error.message };
+    }
     return { extra: null, labels: [], source, error: liveReadError(error) };
   }
 }

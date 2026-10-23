@@ -14,12 +14,15 @@ export const READ_ONLY_MESSAGE =
   'Guests in Linear can look but not change anything here.';
 
 /** What a read-only person is told, per Actor.readOnlyReason. */
-const READ_ONLY_MESSAGES: Record<ReadOnlyReason, string> = {
+export const READ_ONLY_MESSAGES: Readonly<Record<ReadOnlyReason, string>> = {
   guest: READ_ONLY_MESSAGE,
   unknown:
     'The planner has not seen your Linear account yet, so you can look but not change anything until a sync from Linear includes you.',
   not_synced:
     'The first sync from Linear has not landed yet, so changes are paused until it does.',
+  // api_key mode: Linear refused one of this key's writes as out of scope.
+  read_only_key:
+    'Your Linear API key only allows reading, so you can look but not change anything here. Connect a key with Write access to edit.',
 };
 
 /**

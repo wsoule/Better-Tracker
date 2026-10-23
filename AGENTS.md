@@ -27,6 +27,14 @@
   jobs (resync, digest preview); a guest gets 403 `read_only`, no write grant,
   and no edit controls. Every new write path must call it; do not add any other
   permission distinction.
+- `LINEAR_AUTH=api_key` (owner request 2026-10-23, design doc §12): a person's
+  personal Linear API key lives only in the planner's memory
+  (`engine/src/key-vault.ts`) and is read through a getter on every request.
+  Never persist, log, cache, return or put it in a URL; the store refuses
+  credentials in this mode and never rewrites the mirror. Every Linear call uses
+  the acting person's own key; the mirror sync uses a member's reader key that
+  cannot write; `requireWritable` stays the one guard (`read_only_key`). Never
+  add an `instrumentation.ts` that captures headers or bodies.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace; `LINEAR_FIXTURE=showcase` serves the large showcase workspace, made
   for the live demo). Tests never call real Linear or Slack.

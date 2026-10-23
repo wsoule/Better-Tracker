@@ -711,6 +711,13 @@ private teams):
   narrows each project's `teamIds` to the viewer's teams: `visibleSnapshot`
   keeps a shared project's full team list, and the options go to the browser.
 
+- With personal API keys (`LINEAR_AUTH=api_key`, §7.4) the mirror is not the
+  app's view but the **reader** account's (a connected workspace member's), so
+  what that account cannot see is missing for everyone; views stay per viewer as
+  above, and run and audit entries fail closed (`failClosed`: no `everything`
+  shortcut, and an entry about something the mirror does not hold is hidden from
+  members too).
+
 ### 2.14 Issue list (`issue-list.ts`, owner request 2026-10-22)
 
 `buildIssueList({ snapshot, ctx, assessments, allocationPlan, query, viewerId })`
@@ -1331,7 +1338,47 @@ scenario fixture tests pin; the showcase is a second dataset for live demos.
 Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
 98.0.0) and Linear's SDK source; sources in `docs/research.md`.
 
-**GraphQL** (`https://api.linear.app/graphql`, `Authorization: Bearer <token>`)
+**GraphQL** (`https://api.linear.app/graphql`, `Authorization: Bearer <token>`
+for OAuth tokens; `Authorization: <key>`, raw, for a personal API key)
+
+**Personal API keys** (`LINEAR_AUTH=api_key`, §7.4; checked 2026-10-23, sources
+and the unverified points in `docs/research.md` "Personal API keys"):
+
+- F1: a personal key is sent **raw** in `Authorization`, with no `Bearer`
+  (Linear's SDK: `accessToken ? Bearer … : apiKey`). F2: keys start `lin_api_`,
+  OAuth tokens `lin_oauth_`, so `/lin_(api|oauth)_[A-Za-z0-9_-]{16,}/` finds
+  every credential the planner handles (core's `redactLinearSecrets`). F3: the
+  body's length and alphabet are unverified, so the accepted shape is one
+  constant (`LINEAR_API_KEY_SHAPE`, 16–200 URL-safe characters).
+- F4: a key may have full access or chosen permissions (Read, Write, Admin,
+  Create issues, Create comments), may be limited to teams, and admins can stop
+  members creating keys. F5: the API has **no** field for a key's own
+  permissions or teams and **no** mutation to revoke a key. F6: the identity
+  query (`viewer`, `organization`) is the "whose key is this" check. F7: how
+  Linear refuses a Read-only key's write is unverified (most likely type
+  `forbidden`), so read-only detection is a narrow heuristic (§7.4) that fails
+  safe. F8: 2,500 requests/hour and 3,000,000 complexity points/hour per user,
+  shared by all their keys; the reset headers are the same as OAuth's.
+- F9: `Query.rateLimitStatus.identifier` may echo the key: the planner never
+  queries it (tested). F10: webhooks need admin permission and this mode turns
+  them off. F11: Node (undici) and Bun echo an invalid header value in their
+  error. F12: Railway's edge documents `X-Real-IP` as the client IP (not
+  `X-Forwarded-For`), always forwards `https`, turns a plain-HTTP POST into a
+  GET after its body crossed in clear, and logs no bodies. F13: `railway ssh`
+  reaches the container, and Node opens its inspector on `SIGUSR1` unless
+  `--disable-sigusr1`. F14: on a cross-origin redirect, Node and Bun drop
+  `Authorization` but resend the POST body.
+- The client (`client.ts`) takes exactly one of `accessToken` (OAuth, `Bearer`)
+  or `apiKey: () => string | null`, a getter read before every attempt (first
+  try, each retry, after each rate-limit wait); null fails at once as
+  `unauthorized` ("No Linear credential is held for <op>") without a fetch.
+  Before any fetch the header must be printable ASCII with at most the one space
+  after `Bearer` (F11). Every fetch sets `cache: 'no-store'` (never in Next's
+  Data Cache) and `redirect: 'error'` (F14; Linear's API does not redirect).
+  Every string a failure carries — the fetch error and each GraphQL error's
+  `message` and `userPresentableMessage` — is scrubbed of the exact credential
+  sent and then of anything credential-shaped; a raw fetch error is never
+  attached as `cause` (a scrubbed copy keeping its name is).
 
 - Root connections used by `fetchWorkspace`: `users(includeDisabled: true)`
   (deactivated leads must stay visible), `teams`, `workflowStates`,
@@ -1596,6 +1643,34 @@ single-statement write) drops U+0000 from string parameters like `jsonParam`
 does, since Postgres refuses it in text as in jsonb; the engine refuses control
 characters in what people type (§7.1), this is the backstop.
 
+**Credential-free store** (`LINEAR_AUTH=api_key`, §7.4):
+`openStore({ encryptionKey: string | null })` — null opens a store that keeps no
+Linear credential at all. Its `tokenParams` throws the exported
+`StoreCredentialError` ("This store keeps no Linear credentials
+(LINEAR_AUTH=api_key)."; never a value) for any non-empty access or refresh
+token and binds `''`/null otherwise; `tokensFromRow` never decrypts and hands
+back blank tokens whatever the columns hold (an earlier OAuth deploy's
+ciphertexts). A keyed store reads an `''` access token as `''` (a binding row
+written in api_key mode), and the OAuth provider treats such an installation as
+lost access without calling Linear. In api_key mode the `installations` row is
+the **workspace binding** (`appUserId ''`, blank tokens; §7.4); adopting an
+earlier OAuth row of the same org blanks its token. **Nothing is purged at
+boot**: leftover sessions and ciphertexts are never read in this mode, and the
+operator cleanup (revoke the OAuth app, delete `TOKEN_ENCRYPTION_KEY`) is in
+deploy.md.
+
+**Planner-owned text is scrubbed, the mirror is not** (every mode):
+`credentialFree(text)` (core's `redactLinearSecrets`) runs on settings JSON,
+milestone meta (done-means), `sync_state.last_full_sync_error`, run summaries
+and errors, run entries' detail and error, audit before/after, notification
+digests and errors (through `jsonParam(value, { credentialFree: true })` or
+directly), so a key pasted by mistake into "done means…" or echoed into an error
+is stored as `lin_api_[redacted]`. It is never applied to
+`replaceMirror`/`applyMirrorChanges`, sessions, installations or webhook
+records: the mirror is Linear's data (a key in a title is already in Linear),
+and the editors are pre-filled from it, so a rewritten title would be written
+back. `finishJob` stores no text.
+
 Token encryption: AES-256-GCM, key = 32 bytes from `TOKEN_ENCRYPTION_KEY`
 (base64), random 12-byte IV per value, stored as `v1:<iv>:<tag>:<ciphertext>`
 (base64url). Session cookie tokens are 32 random bytes (base64url); only their
@@ -1719,7 +1794,11 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `read_only`, revoking the grant Linear just issued and creating no session.
   `getIssueDetail` reports `readOnly` and
   `canEdit: canWriteLinear && !readOnly`. Nothing a refused call touches is
-  written: not Linear, the mirror, settings, the run log or the audit log.
+  written: not Linear, the mirror, settings, the run log or the audit log. With
+  personal API keys (§7.4) one more reason exists, **`read_only_key`** (Linear
+  refused one of the key's writes as out of its scope): "Your Linear API key
+  only allows reading, so you can look but not change anything here. Connect a
+  key with Write access to edit." (`READ_ONLY_MESSAGES`, exported).
 - **getGraph(workspaceId, scope, viewer?)** (§2.10): a read. The scope is
   checked by core's `resolveGraphScope` against the viewer's narrowed mirror (no
   hand-written checks): a malformed scope or a level the container does not
@@ -1877,7 +1956,25 @@ issue list (additive, §7.3): `ISSUE_BULK_MAX` (100), `ISSUE_BULK_CONCURRENCY`
 (4) and `normalizeIssueBulkPatch`, with the types `IssueListResult`,
 `IssueListOptionsResult`, `IssueBulkResult`, `IssueBulkOutcome` and
 `IssueBulkBefore`. `DONE_MEANS_MAX_LENGTH`, `WEIGHT_MIN` and `WEIGHT_MAX` come
-from `milestone-edits.ts` (was `pm-edits.ts`).
+from `milestone-edits.ts` (was `pm-edits.ts`). API-key mode (additive, §7.4):
+`linearAuthFromEnv`, `isApiKeyEnv`, `apiKeyUnusedEnvVariables`,
+`processFlagProblem`, `createApiKeyEngine` (the api_key engine over an open
+store, for tests), `API_KEY_IDLE_MS`, `API_KEY_MAX_MS`, `KEY_SHAPE_MESSAGE`,
+`KEY_TEXT_MESSAGE`, `KEY_FORGOTTEN_MESSAGE`, `KEY_REJECTED_MESSAGE`,
+`NO_READER_MESSAGE`, `OAUTH_OFF_MESSAGE`, `SCHEDULED_OFF_MESSAGE`,
+`READ_ONLY_MESSAGES`, `isKeyPermissionRefusal` and the types
+`ApiKeyConnectResult`, `KeyConnectionStatus`, `ApiKeyConfig`, `LinearAuthMode`.
+The `Engine` contract gains `connectApiKey(input)`, `getKeyConnection(actor)`
+and `signOut(token, { everyDevice? })`, which now resolves to a `SignOutResult`
+`{ known, keysForgotten }` in every mode (`known`: the token named a session
+row, or in api_key mode a connected key, live, expired or recently ended);
+`CreateEngineFromEnvOptions` gains `migrateOnly` (the worker's `migrate`, §9);
+`EngineAuthError['code']` gains `key_rejected`, `key_cannot_read`,
+`guest_cannot_bind` and `no_reader` (error codes, not permission distinctions);
+`ReadOnlyReason` gains `read_only_key`; `IssueBulkResult.stopped.code` gains
+`read_only`; `EngineConfig` gains `auth` and `apiKey`
+(`{ idleMs, absoluteMs, syncIntervalMs, workspacePin, endpoint, deployed }`,
+null outside api_key mode); `EngineDeps` gains `keys` and `apiKeyGateway`.
 
 `createEngineFromEnv`:
 
@@ -1907,11 +2004,27 @@ from `milestone-edits.ts` (was `pm-edits.ts`).
   `devSignIn` creates sessions with scopes `read,write`. Webhooks are ignored.
   The `LinearProvider` serves `createFixtureGateway` (app actor or the session's
   user).
-- Otherwise: requires `APP_URL`, `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
-  `LINEAR_CLIENT_SECRET`; `DATABASE_URL` or PGlite at `PGLITE_DIR` (default
-  `.data/pglite`); redirect URI `${APP_URL}/api/auth/linear/callback`; Slack
-  channel when `SLACK_BOT_TOKEN` is set, else the outbox. Runs `store.migrate()`
-  before returning.
+- `LINEAR_AUTH=api_key` (§7.4; a config error with `LINEAR_FIXTURE`): requires
+  only `APP_URL` (https when **deployed**: `NODE_ENV=production` on a
+  non-loopback `APP_URL`) and, when deployed, `LINEAR_WORKSPACE`; refuses
+  `--inspect*`, `--debug*`, `--heapsnapshot-near-heap-limit` and
+  `--heapsnapshot-signal` in `process.execArgv` or `NODE_OPTIONS`, and when
+  deployed requires `--disable-sigusr1` (`processFlagProblem`). Logs one warning
+  per variable it does not read (`TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_*`,
+  `LINEAR_WEBHOOK_SECRET`, `SESSION_SECRET`, `SLACK_BOT_TOKEN`, `SESSION_DAYS`:
+  "X is unused when LINEAR_AUTH=api_key") and, when the test-only
+  `LINEAR_API_URL` is set, one error-level line naming its origin. Opens the
+  **credential-free store** (`encryptionKey: null`, even when
+  `TOKEN_ENCRYPTION_KEY` is set), migrates (nothing is purged), and builds the
+  vault, the key provider and the sync scheduler (`createApiKeyEngine`); the
+  channel is the outbox. `engine ready` logs `auth`, `deployed` and `pinned`.
+  Only the planner connects keys; the worker never boots this mode except for
+  `migrate` (§9).
+- Otherwise (OAuth): requires `APP_URL`, `TOKEN_ENCRYPTION_KEY`,
+  `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`; `DATABASE_URL` or PGlite at
+  `PGLITE_DIR` (default `.data/pglite`); redirect URI
+  `${APP_URL}/api/auth/linear/callback`; Slack channel when `SLACK_BOT_TOKEN` is
+  set, else the outbox. Runs `store.migrate()` before returning.
 - Real `LinearProvider`: loads the installation/session tokens, refreshes when
   `expiresAt` is within 5 minutes (under the row lock, re-reading inside the
   lock so only one process refreshes; the new expiry is counted on the
@@ -2219,6 +2332,217 @@ sentence). Linear's `issueBatchUpdate` is not used (§4.1). The web route is
 bulk bar, a drop, a row menu's or key's pick, and Undo (one request per group of
 issues that go back to the same place).
 
+### 7.4 API-key mode (`LINEAR_AUTH=api_key`, owner request 2026-10-23)
+
+The owner's words: "Also update it so I can just give my own api key. Dont save
+it anywhere though make sure it is secure" (design doc §12, 2026-10-23). A third
+way to reach Linear beside OAuth and demo mode, explicit in config
+(`LINEAR_AUTH=api_key`, §10; `EngineConfig.auth` is `demo | oauth | api_key`,
+read without booting by `linearAuthFromEnv(env)`). It needs no OAuth app, no
+`TOKEN_ENCRYPTION_KEY`, no webhook secret and no `SESSION_SECRET`: each person
+pastes their own Linear **personal API key**, which lives only in the planner
+process's memory and is never written to the database, disk, logs, audit,
+caches, payloads, URLs, variables or the browser. OAuth and demo mode are
+unchanged.
+
+**The key vault** (`key-vault.ts`, not exported from the engine index):
+
+- `byHash` (SHA-256 of the cookie token → entry), `byId` (internal id → entry)
+  and a **separate** `keys` map (id → key), so no entry, `VaultSession` or
+  anything handed out ever references the key. Its only reader is a private
+  `liveKey(id)`; `gateway(id)` builds `deps.apiKeyGateway(() => liveKey(id))`,
+  and the linear client reads that getter before **every** attempt (§4.1), so
+  work in flight stops using a key the moment it is forgotten.
+- Limits: `API_KEY_IDLE_MS` (2 h without the person's own request) and
+  `API_KEY_MAX_MS` (12 h after connecting, never extended). Only `use(token)` (a
+  person's own request through `authenticate`) touches `lastUsed`; background
+  syncs, status reads and the getter never do, so nothing keeps an idle key
+  alive. Caps: 200 live entries (`VaultFullError` → `conflict`), 5 per person
+  (the oldest is evicted).
+- Forgetting (`removeByToken`, `forgetPerson`, `remove`, expiry, `clear`)
+  deletes from all three maps; a restart or redeploy loses everything (people
+  paste again). JS cannot wipe a string, so the GC reclaims it later.
+- **Ended records** (fix stage 2026-10-23): an entry that ends on its own (idle
+  or absolute expiry, by `use`, `peek`, `gateway` or a sweep, or evicted by the
+  per-person cap) leaves `cookie hash → { workspaceId, userId, untilMs }` in a
+  fourth map, **no key and no token**, until the end + `API_KEY_MAX_MS` (the
+  last moment another entry of that person can still be alive), at most 2,000
+  (oldest dropped first), swept with the entries and cleared by `clear`. A
+  sign-out, `removeByToken` or `remove` leaves none. `forgetPerson(token)` finds
+  the person through the token's entry (live or expired) or its ended record and
+  returns `{ person, dropped }` (`person` null when the token names nobody), so
+  "sign out everywhere" from a browser whose own connection already ended still
+  forgets that person's other browsers.
+- `markGuest(workspaceId, userId)` marks every entry of a person `guest` (Linear
+  made a connected member a guest): from then on they are no reader and
+  read-only (`guest`).
+- The vault exposes only functions; `VaultSession`s are frozen plain data.
+  `JSON.stringify`, `util.inspect(showHidden, depth ∞)` and `structuredClone` of
+  anything it returns hold no key (tested).
+
+**Connect** (`key-auth.ts`, `Engine.connectApiKey({ apiKey })` →
+`ApiKeyConnectResult = SignInResult & { syncAfter }`): any other mode →
+`invalid` ("Personal API keys are off on this server."). The key is trimmed and
+must match `LINEAR_API_KEY_SHAPE` (core, `lin_api_` + 16–200 URL-safe
+characters; no zod, and the fixed message never includes the input). The one
+validation call is `whoAmI()` (viewer and organization) through
+`deps.apiKeyGateway(() => key)`: `unauthorized` → `key_rejected`, `forbidden` →
+`key_cannot_read`, `rate_limited` → `rate_limited`, transport failures are
+rethrown (the route answers `linear_unreachable`). App users and deactivated
+people → `not_signed_in`. Then, under `rt.serialize('api-key-binding')`:
+
+- **The binding** reuses the `installations` row (§5): `appUserId ''`, blank
+  tokens, `installedByUserId` the first member who connected (or an adopted
+  row's installer). A guest is never written as the installer: a guest who
+  connects first to a pinned planner leaves it `''`, and the next member's
+  connect fills it, so the binder (who reads first and is the default watcher)
+  is always a member. `bindingFor(store, pin)`: with `LINEAR_WORKSPACE` the row
+  whose id or URL key (case-insensitive) is the pin; without it (local runs and
+  tests; it is required when deployed, §10) the oldest row with `appUserId ''`,
+  so a leftover OAuth or demo row never binds by age. A key of another org →
+  `wrong_workspace` (the message never names the bound workspace). Unpinned and
+  unbound, a guest → `guest_cannot_bind` ("A member of the workspace has to
+  connect first…"); a pinned planner lets a guest connect. Adopting a row of the
+  same org (an earlier OAuth install) keeps its `createdAt`, installer and
+  everything keyed by the workspace; an OAuth process left over that store then
+  sees "lost access" (§7.1) and never acts as the app.
+- `vault.add`; when the mirror is missing or does not know the person,
+  `fullSync` runs now (a `no_reader` failure is logged at info), else
+  `syncAfter` is true unless a sync landed in the last 60 s (the route runs it
+  in `after()`). Anything that throws after `vault.add` (reading the mirror is a
+  database round trip) forgets the entry again before the error goes on
+  (`warn 'a connect failed after the key was held; forgot it'`), so a person
+  told the connect failed never leaves a key behind. One log line,
+  `connected a Linear API key` (ids only: never the key, a prefix, a suffix or a
+  fingerprint).
+
+**authenticate / signOut / cleanup** in this mode: `authenticate(token)` →
+`vault.use(token)`, then `mirrorForPerson` (exported from `auth.ts`); a person
+the mirror shows deactivated or as an app user is forgotten; `readOnlyReason` is
+`readOnlyReasonFor(…, installed = true)`, then `guest` when Linear said so at
+connect, then **`read_only_key`** when Linear refused one of the key's writes as
+out of its scope. A member the mirror now shows as a guest is marked
+(`vault.markGuest`) so their key stops reading at once. The `Session` handed out
+has the vault entry's internal id, `createdAt` = connect time, `expiresAt` = the
+absolute limit and tokens
+`{ accessToken: '', refreshToken: null, scopes: ['read','write'] | ['read'] }`.
+`canWriteLinear = !readOnly`; there is no separate write grant, so
+`needs_write_scope` cannot arise. `signOut(token, { everyDevice: true })` (the
+logout route) forgets every entry of that person (`vault.forgetPerson`, found
+through an ended record too) and returns `{ known, keysForgotten }`; without it
+(a reconnect replacing its cookie) only that entry. `known` is false for a token
+the vault no longer knows of (after a restart, past the record's time, or no
+record), and the route then never claims the key was forgotten everywhere
+(§8.1). Nothing is revoked: Linear has no API for it (§4.1), so the key keeps
+working in Linear until its owner revokes it. `cleanup()` sweeps the vault;
+there are no sessions rows or revocations. `startOAuth`, `finishSignIn`,
+`finishInstall` and `devSignIn` → `invalid` ("Linear OAuth is off: this planner
+uses personal API keys.").
+
+**Which key each Linear call uses** (`key-provider.ts`,
+`createApiKeyLinearProvider({ vault, logger, appName, binding })`):
+
+| call site                                                                                          | OAuth                                                     | `api_key`                                                                                                                  |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| a person's edits (issue, bulk, milestone date, project lead, relations, comments) via `forSession` | the person's token                                        | **the person's own key**                                                                                                   |
+| issue page live read (`issue-detail.ts readerFor`)                                                 | the person's token, else the app's on a transient failure | the person's own key only: a failure shows "Linear did not answer for your key just now; showing the planner's copy only." |
+| full sync (`sync.ts`) and the relation re-read after a relation edit, via `forApp`                 | app token                                                 | **the reader key**, behind a gateway whose seven writes throw `read_only` without calling Linear                           |
+| live allocation writes (`allocation-run.ts`)                                                       | app token                                                 | **the run starter's own key**                                                                                              |
+| webhooks                                                                                           | app token                                                 | none: the route answers 404 and `handleWebhook` returns `ignored`                                                          |
+
+- `forSession(session)` needs a live vault entry of that very person (same user
+  and workspace), else `not_signed_in` ("The planner forgot your Linear key (you
+  signed out, were idle, reached the time limit, or the planner restarted).
+  Paste it again.").
+- `forApp(workspaceId)`: not the bound workspace → `not_installed`; the
+  **reader** is
+  `vault.readers(ws, { preferUserId: binding.installedByUserId })[0]` —
+  workspace members only (never a guest), the binder first, then the earliest
+  connected, ties by id; none → **`no_reader`** ("No workspace member has a
+  Linear key connected right now, so the planner cannot read Linear. It shows
+  its last copy.", 503 on the web, never "signed out").
+- **The reader is checked against what it reads**: the gateway `forApp` hands
+  out sends every call to the current reader, and a full read (`fetchWorkspace`)
+  whose users list the reader as a guest throws that read away, marks the person
+  (`markGuest`) and reads again with the next reader (as deactivated or an app
+  user: their key is forgotten, as `authenticate` does), at most
+  `MAX_READER_TRIES` (3) full reads; with no reader left it fails `no_reader`
+  and the mirror is not replaced. So a member Linear makes a guest while
+  connected never shrinks the mirror to a guest's teams. A reader missing from
+  the users list is let through (the users read includes everyone, disabled
+  people too).
+- Every gateway method is guarded: on `unauthorized`, a key the vault no longer
+  holds was forgotten mid-call (`not_signed_in` for a person, `no_reader` for
+  the reader); a key it still holds was revoked in Linear and is forgotten
+  (`warn 'Linear refused a connected API key; forgot it'`), so the person's next
+  request is signed out. A reader failure never signs anyone out. A person's
+  write refused with `isKeyPermissionRefusal(error)` (kind `forbidden` whose
+  first GraphQL error speaks of a scope, an API key or read-only; generic
+  "permission to perform" deliberately not, since per-issue refusals use it)
+  marks the entry `writeRefused` and throws `read_only` with the read-only-key
+  sentence; from then on `requireWritable` refuses every change before Linear is
+  called. Linear has no API that reports a key's permissions (§4.1), so this is
+  how a read-only key is found.
+
+**The mirror is the reader account's view.** A private team the reader is not
+in, or anything outside a team-restricted reader key, is missing for everyone
+until a wider key reads (Settings → Status names whose key reads). Views stay
+per viewer (§2.13), and run and audit entries are filtered **failing closed**:
+`visibleRunEntries` / `visibleAuditEntries` get `{ failClosed: true }`, so there
+is no `everything` shortcut and an entry about something the mirror does not
+hold is hidden from everyone (settings entries stay visible). With no member
+connected the mirror stays as last synced.
+
+**Background sync** (`key-sync.ts`, `createKeySyncScheduler`): one unref'd
+60-second timer, started when the vault gets its first entry and stopped when it
+empties (and on `close()`). Each tick sweeps expired keys, then every
+`SYNC_INTERVAL_MINUTES` (default 15) runs `fullSync` while a member is connected
+(single-flight; a failure is logged and recorded on `sync_state`). Other syncs:
+on connect (above), on Resync (`POST /api/sync`), and on a first page with no
+mirror. A full sync's error is shared with every caller that joined it, so
+`runFullSync` rethrows it through `withoutCredentials` (`runtime.ts`): a copy
+with credential-shaped text redacted, same class, code and kind.
+
+**Runs** (`allocation-run.ts`): only a signed-in person starts one
+(`actor: null` → `not_signed_in`); `runDaily` and a live `runWarnings` →
+`invalid` ("Scheduled runs are off when the planner uses personal API keys…");
+the digest preview still works (it reads only the mirror). A person's run plans
+over **their own view** (`loadWorkspace(…, { viewer: actor })`), dry and live,
+and its live writes (the same assignee + state and one comment as ever) go out
+with **their key**, so Linear credits them. A re-check that finds nothing under
+their key is `failed` with "Linear did not return this issue for your key: it
+was deleted, or your key cannot see it." (not `stale/not_found`). An
+`EngineAuthError` from the gateway (forgotten, revoked, read-only) stops the
+live loop and finishes the run `failed` with that sentence. Bulk edits stop the
+same way with `stopped.code === 'read_only'` (the rest `not_attempted`: "Not
+attempted: your Linear API key only allows reading."; nothing changed → thrown).
+
+**Status** (`Engine.getKeyConnection(actor)` → `KeyConnectionStatus | null`,
+null outside this mode): `{ connectedAt, expiresAt, idleMinutes, reader }`, the
+reader as `{ userId, userName }` or null. It holds no key or token by
+construction.
+
+**Key-shaped text** (security S14): in this mode `addComment` refuses a body
+holding a credential-shaped run, and `updateIssue` a title or description that
+**introduces** one (`introducesLinearCredential(current, next)`: an existing
+description that already quotes one can still be edited), with `invalid` ("That
+looks like a Linear API key; it was not sent.") before Linear is called.
+Planner-owned text is stored redacted instead (§5).
+
+**Other touch points:** `listWorkspaceIds()` returns only the binding,
+`listRevokedWorkspaceIds()` `[]`; `close()` stops the scheduler, clears the
+vault, then closes the store; `requireInstallation` without a row says the
+planner "serves no Linear workspace yet: a workspace member connects their API
+key first."
+
+**Limits** (documented, not enforced): one planner instance (the vault is per
+process; on Railway one replica, App Sleeping off); every deploy forgets every
+key; a deployed planner needs `DATABASE_URL` (PGlite on the container's disk
+loses the settings, weights, "done means…" and the audit log on every deploy;
+boot warns when `deployed` and `DATABASE_URL` is unset). Whoever can deploy,
+change variables or open a shell in the container could still capture keys (§8
+"Security"); the connect page and deploy.md say so.
+
 ## 8. Web app (apps/planner)
 
 One reference: **layout, interaction and look from Gr8r Studio
@@ -2260,6 +2584,7 @@ is a reference only; nothing is imported from it.
 | `GET /api/auth/linear/callback`  | —                 | finishes OAuth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `POST /api/auth/logout`          | —                 | ends session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `POST /api/auth/demo`            | fixture mode only | demo sign-in                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `POST /api/auth/key`             | api_key mode only | connect with a personal Linear API key (§7.4): the connect form's urlencoded `apiKey` and optional `returnTo` → 303 to `returnTo` with the session cookie, or 303 to `/?auth_error=<code>`; 404 in other modes (see "API-key mode" below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `POST /api/webhooks/linear`      | Linear            | verify, ack 200, process in `after()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `PATCH /api/milestones/[id]`     | not a guest       | `{ targetDate?, weight?, doneMeans? }`; `targetDate` needs Linear write access                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `PATCH /api/projects/[id]`       | write access      | `{ leadId }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -2275,7 +2600,7 @@ is a reference only; nothing is imported from it.
 | `POST /api/issues/[id]/blockers` | write access      | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `DELETE /api/relations/[id]`     | write access      | removes a blocks relation (no body) → 204                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `POST /api/runs`                 | not a guest       | `{ mode: 'dry_run' \| 'live' }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `POST /api/sync`                 | not a guest       | full resync; 429 `resync_cooldown` with `Retry-After` within 60 s of the workspace's last web resync                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `POST /api/sync`                 | not a guest       | full resync, answering `{ sync: { workspaceId, ok, version, durationMs, error } }` (no counts); 429 `resync_cooldown` with `Retry-After` within 60 s of the workspace's last web resync                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `POST /api/warnings/preview`     | not a guest       | digests without sending                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `PATCH /api/settings`            | not a guest       | settings patch (audited)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | `GET /api/health`                | —                 | `{ ok, db }` for Railway healthchecks                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -2313,10 +2638,102 @@ Content-Security-Policy (`default-src 'self'`, `object-src 'none'`,
 `'unsafe-inline'`, because Next streams the server-component payload as inline
 scripts, the layouts inline the pre-paint theme and sidebar scripts and React
 positions with style attributes; a nonce would need a proxy and dynamic
-rendering of every page; development adds `'unsafe-eval'`),
+rendering of every page, which only API-key mode does, below; development adds
+`'unsafe-eval'`),
 `Strict-Transport-Security: max-age=31536000; includeSubDomains` (ignored by
 browsers over plain HTTP), `X-Frame-Options: DENY`, `nosniff`, a strict-origin
 referrer policy and a Permissions-Policy.
+
+**API-key mode** (`LINEAR_AUTH=api_key`, owner request 2026-10-23, §7.4;
+binding):
+
+- `/` signed out shows the **connect form** (§8.4) instead of "Sign in with
+  Linear"; the OAuth routes (`/api/auth/linear`, its callback) redirect to `/`
+  and `POST /api/auth/demo` is off as in real mode. `POST /api/webhooks/linear`
+  answers a bare 404 before reading the body. `POST /api/auth/logout` calls
+  `signOut(token, { everyDevice: true })` (every key of that person is
+  forgotten, on every device, even when this browser's own connection already
+  ended, §7.4 "Ended records") and clears both cookie names. It lands on
+  `/?signed_out=1` ("Signed out", muted: the key was forgotten in every browser
+  and still works in Linear until it is revoked there) only when the result is
+  `known`; with no cookie, or one the vault no longer knows of, it lands on
+  `/?signed_out=ended` ("Already disconnected", warning: this browser's
+  connection had already ended, so the planner could not tell whose key to
+  forget; it may still be connected in another browser; paste it again and sign
+  out to forget it everywhere). A browser that still sends a cookie the vault no
+  longer knows (idle, time limit, too many browsers, restart) sees "CONNECTION
+  ENDED" on `/`.
+- `POST /api/auth/key` (`lib/api-key-connect.ts handleConnect`, a route handler
+  on purpose: Next logs Server Function arguments in development) checks, in
+  this order: (1) api_key mode, else 404; (2) with a test endpoint
+  (`LINEAR_API_URL`) only loopback hosts, else a bare 404; (3) the CSRF guard
+  (`rejectCrossOrigin`, as every mutating route); (4) on an https `APP_URL`, an
+  `X-Forwarded-Proto` that is not `https` → `insecure_transport` (Railway turns
+  a plain-HTTP POST into a GET, F12, so this is a backstop); (5)
+  `Content-Type: application/x-www-form-urlencoded`, else 415; (6) the body, at
+  most `CONNECT_MAX_BYTES` (4096), never logged; (7) the rate limits; (8) the
+  key's shape, without the engine; (9) `engine.connectApiKey`; (10) the
+  browser's previous session (if any) is signed out, the post-connect sync goes
+  to `after()`, and the answer is a 303 to the sanitized `returnTo` with the
+  session cookie. Failures are 303s to `/?auth_error=<code>` (`key_shape`,
+  `key_rejected`, `key_cannot_read`, `key_wrong_workspace`, `guest_cannot_bind`,
+  `not_signed_in`, `connect_rate_limited` with `Retry-After`,
+  `insecure_transport`, `key_capacity`, `linear_unreachable`,
+  `linear_rate_limited`, `invalid_request`, `internal`), each with one fixed
+  sentence (`lib/adapters/landing.ts`); no answer, header or URL ever carries
+  the key.
+- **Rate limits** (`lib/connect-limit.ts`, in memory): per client IP 10 failures
+  per 10 minutes (every failure counts), keyed on Railway's **`X-Real-IP`**
+  (never `X-Forwarded-For`, which a client can set; requests without a usable IP
+  share one bucket); globally 60 failures per 10 minutes counting only failures
+  that reached Linear. **A try is counted when it begins** (`limiter.begin`,
+  synchronously after the body is read, before anything is awaited), so
+  concurrent posts cannot all pass while Linear answers: at most 10 tries per IP
+  are ever in flight or failed in the window. `finish(outcome)` keeps the count
+  for a failure that counts and takes it back for a success or an outcome that
+  does not (`linear_unreachable`, `linear_rate_limited`, `key_capacity`,
+  `not_signed_in`, `internal`). **The global window refuses only a client that
+  failed itself in the window**: a client with no failure of its own always gets
+  its try (its failure then counts), so one source filling the window can never
+  lock out everyone re-pasting their key after a redeploy (fix stage
+  2026-10-23). Successes count toward neither; the per-IP map is LRU-capped at
+  10,000.
+- **The session cookie**: `__Host-mp_session` on an https `APP_URL` (`Secure`,
+  `Path=/`, no `Domain`, so a sibling subdomain cannot plant one; a plain
+  `mp_session` is then ignored) and `mp_session` on http, both `HttpOnly`,
+  `SameSite=Lax`, and with **no `Max-Age` or `Expires`** (a browser-session
+  cookie; the vault's limits end the session). The token is the vault's opaque
+  random token; only its SHA-256 is kept.
+- **No key in a page URL** (`proxy.ts`, api_key mode only; verify stage
+  2026-10-23): Next echoes the request URL (path and query) in every rendered
+  page's RSC payload, so a key pasted into the address bar or a link would come
+  back in the page whatever the page does with it. Before anything renders, a
+  page request whose path or query (raw or decoded once) holds a
+  credential-shaped run gets a **303** to the same path without the query
+  parameters that hold one, or to `/` when the path does (`lib/key-text.ts`
+  `urlWithoutKeys`; a `returnTo` holding one is dropped too). The host's HTTP
+  log may still record the URL the browser sent; the search box and palette
+  refusals below keep the planner from ever producing one.
+- **Nonce CSP** (`proxy.ts`, Next 16's Proxy on the Node runtime, read at
+  request time so one build serves every mode): in api_key mode only, every page
+  (not `/api`, static assets or prefetches) gets a fresh 16-byte nonce and
+  `contentSecurityPolicy({ nonce })` (`lib/security-headers.ts`):
+  `script-src 'self' 'nonce-…' 'strict-dynamic'`, `form-action 'self'`,
+  `worker-src 'none'`, `upgrade-insecure-requests` on https, the rest as above.
+  The proxy sets it on the forwarded request (Next reads the nonce there for its
+  own scripts) and the response; the three layouts with inline scripts read
+  `x-nonce` through `headers()` and put it on them. So an injected inline script
+  cannot draw a fake connect form. OAuth and demo responses keep the static
+  policy. `next.config.ts` sets `experimental.serverComponentsHmrCache: false`,
+  so development never caches a fetch that carried a key.
+- **No request capture**: the planner has no `instrumentation.ts` or
+  `middleware.ts`, and none may be added that captures headers or bodies (a
+  static test fails on one). `deploy/Dockerfile` runs the planner with
+  `NODE_OPTIONS=--disable-sigusr1` and `ulimit -c 0` (F13), which the engine
+  checks when deployed (§7.1).
+- `lib/http.ts` maps the engine's `no_reader` to **503** (the page shows the
+  last copy) and, in this mode, a missing session to 401 "Connect your Linear
+  API key first."
 
 Auth and frame details (decided while building `apps/planner`; binding):
 
@@ -2429,7 +2846,9 @@ binding):
   anyone signed in may do; the switch is a `settings.update` audit entry). Only
   the web route is gated; the worker's `allocate --live` is an operator command.
   Answers: `/api/runs` 201 `{ run }` (the finished run; the run takes as long as
-  its sync), `/api/sync` 200 `{ sync }` (a `SyncResult`, `ok: false` carries the
+  its sync), `/api/sync` 200 `{ sync }` (a `SyncResult` without its `counts`:
+  they are of the whole mirror, which may hold private teams the caller cannot
+  see, §2.13, so the route drops them in every mode; `ok: false` carries the
   error), `/api/warnings/preview` 200 `{ preview }` (the digests mapped for
   display with app-relative `/timeline?…` links; nothing recorded or sent),
   `/api/settings` 200 `{ settings }`. A partial `tuning` is passed through; the
@@ -4341,6 +4760,83 @@ links and follow-ups, new or unread, progress and the timeline's today.
   Undeliverable tinted red (error text red). Empty logs are Gr8r's centred empty
   state with an icon.
 
+- **With personal API keys** (`LINEAR_AUTH=api_key`, owner request 2026-10-23,
+  §7.4):
+  - **`/` (the connect page)**: Gr8r's sign-in card, as on the OAuth landing
+    (440px wide, centred on the page background): the headline "Your week, from
+    Linear." with "Connect with a personal API key from Linear." under it, a
+    paragraph in quiet running copy saying where to create a key, that the
+    planner asks Linear whose it is, keeps it only in this server's memory, uses
+    it for what the person does and (for members) to refresh its copy every
+    `SYNC_INTERVAL_MINUTES`, never saves, logs or sends it back, and forgets it
+    on sign-out, after 2 h idle, after 12 h or on restart; a trust line in
+    `--text`, medium ("Whoever runs this server could still capture a key, so
+    connect only to a planner you trust."). The form is a plain server-rendered
+    `<form method="post" action="/api/auth/key">` (a Server Component: no React
+    state ever holds the key) with a sentence-case "Linear API key" label and a
+    password input (the shared `.input`: a `--control-border` edge, 36px tall,
+    the field focus ring, and the red refused edge, `aria-invalid`, when the
+    last connect refused the key itself, `isKeyRefusal`: its shape or Linear's
+    answer; `autocomplete="off"`, no autocapitalize/autocorrect/spellcheck, the
+    password managers' ignore attributes, `maxLength` 256, never a `value`), a
+    quiet help line (starts with `lin_api_`; one key just for this, named
+    "Milestone Planner", Read and Write on all teams, never Admin; a Read-only
+    key makes the planner read-only; revoke it when done; choose Never if the
+    browser offers to save it) and the one primary button, Connect, full width.
+    At the top of the card, notices coloured through their tone (`data-tone`),
+    each with a sentence-case lead-in: a red tinted "Could not connect" alert
+    with the failure's sentence, a neutral bordered "Signed out" note after
+    sign-out (`?signed_out=1`), an amber tinted "Already disconnected" note
+    after a sign-out that could not tell whose key it was (`?signed_out=ended`:
+    the key may still be connected in another browser; paste it again, then sign
+    out), or a neutral "Connection ended" note. "What it does" below keeps the
+    feature cards, three entries reworded for this mode (`landingFeatures`): the
+    timeline's date drag "as themselves", allocation "when someone starts it,
+    over what they can see, written as that person in Linear", and warnings
+    "Preview only". There is no demo picker.
+  - **Settings → Status**: the section's sentence reads "Your key and when it is
+    forgotten, whose key reads Linear for the planner and the last sync, and
+    today's digest preview." (`sectionDescription`), and three rows replace the
+    install rows: "Your key" ("Connected 3:39 PM · forgotten by 3:39 AM
+    tomorrow, or after 2 h idle", clock times in the workspace's timezone,
+    "tomorrow" when the limit falls on the next day; "Held in the planner's
+    memory only; never saved"; green, amber "Not connected" when the vault
+    forgot it), "Mirror read with" (<name>'s key, the refresh interval and the
+    last sync; amber "Nobody's" with no member connected; red with the error
+    when the last sync failed) and "Scheduled jobs" (grey Off: "Nothing is
+    stored that could read Linear. Runs happen when someone starts one; no
+    digests are sent."). Below them "Forget my key and sign out", a secondary
+    button with the sign-out icon in a row of its own (a plain form posting to
+    `/api/auth/logout`, offered to read-only people too). Rows name people,
+    never a key.
+  - **Settings → Modes**: the allocation consequence says live runs write with
+    the starter's own key and nothing runs on a schedule; the warnings row reads
+    "Digests: off with personal API keys", its value a quiet "Off" where the
+    switch would be. **Watchers** and **Schedule** each carry one neutral
+    bordered "Personal API keys" notice ("With personal API keys no digests are
+    sent: watchers see warnings only in the preview." / "No scheduled runs with
+    personal API keys (DAILY_RUN_AT does nothing).").
+  - **Setup**: the installed layout's panel under a "Personal API keys" title
+    with a quiet "Memory only" chip: the bound workspace and its URL key, then
+    Go home beside "This planner uses personal API keys: there is nothing to
+    install."
+  - **Runs**: in the header under the run controls and their note, "Runs plan
+    over what you can see. Live runs write with your Linear key: assignments and
+    their comments appear in Linear as you."; the empty log says runs appear
+    "when someone starts one with Preview (dry run); nothing runs on a schedule"
+  - **Read-only and error copy**: `read_only_key` shows "Your Linear API key
+    only allows reading…"; `not_synced` says the planner reads Linear with a
+    workspace member's key and to reload once one connects, and the error page's
+    `not_synced` block reads "Waiting for a workspace member's key."
+
+  - **Key-shaped input** (security S14): the issue list's search and the
+    relation picker's search never run a query that looks like a key (the Issues
+    page shows a red "Not searched" notice, and a page URL that holds one is
+    redirected without it by `proxy.ts` before rendering, with
+    `parseIssueListParams` dropping such a `q` as a second layer), the command
+    palette shows no matches with one alert sentence (`refuseQuery`), and the
+    comment and edit forms are refused by the engine (§7.4).
+
 Fixture mode shows a permanent demo strip under the topbar (`DemoNotice`, the
 shell's full-bleed banner: an info icon in the accent, "Demo data" and one
 sentence saying nothing reaches Linear, shortened below 1180px so it stays one
@@ -4581,31 +5077,58 @@ Worker decisions made while building it (binding):
   one human summary line on stdout besides the JSON logs.
 - Demo mode logs a warning that `DATABASE_URL` is ignored and, without
   `PGLITE_DIR`, that nothing (the daily claim included) survives the process.
+- **`LINEAR_AUTH=api_key`** (§7.4): keys live only in the planner's memory, so
+  the worker has nothing that could read Linear. After parsing the arguments
+  (usage errors still exit 2) and **before** loading its config or booting (the
+  store is not even opened), `run.ts` asks `linearAuthFromEnv` and
+  `apiKeyModeOutcome(command)` decides: `tick` and `serve` print "api-key mode:
+  no scheduled sync, allocation or digests (keys live only in the planner's
+  memory)" and exit 0, so a cron left in place stays green; `sync`, `daily`,
+  `allocate` and `warn` log and print "<command>: off when LINEAR_AUTH=api_key:
+  keys live only in the planner's memory; start a run or a resync from the
+  planner" and exit 1; `migrate` boots and migrates as usual, with
+  `createEngineFromEnv(env, { migrateOnly: true })`: it never handles a key, so
+  the deployed-only checks that guard keys (the `LINEAR_WORKSPACE` pin, an https
+  `APP_URL`, the process flags) are skipped for it and the worker needs no pin.
+  `serve` now exits at once, so a long-running worker service left from OAuth
+  mode is deleted or set to restart Never (deploy.md §7). The planner process
+  syncs instead (§7.4 "Background sync").
 
 ## 10. Configuration
 
-| env                                         | used by         | meaning                                                           |
-| ------------------------------------------- | --------------- | ----------------------------------------------------------------- |
-| `APP_URL`                                   | planner, worker | public base URL                                                   |
-| `APP_NAME`                                  | all             | display name (default `Milestone Planner`)                        |
-| `DATABASE_URL`                              | all             | Postgres; unset → PGlite at `PGLITE_DIR` (default `.data/pglite`) |
-| `TOKEN_ENCRYPTION_KEY`                      | all             | 32 random bytes, base64                                           |
-| `SESSION_SECRET`                            | planner         | ≥ 32 chars, signs the OAuth cookie                                |
-| `LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET` | planner, worker | OAuth app                                                         |
-| `LINEAR_WEBHOOK_SECRET`                     | planner         | webhook signing secret                                            |
-| `SLACK_BOT_TOKEN`                           | worker, planner | optional; without it digests stay in the outbox                   |
-| `DEFAULT_TIMEZONE`                          | all             | IANA zone for new workspaces (default `UTC`)                      |
-| `WATCHER_EMAILS`                            | engine          | comma-separated emails of the first watchers (else the installer) |
-| `LINEAR_FIXTURE`                            | planner, worker | `1` = demo mode, no Linear needed; `showcase` = the big demo      |
-| `DAILY_RUN_AT`                              | worker          | `HH:MM` in each workspace's timezone (default `08:00`)            |
-| `TICK_TIMEOUT_MINUTES`                      | worker          | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)    |
-| `SYNC_INTERVAL_MINUTES`                     | worker serve    | minutes between ticks (default 15)                                |
-| `PGLITE_DIR`                                | all             | PGlite directory when `DATABASE_URL` is unset (local dev only)    |
-| `SESSION_DAYS`                              | engine          | session lifetime in days (default 30)                             |
-| `LOG_LEVEL`                                 | all             | debug/info/warn/error                                             |
+| env                                         | used by                               | meaning                                                                                                                                                                                                                                                     |
+| ------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_URL`                                   | planner, worker                       | public base URL                                                                                                                                                                                                                                             |
+| `APP_NAME`                                  | all                                   | display name (default `Milestone Planner`)                                                                                                                                                                                                                  |
+| `DATABASE_URL`                              | all                                   | Postgres; unset → PGlite at `PGLITE_DIR` (default `.data/pglite`)                                                                                                                                                                                           |
+| `LINEAR_AUTH`                               | planner, worker                       | how the planner reaches Linear: `oauth` (default) or `api_key` (personal API keys held in the planner's memory, §7.4); a config error together with `LINEAR_FIXTURE`; set it as one shared variable for web and worker                                      |
+| `LINEAR_WORKSPACE`                          | planner (api_key)                     | the Linear workspace URL key (or organization id) the planner serves; **required when deployed** in api_key mode (`NODE_ENV=production`, non-loopback `APP_URL`); unset locally, the first member to connect binds; the worker's `migrate` does not need it |
+| `LINEAR_API_URL`                            | planner (api_key)                     | **test-only**: the GraphQL endpoint of a local fake Linear; accepted only with a loopback `APP_URL` and a `127.0.0.1` or `[::1]` URL without user info; logged at error level when set; the connect route then answers only loopback hosts                  |
+| `NODE_OPTIONS`                              | planner (api_key)                     | must include `--disable-sigusr1` when deployed in api_key mode (`deploy/Dockerfile` sets it); `--inspect*`, `--debug*` and the heap-snapshot flags are refused in api_key mode                                                                              |
+| `TOKEN_ENCRYPTION_KEY`                      | all                                   | oauth mode only: 32 random bytes, base64 (unused and warned about in api_key mode)                                                                                                                                                                          |
+| `SESSION_SECRET`                            | planner                               | oauth mode only: ≥ 32 chars, signs the OAuth cookie                                                                                                                                                                                                         |
+| `LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET` | planner, worker                       | oauth mode only: OAuth app                                                                                                                                                                                                                                  |
+| `LINEAR_WEBHOOK_SECRET`                     | planner                               | oauth mode only: webhook signing secret                                                                                                                                                                                                                     |
+| `SLACK_BOT_TOKEN`                           | worker, planner                       | optional; without it digests stay in the outbox                                                                                                                                                                                                             |
+| `DEFAULT_TIMEZONE`                          | all                                   | IANA zone for new workspaces (default `UTC`)                                                                                                                                                                                                                |
+| `WATCHER_EMAILS`                            | engine                                | comma-separated emails of the first watchers (else the installer)                                                                                                                                                                                           |
+| `LINEAR_FIXTURE`                            | planner, worker                       | `1` = demo mode, no Linear needed; `showcase` = the big demo                                                                                                                                                                                                |
+| `DAILY_RUN_AT`                              | worker                                | `HH:MM` in each workspace's timezone (default `08:00`)                                                                                                                                                                                                      |
+| `TICK_TIMEOUT_MINUTES`                      | worker                                | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)                                                                                                                                                                                              |
+| `SYNC_INTERVAL_MINUTES`                     | worker serve; planner in api_key mode | minutes between ticks (default 15); in api_key mode, minutes between the planner's background syncs while a member is connected (1–1440, default 15)                                                                                                        |
+| `PGLITE_DIR`                                | all                                   | PGlite directory when `DATABASE_URL` is unset (local dev only; a deployed api_key planner without `DATABASE_URL` logs a warning at boot)                                                                                                                    |
+| `SESSION_DAYS`                              | engine                                | session lifetime in days (default 30); unused in api_key mode (2 h idle, 12 h at most)                                                                                                                                                                      |
+| `LOG_LEVEL`                                 | all                                   | debug/info/warn/error                                                                                                                                                                                                                                       |
 
 `packages/engine` exports `loadEngineConfigFromEnv(env)` and
 `createEngineFromEnv(env)` so the planner and worker build identical engines.
+
+In api_key mode `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
+`LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET`, `SESSION_SECRET`,
+`SLACK_BOT_TOKEN` and `SESSION_DAYS` are not read; boot logs one warning per
+variable that is set ("X is unused when LINEAR_AUTH=api_key"). `DAILY_RUN_AT`
+and `TICK_TIMEOUT_MINUTES` do nothing (the worker schedules nothing, §9);
+`WATCHER_EMAILS` still seeds who the digest preview would warn.
 
 `PM_EMAILS` is retired (owner decision 2026-10-22: there is no PM role). It is
 not read; a deploy that still sets it boots normally and logs one warning
@@ -4816,6 +5339,108 @@ not read; a deploy that still sets it boots normally and logs one warning
   the palette offers no run or resync, and that a direct PATCH or POST is
   refused 403. It needs Playwright's Chromium (`playwright install chromium`) or
   `PLAYWRIGHT_CHROMIUM_PATH` / `PLAYWRIGHT_BROWSERS_PATH` pointing at one.
+- **personal API keys** (`LINEAR_AUTH=api_key`, §7.4; every key in tests is an
+  obvious fake, `lin_api_TESTKEY…`, and no test calls real Linear):
+  - core `test/secrets.test.ts` (the shape accepts every test key and refuses
+    the rest; redaction in text, JSON, a URL query and a header line, OAuth
+    tokens too, idempotent; `introducesLinearCredential` counts only new runs);
+    logger (every string value, `msg`, an Error's name, message, stack and cause
+    are redacted; `key`/`apiKey`/`credential` fields hidden).
+  - linear: the raw `Authorization` header, exactly one credential option, the
+    getter read before every attempt (a key forgotten mid-request sends no
+    further request, `test/api-key-gateway.test.ts`), a header that cannot be
+    sent refused before fetch, `cache: 'no-store'` and `redirect: 'error'`,
+    every echoed credential scrubbed from errors and causes, and no query
+    selects `rateLimitStatus` (F9).
+  - store `test/credential-free.test.ts` (PGlite, and Postgres with
+    `TEST_DATABASE_URL`): blank tokens round-trip and any token is refused
+    without its value; adopting an OAuth row blanks it; a keyed store reads an
+    `''` token; planner-owned and error text is stored redacted; the mirror
+    round-trips byte for byte, credential-shaped text included.
+  - engine: `test/api-key-config.test.ts` (the mode matrix, only `APP_URL`
+    locally, deployed needs https, the pin and `--disable-sigusr1`, refused
+    inspector and heap-snapshot flags, `LINEAR_API_URL` loopback-only, unused
+    variables, `migrateOnly` skipping only the key checks), `test/boot.test.ts`
+    (a deployed planner on PGlite warns), `test/key-vault.test.ts` (fake clock:
+    idle and absolute expiry, only `use` touches `lastUsed`, the getter turning
+    null, caps, reader order, a stale browser's `forgetPerson` finding its
+    person after idle, absolute expiry, a sweep or eviction, ended records
+    ending with their time, their cap and `clear`, `markGuest`, nothing returned
+    serialises a key), `test/key-sync.test.ts` (fake timers: starts and stops
+    with the vault, one sync per interval while a member is connected, never
+    with only guests, never keeps an idle key alive, a failure logged) and
+    `test/api-key-mode.test.ts` over a fake key gateway, PGlite and a private
+    Security team only Chloe is in: binding by the first member, each person
+    writing with their own key and the binder reading, another org and a guest
+    refused, a pinned planner a guest connects to first (the first member
+    becomes the binder, the reader and the watcher, and reads again after
+    reconnecting), a connect failing after the key was held (forgotten, no later
+    sync uses it), a leftover demo row never binding, adopting an OAuth row
+    (OAuth then sees lost access), revoked keys forgotten mid-session, a
+    read-only key turned read-only after one refused write (a per-issue refusal
+    stays per-issue), a bulk edit stopping with `read_only`, live runs by Chloe
+    and Ben with their own keys and their own views, nothing unattended, the
+    issue page reading with the viewer, expiry, restart and sign-out, signing
+    out everywhere from a browser whose own connection ended (idle, evicted, the
+    time limit) and from an unknown token (`known: false`), the reader gateway
+    never writing, a guest alone (`no_reader`), a reader Linear makes a guest
+    (the read is thrown away and the next member reads; alone, nothing replaces
+    the mirror) and a member the mirror shows as a guest, run and audit entries
+    failing closed when the reader changes, key-shaped text refused unless
+    already there, the status holding no key, and a scan of every table, log
+    line and returned value for the test keys after each case.
+  - worker: `apiKeyModeOutcome` per command, and through `run.ts` with
+    `LINEAR_AUTH=api_key`: `tick` and `serve` print the note and exit 0, `sync`,
+    `daily`, `allocate` and `warn` exit 1 with the sentence, neither boots, and
+    `migrate` boots, over the real engine too with a deployed environment and no
+    workspace pin.
+  - planner: `test/api-key-connect.test.ts` (`handleConnect`'s order: another
+    mode 404 with the body unread, loopback-only with a test endpoint, the CSRF
+    guard, `Origin: null` and non-form bodies, plain HTTP behind https, a 4 KiB
+    body, every engine failure's code, both cookie names and their attributes,
+    the per-IP and global windows keyed on `X-Real-IP`, 100 concurrent posts
+    with Linear held: 10 reach it, a person elsewhere still connects; a clean
+    client served after others filled the global window; a try that does not
+    count taken back), `test/api-key-auth-routes.test.ts` (logout on every
+    device, an unknown or missing cookie landing on `signed_out=ended`, the
+    OAuth routes redirecting), `test/workspace-routes.test.ts` (the resync
+    answer carries no counts), `test/http-api-key.test.ts` (`no_reader` 503, the
+    401 sentence), `test/proxy.test.ts` and `test/security-headers.test.ts` (the
+    nonce policy only in api_key mode, a fresh nonce per page, API routes and
+    prefetches skipped), `test/api-key-render.test.tsx` (the connect form, the
+    notices, the three Status rows, the read-only-key notice, the key-refusing
+    inputs), `test/api-key-routes-demo.test.ts` (the real route files over a
+    real api_key engine whose gateway talks to the e2e's fake Linear in-process:
+    an edit with the member's key, a replayed cookie after sign-out 401, a
+    read-only key, a guest alone 503 `no_reader`) and
+    `test/no-key-leak-static.test.ts` (no `'use server'` module mentions
+    `apiKey`, no code assigns `process.env`, the connect form is a Server
+    Component, every inline script carries the nonce, the image's
+    `--disable-sigusr1` and `ulimit -c 0`, no `instrumentation.ts` or
+    `middleware.ts`).
+  - browser (`e2e/api-key.e2e.ts`, `playwright.api-key.config.ts`, moon
+    `planner:test-e2e-api-key`, a CI target): the production build in api_key
+    mode against a local fake Linear GraphQL server
+    (`e2e/fake-linear-server.ts`, refuses to start without `FAKE_LINEAR=1` or in
+    production; on `E2E_PORT + 1`; a fictional org with members, a guest, a
+    private team and keys that are member, second, read-only, revoked, other org
+    and guest), with no traces, videos or screenshots kept: the connect form (a
+    password field, framing refused, every script nonced), a bad shape, a
+    revoked key, a member connecting (My week, the session cookie, Settings →
+    Status), an edit that reaches the fake with that member's key, a key pasted
+    into the address bar dropped by the proxy before the page renders, another
+    workspace refused without naming this one, a read-only key refused once by
+    Linear and then by the planner, per-viewer visibility, sign-out on every
+    device (and a second sign-out with the stale cookie landing on
+    `signed_out=ended`, "Already disconnected", never "every browser"),
+    cross-site, `Origin: null` and multipart posts refused, the eleventh failure
+    from one `X-Real-IP` limited while another connects, and no test key (or a
+    fragment of one) in any response, the server log, the build output or the
+    fake's request log (keys travel only in its `Authorization` header). Then
+    `e2e/scan-api-key-leaks.ts` scans every file the server wrote under
+    `E2E_ARTIFACTS_DIR` (the PGlite directory, `server.log`, the server's
+    `TMPDIR`) byte by byte, and every table of that database through SQL (a byte
+    scan alone would miss TOAST-compressed jsonb).
 - image: CI's `image` job builds `deploy/Dockerfile` and starts both services
   from it in demo mode (the web app must answer `/api/health`, the worker's
   `tick` must exit 0).
@@ -4826,4 +5451,10 @@ not read; a deploy that still sets it boots normally and logs one warning
 
 ## 12. Verified external facts
 
-See `docs/research.md` (generated from the research pass with sources).
+See `docs/research.md` (generated from the research pass with sources). The
+personal-API-key facts this design relies on (F1–F14, checked 2026-10-23) are
+summarised in §4.1 "Personal API keys" and sourced in `docs/research.md`
+"Personal API keys (2026-10-23)", with the points still unverified: how Linear
+refuses a Read-only key's write, the key body's format, whether a
+team-restricted key can read `initiatives`, and whether Linear's error text can
+ever echo a credential.

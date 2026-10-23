@@ -1,5 +1,7 @@
 // Request guards with no engine dependency, so they are unit-testable alone.
 
+import { redactLinearSecrets } from '@better-tracker/core';
+
 /** Optional facts an error carries beside its code and sentence. */
 export interface ApiErrorExtras {
   /**
@@ -17,6 +19,12 @@ export interface ApiErrorBody {
   error: { code: string; message: string } & ApiErrorExtras;
 }
 
+/**
+ * A JSON error response. The message passes through redactLinearSecrets
+ * as the last layer, in every mode: a Linear error relayed to another
+ * person (their Resync joining a sync made with someone else's key) can
+ * never carry a credential.
+ */
 export function jsonError(
   status: number,
   code: string,
@@ -24,7 +32,9 @@ export function jsonError(
   extras: ApiErrorExtras = {},
   headers?: HeadersInit
 ): Response {
-  const body: ApiErrorBody = { error: { code, message, ...extras } };
+  const body: ApiErrorBody = {
+    error: { code, message: redactLinearSecrets(message), ...extras },
+  };
   return Response.json(body, { status, headers });
 }
 

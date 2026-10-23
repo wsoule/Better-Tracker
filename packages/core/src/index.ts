@@ -19,3 +19,4 @@ export * from './issue-search';
 export * from './issue-list';
 export * from './labels';
 export * from './visibility';
+export * from './secrets';

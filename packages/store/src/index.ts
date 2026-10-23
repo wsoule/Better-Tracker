@@ -4,6 +4,7 @@
 export * from './types';
 export {
   isStoreNotFoundError,
+  StoreCredentialError,
   StoreNotFoundError,
   type StoreNotFoundKind,
 } from './errors';

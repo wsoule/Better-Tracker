@@ -344,3 +344,95 @@ describe('a guest', () => {
     );
   });
 });
+
+describe('log filters failing closed (api_key mode)', () => {
+  test('no everything shortcut, and an unmirrored subject is hidden from members too', async () => {
+    const { indexWorkspace } = await import('@better-tracker/core');
+    const { createFixtureStore } = await import('@better-tracker/linear');
+    const { viewerSnapshot, visibleAuditEntries, visibleRunEntries } =
+      await import('../src/visibility');
+    const data = createFixtureStore('2026-10-21').data;
+    const full = indexWorkspace(data);
+    const ana = {
+      session: {
+        id: 's',
+        workspaceId: data.workspaceId,
+        userId: 'user-ana',
+        userName: 'Ana',
+        tokens: {
+          accessToken: '',
+          refreshToken: null,
+          expiresAt: null,
+          scopes: [],
+        },
+        createdAt: '2026-10-21T00:00:00.000Z',
+        expiresAt: '2026-10-22T00:00:00.000Z',
+      },
+      canWriteLinear: true,
+      readOnly: false,
+    } satisfies Actor;
+    const seen = viewerSnapshot(full, data.workspaceId, ana);
+    expect(seen.scope.everything).toBe(true);
+    const known = data.issues[0];
+    if (known === undefined) throw new Error('fixture has issues');
+    const audit = [
+      {
+        workspaceId: data.workspaceId,
+        actorUserId: 'user-ana',
+        action: 'issue.title' as const,
+        subjectId: known.id,
+        before: 'a',
+        after: 'b',
+        at: '2026-10-21T00:00:00.000Z',
+      },
+      {
+        workspaceId: data.workspaceId,
+        actorUserId: 'user-ana',
+        action: 'issue.title' as const,
+        subjectId: 'iss-gone',
+        before: 'a',
+        after: 'b',
+        at: '2026-10-21T00:00:00.000Z',
+      },
+      {
+        workspaceId: data.workspaceId,
+        actorUserId: 'user-ana',
+        action: 'settings.update' as const,
+        subjectId: data.workspaceId,
+        before: null,
+        after: null,
+        at: '2026-10-21T00:00:00.000Z',
+      },
+    ];
+    expect(visibleAuditEntries(full, seen, audit)).toHaveLength(3);
+    expect(
+      visibleAuditEntries(full, seen, audit, { failClosed: true }).map(
+        (e) => e.subjectId
+      )
+    ).toEqual([known.id, data.workspaceId]);
+
+    const entry = (projectId: string, issueId: string | null) => ({
+      runId: 'r',
+      seq: 1,
+      action: 'skip' as const,
+      outcome: 'noted' as const,
+      projectId,
+      milestoneId: null,
+      issueId,
+      issueIdentifier: null,
+      assigneeId: null,
+      reason: null,
+      detail: {},
+      error: null,
+      createdAt: '2026-10-21T00:00:00.000Z',
+    });
+    const entries = [
+      entry(known.projectId ?? 'p', known.id),
+      entry('proj-gone', null),
+    ];
+    expect(visibleRunEntries(full, seen, entries)).toHaveLength(2);
+    expect(
+      visibleRunEntries(full, seen, entries, { failClosed: true })
+    ).toHaveLength(1);
+  });
+});

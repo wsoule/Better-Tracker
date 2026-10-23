@@ -44,6 +44,7 @@ import {
   userBadge,
 } from '../../../lib/adapters/shell';
 import { getJson, sendJson } from '../../../lib/api-client';
+import { refuseKeyText } from '../../../lib/key-text';
 import { CrumbProvider, usePageCrumb } from './page-crumb';
 import { ReadOnlyReasonProvider } from './read-only-notice';
 
@@ -110,7 +111,10 @@ interface PlannerShellProps {
 export default function PlannerShell(props: PlannerShellProps) {
   return (
     <CrumbProvider>
-      <ReadOnlyReasonProvider reason={props.frame.readOnlyReason}>
+      <ReadOnlyReasonProvider
+        reason={props.frame.readOnlyReason}
+        apiKeyMode={props.frame.apiKeyMode}
+      >
         <PaletteFrame {...props} />
       </ReadOnlyReasonProvider>
     </CrumbProvider>
@@ -209,6 +213,7 @@ function PaletteFrame({
       sectionOrder={PALETTE_SECTION_ORDER}
       navigate={navigate}
       placeholder="Search projects, milestones and your issues…"
+      refuseQuery={refuseKeyText}
     >
       <Frame frame={frame} banner={banner} themeStorageKey={themeStorageKey}>
         {children}

@@ -664,3 +664,281 @@ describe('client helpers', () => {
     );
   });
 });
+
+// --- personal API keys (LINEAR_AUTH=api_key, architecture §4.1) -----------
+
+const MEMBER_KEY = 'lin_api_TESTKEY_member_q7Wz3Kp9Vx2Lm8Rt5Yb1Nc';
+
+// A fetch that records every init it is given and answers in order.
+function initRecordingFetch(responses: (Response | Error)[]): {
+  fetch: (url: string, init: RequestInit) => Promise<Response>;
+  inits: RequestInit[];
+} {
+  const inits: RequestInit[] = [];
+  let index = 0;
+  return {
+    inits,
+    fetch: (_url, init) => {
+      inits.push(init);
+      const next = responses[index];
+      index += 1;
+      if (next === undefined) return Promise.reject(new Error('no response'));
+      if (next instanceof Error) return Promise.reject(next);
+      return Promise.resolve(next);
+    },
+  };
+}
+
+function authorizationOf(init: RequestInit | undefined): string | null {
+  return new Headers(init?.headers).get('authorization');
+}
+
+describe('createGraphqlClient: personal API keys', () => {
+  test('sends the key raw, without Bearer; an OAuth token keeps Bearer', async () => {
+    const key = initRecordingFetch([dataResponse({ viewer: { id: 'u1' } })]);
+    await createGraphqlClient({
+      apiKey: () => MEMBER_KEY,
+      fetch: key.fetch,
+    }).request(QUERY);
+    expect(authorizationOf(key.inits[0])).toBe(MEMBER_KEY);
+
+    const oauth = initRecordingFetch([dataResponse({ viewer: { id: 'u1' } })]);
+    await createGraphqlClient({
+      accessToken: TOKEN,
+      fetch: oauth.fetch,
+    }).request(QUERY);
+    expect(authorizationOf(oauth.inits[0])).toBe(`Bearer ${TOKEN}`);
+  });
+
+  test('both or neither credential throws, naming no value', () => {
+    for (const options of [
+      { accessToken: TOKEN, apiKey: () => MEMBER_KEY },
+      {},
+    ]) {
+      let message = '';
+      try {
+        createGraphqlClient(options);
+      } catch (error) {
+        message = error instanceof Error ? error.message : String(error);
+      }
+      expect(message).toBe(
+        'createGraphqlClient needs exactly one of accessToken or apiKey'
+      );
+      expect(message).not.toContain('TESTKEY');
+      expect(message).not.toContain(TOKEN);
+    }
+  });
+
+  test('every fetch is no-store and refuses redirects', async () => {
+    const { fetch, inits } = initRecordingFetch([
+      jsonResponse({}, { status: 500 }),
+      dataResponse({ viewer: { id: 'u1' } }),
+    ]);
+    await createGraphqlClient({
+      apiKey: () => MEMBER_KEY,
+      fetch,
+      sleep: () => Promise.resolve(),
+    }).request(QUERY);
+    const oauth = initRecordingFetch([dataResponse({ viewer: { id: 'u1' } })]);
+    await createGraphqlClient({
+      accessToken: TOKEN,
+      fetch: oauth.fetch,
+    }).request(QUERY);
+    for (const init of [...inits, ...oauth.inits]) {
+      expect(init.cache).toBe('no-store');
+      expect(init.redirect).toBe('error');
+    }
+  });
+
+  test('the getter is read once per attempt, and null fails before fetch', async () => {
+    let reads = 0;
+    const { fetch, inits } = initRecordingFetch([
+      jsonResponse({}, { status: 500 }),
+      dataResponse({ viewer: { id: 'u1' } }),
+    ]);
+    await createGraphqlClient({
+      apiKey: () => {
+        reads += 1;
+        return MEMBER_KEY;
+      },
+      fetch,
+      sleep: () => Promise.resolve(),
+    }).request(QUERY);
+    expect(reads).toBe(2);
+    expect(inits).toHaveLength(2);
+
+    const none = initRecordingFetch([dataResponse({ viewer: { id: 'u1' } })]);
+    const error = await captureError(
+      createGraphqlClient({ apiKey: () => null, fetch: none.fetch }).request(
+        QUERY
+      )
+    );
+    expect(error.kind).toBe('unauthorized');
+    expect(error.message).toBe('No Linear credential is held for Viewer');
+    expect(none.inits).toHaveLength(0);
+  });
+
+  test('a key a header cannot carry fails before fetch, without echoing it', async () => {
+    const { fetch, inits } = initRecordingFetch([
+      dataResponse({ viewer: { id: 'u1' } }),
+    ]);
+    const bad = 'lin_api_TESTKEY_bad\nvalue_q7Wz3Kp9Vx2';
+    const error = await captureError(
+      createGraphqlClient({ apiKey: () => bad, fetch }).request(QUERY)
+    );
+    expect(error.kind).toBe('unauthorized');
+    expect(inits).toHaveLength(0);
+    expect(error.message).not.toContain('TESTKEY');
+    expect(error.cause).toBeUndefined();
+  });
+
+  test('a fetch error that echoes the key is scrubbed everywhere', async () => {
+    const { logger, lines } = recordingLogger();
+    const echo = (): TypeError =>
+      new TypeError(
+        `Headers.append: "${MEMBER_KEY}" is an invalid header value.`
+      );
+    const { fetch } = initRecordingFetch([echo(), echo()]);
+    const error = await captureError(
+      createGraphqlClient({
+        apiKey: () => MEMBER_KEY,
+        fetch,
+        logger,
+        maxRetries: 1,
+        sleep: () => Promise.resolve(),
+      }).request(QUERY)
+    );
+    expect(error.kind).toBe('network');
+    const cause = error.cause as Error;
+    expect(cause).toBeInstanceOf(Error);
+    expect(cause.name).toBe('TypeError');
+    expect(cause.cause).toBeUndefined();
+    for (const text of [
+      error.message,
+      cause.message,
+      String(error),
+      JSON.stringify(lines),
+    ]) {
+      expect(text).not.toContain('TESTKEY');
+    }
+    expect(lines.some((line) => line.message.includes('retrying'))).toBe(true);
+  });
+
+  test('Linear echoing the exact credential comes back redacted', async () => {
+    const odd = 'oddly-shaped-oauth-token-value';
+    for (const [options, credential] of [
+      [{ apiKey: (): string => MEMBER_KEY }, MEMBER_KEY],
+      [{ accessToken: odd }, odd],
+    ] as const) {
+      const { fetch } = initRecordingFetch([
+        jsonResponse({
+          data: null,
+          errors: [
+            {
+              message: `bad header ${credential}`,
+              extensions: {
+                code: 'INPUT_ERROR',
+                userPresentableMessage: `Your credential ${credential} is odd`,
+              },
+            },
+          ],
+        }),
+      ]);
+      const error = await captureError(
+        createGraphqlClient({ ...options, fetch }).request(QUERY)
+      );
+      expect(error.message).toContain('[redacted]');
+      expect(error.message).not.toContain(credential);
+      const cause = error.cause as LinearGraphqlErrors;
+      expect(cause).toBeInstanceOf(LinearGraphqlErrors);
+      for (const info of cause.errors) {
+        expect(info.message).not.toContain(credential);
+        expect(info.userPresentableMessage ?? '').not.toContain(credential);
+      }
+      expect(cause.message).not.toContain(credential);
+    }
+  });
+
+  test('Linear echoing the key without its lin_api_ prefix comes back redacted', async () => {
+    const tail = MEMBER_KEY.replace(/^lin_api_/, '');
+    expect(tail).not.toBe(MEMBER_KEY);
+    expect(tail.length).toBeGreaterThanOrEqual(16);
+    const { fetch } = initRecordingFetch([
+      jsonResponse({
+        data: null,
+        errors: [
+          {
+            message: `The key ${tail} cannot change this issue.`,
+            extensions: {
+              code: 'FORBIDDEN',
+              userPresentableMessage: `The key ${tail} cannot change this issue.`,
+            },
+          },
+        ],
+      }),
+    ]);
+    const error = await captureError(
+      createGraphqlClient({ apiKey: () => MEMBER_KEY, fetch }).request(QUERY)
+    );
+    const cause = error.cause as LinearGraphqlErrors;
+    for (const text of [
+      error.message,
+      String(error),
+      cause.message,
+      ...cause.errors.flatMap((info) => [
+        info.message,
+        info.userPresentableMessage ?? '',
+      ]),
+    ]) {
+      expect(text).not.toContain(tail);
+    }
+    expect(error.message).toContain('[redacted]');
+  });
+
+  test('401 with a key → unauthorized; FORBIDDEN on a mutation → forbidden with its errors', async () => {
+    const unauthorized = initRecordingFetch([
+      jsonResponse(
+        {
+          errors: [
+            {
+              message: 'Authentication required',
+              extensions: { code: 'AUTHENTICATION_ERROR' },
+            },
+          ],
+        },
+        { status: 401 }
+      ),
+    ]);
+    const rejected = await captureError(
+      createGraphqlClient({
+        apiKey: () => MEMBER_KEY,
+        fetch: unauthorized.fetch,
+      }).request(QUERY)
+    );
+    expect(rejected.kind).toBe('unauthorized');
+    expect(rejected.message).not.toContain('TESTKEY');
+
+    const forbidden = initRecordingFetch([
+      jsonResponse({
+        data: null,
+        errors: [
+          {
+            message: 'Invalid scope: write required',
+            extensions: { code: 'FORBIDDEN', type: 'forbidden' },
+          },
+        ],
+      }),
+    ]);
+    const refused = await captureError(
+      createGraphqlClient({
+        apiKey: () => MEMBER_KEY,
+        fetch: forbidden.fetch,
+      }).request('mutation IssueUpdate { issueUpdate { success } }')
+    );
+    expect(refused.kind).toBe('forbidden');
+    expect(refused.cause).toBeInstanceOf(LinearGraphqlErrors);
+    expect((refused.cause as LinearGraphqlErrors).errors[0]?.message).toBe(
+      'Invalid scope: write required'
+    );
+  });
+});

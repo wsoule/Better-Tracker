@@ -77,7 +77,8 @@
   grid-template-areas:
     'title actions'
     'receipts actions'
-    'note note';
+    'note note'
+    'key key';
   column-gap: 24px;
 }
 
@@ -196,7 +197,8 @@
       'title'
       'receipts'
       'actions'
-      'note';
+      'note'
+      'key';
     row-gap: 4px;
   }
 
@@ -209,4 +211,15 @@
     margin-top: 20px;
     padding: 0 16px 48px;
   }
+}
+
+/* api_key mode: what a run reads and writes with, the header's last line
+   (under the run controls' note), in the secondary text colour. */
+.keyNote {
+  grid-area: key;
+  max-width: 96ch;
+  margin-top: 6px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
 }

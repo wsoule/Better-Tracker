@@ -35,8 +35,13 @@ RUN rm -rf node_modules packages/*/node_modules apps/*/node_modules \
 
 FROM node:24.21.0-bookworm-slim AS runtime
 WORKDIR /app
+# --disable-sigusr1: a signal cannot open the inspector onto the memory
+# where personal API keys live (LINEAR_AUTH=api_key requires it when
+# deployed; harmless in the other modes). The CMD's `ulimit -c 0` keeps a
+# crash from writing that memory to a core dump.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
+    NODE_OPTIONS=--disable-sigusr1 \
     HOSTNAME=0.0.0.0 \
     PORT=3000
 COPY --from=build --chown=node:node /app /app
@@ -46,4 +51,4 @@ EXPOSE 3000
 # apps/planner` cannot load next.config.ts's import of ./lib/*.ts ("Cannot
 # find module './lib/security-headers'"). The worker's start command still
 # runs from /app.
-CMD ["sh", "-c", "cd apps/planner && exec ./node_modules/.bin/next start --hostname 0.0.0.0 --port \"${PORT:-3000}\""]
+CMD ["sh", "-c", "ulimit -c 0 && cd apps/planner && exec ./node_modules/.bin/next start --hostname 0.0.0.0 --port \"${PORT:-3000}\""]

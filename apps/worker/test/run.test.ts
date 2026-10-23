@@ -598,3 +598,65 @@ describe('runCli against the demo engine', () => {
     );
   });
 });
+
+describe('runCli with LINEAR_AUTH=api_key', () => {
+  test('tick and serve print the note, exit 0 and never boot', async () => {
+    for (const argv of [['tick'], ['serve']]) {
+      const d = deps(fakeEngine(), { env: { LINEAR_AUTH: 'api_key' } });
+      expect(await runCli(argv, d)).toBe(0);
+      expect(d.created()).toBe(0);
+      expect(d.output.outLines).toEqual([
+        "api-key mode: no scheduled sync, allocation or digests (keys live only in the planner's memory)",
+      ]);
+    }
+  });
+
+  test('sync, daily, allocate and warn exit 1 with the sentence and never boot', async () => {
+    for (const command of ['sync', 'daily', 'allocate', 'warn']) {
+      const d = deps(fakeEngine(), { env: { LINEAR_AUTH: 'api_key' } });
+      expect(await runCli(argvFor(command), d)).toBe(1);
+      expect(d.created()).toBe(0);
+      expect(d.output.errLines).toEqual([
+        `${command}: off when LINEAR_AUTH=api_key: keys live only in the planner's memory; start a run or a resync from the planner`,
+      ]);
+    }
+  });
+
+  test('migrate boots the engine', async () => {
+    const d = deps(fakeEngine(), { env: { LINEAR_AUTH: 'api_key' } });
+    expect(await runCli(['migrate'], d)).toBe(0);
+    expect(d.created()).toBe(1);
+  });
+
+  test('a deployed migrate needs no workspace pin (it never handles a key)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'worker-apikey-migrate-'));
+    try {
+      const env = {
+        LINEAR_AUTH: 'api_key',
+        NODE_ENV: 'production',
+        NODE_OPTIONS: '--disable-sigusr1',
+        APP_URL: 'https://planner.example.com',
+        PGLITE_DIR: join(dir, 'pglite'),
+      };
+      const real = (extra: Partial<CliDeps> = {}) =>
+        deps(null, {
+          env,
+          createEngine: async (engineEnv, options) =>
+            workerEngineFrom(
+              await createEngineFromEnv(engineEnv, {
+                ...options,
+                execArgv: [],
+              })
+            ),
+          ...extra,
+        });
+      const migrate = real();
+      expect(await runCli(['migrate'], migrate)).toBe(0);
+      expect(migrate.output.outLines.join('\n')).toContain(
+        'database schema is up to date'
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

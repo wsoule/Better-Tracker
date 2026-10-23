@@ -36,3 +36,39 @@ describe('security headers', () => {
     expect(header('X-Content-Type-Options')).toBe('nosniff');
   });
 });
+
+describe('the api_key-mode nonce policy', () => {
+  test('holds the nonce, strict-dynamic, worker-src none and form-action self', async () => {
+    const { contentSecurityPolicy } = await import('../lib/security-headers');
+    const csp = contentSecurityPolicy({ nonce: 'abc123==' });
+    expect(csp).toContain(
+      "script-src 'self' 'nonce-abc123==' 'strict-dynamic'"
+    );
+    expect(csp).toContain("worker-src 'none'");
+    expect(csp).toContain("form-action 'self'");
+    expect(csp).not.toContain('linear.app');
+    expect(csp).toContain("frame-ancestors 'none'");
+    expect(csp).toContain("style-src 'self' 'unsafe-inline'");
+    expect(csp).not.toContain('upgrade-insecure-requests');
+    expect(csp).not.toContain('unsafe-eval');
+    expect(contentSecurityPolicy({ nonce: 'n', https: true })).toContain(
+      'upgrade-insecure-requests'
+    );
+    expect(contentSecurityPolicy({ nonce: 'n', development: true })).toContain(
+      "'unsafe-eval'"
+    );
+  });
+
+  test("isApiKeyAuthEnv matches the engine's linearAuthFromEnv", async () => {
+    const { isApiKeyAuthEnv } = await import('../lib/security-headers');
+    const { linearAuthFromEnv } = await import('@better-tracker/engine');
+    const fixtures = [undefined, '1', 'true', 'showcase', '0', 'false'];
+    const auths = [undefined, '', 'oauth', 'api_key', ' API_KEY ', 'token'];
+    for (const LINEAR_FIXTURE of fixtures) {
+      for (const LINEAR_AUTH of auths) {
+        const env = { LINEAR_FIXTURE, LINEAR_AUTH };
+        expect(isApiKeyAuthEnv(env)).toBe(linearAuthFromEnv(env) === 'api_key');
+      }
+    }
+  });
+});

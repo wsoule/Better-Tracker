@@ -10,7 +10,9 @@ The research could not load linear.app, slack.com or railway.com directly. Some
 facts come from search excerpts of the official pages, cross-checked against
 each vendor's SDK source. Where the research marks a fact UNVERIFIABLE or only
 inferred, this guide says **verify this in your workspace**. Section 6 lists the
-open questions that need a live test.
+open questions that need a live test. Section 7 runs the planner against real
+Linear **without an OAuth app**: each person pastes their own personal API key,
+which the planner keeps only in memory (`LINEAR_AUTH=api_key`).
 
 What you need:
 
@@ -581,6 +583,89 @@ More items from the research to confirm along the way:
 - Whether Linear refresh tokens have an absolute or inactivity lifetime.
 - Whether an old access token stops working immediately after a refresh.
 
+## 7. Real Linear with personal API keys (no OAuth app)
+
+`LINEAR_AUTH=api_key` (owner request 2026-10-23, design §12; arch §7.4) needs no
+Linear OAuth app, no `TOKEN_ENCRYPTION_KEY`, no webhook and no Slack app. Each
+person pastes a personal Linear API key on the planner's home page. The key is
+held **only in the web service's memory**: never in the database, on disk, in
+logs or in the browser. It is forgotten on sign-out (every device at once; a
+browser whose own connection had already ended says so instead of claiming it),
+after 2 hours idle, 12 hours after connecting, and on every restart or deploy.
+Edits, comments and live allocation runs go out with the acting person's own
+key. Nothing runs on a schedule: no daily allocation, no digests, no webhooks.
+The planner refreshes its copy of Linear when someone connects, on Resync, and
+every `SYNC_INTERVAL_MINUTES` (default 15) while a workspace member is
+connected, reading with a member's key.
+
+1. **Variables.** Set `LINEAR_AUTH=api_key` as **one shared variable** and
+   reference it from both the `web` and `worker` services
+   (`${{shared.LINEAR_AUTH}}`), so they can never disagree. On `web` set an
+   https `APP_URL`, `LINEAR_WORKSPACE=<urlKey>` (your workspace's URL key, as in
+   `linear.app/<urlKey>`; **required** on a deployed planner, so nobody can bind
+   it to another workspace) and **`DATABASE_URL=${{Postgres.DATABASE_URL}}`**
+   (required: the project's Postgres service keeps the planner's own data, the
+   settings, weights, "done means…" and the audit log, across deploys; the keys
+   are never in it). Without `DATABASE_URL` the planner falls back to PGlite on
+   the container's disk, which Railway replaces on every deploy, and logs a
+   warning at boot saying so. The planner refuses to boot when deployed without
+   https or without the pin. `PORT` and `RAILWAY_DOCKERFILE_PATH` stay as in
+   section 3. The worker needs only `LINEAR_AUTH` and `DATABASE_URL` for its
+   `migrate`; it does not need the pin.
+2. **Unset `LINEAR_FIXTURE`** (the planner refuses both together). Rows a demo
+   wrote to the same database stay but are ignored; a fresh database is cleaner.
+3. **One replica, App Sleeping off** on `web`. The keys live in that one
+   process; a second replica would know none of them, and a sleeping service
+   forgets them all.
+4. **The worker:** remove its cron schedule, or let it run: `tick` and `serve`
+   print "api-key mode: no scheduled sync, allocation or digests" and exit 0
+   without opening the database. `sync`, `daily`, `allocate` and `warn` exit 1
+   with the reason; `migrate` still works (it skips the deployed-only key
+   checks, since it never handles a key). If the worker runs `serve` as an
+   always-on service (restart policy Always or On Failure with retries), delete
+   that service or set its restart policy to **Never**: `serve` now exits at
+   once, and a supervisor would restart it over and over.
+5. **Every deploy forgets every key.** With auto-deploy on push, everyone pastes
+   their key again after each merge. The page says why ("Connection ended").
+6. **Switching from OAuth:** nothing is purged. The planner ignores the stored
+   OAuth grants and sessions in this mode and adopts the workspace's existing
+   row (settings, weights and audit stay). Revoke the OAuth app in Linear
+   (Settings → Administration → API → your app), which makes every stored grant
+   worthless, then delete `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_*`,
+   `LINEAR_WEBHOOK_SECRET` and `SESSION_SECRET` (each still set logs one "X is
+   unused when LINEAR_AUTH=api_key" warning) and the Linear webhook.
+7. **Switching back to OAuth:** set `LINEAR_AUTH=oauth` (or remove it), restore
+   the OAuth variables and **reinstall** from Setup (section 4): the row this
+   mode used has no token.
+8. **Each person's key.** In Linear: Settings → Security & access → Personal API
+   keys → New key. Make one just for this, named "Milestone Planner", with
+   **Read and Write on all teams, never Admin**. A Read-only key works but makes
+   the planner read-only for that person; a team-limited key sees less. Revoke
+   it in Linear when you stop using the planner (signing out of the planner does
+   not revoke it; Linear has no API for that). Workspace admins may have to
+   allow member API keys (Settings → Administration → API). The first person to
+   connect should be a workspace **member** (not a guest): a member's key reads
+   Linear for the planner's shared copy, and with only guests connected the
+   planner shows its last copy.
+9. **Trust.** Anyone who can deploy this project, change its variables or
+   `railway ssh` into the `web` container could capture keys, so give those
+   rights only to people you would trust with everyone's Linear access.
+   `deploy/Dockerfile` sets `NODE_OPTIONS=--disable-sigusr1` (no inspector on a
+   signal; the planner refuses to boot deployed without it) and disables core
+   dumps (`ulimit -c 0`). That closes the quiet paths, not every path. Railway's
+   HTTP logs show who connected, when and from where (`POST /api/auth/key`, the
+   client IP), but never the key: they hold no bodies. Do not add a tracing or
+   logging integration that records request bodies or headers.
+10. **A workspace bound wrongly** (only possible with the pin unset, so local
+    runs only): stop the planner and delete that `installations` row (the one
+    with an empty `app_user_id`), then connect again.
+
+The connect form only posts over HTTPS from the planner's own page, and failed
+tries are limited per client address (Railway's `X-Real-IP`) and overall, each
+try counted as it starts; the overall limit only refuses addresses that failed
+themselves, so one address's failures never lock everyone else out after a
+deploy (arch §8.1 "API-key mode").
+
 ## Appendix: running locally against real Linear
 
 Demo mode needs nothing (`LINEAR_FIXTURE=1`, or `LINEAR_FIXTURE=showcase` for
@@ -601,3 +686,11 @@ locally:
 
 Linear cannot deliver webhooks to `localhost`, so locally the worker's resync is
 the only way changes arrive.
+
+With personal API keys (section 7) there is nothing to register: set
+`LINEAR_AUTH=api_key` and `APP_URL=http://localhost:3000` in
+`apps/planner/.env.local` (no pin is needed locally; the first member to connect
+binds the workspace), start the planner, and paste your key on the home page.
+The planner syncs by itself while you are connected; the worker is not needed.
+`LINEAR_API_URL` is for tests only (a local fake Linear on `127.0.0.1`); never
+set it outside them.

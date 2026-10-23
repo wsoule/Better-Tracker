@@ -11,6 +11,7 @@
 
 import {
   COMMENT_MAX_LENGTH,
+  containsLinearCredential,
   elapsedMs,
   estimateLabel,
   type IsoDateTime,
@@ -25,6 +26,7 @@ import {
   type IssueLabel,
   type IssuePatch,
   type IssuePatchField,
+  introducesLinearCredential,
   type Snapshot,
 } from '@better-tracker/core';
 import type { LinearGateway } from '@better-tracker/linear';
@@ -53,6 +55,24 @@ import { keepsLooseIssue, relationRefsTouching } from './webhooks';
 
 // Any line break, including the Unicode line and paragraph separators.
 const LINE_BREAK = /[\r\n\u2028\u2029]/;
+
+/** api_key mode refuses newly typed key-shaped text before Linear (§7.12). */
+export const KEY_TEXT_MESSAGE =
+  'That looks like a Linear API key; it was not sent.';
+
+// api_key mode only (security S14): a key pasted into the wrong field is
+// refused before it reaches Linear. Only a newly typed run counts, so an
+// existing text that already quotes one can still be edited.
+function refuseNewKeyText(
+  rt: EngineRuntime,
+  previous: string | null,
+  next: string | null | undefined
+): void {
+  if (rt.config.auth !== 'api_key' || typeof next !== 'string') return;
+  if (introducesLinearCredential(previous, next)) {
+    throw new EngineInputError('invalid', KEY_TEXT_MESSAGE);
+  }
+}
 
 /**
  * The patch fields in the order they are validated, written and audited
@@ -650,9 +670,15 @@ export async function updateIssue(
     const { full, visible: snapshot } = await snapshotsFor(rt, actor);
     const issue = findIssue(snapshot, issueId);
     const linearPatch = checkAgainstMirror(snapshot, issue, patch);
+    refuseNewKeyText(rt, issue.title, linearPatch.title);
 
     const gateway = await rt.linear.forSession(actor.session);
     const live = await readLiveForEdit(gateway, issue, linearPatch);
+    refuseNewKeyText(
+      rt,
+      live.extras?.description ?? null,
+      linearPatch.description
+    );
     if (linearPatch.estimate !== undefined && linearPatch.estimate !== null) {
       const scale = live.extras?.estimateScale;
       if (scale === undefined || scale.type === 'notUsed') {
@@ -721,6 +747,9 @@ export async function addComment(
 ): Promise<IssueComment> {
   requireWriteScope(actor);
   const text = normalizeCommentBody(body);
+  if (rt.config.auth === 'api_key' && containsLinearCredential(text)) {
+    throw new EngineInputError('invalid', KEY_TEXT_MESSAGE);
+  }
   const snapshot = await snapshotFor(rt, actor);
   const issue = findIssue(snapshot, issueId);
   const gateway = await rt.linear.forSession(actor.session);

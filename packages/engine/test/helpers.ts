@@ -94,6 +94,8 @@ export function recordingLogger(): { logger: Logger; lines: string[] } {
 }
 
 export const TEST_CONFIG: EngineConfig = {
+  auth: 'demo',
+  apiKey: null,
   appName: 'Milestone Planner',
   appUrl: 'https://planner.example',
   defaultTimezone: 'UTC',

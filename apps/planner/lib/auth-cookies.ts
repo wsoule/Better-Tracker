@@ -12,11 +12,70 @@ import { z } from 'zod';
 //   (lib/signed-cookie.ts) and valid for 10 minutes. It is scoped to
 //   /api/auth so no page request ever carries it.
 //
+// - With personal API keys (LINEAR_AUTH=api_key) the session cookie is
+//   `__Host-mp_session` on https (a sibling subdomain cannot set it, so it
+//   cannot choose the session) and `mp_session` on http (local), with no
+//   Max-Age or Expires: a browser-session cookie, gone when the browser
+//   closes. The vault's limits end the session (architecture §7, §8.1).
+//
 // Everything here is pure (or takes its inputs explicitly) so the cookie
 // attributes and the returnTo rules are unit-tested without Next.
 
 /** Cookie holding the session token (re-exported by lib/session.ts users). */
 export const SESSION_COOKIE = 'mp_session';
+/** The session cookie in api_key mode on https (sessionCookieName). */
+export const HOST_SESSION_COOKIE = '__Host-mp_session';
+
+/** What sessionCookieName needs from the engine's config. */
+export interface CookieModeConfig {
+  appUrl: string;
+  /** EngineConfig.auth (absent on stub configs: not api_key). */
+  auth?: string;
+}
+
+/**
+ * The session cookie's name: `__Host-mp_session` in api_key mode on https
+ * (a plain `mp_session` is then ignored), `mp_session` everywhere else.
+ */
+export function sessionCookieName(config: CookieModeConfig): string {
+  return config.auth === 'api_key' && isSecureUrl(config.appUrl)
+    ? HOST_SESSION_COOKIE
+    : SESSION_COOKIE;
+}
+
+/**
+ * The api_key-mode session cookie: HttpOnly, SameSite=Lax, Path=/, Secure
+ * on https (named `__Host-mp_session` there), no Domain and no Max-Age or
+ * Expires, so it ends with the browser session.
+ */
+export function apiKeySessionCookie(
+  token: string,
+  options: { secure: boolean }
+): string {
+  if (!COOKIE_VALUE.test(token) || token === '') {
+    throw new Error('The session token has characters that need escaping.');
+  }
+  const name = options.secure ? HOST_SESSION_COOKIE : SESSION_COOKIE;
+  const parts = [`${name}=${token}`, 'Path=/', 'HttpOnly', 'SameSite=Lax'];
+  if (options.secure) parts.push('Secure');
+  return parts.join('; ');
+}
+
+/**
+ * Expires both session cookie names (sign-out in api_key mode, and any
+ * leftover from another mode). The `__Host-` one must carry Secure to be
+ * accepted at all.
+ */
+export function clearApiKeySessionCookies(secure: boolean): string[] {
+  return [
+    serializeCookie(SESSION_COOKIE, '', { path: '/', maxAge: 0, secure }),
+    serializeCookie(HOST_SESSION_COOKIE, '', {
+      path: '/',
+      maxAge: 0,
+      secure: true,
+    }),
+  ];
+}
 /** Short-lived cookie carrying OAuth state between start and callback. */
 export const OAUTH_COOKIE = 'mp_oauth';
 /** The OAuth cookie's lifetime: long enough to approve in Linear. */
@@ -112,7 +171,7 @@ export function clearOauthCookie(secure: boolean): string {
   });
 }
 
-/** Reads one cookie from a request's Cookie header. */
+/** Reads one cookie from a request's Cookie header (the first match). */
 export function readCookie(request: Request, name: string): string | undefined {
   const header = request.headers.get('cookie');
   if (header === null || header === '') return undefined;
