@@ -8,6 +8,7 @@ import {
   graphContainer,
   graphScopeFor,
   GRAPH_LEVELS_WITHIN,
+  isOverdueNode,
   isRiskNode,
   resolveGraphScope,
   toMermaid,
@@ -1162,12 +1163,13 @@ describe('toMermaid', () => {
         '  n0 --> n1',
         '  n2 -.-> n1',
         '  n3 --> n0',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef overdue stroke:#d92d20,stroke-width:2px',
+        '  classDef risk stroke:#bd790a,stroke-width:2px',
+        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  class n0,n1 risk',
         '  class n3 external',
-        '  linkStyle 0 stroke:#9747ff',
+        '  linkStyle 0 stroke:#bd790a',
         '',
       ].join('\n')
     );
@@ -1196,8 +1198,9 @@ describe('toMermaid', () => {
         n1["Beta"]
         n0 -->|3| n1
         n1 --> n0
-        classDef risk stroke:#9747ff,stroke-width:2px
-        classDef cycle stroke:#9747ff,stroke-dasharray:5 3
+        classDef overdue stroke:#d92d20,stroke-width:2px
+        classDef risk stroke:#bd790a,stroke-width:2px
+        classDef cycle stroke:#d92d20,stroke-dasharray:5 3
         classDef external stroke-dasharray:3 3,opacity:0.7
         class n0,n1 cycle
       "
@@ -1219,8 +1222,9 @@ describe('toMermaid', () => {
     ).toBe(
       [
         'flowchart LR',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef overdue stroke:#d92d20,stroke-width:2px',
+        '  classDef risk stroke:#bd790a,stroke-width:2px',
+        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '',
       ].join('\n')
@@ -2423,6 +2427,17 @@ describe('isRiskNode per kind', () => {
       riskNode({ kind: 'project', unassigned: true, waitsOnUnassigned: true }),
       false,
     ],
+    // A paused project's work is never loud (§2.8), as isOverdueNode says.
+    [
+      'an issue of a paused project, unassigned',
+      riskNode({ kind: 'issue', unassigned: true, active: false }),
+      false,
+    ],
+    [
+      'a milestone of a paused project, overdue',
+      riskNode({ overdue: true, active: false }),
+      false,
+    ],
     [
       'an initiative, overdue',
       riskNode({ kind: 'initiative', overdue: true }),
@@ -2435,6 +2450,141 @@ describe('isRiskNode per kind', () => {
     ],
   ])('%s: %s', (_name, n, expected) => {
     expect(isRiskNode(n)).toBe(expected);
+  });
+});
+
+describe('isOverdueNode per kind', () => {
+  test.each([
+    [
+      'an issue in an overdue milestone',
+      riskNode({ kind: 'issue', overdue: true }),
+      true,
+    ],
+    [
+      'an issue in an overdue milestone of a paused project',
+      riskNode({ kind: 'issue', overdue: true, active: false }),
+      false,
+    ],
+    [
+      'an issue waiting on an overdue one',
+      riskNode({ kind: 'issue', waitsOnOverdue: true }),
+      false,
+    ],
+    ['a milestone, overdue', riskNode({ overdue: true }), true],
+    [
+      'a project whose status is overdue',
+      riskNode({ kind: 'project', status: 'overdue' }),
+      true,
+    ],
+    [
+      'a project at risk',
+      riskNode({ kind: 'project', status: 'at_risk' }),
+      false,
+    ],
+    [
+      'an inactive initiative, overdue',
+      riskNode({ kind: 'initiative', overdue: true, active: false }),
+      false,
+    ],
+  ])('%s: %s', (_name, n, expected) => {
+    expect(isOverdueNode(n)).toBe(expected);
+  });
+});
+
+describe('toMermaid overdue nodes', () => {
+  // The canvas floods an overdue node red (planner nodeTone's danger); the
+  // export classes it red too, never amber risk. What waits on it stays
+  // amber, and a cycle stays dashed red.
+  test('overdue is red, what waits on it amber, a cycle dashed red', () => {
+    const g: DependencyGraph = {
+      scope: { level: 'issue', milestoneId: 'm1' },
+      nodes: [
+        {
+          ...baseNode('late'),
+          kind: 'issue',
+          label: 'Late',
+          sublabel: 'ENG-1 · Ana',
+          overdue: true,
+          unassigned: true,
+        },
+        {
+          ...baseNode('wait'),
+          kind: 'issue',
+          label: 'Waits',
+          sublabel: 'ENG-2 · Bo',
+          waitsOnOverdue: true,
+        },
+        {
+          ...baseNode('loop'),
+          kind: 'issue',
+          label: 'Loop',
+          sublabel: 'ENG-3 · Cy',
+          overdue: true,
+          inCycle: true,
+        },
+      ],
+      edges: [{ ...baseEdge('late', 'wait'), onRiskChain: true }],
+      cycles: [],
+      fallback: null,
+      unplacedRelations: 0,
+      unrelatedIssues: 0,
+      chain: null,
+    };
+    expect(toMermaid(g)).toBe(
+      [
+        'flowchart LR',
+        '  n0["Late<br/>ENG-1 · Ana"]',
+        '  n1["Waits<br/>ENG-2 · Bo"]',
+        '  n2["Loop<br/>ENG-3 · Cy"]',
+        '  n0 --> n1',
+        '  classDef overdue stroke:#d92d20,stroke-width:2px',
+        '  classDef risk stroke:#bd790a,stroke-width:2px',
+        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
+        '  classDef external stroke-dasharray:3 3,opacity:0.7',
+        '  class n0,n2 overdue',
+        '  class n1 risk',
+        '  class n2 cycle',
+        '  linkStyle 0 stroke:#bd790a',
+        '',
+      ].join('\n')
+    );
+  });
+
+  // The canvas mutes a paused project's boxes (no status hue, §8.2), so
+  // the export gives them neither the red overdue nor the amber risk.
+  test('an inactive overdue milestone and an inactive unassigned issue get no status class', () => {
+    const g: DependencyGraph = {
+      scope: { level: 'milestone', projectId: 'p1' },
+      nodes: [
+        {
+          ...baseNode('late'),
+          label: 'Paused cutover',
+          overdue: true,
+          unassigned: true,
+          active: false,
+        },
+        {
+          ...baseNode('task'),
+          kind: 'issue',
+          label: 'Paused task',
+          unassigned: true,
+          waitsOnOverdue: true,
+          active: false,
+        },
+      ],
+      edges: [baseEdge('late', 'task')],
+      cycles: [],
+      fallback: null,
+      unplacedRelations: 0,
+      unrelatedIssues: 0,
+      chain: null,
+    };
+    const text = toMermaid(g);
+    expect(text).not.toMatch(/^ {2}class .* (overdue|risk)$/m);
+    expect(g.nodes.map((n) => [isOverdueNode(n), isRiskNode(n)])).toEqual([
+      [false, false],
+      [false, false],
+    ]);
   });
 });
 
@@ -2485,11 +2635,12 @@ describe('toMermaid at every level', () => {
         '  n2["Platform reliability<br/>5 projects"]',
         '  n0 -->|3| n1',
         '  n1 -->|2| n2',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef overdue stroke:#d92d20,stroke-width:2px',
+        '  classDef risk stroke:#bd790a,stroke-width:2px',
+        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  class n0 risk',
-        '  linkStyle 0 stroke:#9747ff',
+        '  linkStyle 0 stroke:#bd790a',
         '',
       ].join('\n')
     );
@@ -2526,8 +2677,9 @@ describe('toMermaid at every level', () => {
         '  n1["Up<br/>ENG-2 · Bo"]',
         '  n1 --> n0',
         '  %% Showing the nearest 2 of 4 issues on this chain',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef overdue stroke:#d92d20,stroke-width:2px',
+        '  classDef risk stroke:#bd790a,stroke-width:2px',
+        '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  classDef focus stroke-width:3px',
         '  class n0 focus',

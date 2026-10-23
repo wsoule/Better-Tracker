@@ -142,8 +142,10 @@ a.cardName:focus-visible {
   color: var(--muted);
 }
 
-.cardSubAccent {
-  color: var(--accent-ink);
+/* A sublabel that asks for action (NO LEAD) in its tone's text colour,
+   from the data-tone hook (amber for warning). */
+.cardSubToned {
+  color: var(--tone-ink);
   font-weight: 700;
 }
 
@@ -198,8 +200,10 @@ a.cardName:focus-visible {
   color: var(--muted);
 }
 
-.rowMetaAccent {
-  color: var(--accent-ink);
+/* Receipts that carry a status (overdue red, at risk or a missing input
+   amber), from the data-tone hook. */
+.rowMetaToned {
+  color: var(--tone-ink);
   font-weight: 700;
 }
 
@@ -212,8 +216,9 @@ a.cardName:focus-visible {
   white-space: nowrap;
 }
 
-.rowDueAccent {
-  color: var(--accent-ink);
+/* A due date that carries a status (overdue red, "No date" amber). */
+.rowDueToned {
+  color: var(--tone-ink);
 }
 
 .cardMuted .rowName,

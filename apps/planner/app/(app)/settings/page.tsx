@@ -223,7 +223,11 @@ async function renderSection(
                 <RegisterCell variant="mono" tone="muted">
                   {row.label}
                 </RegisterCell>
-                <RegisterCell tone={row.tone} sub={row.sub}>
+                <RegisterCell
+                  tone={row.tone}
+                  sub={row.sub}
+                  toneSub={row.toneDetail === true}
+                >
                   {row.value}
                 </RegisterCell>
               </RegisterRow>
@@ -274,14 +278,16 @@ async function renderSection(
                 {row.day}
               </RegisterCell>
               <RegisterCell label="Status">
-                <Chip tone={row.statusTone}>{row.statusLabel}</Chip>
+                <Chip tone={row.statusTone} filled={row.statusFilled}>
+                  {row.statusLabel}
+                </Chip>
               </RegisterCell>
               <RegisterCell label="Items" variant="mono" align="end">
                 {row.items}
               </RegisterCell>
               <RegisterCell
                 label="Error"
-                tone={row.error === null ? 'muted' : 'accent'}
+                tone={row.error === null ? 'muted' : 'danger'}
               >
                 <span className={css.breakAnywhere}>{row.error ?? '—'}</span>
               </RegisterCell>

@@ -328,7 +328,7 @@ describe('TextAreaEditor: edit mode', () => {
     );
   });
 
-  test('the count appears near the limit and goes accent past it', () => {
+  test('the count appears near the limit and goes red past it', () => {
     render(<DescriptionHost save={() => undefined} maxLength={40} />);
     fireEvent.click(screen.getByRole('button', { name: 'Edit Description' }));
     fireEvent.change(area(), { target: { value: 'short' } });

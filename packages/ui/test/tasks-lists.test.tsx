@@ -34,7 +34,7 @@ describe('StatsStrip', () => {
             label: 'Overdue milestones',
             value: 1,
             note: 'Atlas',
-            tone: 'accent',
+            tone: 'danger',
           },
           { id: 'quiet', label: 'Archived', value: 0, tone: 'muted' },
         ]}
@@ -44,7 +44,7 @@ describe('StatsStrip', () => {
     const cells = getAllByRole('listitem');
     expect(cells.map((c) => c.getAttribute('data-tone'))).toEqual([
       'default',
-      'accent',
+      'danger',
       'muted',
     ]);
     expect(cells[1].textContent).toBe('Overdue milestones1Atlas');
@@ -79,7 +79,7 @@ function item(id: string): DeadlineGroup['items'][number] {
 
 describe('DeadlineList', () => {
   const groups: DeadlineGroup[] = [
-    { id: 'over', label: 'Overdue', tone: 'accent', items: [item('m0')] },
+    { id: 'over', label: 'Overdue', tone: 'danger', items: [item('m0')] },
     { id: 'today', label: 'Today', items: [] },
     {
       id: 'week',
@@ -136,7 +136,7 @@ describe('Register', () => {
           <RegisterCell label="Project" variant="name" sub="Platform">
             Atlas
           </RegisterCell>
-          <RegisterCell label="Lead" variant="mono" tone="accent">
+          <RegisterCell label="Lead" variant="mono" tone="warning">
             No lead
           </RegisterCell>
         </RegisterRow>
@@ -147,7 +147,9 @@ describe('Register', () => {
     const list = view.getByRole('list', { name: 'Projects' });
     expect(list.textContent).toContain('ProjectAtlasPlatform');
     expect(list.textContent).toContain('LeadNo lead');
-    expect(view.container.querySelector('[data-tone="accent"]')).not.toBeNull();
+    expect(
+      view.container.querySelector('[data-tone="warning"]')
+    ).not.toBeNull();
   });
 
   test('linked rows are one focusable target through the host link', () => {

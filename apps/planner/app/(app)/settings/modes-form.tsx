@@ -106,13 +106,15 @@ export default function ModesForm({ initial }: { initial: ModesState }) {
         </RegisterRow>
       </Register>
       {allocationGoingLive ? (
-        <Notice label="Live allocation">
+        <Notice label="Live allocation" tone="warning">
           After saving, the next daily run and every Run now write to Linear:
           assignee, Backlog → Todo, and a comment on each issue.
         </Notice>
       ) : null}
       {goingLive ? (
-        <Notice label="Live warnings">{WARNINGS_GO_LIVE_NOTE}</Notice>
+        <Notice label="Live warnings" tone="warning">
+          {WARNINGS_GO_LIVE_NOTE}
+        </Notice>
       ) : null}
       <FormBar
         dirty={dirty}

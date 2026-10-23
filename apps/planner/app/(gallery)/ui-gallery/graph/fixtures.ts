@@ -91,7 +91,7 @@ const milestoneNodes: GraphNodeData[] = [
     id: 'search-m1',
     label: 'Index rebuild',
     sublabel: 'Search · due Nov 2 · no lead',
-    tone: 'accent',
+    tone: 'warning',
     status: 'at_risk',
     statusLabel: 'At risk',
     tags: ['UNASSIGNED'],
@@ -208,7 +208,7 @@ const issueNodes: GraphNodeData[] = [
     id: 'ATL-43',
     label: 'Backfill orders table',
     sublabel: 'ATL-43 · unassigned',
-    tone: 'accent',
+    tone: 'danger',
     status: 'missing',
     statusLabel: 'Todo',
     tags: ['UNASSIGNED', 'OVERDUE'],
@@ -241,7 +241,7 @@ const issueNodes: GraphNodeData[] = [
     id: 'ATL-52',
     label: 'Archive legacy tables',
     sublabel: 'ATL-52 · unassigned',
-    tone: 'accent',
+    tone: 'warning',
     status: 'missing',
     statusLabel: 'Backlog',
     tags: ['UNASSIGNED'],
@@ -343,7 +343,7 @@ const chainNodes: GraphNodeData[] = [
     id: 'ATL-43',
     label: 'Backfill orders table',
     sublabel: 'ATL-43 · unassigned',
-    tone: 'accent',
+    tone: 'warning',
     status: 'missing',
     statusLabel: 'Todo',
     tags: ['UNASSIGNED'],
@@ -469,7 +469,7 @@ export const EPIC_NODES: GraphNodeData[] = [
     id: 't3',
     label: 'Client queue',
     sublabel: '#3 · needs you',
-    tone: 'accent',
+    tone: 'warning',
     status: 'at_risk',
     statusLabel: 'Needs you',
   },
@@ -512,8 +512,8 @@ function escapeLabel(text: string): string {
 /**
  * The gallery's stand-in for core's toMermaid (the gallery imports only the
  * UI package): `flowchart LR`, positional ids, quoted labels, `-->` open and
- * `-.->` resolved edges, counts on aggregated edges, risk/cycle/external
- * classes.
+ * `-.->` resolved edges, counts on aggregated edges, overdue/risk/cycle/
+ * external classes.
  */
 export function toMermaid(fixture: GraphFixture): string {
   const ids = new Map(fixture.nodes.map((node, i) => [node.id, `n${i}`]));
@@ -534,8 +534,9 @@ export function toMermaid(fixture: GraphFixture): string {
     if (edge.kind === 'risk') risk.push(i);
   });
   lines.push(
-    '  classDef risk stroke:#9747ff,stroke-width:2px',
-    '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+    '  classDef overdue stroke:#d92d20,stroke-width:2px',
+    '  classDef risk stroke:#bd790a,stroke-width:2px',
+    '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3'
   );
   const classed = (test: (node: GraphNodeData) => boolean) =>
@@ -543,18 +544,21 @@ export function toMermaid(fixture: GraphFixture): string {
       .filter(test)
       .map((node) => ids.get(node.id))
       .join(',');
+  // Overdue first and red, as the canvas floods it; never also amber risk.
+  const overdue = (node: GraphNodeData) =>
+    node.tags?.includes('OVERDUE') === true;
+  const overdueNodes = classed(overdue);
   const riskNodes = classed(
-    (node) =>
-      node.tags?.includes('UNASSIGNED') === true ||
-      node.tags?.includes('OVERDUE') === true
+    (node) => node.tags?.includes('UNASSIGNED') === true && !overdue(node)
   );
   const cycleNodes = classed((node) => node.tags?.includes('CYCLE') === true);
   const externalNodes = classed((node) => node.external === true);
+  if (overdueNodes !== '') lines.push(`  class ${overdueNodes} overdue`);
   if (riskNodes !== '') lines.push(`  class ${riskNodes} risk`);
   if (cycleNodes !== '') lines.push(`  class ${cycleNodes} cycle`);
   if (externalNodes !== '') lines.push(`  class ${externalNodes} external`);
   if (risk.length > 0) {
-    lines.push(`  linkStyle ${risk.join(',')} stroke:#9747ff`);
+    lines.push(`  linkStyle ${risk.join(',')} stroke:#bd790a`);
   }
   return lines.join('\n');
 }

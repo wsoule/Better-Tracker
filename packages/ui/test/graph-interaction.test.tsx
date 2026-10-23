@@ -615,9 +615,9 @@ describe('DependencyGraph: a host layout and a focus node', () => {
       ),
       'utf8'
     );
-    // The flood sets an accent border, which would hide accent dashes.
+    // The flood sets a red border, which would hide red dashes.
     const rule = /\.node\.overdueNode\.external \{([^}]*)\}/.exec(css)?.[1];
-    expect(rule).toContain('border-color: var(--on-accent);');
+    expect(rule).toContain('border-color: var(--on-red);');
     expect(css.indexOf('.node.overdueNode.external')).toBeGreaterThan(
       css.indexOf('.node.overdueNode {')
     );

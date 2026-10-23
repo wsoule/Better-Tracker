@@ -21,6 +21,22 @@ describe('StatusMark', () => {
     expect(shown.getByText('Complete')).toBeTruthy();
   });
 
+  test('names its status as data-status (colour is never the only cue)', () => {
+    for (const status of [
+      'done',
+      'on_track',
+      'at_risk',
+      'overdue',
+      'missing',
+    ] as const) {
+      const view = render(<StatusMark status={status} label={status} />);
+      const mark = view.container.querySelector('[role="img"]');
+      expect(mark?.getAttribute('data-status')).toBe(status);
+      expect(mark?.getAttribute('aria-label')).toBe(status);
+      view.unmount();
+    }
+  });
+
   test('muted draws any status in greys but keeps its name', () => {
     const loud = render(<StatusMark status="overdue" label="Overdue" />);
     const loudMark = loud.container.querySelector('[role="img"]');

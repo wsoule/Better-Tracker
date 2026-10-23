@@ -13,7 +13,7 @@ export const defaultGraphLegend: GraphLegendItem[] = [
   { mark: 'node', label: 'Node', note: 'blockers sit left of what waits' },
   { mark: 'node-overdue', label: 'Overdue', note: 'past its date' },
   {
-    mark: 'node-accent',
+    mark: 'node-warning',
     label: 'Needs action',
     note: 'unassigned or at risk',
   },
@@ -42,6 +42,7 @@ const EDGE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
 const NODE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
   node: undefined,
   'node-accent': styles.nodeAccent,
+  'node-warning': styles.nodeWarning,
   'node-overdue': styles.nodeOverdue,
   'node-external': styles.nodeExternal,
   'node-cycle': styles.nodeCycle,

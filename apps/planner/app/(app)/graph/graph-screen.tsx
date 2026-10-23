@@ -275,7 +275,7 @@ function IsolatedRegister({
 
 /* Past the draw limits: one hairline notice saying how many boxes and
    arrows the graph would need and that it draws at most 200 and 300 (a
-   size limit, not a risk, so it keeps the accent for risk), then the
+   size limit, not a risk, so no status hue), then the
    narrower graphs to open instead (each row a route link), or, inside a
    milestone or a chain, the most connected issues, each opening its own
    chain. It stands where the canvas would. */
@@ -364,7 +364,9 @@ function NeighbourRows({
               key={node.id}
               onActivate={() => onSelect(node.id)}
               rowLabel={`Show ${node.label}`}
-              tone={node.tone === 'accent' ? 'accent' : 'default'}
+              // The box's status tone draws the row's 2px rule in its hue;
+              // a faint (muted) box stays a plain row, as before.
+              tone={node.tone === 'muted' ? 'default' : node.tone}
             >
               <RegisterCell variant="name" sub={node.sublabel}>
                 <span className={css.neighbour}>
@@ -406,7 +408,9 @@ function PanelBody({
   return (
     <div className={css.panel}>
       {detail.alert !== null ? (
-        <AlertStrip label="Overdue">{detail.alert}</AlertStrip>
+        <AlertStrip label="Overdue" tone="danger">
+          {detail.alert}
+        </AlertStrip>
       ) : null}
       <PropertyList
         label={DETAILS_LABEL[detail.kind]}
@@ -423,11 +427,15 @@ function PanelBody({
           },
           ...detail.properties.map((property) => ({
             label: property.label,
+            // A status tone colours the value's text through the data-tone
+            // hook (--tone-ink); default stays ink.
             value:
-              property.tone === 'accent' ? (
-                <span className={css.accentText}>{property.value}</span>
-              ) : (
+              property.tone === undefined || property.tone === 'default' ? (
                 property.value
+              ) : (
+                <span className={css.toneText} data-tone={property.tone}>
+                  {property.value}
+                </span>
               ),
           })),
         ]}

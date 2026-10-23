@@ -1,6 +1,6 @@
 /* Save feedback in the machine voice: a quiet mono "SAVING" beside the
-   value, and a one-line error with the accent key (the system has no red:
-   needs-action is the accent). */
+   value, and a one-line error whose key is in the red status hue (a failed
+   write; the purple accent never means a status). */
 
 .pending {
   flex: none;
@@ -37,7 +37,7 @@
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent-ink);
+  color: var(--red-ink); /* failed: the red status hue */
 }
 
 .message {

@@ -11,10 +11,12 @@ import css from './page.module.css';
 
 /* The timeline's missing-input banners (architecture §8.4: no lead, no
    date, unplanned issues, blocked projects) as one compact block: a
-   hairline frame with one 2px accent rule down its left edge, and a 1px
-   ruled row per banner (mono key with its count, one sentence, a quiet
-   Show / Hide) that expands to the list it counts. One block instead of
-   four 2px boxes keeps the emphasis to a single rule and lets the chart
+   hairline frame with one 2px rule down its left edge, and a 1px ruled
+   row per banner (mono key with its count, one sentence, a quiet Show /
+   Hide) that expands to the list it counts. Each row carries its banner's
+   status tone (data-tone, §8.2: every banner is a warning, amber), which
+   colours its key; the block's rule is amber. One block instead
+   of four 2px boxes keeps the emphasis to a single rule and lets the chart
    start higher. Rows open the lane or the milestone drawer through
    `hrefFor`, which keeps the current filters in the URL; issue keys open
    Linear in a new tab. Banners at zero are not rendered (the adapter
@@ -49,7 +51,11 @@ function BannerRow({
   const listId = useId();
   const noun = banner.items.length === 1 ? 'item' : 'items';
   return (
-    <li className={css.banner} data-banner-id={banner.id}>
+    <li
+      className={css.banner}
+      data-banner-id={banner.id}
+      data-tone={banner.tone}
+    >
       <div className={css.bannerHead}>
         <span className={css.bannerKey}>
           {banner.label} · {banner.count}

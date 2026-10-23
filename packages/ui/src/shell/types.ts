@@ -34,7 +34,12 @@ export interface ShellNavItem {
   count?: number;
   /** Spoken after the label instead of the bare number ("4 issues this week"). */
   countLabel?: string;
-  /** `accent` turns the count into an accent chip: it needs action. */
+  /**
+   * `accent` turns the count into an accent chip (new, unread); a status
+   * tone (danger, warning, success, info) into the same square chip in the
+   * status hue, e.g. warning for "2 projects blocked" (docs/architecture.md
+   * §8.2). default and muted keep the plain grey number.
+   */
   countTone?: UiTone;
   current?: boolean;
   /** Display-only key sequence shown on hover, e.g. ['G', 'W']. */
@@ -270,8 +275,13 @@ export interface AlertStripAction {
 }
 
 export interface AlertStripProps {
-  /** Mono key in the accent ("OVERDUE"). */
+  /** Mono key before the sentence ("OVERDUE"), in the tone's text colour. */
   label?: string;
+  /** The 2px frame and the key's colour (docs/architecture.md §8.2):
+   * danger for overdue, warning for blocked, holds up, stalled and
+   * unassigned. Rendered as data-tone. Default warning (amber): an alert
+   * is always a status, never the purple accent. */
+  tone?: UiTone;
   /** The sentence. */
   children: ReactNode;
   /** Follow-up: a link when it has an href, a button when it acts in place. */

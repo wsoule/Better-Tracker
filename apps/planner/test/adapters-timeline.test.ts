@@ -239,14 +239,14 @@ describe('chart bars', () => {
 });
 
 describe('lanes', () => {
-  test('sublabel: lead, NO LEAD in the accent, deactivated, inactive', () => {
+  test('sublabel: lead, NO LEAD and a deactivated lead as warnings, inactive quiet', () => {
     expect(laneSublabel(lane())).toEqual({
       sublabel: 'Chloe Diaz',
       tone: 'default',
     });
     expect(laneSublabel(lane({ leadId: null, leadName: null }))).toEqual({
       sublabel: 'No lead',
-      tone: 'accent',
+      tone: 'warning',
     });
     expect(
       laneSublabel(
@@ -257,7 +257,7 @@ describe('lanes', () => {
           }),
         })
       )
-    ).toEqual({ sublabel: 'Chloe Diaz · deactivated', tone: 'accent' });
+    ).toEqual({ sublabel: 'Chloe Diaz · deactivated', tone: 'warning' });
     expect(laneSublabel(lane({ active: false }))).toEqual({
       sublabel: 'Inactive · Chloe Diaz',
       tone: 'default',
@@ -696,6 +696,15 @@ describe('banners', () => {
       ['unplanned', 3],
       ['blocked', 2],
     ]);
+    // Status tones (§8.2): every banner is a warning (amber): a missing
+    // input, open issues that are never allocated, a blocked project. The
+    // tone colours the row's key; the block's single left rule is amber.
+    expect(banners.map((b) => [b.id, b.tone])).toEqual([
+      ['no_lead', 'warning'],
+      ['no_date', 'warning'],
+      ['unplanned', 'warning'],
+      ['blocked', 'warning'],
+    ]);
     expect(banners[0]?.text).toBe(
       '1 active project has no lead: nothing in it is allocated.'
     );
@@ -985,16 +994,17 @@ describe('milestone drawer', () => {
       label: 'Overdue',
       lines: ['Open issues unassigned', 'More work left than time left'],
     });
+    // Overdue is danger (red), in the due date and the progress (§8.2).
     expect(m.due).toEqual({
       value: '2026-10-18',
       label: 'Oct 18 · 3 days overdue',
-      tone: 'accent',
+      tone: 'danger',
     });
     expect(m.progress).toEqual({
       done: 0,
       total: 4,
       canceled: 1,
-      tone: 'accent',
+      tone: 'danger',
     });
     expect(m.isNext).toBe(true);
     // Built with no view, the lane's activity is unknown: "What it waits
@@ -1178,7 +1188,7 @@ describe('milestone drawer', () => {
     expect(withView(detail(), blocked).next).toEqual({
       value: 'Yes',
       note: 'Allocation stopped · Project lead is deactivated',
-      tone: 'accent',
+      tone: 'warning',
     });
     // A later milestone names the next one.
     const notNext = detail({
@@ -1271,6 +1281,50 @@ describe('milestone drawer', () => {
       tone: 'default',
     });
     expect(m.status.status).toBe('done');
+    // Its progress reads as done: the success (green) fill.
+    expect(m.progress.tone).toBe('success');
+  });
+
+  test('due-date and progress tones follow the status table (§8.2)', () => {
+    // No target date is a missing input: warning.
+    const undated = drawer(
+      detail({
+        milestone: { ...detail().milestone, targetDate: null },
+        assessment: assessment({
+          status: 'unscheduled',
+          daysLeft: null,
+          reasons: [],
+        }),
+      })
+    );
+    expect(undated.due.tone).toBe('warning');
+    expect(undated.progress.tone).toBe('default');
+    // Due today or tomorrow is close: warning; later is plain.
+    const tomorrow = drawer(
+      detail({
+        milestone: { ...detail().milestone, targetDate: '2026-10-22' },
+        assessment: assessment({
+          status: 'on_track',
+          daysLeft: 1,
+          reasons: [],
+        }),
+      })
+    );
+    expect(tomorrow.due.tone).toBe('warning');
+    expect(tomorrow.progress.tone).toBe('default');
+    const later = drawer(
+      detail({
+        milestone: { ...detail().milestone, targetDate: '2026-10-30' },
+        assessment: assessment({
+          status: 'at_risk',
+          daysLeft: 9,
+          reasons: ['behind_pace'],
+        }),
+      })
+    );
+    expect(later.due.tone).toBe('default');
+    // Behind pace: the progress is a warning (amber).
+    expect(later.progress.tone).toBe('warning');
   });
 
   test("an inactive project's milestone is drawn quietly (§2.8)", () => {
@@ -1297,8 +1351,8 @@ describe('milestone drawer', () => {
       limits: LIMITS,
       view: paused,
     });
-    // Same facts, no accent: no overdue strip, a grey mark still named
-    // with its status, a plain due date and progress.
+    // Same facts, never loud: no overdue strip, a grey mark still named
+    // with its status, a plain due date and the muted (grey) progress.
     expect(m.muted).toBe(true);
     expect(m.overdueText).toBeNull();
     expect(m.status).toEqual({
@@ -1311,7 +1365,7 @@ describe('milestone drawer', () => {
       label: 'Oct 18 · 3 days overdue',
       tone: 'default',
     });
-    expect(m.progress.tone).toBe('default');
+    expect(m.progress.tone).toBe('muted');
     // An active lane (or no view) keeps it loud.
     expect(drawer().muted).toBe(false);
     expect(drawer().overdueText).toBe('Overdue by 3 days.');

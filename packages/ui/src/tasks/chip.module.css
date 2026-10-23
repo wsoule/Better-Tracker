@@ -45,6 +45,38 @@
   color: var(--muted);
 }
 
+/* A status chip (danger, warning, success, info): the ink outline in the
+   status hue. Text and border both take the TEXT colour, so the chip reads
+   as one colour and both swap with the text tokens inside a hover flood. */
+.status {
+  border-color: var(--tone-ink);
+  color: var(--tone-ink);
+}
+
+/* A filled status chip (the stronger claim: blocked, live, failed,
+   assigned, sent): a slab of the status MARK colour with the hue's own
+   text colour (white on red and blue, black on amber, white on green in
+   light and black in dark; 4.5:1 in both themes, styles-contrast.test.ts).
+   MARK colours are 3:1 on the paper and on a flood's ink, so the slab
+   keeps its edge in a flooded row and needs no swap there. */
+.statusFilled {
+  border-color: var(--tone);
+  background: var(--tone);
+  color: var(--on-tone);
+}
+
+/* A status mark on the slab turns to the slab's text colour, as on the
+   accent fill below; its shape still says the status. */
+.statusFilled .mark {
+  --foreground: var(--on-tone);
+  --border: var(--on-tone);
+  --red: var(--on-tone);
+  --amber: var(--on-tone);
+  --green: var(--on-tone);
+  --grey: var(--on-tone);
+  --muted: var(--on-tone);
+}
+
 /* Filled tones redefine the ink tokens locally, so anything inside (the
    status mark included) inverts from the token block, never by hand. */
 .accent {
@@ -55,11 +87,17 @@
   border-color: var(--background);
 }
 
-/* On the accent fill the mark's own accent must turn white, or an overdue
-   mark would vanish into the chip. Scoped to the mark so the chip's fill
-   still resolves the real accent. */
+/* On the accent fill the mark's status hues turn white, or a red, amber or
+   green mark would sink into the purple; the mark's shape still says the
+   status. Scoped to the mark so the chip's fill still resolves the real
+   accent. */
 .accent .mark {
   --accent: var(--on-accent);
+  --red: var(--on-accent);
+  --amber: var(--on-accent);
+  --green: var(--on-accent);
+  --grey: var(--on-accent);
+  --muted: var(--on-accent);
 }
 
 /* Ink fill from the constants, edge from the SURROUNDING --border: at rest
@@ -79,5 +117,9 @@
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --border: var(--paper);
 }

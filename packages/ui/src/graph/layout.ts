@@ -58,8 +58,9 @@ const GROUP_PREFIX = '__group__:';
 const ARROW_LENGTH = 6;
 const ARROW_HALF_WIDTH = 3;
 
-// Paint order: faint lines underneath, the accent on top so a risk chain
-// is never hidden under an ordinary edge where they cross.
+// Paint order: faint lines underneath, the status hues (amber risk, red
+// cycle) on top so a risk chain is never hidden under an ordinary edge
+// where they cross.
 const KIND_ORDER: Record<GraphEdgeKind, number> = {
   resolved: 0,
   default: 1,

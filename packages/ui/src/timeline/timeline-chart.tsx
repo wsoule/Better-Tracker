@@ -34,6 +34,7 @@ import { TimelineBarView } from './timeline-bar';
 import { TimelineCards } from './timeline-cards';
 import styles from './timeline-chart.module.css';
 import { TimelineGridLayer, TimelineScaleHeader } from './timeline-scale';
+import { laneSublabelTone, undatedTone } from './tones';
 import type {
   TimelineChartProps,
   TimelineGroup,
@@ -264,7 +265,8 @@ const LaneRowView = memo(function LaneRowView({
   onCommit,
 }: LaneRowViewProps): ReactElement {
   const { lane } = row;
-  const accent = lane.sublabelTone === 'accent';
+  const subTone = laneSublabelTone(lane);
+  const chipTone = undatedTone(lane.muted !== true);
   const groupName =
     lane.sublabel === undefined
       ? lane.label
@@ -318,8 +320,9 @@ const LaneRowView = memo(function LaneRowView({
                 <span
                   className={cx(
                     styles.laneSub,
-                    accent ? styles.laneSubAccent : undefined
+                    subTone === undefined ? undefined : styles.laneSubToned
                   )}
+                  data-tone={subTone}
                 >
                   {lane.sublabel}
                 </span>
@@ -369,7 +372,15 @@ const LaneRowView = memo(function LaneRowView({
                 onClick={() => onOpen(chip.id)}
               >
                 <span className={styles.chipLabel}>{chip.label}</span>
-                <span className={styles.chipNote}>No date</span>
+                <span
+                  className={cx(
+                    styles.chipNote,
+                    chipTone === 'default' ? undefined : styles.chipNoteToned
+                  )}
+                  data-tone={chipTone}
+                >
+                  No date
+                </span>
               </button>
             ))}
           </div>
@@ -421,10 +432,13 @@ const Connectors = memo(function Connectors({
   );
 });
 
+/** A legend mini bar in its status's shape and hue (`data-status` names
+ * it for tests and tooling; the label beside it says it in words). */
 function LegendSwatch({ status }: { status: UiStatus }): ReactElement {
   return (
     <span
       className={cx(styles.swatch, styles[`s_${status}`])}
+      data-status={status}
       aria-hidden="true"
     />
   );

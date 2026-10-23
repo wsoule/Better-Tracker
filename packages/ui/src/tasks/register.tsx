@@ -86,7 +86,10 @@ export function Register({
 /* One register row. With href (or onActivate) the whole row is the target:
    a stretched link/button covers it, is reachable by Tab, and draws the
    focus ring around the row; links inside cells sit above it. Hover and
-   focus flood the row to ink by swapping paper and ink tokens locally. */
+   focus flood the row to ink by swapping paper and ink tokens locally. A
+   tone other than default and muted draws the 2px left rule in the tone's
+   MARK colour (data-tone: warning blocked, danger overdue or failed, accent
+   something new); muted steps the row back to grey. */
 export function RegisterRow({
   href,
   external = false,
@@ -105,7 +108,7 @@ export function RegisterRow({
     <li
       className={cx(
         styles.row,
-        tone === 'accent' ? styles.rowAccent : undefined,
+        tone !== 'default' && tone !== 'muted' ? styles.rowRule : undefined,
         tone === 'muted' ? styles.rowMuted : undefined,
         selected ? styles.selected : undefined,
         linked ? styles.linked : undefined
@@ -145,21 +148,27 @@ const VARIANT_CLASS: Record<
 
 /* A register cell: an optional mono micro-label over a value, in one of
    three voices: name (sans 15/600, the row's subject), value (body copy)
-   or mono (machine furniture: states, counts, dates). */
+   or mono (machine furniture: states, counts, dates). A tone other than
+   default and muted colours the value in the tone's TEXT colour
+   (data-tone), and the sub line too only when `toneSub` asks (a reason
+   line that is the point); muted greys the value. */
 export function RegisterCell({
   label,
   variant = 'value',
   sub,
   tone = 'default',
+  toneSub = false,
   align = 'start',
   children,
 }: RegisterCellProps) {
+  const toned = tone !== 'default' && tone !== 'muted';
   return (
     <div
       className={cx(
         styles.cell,
         VARIANT_CLASS[variant],
-        tone === 'accent' ? styles.toneAccent : undefined,
+        toned ? styles.toneText : undefined,
+        toned && toneSub ? styles.toneSub : undefined,
         tone === 'muted' ? styles.toneMuted : undefined,
         align === 'end' ? styles.end : undefined
       )}

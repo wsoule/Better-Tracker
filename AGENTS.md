@@ -35,6 +35,15 @@
   `packages/ui/src/styles/tokens.css`, one accent, hairlines, no radius or
   shadows). The accent is purple (`#9747ff`), not Analytics' orange. See
   `docs/architecture.md` §8.
+- Keep that look (owner decision 2026-10-22, design doc §12; a Gr8r-style
+  restyle was declined and is kept on `claude/ui-reskin` for reference only).
+  Status is coloured with the status hues, never the purple: red overdue and
+  failed, amber at risk, blocked and unassigned, green on track and done, blue
+  in progress, grey inactive. Purple is for the brand, selection, focus, links,
+  new/unread and today. Colour a status through `UiTone` (`danger`, `warning`,
+  `success`, `info`, `muted`) and the `data-tone` hook (`--tone`, `--tone-ink`),
+  keep its shape and words, and follow the table in `docs/architecture.md` §8.2
+  "Status colours".
 
 ## Agent Environment
 

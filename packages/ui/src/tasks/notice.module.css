@@ -7,6 +7,16 @@
   border: 1px solid var(--border);
 }
 
+/* A status notice: the same 2px frame in the status hue (a MARK colour,
+   3:1), and its key in the hue's TEXT colour (4.5:1). */
+:global(.notice).toned {
+  border-color: var(--tone);
+}
+
+.key.toneKey {
+  color: var(--tone-ink);
+}
+
 .key {
   flex: none;
   text-transform: uppercase;

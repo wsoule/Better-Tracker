@@ -23,8 +23,10 @@
   text-transform: uppercase;
 }
 
-.accent {
-  color: var(--accent-ink);
+/* A group label with a tone (data-tone: danger Overdue, warning Today and
+   Tomorrow when they hold something) in the tone's TEXT colour. */
+.toned {
+  color: var(--tone-ink);
 }
 
 .count {
@@ -105,6 +107,10 @@
   --foreground: var(--paper);
   --accent-ink: var(--accent-ink-inverse);
   --accent-ink-hover: var(--accent-ink-inverse);
+  --red-ink: var(--red-ink-inverse);
+  --amber-ink: var(--amber-ink-inverse);
+  --green-ink: var(--green-ink-inverse);
+  --blue-ink: var(--blue-ink-inverse);
   --grey-2-ink: var(--muted-inverse);
   --border: var(--paper);
   --muted: var(--muted-inverse);
@@ -116,6 +122,10 @@
     --foreground: var(--paper);
     --accent-ink: var(--accent-ink-inverse);
     --accent-ink-hover: var(--accent-ink-inverse);
+    --red-ink: var(--red-ink-inverse);
+    --amber-ink: var(--amber-ink-inverse);
+    --green-ink: var(--green-ink-inverse);
+    --blue-ink: var(--blue-ink-inverse);
     --grey-2-ink: var(--muted-inverse);
     --border: var(--paper);
     --muted: var(--muted-inverse);

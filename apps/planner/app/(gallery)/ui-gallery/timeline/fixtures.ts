@@ -23,6 +23,7 @@ const STATUS_LABEL: Record<UiStatus, string> = {
   at_risk: 'At risk',
   overdue: 'Overdue',
   missing: 'Missing input',
+  open: 'Open',
 };
 
 function bar(
@@ -158,7 +159,7 @@ export const GROUPS: TimelineGroup[] = [
         label: 'Ledger API',
         href: '/timeline?project=p-ledger',
         sublabel: 'No lead',
-        sublabelTone: 'accent',
+        sublabelTone: 'warning',
         bars: [
           bar(
             'm-ledger-v2',

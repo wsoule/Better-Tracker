@@ -69,10 +69,16 @@ function baseProps(extra: Partial<TaskDetailProps> = {}): TaskDetailProps {
       {
         id: 'blocked',
         label: 'Blocked',
+        tone: 'warning',
         message: 'Waiting on ENG-23 (in progress).',
         action: { label: 'Graph', href: '/graph?focus=ENG-24' },
       },
-      { id: 'stalled', label: 'Stalled', message: 'In Todo for 9 days.' },
+      {
+        id: 'stalled',
+        label: 'Stalled',
+        tone: 'warning',
+        message: 'In Todo for 9 days.',
+      },
     ],
     properties: [
       { id: 'assignee', label: 'Assignee', value: 'Ana Moreno' },
@@ -84,7 +90,7 @@ function baseProps(extra: Partial<TaskDetailProps> = {}): TaskDetailProps {
       blocks: [],
     },
     activity: [
-      { id: 'a', at: 'Oct 21', label: 'Flagged as stalled', tone: 'accent' },
+      { id: 'a', at: 'Oct 21', label: 'Flagged as stalled', tone: 'warning' },
     ],
     ...extra,
   };
@@ -500,7 +506,7 @@ describe('TaskActivityList', () => {
       dateTime: '2026-10-21',
       label: 'Flagged as stalled',
       detail: 'In Todo for 9 days.',
-      tone: 'accent',
+      tone: 'warning',
     },
     { id: '2', at: 'Oct 14', label: 'Blocked by ENG-23', href: '/runs/1' },
     { id: '3', at: 'Oct 12', label: 'Assigned by the planner', tone: 'muted' },
@@ -522,7 +528,7 @@ describe('TaskActivityList', () => {
       screen.getByRole('list', { name: 'Activity' })
     ).getAllByRole('listitem');
     expect(rows.map((r) => r.getAttribute('data-tone'))).toEqual([
-      'accent',
+      'warning',
       'default',
       'muted',
       'default',
@@ -557,12 +563,12 @@ describe('TaskActivityList', () => {
 describe('TaskPropertyValue', () => {
   test('prints the value with a note under it', () => {
     render(
-      <TaskPropertyValue tone="accent" note="Next milestone, due Oct 26">
+      <TaskPropertyValue tone="warning" note="Next milestone, due Oct 26">
         Unassigned
       </TaskPropertyValue>
     );
     expect(screen.getByText('Unassigned').getAttribute('data-tone')).toBe(
-      'accent'
+      'warning'
     );
     // The note is a sentence from the host: it reads in its own direction.
     expect(

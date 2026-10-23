@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import type { UiStatus } from '../types';
+import type { UiStatus, UiTone } from '../types';
 
 // Prop vocabulary of the "timeline" family: the Gr8r Gantt drawn in the
 // Analytics Matrix style. Plain data + callbacks only, so the planner
@@ -29,7 +29,9 @@ export interface TimelineBar {
   /** Mono tags, e.g. "NEXT" for the lane's next milestone, "↑2" for a
    * weight override. */
   tags?: string[];
-  /** Missing rubric input, e.g. "MISSING: DONE MEANS". Hatches the bar. */
+  /** Missing rubric input, e.g. "MISSING: DONE MEANS": a line in the
+   * warning (amber) text inside the bar. The hatch comes from the
+   * 'missing' status. */
   missing?: string;
   /** Shows the right-edge handle that re-dates the milestone. */
   editable?: boolean;
@@ -52,8 +54,11 @@ export interface TimelineLane {
   href?: string;
   /** Mono note under the name: the lead's name, or "NO LEAD". */
   sublabel?: string;
-  /** 'accent' when the sublabel asks for action (NO LEAD). */
-  sublabelTone?: 'default' | 'accent';
+  /** Colours the sublabel when it asks for action: 'warning' (amber) for
+   * NO LEAD or a deactivated lead (docs/architecture.md §8.2 "Status
+   * colours"). default and muted leave it the quiet grey; an inactive
+   * (muted) lane is never coloured. */
+  sublabelTone?: UiTone;
   /** An inactive project: drawn in greys, never loud. */
   muted?: boolean;
   bars: TimelineBar[];
@@ -84,7 +89,8 @@ export interface TimelineGroup {
 export interface TimelineDependency {
   from: string;
   to: string;
-  /** The blocker is unassigned/overdue or waits on one: drawn in accent. */
+  /** The blocker is unassigned/overdue or waits on one: drawn in the
+   * warning (amber) hue. */
   onRiskChain: boolean;
 }
 

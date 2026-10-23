@@ -14,6 +14,7 @@ import {
 
 import StatusMark from '../components/status-mark';
 import { Link } from '../lib/link';
+import type { UiTone } from '../types';
 import { Chip } from './chip';
 import { cx } from './class-names';
 import {
@@ -52,6 +53,12 @@ const COLUMN_WIDTHS: Record<TaskColumnId, string> = {
 };
 
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
+
+// Whether a due date's tone colours its text (the tone's --tone-ink via
+// data-tone): every tone but default (ink) and muted (its own grey class).
+function hasTextTone(tone: UiTone | undefined): boolean {
+  return tone !== undefined && tone !== 'default' && tone !== 'muted';
+}
 
 function plural(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
@@ -391,9 +398,11 @@ function Group({
       ? `${group.eyebrow}, ${group.title}`
       : group.title;
   const countId = `${listId}-count`;
-  // A muted group is never loud: no accent on its date or progress.
+  // A muted group (an inactive project's milestone) is never loud: its
+  // date carries no tone and its progress is the inactive grey.
   const muted = group.muted === true;
-  const dueAccent = !muted && group.dueTone === 'accent';
+  const dueTone = muted ? 'default' : (group.dueTone ?? 'default');
+  const dueToned = hasTextTone(dueTone);
 
   function onTitleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (onOpenGroup === undefined || !isPlainClick(event)) return;
@@ -476,9 +485,9 @@ function Group({
             <span
               className={cx(
                 styles.groupDue,
-                dueAccent ? styles.accentText : undefined
+                dueToned ? styles.toneText : undefined
               )}
-              data-tone={muted ? 'default' : (group.dueTone ?? 'default')}
+              data-tone={dueTone}
             >
               <span className="srOnly">Due </span>
               {group.dueLabel}
@@ -486,7 +495,7 @@ function Group({
                 <span
                   className={cx(
                     styles.daysLeft,
-                    dueAccent ? styles.accentText : undefined
+                    dueToned ? styles.toneText : undefined
                   )}
                 >
                   {group.daysLeftLabel}
@@ -499,7 +508,7 @@ function Group({
               <ProgressRule
                 done={group.progress.done}
                 total={group.progress.total}
-                tone={muted ? 'default' : group.progress.tone}
+                tone={muted ? 'muted' : group.progress.tone}
                 aria-label={`${group.title} progress`}
               />
             </span>
@@ -668,7 +677,7 @@ function CellValue({
         <span
           className={cx(
             styles.glyphValue,
-            row.priority === 1 ? styles.accentText : undefined
+            row.priority === 1 ? styles.urgentText : undefined
           )}
           data-priority={row.priority}
         >
@@ -681,7 +690,7 @@ function CellValue({
         <span
           className={cx(
             styles.metaText,
-            row.dueTone === 'accent' ? styles.accentText : undefined,
+            hasTextTone(row.dueTone) ? styles.toneText : undefined,
             row.dueTone === 'muted' ? styles.mutedText : undefined
           )}
           data-tone={row.dueTone ?? 'default'}

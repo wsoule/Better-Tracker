@@ -141,11 +141,12 @@
   color: var(--muted);
 }
 
-/* A field the form or the server refused keeps an accent rule after focus
-   leaves it, beside its error line (2px is emphasis). */
+/* A field the form or the server refused keeps a 2px rule in the red
+   status hue after focus leaves it, beside its error line (2px is
+   emphasis; an error is danger, architecture §8.2). */
 .textInput[aria-invalid='true'],
 .numberInput[aria-invalid='true'] {
-  border: 2px solid var(--accent);
+  border: 2px solid var(--red);
   padding: 7px 9px;
 }
 
@@ -156,7 +157,7 @@
   letter-spacing: 0.04em;
   line-height: 1.4;
   text-align: right;
-  color: var(--accent-ink);
+  color: var(--red-ink);
 }
 
 .statusList {

@@ -44,7 +44,7 @@ export const MILESTONES: GraphNodeData[] = [
     group: 'Billing',
   }),
   node('search-m1', 'Index rebuild', 'Search · due Nov 2 · no lead', {
-    tone: 'accent',
+    tone: 'warning',
     status: 'at_risk',
     tags: ['UNASSIGNED'],
     group: 'Search',
@@ -93,7 +93,7 @@ export const ISSUES: GraphNodeData[] = [
   }),
   node('ATL-42', 'Dual-write shim', 'ATL-42 · Ben', { tags: ['OVERDUE'] }),
   node('ATL-43', 'Backfill orders table', 'ATL-43 · unassigned', {
-    tone: 'accent',
+    tone: 'warning',
     tags: ['UNASSIGNED', 'OVERDUE'],
   }),
   node(

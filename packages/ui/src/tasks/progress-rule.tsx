@@ -3,8 +3,11 @@ import styles from './progress-rule.module.css';
 import type { ProgressRuleProps } from './types';
 
 /* completed/scope as a drawn rule: a 1px ghost track (--grey-4) with an ink
-   fill sitting on it, accent when the progress itself needs action, and a
-   mono "3/7" receipt. Exposed as a progressbar with a sentence value. */
+   fill sitting on it and a mono "3/7" receipt. Any tone but default paints
+   the fill in the tone's MARK colour and the receipt in its TEXT colour
+   (data-tone): danger overdue, warning behind pace, success complete, muted
+   inactive, accent for a fill that is not a status. Exposed as a
+   progressbar with a sentence value. */
 export function ProgressRule({
   done,
   total,
@@ -19,7 +22,7 @@ export function ProgressRule({
 
   return (
     <span
-      className={cx(styles.wrap, tone === 'accent' ? styles.accent : undefined)}
+      className={cx(styles.wrap, tone === 'default' ? undefined : styles.toned)}
       data-tone={tone}
     >
       <span

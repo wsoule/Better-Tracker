@@ -11,7 +11,8 @@ import type { DeadlineListProps } from './types';
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
 /* Gr8r's "Upcoming deadlines" panel as a register: groups (Overdue / Today /
-   Tomorrow / This week) with a mono label and count, each item a linked
+   Tomorrow / This week) with a mono label (in its tone's text colour:
+   danger Overdue, warning Today and Tomorrow) and count, each item a linked
    row (status mark, milestone, mono sublabel, due) that floods to ink on
    hover. Long groups show `limit` items and a "+N more" disclosure; opening
    it moves focus to the first revealed item so keyboard users land on the
@@ -71,7 +72,11 @@ export function DeadlineList({
               <span
                 className={cx(
                   styles.label,
-                  group.tone === 'accent' ? styles.accent : undefined
+                  group.tone !== undefined &&
+                    group.tone !== 'default' &&
+                    group.tone !== 'muted'
+                    ? styles.toned
+                    : undefined
                 )}
                 data-tone={group.tone ?? 'default'}
               >

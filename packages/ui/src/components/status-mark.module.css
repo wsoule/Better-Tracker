@@ -16,23 +16,31 @@
     border-color 0.15s ease;
 }
 
+/* The status hues are MARK tokens (tokens.css): 3:1 on the paper and on a
+   hover flood's ink, so a mark keeps its colour inside a flooded row.
+   Done stays the filled ink square: a green fill and the red overdue fill
+   have the same lightness, so without red-green vision (or in greyscale)
+   the best and the worst status would be the same filled square. Ink
+   against red keeps them apart (docs/architecture.md §8.2); green is the
+   on-track edge and done's words. */
 .done {
   background: var(--foreground);
 }
 
 .on_track {
   background: transparent;
+  border-color: var(--green);
 }
 
 /* 2px is emphasis: spent here because at-risk is the state that asks for
    action before the date. */
 .at_risk {
-  border: 2px solid var(--accent);
+  border: 2px solid var(--amber);
 }
 
 .overdue {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--red);
+  border-color: var(--red);
 }
 
 .missing {
@@ -46,9 +54,9 @@
   );
 }
 
-/* An inactive project: hollow, in the faint grey (never loud). */
+/* An inactive project: hollow, in the inactive grey (never loud). */
 .muted {
-  border-color: var(--grey-3);
+  border-color: var(--grey);
   background: transparent;
 }
 
@@ -59,6 +67,30 @@
   letter-spacing: 0.1em;
   text-transform: uppercase;
   white-space: nowrap;
+}
+
+/* Forced colours drop backgrounds: the filled marks keep a fill in the
+   system's text colour so done and overdue still read as filled, and the
+   missing mark keeps its hatching (else it would read as on track). */
+@media (forced-colors: active) {
+  .done,
+  .overdue {
+    forced-color-adjust: none;
+    background: CanvasText;
+    border-color: CanvasText;
+  }
+
+  .missing {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background-image: repeating-linear-gradient(
+      45deg,
+      CanvasText 0,
+      CanvasText 1px,
+      transparent 1px,
+      transparent 4px
+    );
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
