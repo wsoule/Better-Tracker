@@ -156,6 +156,12 @@ export interface Issue {
    * createdAt/startedAt/completedAt/canceledAt. Drives "stalled" risk.
    */
   lastStateChangeAt: IsoDateTime;
+  /**
+   * The issue's own Linear due date (Issue.dueDate, a TimelessDate), or
+   * null. Absent on mirrors written before 2026-10-22 (read as none) until
+   * the next full sync writes it.
+   */
+  dueDate?: IsoDate | null;
 }
 
 /** Only Linear "blocks" relations are kept: blocker blocks blocked. */
@@ -1081,4 +1087,304 @@ export interface IssueDetail {
   timing: IssueDetailTiming;
   why: IssueWhyItMatters;
   options: IssueEditOptions;
+}
+
+// ---------------------------------------------------------------------------
+// Issue list (owner request 2026-10-22, "every issue in one list"): every
+// issue the viewer can see, filtered, weight-ordered, grouped, and the
+// moves that place issues in milestones (architecture §2.14, §7.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * "No project / milestone / initiative / assignee" in a filter or URL. It
+ * equals NO_INITIATIVE_ID; Linear ids are UUIDs, so it cannot clash.
+ */
+export const LIST_NONE = 'none';
+/** The viewer, in the assignee filter (resolved per request). */
+export const LIST_ME = 'me';
+
+/** What the list groups by. */
+export type IssueListGroupBy =
+  | 'milestone'
+  | 'project'
+  | 'initiative'
+  | 'assignee'
+  | 'state'
+  | 'priority'
+  | 'none';
+/** The divider level above the groups. */
+export type IssueListSectionBy = 'none' | 'initiative' | 'project';
+/** Row order inside a group ('weight' is architecture §2.7's order). */
+export type IssueListSort =
+  | 'weight'
+  | 'priority'
+  | 'due'
+  | 'updated'
+  | 'created'
+  | 'title';
+/** Quick filters: each adds one condition. */
+export type IssueListQuick = 'blocked' | 'at_risk' | 'next';
+/** The filter fields that hold entity ids. */
+export type IssueListIdFacet =
+  | 'initiative'
+  | 'project'
+  | 'milestone'
+  | 'assignee'
+  | 'team';
+/** The preset tabs. */
+export type IssueListPresetId =
+  | 'all'
+  | 'mine'
+  | 'unplanned'
+  | 'unassigned'
+  | 'blocked'
+  | 'at_risk';
+
+/**
+ * The list's filters. Values within a field are OR'd; fields and quick
+ * filters are AND'd; an empty field adds no condition.
+ */
+export interface IssueListFilters {
+  /** Trimmed, at most ISSUE_LIST_QUERY_MAX characters; '' = none. */
+  q: string;
+  /** Initiative ids or LIST_NONE (a project in no mirrored initiative). */
+  initiativeIds: string[];
+  /** Project ids or LIST_NONE. */
+  projectIds: string[];
+  /** Milestone ids or LIST_NONE. */
+  milestoneIds: string[];
+  /** User ids, LIST_ME or LIST_NONE (unassigned). */
+  assigneeIds: string[];
+  teamIds: string[];
+  /** Never empty; OPEN_STATE_TYPES by default. */
+  stateTypes: WorkflowStateType[];
+  priorities: Priority[];
+  quick: IssueListQuick[];
+}
+
+/** One issue list view, as a URL describes it. */
+export interface IssueListQuery {
+  filters: IssueListFilters;
+  group: IssueListGroupBy;
+  sections: IssueListSectionBy;
+  sort: IssueListSort;
+  /** Ignored for 'weight' (normalized to 'asc' there). */
+  dir: 'asc' | 'desc';
+  /** Row budget: a multiple of ISSUE_LIST_LIMIT_STEP in [DEFAULT, MAX]. */
+  limit: number;
+}
+
+/** What a bulk change, a drop or Undo sets (§7.3). Exactly the allowed fields. */
+export interface IssueBulkPatch {
+  /**
+   * Placement: a milestone (its project comes with it), or a project with
+   * no milestone, or { projectId: null, milestoneId: null } = no project.
+   */
+  move?: { projectId: string | null; milestoneId: string | null };
+  assigneeId?: string | null;
+  priority?: Priority;
+  /**
+   * Resolved per issue's team: the state of that type whose name matches
+   * (trimmed, case-insensitive: stateNameKey).
+   */
+  state?: { type: WorkflowStateType; name: string };
+}
+
+/** One issue as the list shows it. */
+export interface IssueListRow {
+  id: string;
+  identifier: string;
+  title: string;
+  url: string;
+  teamId: string;
+  stateId: string;
+  /** '' when the state is not mirrored. */
+  stateName: string;
+  stateType: WorkflowStateType;
+  priority: Priority;
+  assigneeId: string | null;
+  /** Null when not mirrored. */
+  projectId: string | null;
+  /** Null when not mirrored (reads as "No milestone"). */
+  milestoneId: string | null;
+  dueDate: IsoDate | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+  open: boolean;
+  /** Open blockers in the viewer's mirror. */
+  blockedBy: number;
+  /**
+   * Open, and blocks an open issue of an overdue or at-risk milestone of
+   * an active project: the first such milestone in weight order.
+   */
+  holdsUpMilestoneId: string | null;
+  /** Open, unassigned, not triage, in its active project's next milestone. */
+  unassignedInNext: boolean;
+  /** Its project is active (§2.8); true when it has no project. */
+  projectActive: boolean;
+}
+
+/** What a group collects. */
+export type IssueListGroupValue =
+  | { kind: 'milestone'; milestoneId: string; projectId: string }
+  | { kind: 'no_milestone'; projectId: string }
+  | { kind: 'project'; projectId: string }
+  | { kind: 'no_project' }
+  /** initiativeId may be NO_INITIATIVE_ID. */
+  | { kind: 'initiative'; initiativeId: string }
+  | { kind: 'assignee'; userId: string | null }
+  | { kind: 'state'; stateType: WorkflowStateType; stateName: string }
+  | { kind: 'priority'; priority: Priority }
+  | { kind: 'all' };
+
+export interface IssueListGroup {
+  /** `<sectionKey>/<valueKey>` (architecture §2.14 has the grammar). */
+  key: string;
+  value: IssueListGroupValue;
+  /** Matching issues in this group (all of them, shown or not). */
+  count: number;
+  /** The first issues in sort order, within the row budget (may be []). */
+  rows: IssueListRow[];
+  /** What dropping on this group sets; null = not a drop target. */
+  patch: IssueBulkPatch | null;
+  /** An inactive project's milestone, "No milestone" or project group. */
+  muted: boolean;
+  /** Listed only as a drop target (count 0). */
+  emptyTarget: boolean;
+}
+
+/** What a section collects. */
+export type IssueListSectionValue =
+  | { kind: 'tier'; tier: 'overdue' | 'upcoming' | 'unplanned' | 'inactive' }
+  | { kind: 'initiative'; initiativeId: string }
+  | { kind: 'project'; projectId: string }
+  | { kind: 'no_project' }
+  | { kind: 'all' };
+
+export interface IssueListSection {
+  /** 't:<tier>' | 'i:<id|none>' | 'p:<id>' | 'p:none' | 'all'. */
+  key: string;
+  value: IssueListSectionValue;
+  /** Matching issues in the section (all of them, shown or not). */
+  count: number;
+  groups: IssueListGroup[];
+}
+
+/** Names of what rows, groups, sections and filter values reference. */
+export interface IssueListRefs {
+  people: Record<string, { name: string; active: boolean }>;
+  teams: Record<string, { key: string; name: string }>;
+  initiatives: Record<string, { name: string }>;
+  projects: Record<
+    string,
+    {
+      name: string;
+      url: string;
+      active: boolean;
+      statusName: string;
+      leadId: string | null;
+      homeInitiativeId: string | null;
+      nextMilestoneId: string | null;
+      allocation: {
+        outcome: ProjectAllocationOutcome;
+        blockReason: AllocationBlockReason | null;
+        gaps: RubricGap[];
+      } | null;
+    }
+  >;
+  milestones: Record<
+    string,
+    {
+      name: string;
+      projectId: string;
+      targetDate: IsoDate | null;
+      daysLeft: number | null;
+      status: MilestoneStatus;
+      /** Why it is at risk or overdue (the assessment's reasons). */
+      reasons: RiskReason[];
+      rubric: RubricResult;
+      isNext: boolean;
+      weight: number | null;
+      progress: Progress;
+    }
+  >;
+}
+
+/** The issue list (buildIssueList). Plain data, ready to serialize. */
+export interface IssueListView {
+  /** As applied: normalized, with the no-initiatives fallback. */
+  query: IssueListQuery;
+  today: IsoDate;
+  /** Matching issues. */
+  total: number;
+  /** Rows returned, across groups. */
+  shown: number;
+  sections: IssueListSection[];
+  /** Groups past ISSUE_LIST_MAX_GROUPS, left out (their issues count in total). */
+  moreGroups: { groups: number; issues: number };
+  /** Each preset's own result size (independent of the current filters). */
+  counts: Record<IssueListPresetId, number>;
+  /** Mirrored, non-completed projects the viewer sees. */
+  projectCount: number;
+  refs: IssueListRefs;
+  /** Filter values the viewer's mirror lacks (unknown and hidden alike). */
+  unknownIds: { facet: IssueListIdFacet; id: string }[];
+  fallback: { reason: 'no_initiatives' } | null;
+  /** The status filter names a closed type (coverage notice). */
+  includesClosed: boolean;
+  /**
+   * With an initiative filter: projects in a chosen initiative that count
+   * under another first initiative.
+   */
+  alsoIn: {
+    projectId: string;
+    projectName: string;
+    homeInitiativeName: string;
+    chosenInitiativeName: string;
+  }[];
+}
+
+/** The filter, move and bulk pickers' data (fetched lazily by the planner). */
+export interface IssueListOptions {
+  /** compareInitiatives order; [] for a guest. */
+  initiatives: { id: string; name: string }[];
+  /** Active first (timeline order), then the rest. */
+  projects: {
+    id: string;
+    name: string;
+    active: boolean;
+    statusName: string;
+    homeInitiativeId: string | null;
+    /**
+     * Only the viewer's visible teams: the narrowed snapshot keeps a shared
+     * project's full Project.teamIds, hidden teams included, and this
+     * payload goes to the browser.
+     */
+    teamIds: string[];
+    leadId: string | null;
+    /** §2.6 order (date ascending, undated last). */
+    milestones: {
+      id: string;
+      name: string;
+      targetDate: IsoDate | null;
+      daysLeft: number | null;
+      status: MilestoneStatus;
+      isNext: boolean;
+      weight: number | null;
+    }[];
+  }[];
+  /** Non-app people; active first, each part by folded name. */
+  people: { id: string; name: string; displayName: string; active: boolean }[];
+  teams: {
+    id: string;
+    key: string;
+    name: string;
+    /** Type group, then position. */
+    states: {
+      id: string;
+      name: string;
+      type: WorkflowStateType;
+      position: number;
+    }[];
+  }[];
 }

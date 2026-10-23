@@ -10,10 +10,15 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   type BlockerEngine,
+  bulkUpdateIssues,
   type CommentEngine,
   deleteRelation,
   getIssue,
+  getIssueListOptionsRoute,
+  type IssueBulkEngine,
+  type IssueListOptionsEngine,
   type IssuePatchEngine,
+  issuesReturnTo,
   type IssueReadEngine,
   patchIssue,
   postBlocker,
@@ -663,5 +668,371 @@ describe('a Linear guest', () => {
       resolver(engine, guest)
     );
     expect(search.status).toBe(200);
+  });
+});
+
+// GET /api/issues/options (owner request 2026-10-22, "every issue in one
+// list"): the Issues page's picker options, read as the signed-in person
+// (a guest too), private and never cached.
+describe('GET /api/issues/options', () => {
+  const OPTIONS = {
+    initiatives: [],
+    projects: [],
+    people: [],
+    teams: [{ id: 'team-ops', key: 'OPS', name: 'Operations', states: [] }],
+  };
+
+  function optionsEngine(failWith?: Error): {
+    engine: IssueListOptionsEngine;
+    calls: unknown[][];
+  } {
+    const calls: unknown[][] = [];
+    return {
+      calls,
+      engine: {
+        getIssueListOptions: (workspaceId: string, viewer?: Actor) => {
+          calls.push([workspaceId, viewer]);
+          return failWith === undefined
+            ? Promise.resolve({ options: OPTIONS, mirrorVersion: 7 })
+            : Promise.reject(failWith);
+        },
+      },
+    };
+  }
+
+  test('answers the options and the mirror version, privately', async () => {
+    const { engine, calls } = optionsEngine();
+    const who = actor();
+    const response = await getIssueListOptionsRoute(
+      send('GET', '/api/issues/options'),
+      resolver(engine, who)
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual({
+      options: OPTIONS,
+      mirrorVersion: 7,
+    });
+    // The viewer is passed, so the options are what the person may see.
+    expect(calls).toEqual([['org-1', who]]);
+  });
+
+  test('a Linear guest reads them too', async () => {
+    const { engine, calls } = optionsEngine();
+    const guest = actor({
+      session: { userId: 'user-gus', workspaceId: 'org-1' },
+      canWriteLinear: false,
+      readOnly: true,
+    } as unknown as Partial<Actor>);
+    const response = await getIssueListOptionsRoute(
+      send('GET', '/api/issues/options'),
+      resolver(engine, guest)
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toEqual([['org-1', guest]]);
+  });
+
+  test('a signed-out request never reaches the engine', async () => {
+    const { calls } = optionsEngine();
+    const response = await getIssueListOptionsRoute(
+      send('GET', '/api/issues/options'),
+      () =>
+        Promise.resolve(
+          jsonError(401, 'not_signed_in', 'Sign in to use the planner.')
+        )
+    );
+    expect(response.status).toBe(401);
+    expect(calls).toEqual([]);
+  });
+
+  test('engine errors map to their statuses', async () => {
+    const { engine } = optionsEngine(
+      new EngineAuthError('wrong_workspace', 'That workspace is not yours.')
+    );
+    const response = await getIssueListOptionsRoute(
+      send('GET', '/api/issues/options'),
+      resolver(engine)
+    );
+    expect(response.status).toBe(403);
+    expect((await errorOf(response)).code).toBe('wrong_workspace');
+  });
+});
+
+// PATCH /api/issues (owner request 2026-10-22, "every issue in one list";
+// architecture §7.3): the Issues page's bulk change, drop and Undo. The
+// order is the CSRF guard, the session, a guest's read_only (before the
+// body), the strict body, write scope (with the grant link back to the
+// sanitized /issues view), then engine.updateIssues.
+describe('PATCH /api/issues', () => {
+  const RESULT = {
+    at: '2026-10-22T12:00:00.000Z',
+    outcomes: [
+      {
+        status: 'changed',
+        issueId: 'iss-eng-54',
+        identifier: 'ENG-54',
+        changed: ['projectMilestoneId'],
+        before: {
+          projectId: 'proj-garnet',
+          milestoneId: null,
+          assigneeId: 'user-ben',
+          priority: 1,
+          stateType: 'unstarted',
+          stateName: 'Todo',
+        },
+      },
+      {
+        status: 'failed',
+        issueId: 'iss-eng-55',
+        identifier: 'ENG-55',
+        code: 'linear_forbidden',
+        message: 'Linear refused.',
+      },
+    ],
+    counts: { changed: 1, unchanged: 0, skipped: 0, failed: 1 },
+    stopped: null,
+    allocation: { handedOver: [], stopped: [] },
+  };
+
+  function bulkEngine(failWith?: Error): {
+    engine: IssueBulkEngine;
+    calls: unknown[][];
+  } {
+    const calls: unknown[][] = [];
+    return {
+      calls,
+      engine: {
+        updateIssues: (who: Actor, ids: readonly string[], patch: unknown) => {
+          calls.push([who.session.userId, ids, patch]);
+          return failWith === undefined
+            ? Promise.resolve(RESULT as never)
+            : Promise.reject(failWith);
+        },
+      },
+    };
+  }
+
+  const MOVE = {
+    issueIds: ['iss-eng-54', 'iss-eng-55'],
+    patch: { move: { projectId: 'proj-garnet', milestoneId: 'ms-garnet-2' } },
+    returnTo: '/issues?project=proj-garnet&milestone=none',
+  };
+
+  test('a move reaches the engine as typed: 200 { result }, partial results included', async () => {
+    const { engine, calls } = bulkEngine();
+    const response = await bulkUpdateIssues(
+      send('PATCH', '/api/issues', MOVE),
+      resolver(engine)
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(await response.json()).toEqual({ result: RESULT });
+    expect(calls).toEqual([
+      [
+        'user-chloe',
+        ['iss-eng-54', 'iss-eng-55'],
+        { move: { projectId: 'proj-garnet', milestoneId: 'ms-garnet-2' } },
+      ],
+    ]);
+  });
+
+  test('every field, and only the sent ones', async () => {
+    const { engine, calls } = bulkEngine();
+    await bulkUpdateIssues(
+      send('PATCH', '/api/issues', {
+        issueIds: ['iss-ops-1'],
+        patch: {
+          assigneeId: null,
+          priority: 0,
+          state: { type: 'started', name: '  In Review ' },
+        },
+      }),
+      resolver(engine)
+    );
+    expect(calls).toEqual([
+      [
+        'user-chloe',
+        ['iss-ops-1'],
+        {
+          assigneeId: null,
+          priority: 0,
+          state: { type: 'started', name: 'In Review' },
+        },
+      ],
+    ]);
+  });
+
+  test('malformed bodies are 400s before the engine is reached', async () => {
+    const { engine, calls } = bulkEngine();
+    const many = Array.from({ length: 101 }, (_, i) => `iss-${i}`);
+    const bodies: unknown[] = [
+      {},
+      { issueIds: [], patch: { priority: 1 } },
+      { issueIds: many, patch: { priority: 1 } },
+      { issueIds: ['iss-1', 'iss-1'], patch: { priority: 1 } },
+      { issueIds: ['iss-1'], patch: {} },
+      { issueIds: ['iss-1'], patch: { priority: 5 } },
+      { issueIds: ['iss-1'], patch: { title: 'Renamed' } },
+      { issueIds: ['iss-1'], patch: { stateId: 'st-eng-done' } },
+      {
+        issueIds: ['iss-1'],
+        patch: { state: { type: 'doing', name: 'Doing' } },
+      },
+      {
+        issueIds: ['iss-1'],
+        patch: { state: { type: 'started', name: '   ' } },
+      },
+      { issueIds: ['iss-1'], patch: { move: { projectId: 'p' } } },
+      {
+        issueIds: ['iss-1'],
+        patch: { move: { projectId: 'p', milestoneId: null, extra: 1 } },
+      },
+      { issueIds: ['iss-1'], patch: { priority: 1 }, other: true },
+    ];
+    for (const body of bodies) {
+      const response = await bulkUpdateIssues(
+        send('PATCH', '/api/issues', body),
+        resolver(engine)
+      );
+      expect(response.status).toBe(400);
+      expect((await errorOf(response)).code).toBe('invalid');
+    }
+    const notJson = await bulkUpdateIssues(
+      send('PATCH', '/api/issues', '{nope'),
+      resolver(engine)
+    );
+    expect(notJson.status).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
+  test('the order: cross-origin, then signed out, then a guest before the body', async () => {
+    const { engine, calls } = bulkEngine();
+    const crossOrigin = await bulkUpdateIssues(
+      send('PATCH', '/api/issues', MOVE, 'https://evil.example'),
+      resolver(engine)
+    );
+    expect(crossOrigin.status).toBe(403);
+    expect((await errorOf(crossOrigin)).code).not.toBe('read_only');
+    const signedOut = await bulkUpdateIssues(
+      send('PATCH', '/api/issues', MOVE),
+      () =>
+        Promise.resolve(
+          jsonError(401, 'not_signed_in', 'Sign in to use the planner.')
+        )
+    );
+    expect(signedOut.status).toBe(401);
+    const guest = actor({
+      session: { userId: 'user-gus', workspaceId: 'org-1' },
+      canWriteLinear: true,
+      readOnly: true,
+    } as unknown as Partial<Actor>);
+    // A malformed body still answers read_only: the body is never read.
+    const refused = await bulkUpdateIssues(
+      send('PATCH', '/api/issues', { nonsense: true }),
+      resolver(engine, guest)
+    );
+    expect(refused.status).toBe(403);
+    expect(await errorOf(refused)).toEqual({
+      code: 'read_only',
+      message: 'Guests in Linear can look but not change anything here.',
+    });
+    expect(calls).toEqual([]);
+  });
+
+  test('no write scope: 403 with the grant link back to the /issues view', async () => {
+    const { engine, calls } = bulkEngine();
+    const response = await bulkUpdateIssues(
+      send('PATCH', '/api/issues', MOVE),
+      resolver(engine, actor({ canWriteLinear: false }))
+    );
+    expect(response.status).toBe(403);
+    const error = await errorOf(response);
+    expect(error.code).toBe('needs_write_scope');
+    expect(error.grantWriteHref).toBe(
+      `/api/auth/linear?intent=grant_write&returnTo=${encodeURIComponent('/issues?project=proj-garnet&milestone=none')}`
+    );
+    const foreign = await bulkUpdateIssues(
+      send('PATCH', '/api/issues', {
+        ...MOVE,
+        returnTo: 'https://evil.example/issues',
+      }),
+      resolver(engine, actor({ canWriteLinear: false }))
+    );
+    expect((await errorOf(foreign)).grantWriteHref).toBe(
+      `/api/auth/linear?intent=grant_write&returnTo=${encodeURIComponent('/issues')}`
+    );
+    expect(calls).toEqual([]);
+  });
+
+  test('returnTo is kept only as an /issues path', () => {
+    expect(issuesReturnTo('/issues')).toBe('/issues');
+    expect(issuesReturnTo('/issues?project=a')).toBe('/issues?project=a');
+    expect(issuesReturnTo('/issues/ENG-12')).toBe('/issues/ENG-12');
+    expect(issuesReturnTo(undefined)).toBe('/issues');
+    expect(issuesReturnTo('/issuesx')).toBe('/issues');
+    expect(issuesReturnTo('/week')).toBe('/issues');
+    expect(issuesReturnTo('//evil.example/issues')).toBe('/issues');
+    expect(issuesReturnTo('/issues\\evil')).toBe('/issues');
+    expect(issuesReturnTo('/issues?x=1\ny')).toBe('/issues');
+  });
+
+  test('a stop with nothing changed: 401, or 429 with Retry-After; an unknown target 404', async () => {
+    const retryAt = new Date(Date.now() + 60_000).toISOString();
+    const cases: [Error, number, string][] = [
+      [
+        new EngineAuthError('not_signed_in', 'Sign in again.'),
+        401,
+        'not_signed_in',
+      ],
+      [
+        new EngineInputError('rate_limited', 'Slow down.', { retryAt }),
+        429,
+        'rate_limited',
+      ],
+      [
+        new EngineInputError(
+          'not_found',
+          'That milestone is not in the planner.'
+        ),
+        404,
+        'not_found',
+      ],
+      [
+        new EngineInputError(
+          'invalid',
+          'Push notifications is not a milestone of Atlas billing migration.'
+        ),
+        400,
+        'invalid',
+      ],
+    ];
+    for (const [error, status, code] of cases) {
+      const { engine } = bulkEngine(error);
+      const response = await bulkUpdateIssues(
+        send('PATCH', '/api/issues', MOVE),
+        resolver(engine)
+      );
+      expect(response.status).toBe(status);
+      expect((await errorOf(response)).code).toBe(code);
+      if (status === 429) {
+        const seconds = Number(response.headers.get('retry-after'));
+        expect(seconds).toBeGreaterThanOrEqual(59);
+        expect(seconds).toBeLessThanOrEqual(61);
+      }
+    }
+  });
+
+  test('a body over 1 MiB is 413, unread', async () => {
+    const { engine, calls } = bulkEngine();
+    const response = await bulkUpdateIssues(
+      send(
+        'PATCH',
+        '/api/issues',
+        JSON.stringify({ ...MOVE, returnTo: 'x'.repeat(1024 * 1024 + 10) })
+      ),
+      resolver(engine)
+    );
+    expect(response.status).toBe(413);
+    expect(calls).toEqual([]);
   });
 });

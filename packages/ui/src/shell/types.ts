@@ -211,6 +211,15 @@ export interface CommandPaletteApi {
   toggle: () => void;
   /** Adds rows to the "?" sheet while mounted; returns the remover. */
   registerShortcutGroup: (group: ShortcutGroup) => () => void;
+  /**
+   * True between the first key of a registered two-key shortcut (G) and
+   * the second, within the sequence window (1.2 s). A host's own single-key
+   * commands (a list row's `s` or `p`) yield while it is true, so G S and
+   * G P still reach the palette with a row focused. React handlers run
+   * before the palette's document listener, so the host sees the pending
+   * state the first key left behind.
+   */
+  isSequencePending: () => boolean;
 }
 
 export type ToastKind = 'info' | 'error';
@@ -224,6 +233,13 @@ export interface ToastInput {
   action?: { label: string; onClick: () => void };
   /** Milliseconds before auto-dismiss (default 4000; Infinity keeps it). */
   duration?: number;
+  /** What screen readers hear in place of `message` (the visible sentence
+      stays): e.g. "›" spoken as a comma, or the keyboard way to the
+      action ("Press Z to undo."). */
+  announce?: string;
+  /** Called once when the toast leaves the stack, however it goes (timed
+      out, dismissed, its action used, pushed off by newer ones). */
+  onClose?: () => void;
 }
 
 export interface ToastApi {

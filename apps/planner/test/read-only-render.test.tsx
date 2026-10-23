@@ -1,5 +1,6 @@
 import {
   assessWorkspace,
+  buildIssueList,
   buildMilestoneDetail,
   buildTimelineView,
   DEFAULT_TUNING,
@@ -22,6 +23,11 @@ import { describe, expect, mock, test } from 'bun:test';
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import {
+  buildIssueListPage,
+  filterValueNames,
+  parseIssueListParams,
+} from '../lib/adapters/issue-list';
 import {
   modesReadOnlyRows,
   scheduleReadOnlyRows,
@@ -67,6 +73,8 @@ const { default: ReadOnlyNotice, ReadOnlyReasonProvider } =
 const { default: AppError } = await import('../app/(app)/error');
 const { default: IssuePageView } =
   await import('../app/(app)/issues/[id]/issue-page-view');
+const { default: IssuesScreen } =
+  await import('../app/(app)/issues/(list)/issues-screen');
 
 const TODAY = '2026-10-21';
 const GUEST: TimelinePermissions = { canWriteLinear: false, readOnly: true };
@@ -234,6 +242,116 @@ describe('the issue page, read only', () => {
     );
     expect(html).not.toContain('aria-label="Add blocked by"');
     expect(html).not.toContain('<input');
+  });
+});
+
+// The Issues page (owner request 2026-10-22, "every issue in one list"):
+// a guest reads it with one read-only notice and no grant link; a member
+// without the write grant gets the "Allow edits in Linear" notice. Either
+// way the list, its filters and "Open as graph" stay.
+describe('the Issues page', () => {
+  function issuesHtml(who: {
+    viewerId: string;
+    readOnly: boolean;
+    canWriteLinear: boolean;
+  }): string {
+    const query = parseIssueListParams({});
+    const issueView = buildIssueList({
+      snapshot,
+      ctx,
+      assessments,
+      allocationPlan,
+      query,
+      viewerId: who.viewerId,
+    });
+    const page = buildIssueListPage({
+      view: issueView,
+      query,
+      viewerId: who.viewerId,
+      readOnly: who.readOnly,
+      readOnlyReason: who.readOnly ? 'guest' : undefined,
+      canWriteLinear: who.canWriteLinear,
+      canMove: who.canWriteLinear && !who.readOnly,
+    });
+    return render(
+      <IssuesScreen
+        page={page}
+        urlQuery={query}
+        counts={issueView.counts}
+        filterNames={filterValueNames(issueView)}
+        today={TODAY}
+        viewerId={who.viewerId}
+        mirrorVersion={1}
+        facts={{ hasInitiatives: !who.readOnly, teamCount: 2 }}
+        drawer={{ param: null, model: null }}
+        permissions={{
+          canMove: who.canWriteLinear && !who.readOnly,
+          canEditWeight: !who.readOnly,
+          canWriteLinear: who.canWriteLinear,
+          readOnly: who.readOnly,
+        }}
+        weightBounds={{ min: -1000, max: 1000 }}
+      />
+    );
+  }
+
+  test('a guest: the read-only notice once, no grant link, no edit controls', () => {
+    const html = issuesHtml({
+      viewerId: 'user-gus',
+      readOnly: true,
+      canWriteLinear: false,
+    });
+    expect(html.split(READ_ONLY_NOTICE)).toHaveLength(2);
+    expect(html).not.toContain('Allow edits in Linear');
+    expect(html).not.toContain('intent=grant_write');
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).not.toContain('draggable');
+    expect(html).not.toContain('data-draggable');
+    // No cell pickers (their accessible names) and no weight menu.
+    expect(html).not.toContain('aria-label="ENG-');
+    expect(html).not.toContain('aria-label="OPS-');
+    expect(html).not.toContain('Actions for Dual-write');
+    // The row menu stays, with its read-only items only.
+    expect(html).toContain('aria-label="Actions for OPS-');
+    expect(html).toContain('Open as graph');
+    expect(html).toContain('Search issues');
+  });
+
+  test('a member without the grant: one "Allow edits in Linear" notice', () => {
+    const html = issuesHtml({
+      viewerId: 'user-chloe',
+      readOnly: false,
+      canWriteLinear: false,
+    });
+    expect(html).not.toContain(READ_ONLY_NOTICE);
+    expect(
+      html.split('Allow edits in Linear to change issues here.')
+    ).toHaveLength(2);
+    expect(html).toContain(
+      `href="/api/auth/linear?intent=grant_write&amp;returnTo=${encodeURIComponent('/issues')}"`
+    );
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).not.toContain('data-draggable');
+    expect(html).not.toContain('aria-label="ENG-10 assignee');
+    // The milestone weight is the planner's own: its menu stays.
+    expect(html).toContain('aria-label="Actions for Dual-write"');
+    expect(html).toContain('Open as graph');
+  });
+
+  test('a member with the grant gets neither notice, and every control', () => {
+    const html = issuesHtml({
+      viewerId: 'user-chloe',
+      readOnly: false,
+      canWriteLinear: true,
+    });
+    expect(html).not.toContain(READ_ONLY_NOTICE);
+    expect(html).not.toContain('Allow edits in Linear');
+    expect(html).toContain('Dual-write');
+    expect(html).toContain('type="checkbox"');
+    expect(html).toContain('>Select ENG-10</span>');
+    expect(html).toContain('aria-label="ENG-10 assignee: Chloe Diaz"');
+    expect(html).toContain('aria-label="Actions for Dual-write"');
+    expect(html).toContain('aria-label="Actions for ENG-10"');
   });
 });
 

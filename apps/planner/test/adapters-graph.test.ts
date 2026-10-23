@@ -321,8 +321,20 @@ describe('buildGraphPage on the demo workspace', () => {
       expect(
         detail?.links.find((l) => l.label === 'Issues of this milestone')?.href
       ).toBe(`/graph?milestone=${encodeURIComponent(n.id)}`);
-      expect(detail?.links.map((l) => l.label)).toContain(
-        'Open on the timeline'
+      // The graph's own links, then the Issues page, then the timeline.
+      expect(detail?.links.map((l) => l.label)).toEqual([
+        'Issues of this milestone',
+        ...(detail?.links
+          .filter((l) => l.label.startsWith('Milestones of '))
+          .map((l) => l.label) ?? []),
+        'Open as list',
+        'Open on the timeline',
+        ...(detail?.links.some((l) => l.label === 'Project in Linear')
+          ? ['Project in Linear']
+          : []),
+      ]);
+      expect(detail?.links.find((l) => l.label === 'Open as list')?.href).toBe(
+        `/issues?milestone=${encodeURIComponent(n.id)}`
       );
     }
     expect(model.mermaid?.startsWith('flowchart LR\n')).toBe(true);
@@ -891,6 +903,11 @@ describe('every level on the demo workspace', () => {
           external: false,
         },
         {
+          label: 'Open as list',
+          href: '/issues?project=proj-atlas',
+          external: false,
+        },
+        {
           label: 'Lane on the timeline',
           href: '/timeline?project=proj-atlas',
           external: false,
@@ -949,6 +966,11 @@ describe('every level on the demo workspace', () => {
           external: false,
         },
         {
+          label: 'Open as list',
+          href: '/issues?initiative=init-platform',
+          external: false,
+        },
+        {
           label: 'Open on the timeline',
           href: '/timeline?initiative=init-platform',
           external: false,
@@ -964,8 +986,12 @@ describe('every level on the demo workspace', () => {
       'Projects with no initiative',
       'Milestones of projects with no initiative',
       'Issues of projects with no initiative',
+      'Open as list',
       'Open on the timeline',
     ]);
+    expect(
+      model.details['none']?.links.find((l) => l.label === 'Open as list')?.href
+    ).toBe('/issues?initiative=none');
   });
 
   test('a milestone’s panel drills to its project’s milestones, never to this page', () => {
@@ -978,6 +1004,7 @@ describe('every level on the demo workspace', () => {
         'Milestones of Atlas billing migration',
         '/graph?project=proj-atlas&level=milestone&node=ms-atlas-2',
       ],
+      ['Open as list', '/issues?milestone=ms-atlas-2'],
       ['Open on the timeline', '/timeline?milestone=ms-atlas-2'],
       [
         'Project in Linear',
@@ -988,6 +1015,7 @@ describe('every level on the demo workspace', () => {
     expect(atlas.heading).toBe('Milestones in Atlas billing migration');
     expect(atlas.details['ms-atlas-2']?.links.map((l) => l.label)).toEqual([
       'Issues of this milestone',
+      'Open as list',
       'Open on the timeline',
       'Project in Linear',
     ]);

@@ -83,6 +83,82 @@ describe('text tokens meet 4.5:1 in both themes', () => {
   });
 });
 
+// The issue list's surfaces in the current look, read from the
+// stylesheets so a change there is checked: the bulk bar is paper in a 1px
+// ink frame (no inverted fill, no dimmed actions); its picker actions are
+// the paper's ink, flooding the accent on hover and the ink while open; a
+// selected row carries the 2px accent rule and a drop target the 2px
+// accent frame, over the paper and over a row's ink hover flood.
+function ruleBody(file: string, selector: RegExp): string {
+  const css = readFileSync(path.join(srcDir, file), 'utf8');
+  const match = selector.exec(css);
+  expect({ file, found: match !== null }).toEqual({ file, found: true });
+  return match?.[1] ?? '';
+}
+
+describe('the issue list keeps its text readable', () => {
+  const bar = ruleBody('tasks/bulk-bar.module.css', /\n\.bar \{([^}]*)\}/);
+  const trigger = ruleBody(
+    'edit/picker-popover.module.css',
+    /\n\.bar \{([^}]*)\}/
+  );
+  const selectedRule = ruleBody(
+    'tasks/task-group-table.module.css',
+    /\n\.row\[data-selected='true'\]::before \{([^}]*)\}/
+  );
+  const dropFrame = ruleBody(
+    'tasks/task-group-table.module.css',
+    /\n\.group\[data-drop='ok'\]::after \{([^}]*)\}/
+  );
+
+  test('the bar and its actions draw from the paper tokens, at full strength', () => {
+    expect(bar).toContain('background: var(--background);');
+    expect(bar).toContain('color: var(--foreground);');
+    expect(bar).toContain('border: 1px solid var(--border);');
+    expect(trigger).toContain('color: var(--foreground);');
+    for (const body of [bar, trigger]) {
+      expect(body).not.toMatch(/opacity|box-shadow|border-radius/);
+    }
+    expect(selectedRule).toContain('border-left: 2px solid var(--accent);');
+    expect(dropFrame).toContain('border: 2px solid var(--accent);');
+  });
+
+  for (const [theme, t] of [
+    ['light', lightTokens],
+    ['dark', dark],
+  ] as const) {
+    test(`${theme}: the bulk bar's text on its paper, hovered and open`, () => {
+      const paper = t['--paper'] ?? '';
+      const ink = t['--ink'] ?? '';
+      const failing: string[] = [];
+      for (const [name, text, ground] of [
+        ['count and actions', ink, paper],
+        ['note and message', t['--ink-soft'] ?? '', paper],
+        ['the clear button', t['--muted'] ?? '', paper],
+        ['a hovered action', t['--on-accent'] ?? '', t['--accent'] ?? ''],
+        ['an open action', paper, ink],
+      ] as const) {
+        const ratio = contrast(text, ground);
+        if (ratio < 4.5) failing.push(`${name}: ${ratio}`);
+      }
+      expect(failing).toEqual([]);
+    });
+
+    test(`${theme}: the selected-row rule and the drop frame read on the paper and the flood`, () => {
+      const accent = t['--accent'] ?? '';
+      const failing: string[] = [];
+      for (const [ground, color] of [
+        ['paper', t['--paper'] ?? ''],
+        ['ink flood', t['--ink'] ?? ''],
+      ] as const) {
+        const ratio = contrast(accent, color);
+        if (ratio < 3) failing.push(`accent on ${ground}: ${ratio}`);
+      }
+      expect(failing).toEqual([]);
+    });
+  }
+});
+
 /** Every CSS file under src. */
 function cssFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

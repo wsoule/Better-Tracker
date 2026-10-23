@@ -54,8 +54,11 @@ import { keepsLooseIssue, relationRefsTouching } from './webhooks';
 // Any line break, including the Unicode line and paragraph separators.
 const LINE_BREAK = /[\r\n\u2028\u2029]/;
 
-/** The patch fields in the order they are validated, written and audited. */
-const PATCH_FIELDS: readonly IssuePatchField[] = [
+/**
+ * The patch fields in the order they are validated, written and audited
+ * (shared with the bulk edits, bulk-issue-edits.ts).
+ */
+export const PATCH_FIELDS: readonly IssuePatchField[] = [
   'title',
   'description',
   'stateId',
@@ -68,8 +71,10 @@ const PATCH_FIELDS: readonly IssuePatchField[] = [
   'labelIds',
 ];
 
-/** The audit action per field. */
-const AUDIT_ACTION: Record<IssuePatchField, AuditEntry['action']> = {
+/** The audit action per field (shared with the bulk edits). */
+export const AUDIT_ACTION: Readonly<
+  Record<IssuePatchField, AuditEntry['action']>
+> = {
   title: 'issue.title',
   description: 'issue.description',
   stateId: 'issue.state',
@@ -269,12 +274,14 @@ function findIssue(
   return issue;
 }
 
-// Checks the patch's ids against the mirror: a state of the issue's team,
-// an active person, a mirrored project, a milestone of the issue's
-// (possibly new) project. Moving to another project without naming a
-// milestone clears the old project's milestone. Returns the patch Linear
-// gets.
-function checkAgainstMirror(
+/**
+ * Checks the patch's ids against the mirror: a state of the issue's team,
+ * an active person, a mirrored project, a milestone of the issue's
+ * (possibly new) project. Moving to another project without naming a
+ * milestone clears the old project's milestone. Returns the patch Linear
+ * gets; throws EngineInputError('invalid'). Shared with the bulk edits.
+ */
+export function checkAgainstMirror(
   snapshot: Snapshot,
   issue: Issue,
   patch: IssuePatch
@@ -473,15 +480,18 @@ function diffPatch(
   return changes;
 }
 
-// The later of two instants (the first when either does not parse).
-function laterOf(a: IsoDateTime, b: IsoDateTime): IsoDateTime {
+/** The later of two instants (the first when either does not parse). */
+export function laterOf(a: IsoDateTime, b: IsoDateTime): IsoDateTime {
   return (elapsedMs(b, a) ?? 0) > 0 ? b : a;
 }
 
-// The mirror writes that keep `updated` exactly as a full sync would: an
-// issue moved out of every mirrored project while closed (or into a project
-// the mirror does not hold) leaves the mirror with its relations.
-function issueMirrorChanges(
+/**
+ * The mirror writes that keep `updated` exactly as a full sync would: an
+ * issue moved out of every mirrored project while closed (or into a
+ * project the mirror does not hold) leaves the mirror with its relations.
+ * Shared with the bulk edits.
+ */
+export function issueMirrorChanges(
   snapshot: Snapshot,
   updated: Issue
 ): { upsert: MirrorEntity[]; remove: MirrorRef[] } {
@@ -499,9 +509,12 @@ function issueMirrorChanges(
   };
 }
 
-// Applies mirror changes after a Linear write. Linear already has the
-// change, so a failure here is logged, not thrown: the next sync heals it.
-async function patchMirror(
+/**
+ * Applies mirror changes after a Linear write. Linear already has the
+ * change, so a failure here is logged, not thrown: the next sync heals it.
+ * Shared with the bulk edits.
+ */
+export async function patchMirror(
   rt: EngineRuntime,
   workspaceId: string,
   changes: { upsert: MirrorEntity[]; remove: MirrorRef[] },

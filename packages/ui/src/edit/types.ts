@@ -63,9 +63,12 @@ export interface PickerOption {
 /**
  * How the trigger is drawn. value = the property sheet's reading voice
  * (a value that frames itself on hover); mono = the status line's mono
- * uppercase voice; quiet = a bare mono action ("+ Add").
+ * uppercase voice; quiet = a bare mono action ("+ Add"); cell = a list
+ * cell's value (the cell's own voice, its text where a plain cell's would
+ * be, framed on hover like value); bar = a mono action on the bulk bar
+ * (the accent floods it on hover, ink while its popover is open).
  */
-export type PickerAppearance = 'value' | 'mono' | 'quiet';
+export type PickerAppearance = 'value' | 'mono' | 'quiet' | 'cell' | 'bar';
 
 /** Wording of every built-in label in the edit family. */
 export interface EditLabels {
@@ -136,10 +139,23 @@ interface PickerBaseProps {
   /** Filter `options` by the search text here. Default true; false when
       the host already filtered them (server search). */
   filter?: boolean;
+  /** Draw the search row. Default true; false for a short menu (Filter,
+      Sort, a row's "…"): the list itself takes focus and the arrow keys,
+      Enter and Space work on it. */
+  searchable?: boolean;
   appearance?: PickerAppearance;
   /** Which trigger edge the popover lines up with. Default 'start'; 'end'
       for a trigger at the right of its row (a section's "+ Add"). */
   align?: 'start' | 'end';
+  /** Opens at this viewport point instead of under the trigger (a row's
+      context menu at the pointer); the trigger still takes focus back
+      when it closes. A phone keeps its bottom sheet. */
+  anchorPoint?: { x: number; y: number } | null;
+  /** Where focus goes when the picker closes from inside (Esc, a choice,
+      a close button) instead of the trigger: e.g. the row title a host's
+      single-key shortcut opened it from. Null (or no element) keeps the
+      trigger. Tab and an outside click are unchanged. */
+  returnFocus?: () => HTMLElement | null;
   /** Replaces the trigger's face (an "Add" action, a host's own glyph). */
   trigger?: ReactNode;
   /** Replaces the trigger's accessible name (with a custom face). */
@@ -177,6 +193,11 @@ export interface MultiPickerProps extends PickerBaseProps {
   /** Computes the list after a toggle; default adds or removes `toggled`.
       (LabelPicker uses it for groups that allow one label.) */
   resolveToggle?: (current: readonly string[], toggled: string) => string[];
+  /** How chosen options are marked: 'box' (default) a checkbox square on
+      every row; 'tick' the single picker's trailing check and no
+      squares, for a menu whose groups each hold one choice (a Sort or
+      Group menu whose resolveToggle keeps one per group). */
+  marks?: 'box' | 'tick';
 }
 
 export type PickerPopoverProps = SinglePickerProps | MultiPickerProps;

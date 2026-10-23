@@ -1,9 +1,11 @@
 /* The property picker. The trigger reads as the value it holds (a hairline
-   frame appears on hover, the accent ring on focus); the popover is a
-   square panel with a 1px ink frame and the overlays' 2px accent rule on
-   top, a mono search row, and a listbox whose active row is an ink fill
-   (the selected-tab idiom, as in the command palette). No radius, no
-   shadow. On phones it is a full-width bottom sheet over an ink scrim. */
+   frame appears on hover, the accent ring on focus); in a list cell it
+   takes the cell's own voice, and on the bulk bar it is a mono action that
+   floods the accent on hover. The popover is a square panel with a 1px ink
+   frame and the overlays' 2px accent rule on top, a mono search row (none
+   for a short menu), and a listbox whose active row is an ink fill (the
+   selected-tab idiom, as in the command palette). No radius, no shadow.
+   On phones it is a full-width bottom sheet over an ink scrim. */
 
 .root {
   display: inline-flex;
@@ -40,7 +42,8 @@
    exactly where a plain value's would and the row keeps its height. The
    pseudo-element is part of the button, so the frame is clickable too. */
 .value::before,
-.mono::before {
+.mono::before,
+.cell::before {
   content: '';
   position: absolute;
   inset: -4px -7px;
@@ -53,17 +56,20 @@
 }
 
 .value:focus-visible,
-.mono:focus-visible {
+.mono:focus-visible,
+.cell:focus-visible {
   outline: 0;
 }
 
 .value:focus-visible::before,
-.mono:focus-visible::before {
+.mono:focus-visible::before,
+.cell:focus-visible::before {
   border: 2px solid var(--accent);
 }
 
 .value[aria-expanded='true']::before,
-.mono[aria-expanded='true']::before {
+.mono[aria-expanded='true']::before,
+.cell[aria-expanded='true']::before {
   border-color: var(--border);
 }
 
@@ -132,14 +138,79 @@
   outline-offset: 0;
 }
 
+/* cell: a list cell's value. It takes the cell's voice (the table sets
+   mono caps for a state or priority, the sans for a name), so its text
+   sits exactly where the plain value's would; the hairline frame of the
+   value voice shows on hover. One line, cut with an ellipsis. */
+.cell {
+  min-height: 20px;
+  max-width: 100%;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  white-space: nowrap;
+}
+
+.cell .faceText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+
+/* bar: an action on the bulk bar, in the button's mono voice. No box at
+   rest; the accent floods it on hover, and it is ink-filled while its
+   popover is open (the pressed button). */
+.bar {
+  min-height: 28px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--foreground);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.bar .face {
+  gap: 6px;
+}
+
+.bar[aria-expanded='true'] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+/* Inside its frame: the bar's action strip scrolls on a phone and would
+   cut an outside ring. */
+.bar:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.bar:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 @media (hover: hover) and (width >= 901px) {
   .value:not(:disabled, :focus-visible):hover::before,
-  .mono:not(:disabled, :focus-visible):hover::before {
+  .mono:not(:disabled, :focus-visible):hover::before,
+  .cell:not(:disabled, :focus-visible):hover::before {
     border-color: var(--border);
   }
 
   .quiet:not(:disabled):hover {
     color: var(--accent-ink);
+  }
+
+  .bar:not(:disabled, [aria-expanded='true']):hover {
+    background: var(--accent);
+    color: var(--on-accent);
   }
 }
 
@@ -148,12 +219,14 @@
    labels is as wide as the column). */
 @media (hover: none) {
   .value::before,
-  .mono::before {
+  .mono::before,
+  .cell::before {
     inset-inline: 0;
   }
 
   .value:not(:disabled)::before,
-  .mono:not(:disabled)::before {
+  .mono:not(:disabled)::before,
+  .cell:not(:disabled)::before {
     border-bottom-color: var(--grey-3);
   }
 }
@@ -357,6 +430,29 @@
   display: none;
 }
 
+/* A menu (no search row): the list holds focus, and its active row is
+   the focus indicator, as the search box's active row is. */
+.list:focus-visible {
+  outline: none;
+}
+
+/* A menu's "Done" for the phone sheet (the search row's is gone). A menu
+   draws no key hints, so on a desktop its foot shows only while a pick
+   saves or after one failed. */
+.sheetClose {
+  display: none;
+}
+
+.foot:has(> .sheetClose:only-child) {
+  display: none;
+}
+
+/* A menu item without a mark starts at the edge (a picker keeps the mark
+   column so marked and unmarked values line up). */
+.panel[data-searchable='false'] .optionMark:empty {
+  display: none;
+}
+
 .option + .group,
 .group + .group {
   margin-top: 4px;
@@ -466,8 +562,17 @@
 }
 
 .disabled {
+  padding-top: 6px;
+  padding-bottom: 6px;
   color: var(--muted);
   cursor: not-allowed;
+}
+
+/* A disabled row is often a sentence (why a choice is off, a menu's
+   note): it wraps instead of being cut. */
+.disabled .optionLabel {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .retryRow .optionLabel {
@@ -633,6 +738,25 @@
     color: var(--foreground);
   }
 
+  /* A menu's own "Done", in the search row's close voice. */
+  .foot:has(> .sheetClose:only-child) {
+    display: flex;
+  }
+
+  .sheetClose {
+    display: inline-flex;
+    align-items: center;
+    height: 36px;
+    margin-left: auto;
+    padding: 0 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--foreground);
+  }
+
   .hints {
     display: none;
   }
@@ -668,8 +792,10 @@
 
 @media (prefers-reduced-motion: reduce) {
   .quiet,
+  .bar,
   .value::before,
   .mono::before,
+  .cell::before,
   .close {
     transition: none;
   }

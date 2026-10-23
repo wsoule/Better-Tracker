@@ -1,0 +1,244 @@
+/* The bulk bar: a toolbar fixed at the bottom centre while rows are
+   selected, drawn like the toasts: paper in a 1px ink frame, no shadow, no
+   radius. "{n} SELECTED" in the mono key voice, the host's actions (picker
+   triggers with appearance 'bar': mono actions that flood the accent on
+   hover), then ✕, split by sub-weight rules. It rises into place; reduced
+   motion just shows it. On phones it spans the gutters above the shell's
+   tab bar, and host labels marked data-bulk-label hide at 390px and below
+   (their triggers keep their accessible names). */
+
+.bar {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 32px);
+  min-height: 42px;
+  padding: 6px 6px 6px 14px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+  transform: translateX(-50%);
+  animation: rise 0.32s var(--ease-out-quint) both;
+}
+
+.count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.sep {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 6px;
+  background: var(--hairline-faint);
+}
+
+/* A plain fieldset: it exists to disable every host control at once
+   (each trigger dims itself when disabled). */
+.actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.note {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-width: 0;
+  max-width: 640px;
+}
+
+.message {
+  flex: 1 1 260px;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--ink-soft);
+}
+
+.confirmActions {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+}
+
+/* The confirmation's one primary and its Cancel: the Button primitive's
+   primary (an ink fill) and quiet variants at the small size. */
+.primary,
+.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 2px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.primary {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.ghost {
+  padding: 0 6px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--foreground);
+}
+
+/* ✕: the toast's dismiss. */
+.close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.primary:focus-visible,
+.ghost:focus-visible,
+.close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .primary:hover {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .ghost:hover {
+    color: var(--accent-ink);
+  }
+
+  .close:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+.primary:active {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  color: var(--on-accent);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* Phones: across the gutters, above the shell's tab bar when there is one
+   (the toasts' rule). */
+@media (width <= 900px) {
+  .bar {
+    right: 16px;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+    left: 16px;
+    max-width: none;
+    transform: none;
+    animation-name: rise-phone;
+  }
+
+  :global(body:has([data-shell-tabbar='true'])) .bar {
+    bottom: calc(56px + 12px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .actions {
+    flex: 1 1 auto;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .note {
+    white-space: normal;
+  }
+}
+
+@keyframes rise-phone {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (width <= 390px) {
+  .bar [data-bulk-label] {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar {
+    animation: none;
+  }
+
+  .primary,
+  .ghost,
+  .close {
+    transition: none;
+  }
+}

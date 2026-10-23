@@ -42,6 +42,8 @@ interface ToastRecord {
   label: string;
   action?: ToastInput['action'];
   duration: number;
+  announce?: string;
+  onClose?: () => void;
 }
 
 const ToastContext = createContext<ToastApi | null>(null);
@@ -172,11 +174,24 @@ export function ToastProvider({
       label: input.label ?? DEFAULT_LABEL[input.kind],
       action: input.action,
       duration: input.duration ?? DEFAULT_DURATION,
+      announce: input.announce,
+      onClose: input.onClose,
     };
     // Newest last; the oldest falls off once three are showing.
     setToasts((list) => [...list, record].slice(-MAX_VISIBLE));
     return record.id;
   }, []);
+
+  // Each toast that left the stack since the last render hears onClose
+  // once (timed out, dismissed, its action used, or pushed off).
+  const shownBefore = useRef<ToastRecord[]>([]);
+  useEffect(() => {
+    const now = new Set(toasts.map((t) => t.id));
+    for (const record of shownBefore.current) {
+      if (!now.has(record.id)) record.onClose?.();
+    }
+    shownBefore.current = toasts;
+  }, [toasts]);
 
   const api = useMemo<ToastApi>(() => ({ toast, dismiss }), [toast, dismiss]);
 
@@ -211,14 +226,14 @@ export function ToastProvider({
         {toasts
           .filter((t) => t.kind === 'info')
           .map((t) => (
-            <p key={t.id}>{`${t.label}: ${t.message}`}</p>
+            <p key={t.id}>{`${t.label}: ${t.announce ?? t.message}`}</p>
           ))}
       </div>
       <div role="alert" aria-live="assertive" className="srOnly">
         {toasts
           .filter((t) => t.kind === 'error')
           .map((t) => (
-            <p key={t.id}>{`${t.label}: ${t.message}`}</p>
+            <p key={t.id}>{`${t.label}: ${t.announce ?? t.message}`}</p>
           ))}
       </div>
     </ToastContext.Provider>

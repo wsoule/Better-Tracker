@@ -10,8 +10,9 @@ import { afterEach, describe, expect, jest, mock, test } from 'bun:test';
 import {
   CommandPaletteProvider,
   shortcutCode,
+  useCommandPalette,
 } from '../src/shell/command-palette';
-import type { PaletteItem } from '../src/shell/types';
+import type { CommandPaletteApi, PaletteItem } from '../src/shell/types';
 
 afterEach(() => {
   cleanup();
@@ -130,5 +131,108 @@ describe('two-key shortcuts', () => {
     fireEvent.keyDown(field, { key: 'g' });
     fireEvent.keyDown(field, { key: 'w' });
     expect(navigate).not.toHaveBeenCalled();
+  });
+});
+
+describe('isSequencePending', () => {
+  // A host reads it from the palette API (a list's row commands).
+  function Probe({ onReady }: { onReady: (api: CommandPaletteApi) => void }) {
+    onReady(useCommandPalette());
+    return null;
+  }
+
+  function setupProbe() {
+    let api: CommandPaletteApi | null = null;
+    const navigate = mock((_href: string) => undefined);
+    render(
+      <CommandPaletteProvider items={ITEMS} navigate={navigate}>
+        <Probe
+          onReady={(next) => {
+            api = next;
+          }}
+        />
+      </CommandPaletteProvider>
+    );
+    return {
+      pending: () => api?.isSequencePending() ?? null,
+      navigate,
+    };
+  }
+
+  test('true after G, false once the second key lands', () => {
+    const { pending, navigate } = setupProbe();
+    expect(pending()).toBe(false);
+    fireEvent.keyDown(document.body, { key: 'g' });
+    expect(pending()).toBe(true);
+    fireEvent.keyDown(document.body, { key: 'w' });
+    expect(pending()).toBe(false);
+    expect(navigate).toHaveBeenCalledWith('/week');
+  });
+
+  test('false after the sequence window runs out', () => {
+    jest.useFakeTimers();
+    const { pending } = setupProbe();
+    fireEvent.keyDown(document.body, { key: 'g' });
+    expect(pending()).toBe(true);
+    act(() => {
+      jest.advanceTimersByTime(1300);
+    });
+    expect(pending()).toBe(false);
+  });
+
+  test('a key that starts no sequence, or a key that does not finish one, leaves it false', () => {
+    const { pending } = setupProbe();
+    fireEvent.keyDown(document.body, { key: 'x' });
+    expect(pending()).toBe(false);
+    fireEvent.keyDown(document.body, { key: 'g' });
+    fireEvent.keyDown(document.body, { key: 'q' });
+    expect(pending()).toBe(false);
+  });
+
+  test('a row handler that yields while pending lets G S reach the palette', () => {
+    // The host's own `s` (Status…) runs in React before the palette's
+    // document listener; it checks isSequencePending() and stays out of
+    // the way, so the chord still navigates.
+    const navigate = mock((_href: string) => undefined);
+    const rowCommand = mock(() => undefined);
+    function Row() {
+      const palette = useCommandPalette();
+      return (
+        <button
+          type="button"
+          onKeyDown={(event) => {
+            if (event.key !== 's' || palette.isSequencePending()) return;
+            event.preventDefault();
+            rowCommand();
+          }}
+        >
+          ENG-12
+        </button>
+      );
+    }
+    render(
+      <CommandPaletteProvider
+        items={[
+          {
+            id: 'settings',
+            label: 'Go to Settings',
+            section: 'Navigation',
+            href: '/settings',
+            shortcut: ['G', 'S'],
+          },
+        ]}
+        navigate={navigate}
+      >
+        <Row />
+      </CommandPaletteProvider>
+    );
+    const row = screen.getByRole('button', { name: 'ENG-12' });
+    fireEvent.keyDown(row, { key: 'g' });
+    fireEvent.keyDown(row, { key: 's' });
+    expect(rowCommand).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith('/settings');
+    // Without the chord, `s` is the row's.
+    fireEvent.keyDown(row, { key: 's' });
+    expect(rowCommand).toHaveBeenCalledTimes(1);
   });
 });

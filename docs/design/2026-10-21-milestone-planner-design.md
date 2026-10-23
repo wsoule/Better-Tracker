@@ -187,11 +187,27 @@ lead, Wyat and Shanzer once (not again until its status changes or it goes overd
 The message names the milestone, due date, what's open, what's unassigned, and links to
 the timeline. Also notify when a milestone has a date inside 7 days but fails the rubric.
 
+### 7.6 All issues
+*(Added 2026-10-22 by an owner request, §12.)* One page lists every issue the person
+can see (open by default), filtered by initiative, project, milestone, assignee, team,
+status, priority, text, blocked, at risk and next milestones, with tabs for All, Mine,
+Unplanned, Unassigned, Blocked and At risk. It is ordered by the weight rule of §6.6
+(active projects' milestones first, overdue on top, then the weight override, due date
+and project priority; inside a milestone, issue priority then age; then unplanned
+issues, issues with no project, and paused projects last) or by priority, the issue's
+due date, last update, creation or title. It is grouped by milestone, project,
+initiative, assignee, status or priority, optionally inside initiative or project
+sections. Issues move to a milestone (and so to its project), a person, a status or a
+priority one at a time or up to 100 at once, by menu, keyboard or drag, with an Undo.
+Every move is an issue edit (§12, 2026-10-21) made with the mover's own Linear token
+and audited per issue. Issues are still created in Linear.
+
 ## 8. Data and integration with Linear
 
 - **Reads:** issues (state, assignee, priority, milestone, project, relations,
-  updatedAt), projects (lead, priority, initiative), milestones (name, target date,
-  description), users, initiatives.
+  updatedAt, due date), projects (lead, priority, initiative), milestones (name,
+  target date, description), users, initiatives. *(The issue's due date is read
+  since 2026-10-22, for the list of every issue.)*
 - **Writes (only these):** issue assignee + state (allocation), issue comment
   (allocation note), milestone target date, project lead. Everything else is read-only.
   *(Extended 2026-10-21 by an owner decision, §12: a signed-in person's own issue
@@ -231,6 +247,26 @@ webhook); exact at-risk formula tuning; naming.
 - Final name.
 - Confirm the milestone rubric in §6.7.
 - Whether anyone beyond engineers + Shanzer should see the timeline in v1.
+- *(Added 2026-10-22 with the list of every issue, §7.6 and §12; the build goes ahead
+  with each default and changes if the answer differs.)*
+  - **Q1. Project and initiative weights.** Reorder projects or initiatives from the
+    planner? Default: no; Linear's priority and manual order rank them. If yes:
+    either a planner-only weight (order on screen only), or writing Linear's project
+    priority (a new Linear write, so this document changes first).
+  - **Q2. Name.** "Issues" (Linear's and the planner's word), with `/tasks` leading
+    there, or "Tasks" on screen? Default: Issues.
+  - **Q3. Phone tab bar.** Issues takes Graph's place, Graph moves into More?
+    Default: yes.
+  - **Q4. Priority-first order.** Should project priority outrank the milestone date
+    ("an urgent project's later milestone before a low project's sooner one")?
+    Default: no, §6.6 as written; if yes, a second "Priority order" sort is added.
+  - **Q5. Paused projects last.** Issues of paused or not-started projects sort after
+    all active work, unplanned work included (My week instead interleaves them under
+    Later). Default: last.
+  - **Q6. Bulk safety.** 100 issues per change, a confirmation at 20 or more or for a
+    drag across projects, and Undo for 8 seconds. Default: as stated; the
+    alternative is no confirmation, relying on Undo and the audit.
+  - **Q7. Labels in the first version?** Default: no; they come next.
 
 ## 12. Owner decisions
 
@@ -363,3 +399,39 @@ levels); nothing else changes.
 - a chain shows the nearest 150 issues;
 - an initiative or a project whose boxes block nothing still lists them, each
   opening its own graph, so every level stays reachable from the one above it.
+
+### 2026-10-22 — every issue in one list
+
+Requested by the product owner, in their words: "Need good and intuitive ways to see
+all tasks then filter by projects and initiatives and milestones and order by weight
+based on those and easily group things and move them to milestones and stuff."
+
+- **One Issues page** (`/issues`; `/tasks` leads there) to see, filter, order by
+  weight, group and move every issue the person can see (§7.6). It is in the sidebar
+  after My week, in the phone tab bar in Graph's place (Graph moves into More), and in
+  the command palette ("G I"). My week links to it ("All my issues"), and so do the
+  timeline's milestone drawer and unplanned banner, the projects register and the
+  graph.
+- **Moves are the issue edits of 2026-10-21** (project, milestone, assignee, status,
+  priority), made with the person's own Linear token, so the §8 write list does not
+  change. Linear guests are read-only here as everywhere. Nothing creates, deletes or
+  archives issues, changes an issue's team or reorders issues by hand.
+- *Builder's calls, flagged for review* (the open questions are Q1–Q7 in §11):
+  - paused projects' work sorts after all active work;
+  - unplanned issues of active projects sort before paused projects' milestones;
+  - no planner-owned project or initiative weight (Linear's priority ranks them);
+  - at most 100 issues per bulk change;
+  - a confirmation at 20 or more issues, or for a drag that changes a project;
+  - Undo from the confirmation message;
+  - labels and estimates come later (the planner's copy of Linear does not hold them
+    yet);
+  - a list view only (a board comes next).
+- **As built**: the page itself (every view is a link that can be shared,
+  bookmarked and restored with Back and Forward), its filters, tabs, sorts and
+  groupings, the issue slide-over and the links into it; and moving issues from it:
+  a cell's picker for one issue, a row's menu and keys (M, A, S, P), a selection with
+  the bulk bar, and dragging rows onto another group, each with a confirmation at 20
+  issues or more (or for a drag across projects), a toast that says what happened
+  (including what allocation will now do), and Undo. A milestone group's menu raises
+  or lowers its weight, which changes only the order on screen. Settings → Audit
+  shows a bulk change as one line per field ("2 issues · milestone").

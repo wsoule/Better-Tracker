@@ -1,10 +1,13 @@
 'use client';
 
-import { ArrowUpRight, ChevronRight } from 'lucide-react';
+import { ArrowUpRight, ChevronRight, GripVertical } from 'lucide-react';
 import {
   type CSSProperties,
+  type DragEvent,
   type KeyboardEvent,
   type MouseEvent,
+  type ReactNode,
+  useEffect,
   useId,
   useMemo,
   useRef,
@@ -13,7 +16,10 @@ import {
 } from 'react';
 
 import StatusMark from '../components/status-mark';
+import { PickerMarkView } from '../edit/picker-mark';
 import { Link } from '../lib/link';
+import { isTypingTarget, useMediaQuery } from '../shell/dom';
+import { Checkbox } from './checkbox';
 import { Chip } from './chip';
 import { cx } from './class-names';
 import {
@@ -26,12 +32,15 @@ import { EmptyState } from './notice';
 import { ProgressRule } from './progress-rule';
 import { PriorityGlyph, StateGlyph } from './task-glyphs';
 import styles from './task-group-table.module.css';
+import { pruneSelection, rangeIds, setIds, toggleId } from './task-selection';
 import type {
   TaskColumnId,
+  TaskDragProps,
   TaskGroupData,
   TaskGroupTableProps,
   TaskRowData,
   TaskSectionData,
+  TaskSelectionProps,
 } from './types';
 
 const DEFAULT_COLUMNS: TaskColumnId[] = ['project', 'state', 'priority', 'due'];
@@ -42,14 +51,71 @@ const DEFAULT_LABELS: Record<TaskColumnId | 'title', string> = {
   state: 'State',
   priority: 'Priority',
   due: 'Due',
+  assignee: 'Assignee',
+  milestone: 'Milestone',
 };
 
-const COLUMN_WIDTHS: Record<TaskColumnId, string> = {
-  project: '156px',
-  state: '136px',
-  priority: '128px',
-  due: '88px',
+/** Each meta column's fixed width, in px. */
+const COLUMN_WIDTHS: Record<TaskColumnId, number> = {
+  project: 156,
+  state: 136,
+  priority: 128,
+  due: 88,
+  assignee: 140,
+  milestone: 180,
 };
+
+/** The lead and trailing columns' widths, in px (the CSS's --task-grip-col
+    on a fine pointer, --task-check-col and --task-actions-col). */
+const GRIP_COL_PX = 18;
+const CHECK_COL_PX = 30;
+const ACTIONS_COL_PX = 40;
+/** Before the title text: the indent under the group's mark (44), the key
+    column (68) and the gap after it (8), as in the stylesheet. */
+const TITLE_LEAD_PX = 120;
+/** The narrowest title a step of `dropColumns` leaves. */
+const TITLE_MIN_PX = 260;
+
+/**
+ * The narrow steps of `dropColumns`: below `below` px of table width (and
+ * down to `from`, where the next step starts) the step's attribute names
+ * the dropped columns and its custom property holds the grid without them.
+ * The container queries in the stylesheet use the same numbers.
+ */
+const DROP_STEPS = [
+  { step: 'lg', below: 1160, from: 1000 },
+  { step: 'md', below: 1000, from: 860 },
+  { step: 'sm', below: 860, from: 720 },
+] as const;
+
+/**
+ * Which of `columns` a table `width` px wide keeps: the `dropOrder`
+ * columns go one by one, first to last, until the title has
+ * TITLE_MIN_PX beside the rest (`fixed` px of lead and trailing columns).
+ */
+function columnsAtWidth(
+  width: number,
+  columns: readonly TaskColumnId[],
+  dropOrder: readonly TaskColumnId[],
+  fixed: number
+): TaskColumnId[] {
+  let kept = [...columns];
+  const fits = (cols: readonly TaskColumnId[]) =>
+    width -
+      fixed -
+      cols.reduce((sum, column) => sum + COLUMN_WIDTHS[column], 0) -
+      TITLE_LEAD_PX >=
+    TITLE_MIN_PX;
+  for (const column of dropOrder) {
+    if (fits(kept)) break;
+    kept = kept.filter((c) => c !== column);
+  }
+  return kept;
+}
+
+/** Where a row can be dragged from: a mouse or trackpad (touch selects
+    with checkboxes and moves through menus instead). */
+const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
 
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
@@ -79,6 +145,50 @@ function focusTargetOf(item: Element): HTMLElement | null {
   );
 }
 
+// Events from a host control inside a row (a cell picker's search box, an
+// open menu) are that control's: the list never treats them as its own
+// navigation, selection or row commands.
+function isHostControlEvent(target: HTMLElement): boolean {
+  return (
+    isTypingTarget(target) || target.closest('[data-picker-popup]') !== null
+  );
+}
+
+/** What a drag is over: a group, and whether it would take the rows. */
+interface DropState {
+  groupId: string;
+  verdict: true | string;
+}
+
+/** The selection model the rows and headers share. */
+interface SelectionModel {
+  selected: ReadonlySet<string>;
+  toggleOnClick: boolean;
+  /** A row's checkbox or `x`; shift extends from the anchor. */
+  toggleRow: (id: string, shift: boolean) => void;
+  /** A group header's checkbox. */
+  setGroup: (group: TaskGroupData, on: boolean) => void;
+}
+
+/** The drag model the rows and groups share. */
+interface DragModel {
+  draggable: boolean;
+  dragging: ReadonlySet<string>;
+  drop: DropState | null;
+  start: (event: DragEvent<HTMLElement>, row: TaskRowData) => void;
+  end: () => void;
+  over: (event: DragEvent<HTMLElement>, group: TaskGroupData) => void;
+  leave: (event: DragEvent<HTMLElement>, group: TaskGroupData) => void;
+  dropOn: (event: DragEvent<HTMLElement>, group: TaskGroupData) => void;
+}
+
+/** What a Row needs besides its data, passed down unchanged. */
+interface RowSlots {
+  renderCell: TaskGroupTableProps['renderCell'];
+  rowActions: TaskGroupTableProps['rowActions'];
+  onRowContextMenu: TaskGroupTableProps['onRowContextMenu'];
+}
+
 /* Gr8r's My Tasks grouped table in the Analytics skin. Structure: a column
    header, then sections (THIS WEEK / LATER / NO MILESTONE) as hatched
    dividers, each holding collapsible groups (PROJECT › MILESTONE with due,
@@ -93,7 +203,16 @@ function focusTargetOf(item: Element): HTMLElement | null {
    enters it, ↵ opens; any other key on a row goes to onRowKeyDown, so a
    host can add its own single-key commands. Collapsed groups persist under
    storageKey. The column header is sticky at var(--task-sticky-top, 0):
-   hosts with a sticky topbar set that custom property to its height. */
+   hosts with a sticky topbar set that custom property to its height.
+
+   The issue list adds, each only when its prop is set (without them the
+   markup is My week's, unchanged): `selection` (Gr8r's row and select-all
+   checkboxes, shift ranges, x, Shift+↑/↓, ⌘A; a selected row carries the
+   2px accent rule at its left edge, and the row's checkbox carries the
+   state, never aria-selected, which a list item does not support), `drag`
+   (an HTML5 drag from an 18px grip onto any group, which answers with a
+   2px accent frame), and the slots `renderCell`, `rowActions`,
+   `groupActions` and `onRowContextMenu`. */
 export function TaskGroupTable({
   sections,
   columns = DEFAULT_COLUMNS,
@@ -109,6 +228,13 @@ export function TaskGroupTable({
   onToggleGroup,
   activeRowId,
   onRowKeyDown,
+  selection,
+  renderCell,
+  rowActions,
+  onRowContextMenu,
+  groupActions,
+  drag,
+  dropColumns,
 }: TaskGroupTableProps) {
   // Folds live in component state, mirrored to storage when storageKey is
   // set. The stored value is read through useSyncExternalStore: the server
@@ -130,12 +256,39 @@ export function TaskGroupTable({
   const rootRef = useRef<HTMLDivElement>(null);
   const hintId = useId();
   const baseId = useId();
+  const finePointer = useMediaQuery(FINE_POINTER_QUERY);
 
   const labels = { ...DEFAULT_LABELS, ...columnLabels };
-  const template = [
-    'minmax(0, 1fr)',
-    ...columns.map((c) => COLUMN_WIDTHS[c]),
-  ].join(' ');
+  const templateOf = (cols: readonly TaskColumnId[]) =>
+    [
+      ...(drag !== undefined ? ['var(--task-grip-col)'] : []),
+      ...(selection !== undefined ? ['var(--task-check-col)'] : []),
+      'minmax(0, 1fr)',
+      ...cols.map((c) => `${COLUMN_WIDTHS[c]}px`),
+      ...(rowActions !== undefined ? ['var(--task-actions-col)'] : []),
+    ].join(' ');
+  const template = templateOf(columns);
+  // dropColumns: per narrow step, the columns that give way and the grid
+  // without them (data-drop-<step>, --task-cols-<step>).
+  const rootStyle: CSSProperties & Record<string, string> = {
+    '--task-cols': template,
+  };
+  const dropAttrs: Record<string, string> = {};
+  if (dropColumns !== undefined && dropColumns.length > 0) {
+    const fixed =
+      (drag !== undefined ? GRIP_COL_PX : 0) +
+      (selection !== undefined ? CHECK_COL_PX : 0) +
+      (rowActions !== undefined ? ACTIONS_COL_PX : 0);
+    const order = dropColumns.filter((c) => columns.includes(c));
+    for (const { step, from } of DROP_STEPS) {
+      const kept = columnsAtWidth(from, columns, order, fixed);
+      if (kept.length === columns.length) continue;
+      dropAttrs[`data-drop-${step}`] = columns
+        .filter((c) => !kept.includes(c))
+        .join(' ');
+      rootStyle[`--task-cols-${step}`] = templateOf(kept);
+    }
+  }
   const SectionHeading = `h${headingLevel}` as HeadingTag;
   const GroupHeading = `h${headingLevel + 1}` as HeadingTag;
 
@@ -167,9 +320,192 @@ export function TaskGroupTable({
   }
 
   const groupById = new Map<string, TaskGroupData>();
+  // The rows drawn, in reading order: the order of shift ranges, Shift+↑/↓
+  // and ⌘A. Folded groups' rows are not drawn, so they are not in it.
+  const shownOrder: string[] = [];
   for (const section of sections) {
-    for (const group of section.groups) groupById.set(group.id, group);
+    for (const group of section.groups) {
+      groupById.set(group.id, group);
+      if (collapsed.has(group.id)) continue;
+      for (const row of group.rows) shownOrder.push(row.id);
+    }
   }
+
+  // ---- selection --------------------------------------------------------
+
+  // The anchor of shift ranges and Shift+↑/↓, and the selection as it was
+  // when the anchor was set (a keyboard range grows and shrinks over it).
+  const anchorRef = useRef<{ id: string; base: ReadonlySet<string> } | null>(
+    null
+  );
+
+  // Rows that are no longer drawn (a folded group, a host refresh) leave
+  // the selection, so an action never reaches a row nobody can see.
+  const selected = selection?.selected;
+  const onSelectionChange = selection?.onChange;
+  const shownKey = shownOrder.join('\n');
+  useEffect(() => {
+    if (selected === undefined || onSelectionChange === undefined) return;
+    const pruned = pruneSelection(selected, new Set(shownKey.split('\n')));
+    if (pruned !== selected) onSelectionChange(pruned);
+  }, [selected, onSelectionChange, shownKey]);
+
+  function changeSelection(
+    model: TaskSelectionProps,
+    next: ReadonlySet<string>
+  ) {
+    if (next !== model.selected) model.onChange(next);
+  }
+
+  const selectionModel: SelectionModel | null =
+    selection === undefined
+      ? null
+      : {
+          selected: selection.selected,
+          toggleOnClick: selection.toggleOnClick === true,
+          toggleRow(id, shift) {
+            const anchor = anchorRef.current;
+            let next: ReadonlySet<string>;
+            if (shift && anchor !== null) {
+              const on = !selection.selected.has(id);
+              next = setIds(
+                selection.selected,
+                rangeIds(shownOrder, anchor.id, id),
+                on
+              );
+            } else {
+              next = toggleId(selection.selected, id);
+            }
+            anchorRef.current = { id, base: next };
+            changeSelection(selection, next);
+          },
+          setGroup(group, on) {
+            if (on && collapsed.has(group.id)) setGroupCollapsed(group, false);
+            anchorRef.current = null;
+            changeSelection(
+              selection,
+              setIds(
+                selection.selected,
+                group.rows.map((r) => r.id),
+                on
+              )
+            );
+          },
+        };
+
+  // Shift+↑/↓ on a row: the range from the anchor to the next row grows
+  // or shrinks over the selection the anchor started from; focus follows.
+  function extendSelection(
+    model: TaskSelectionProps,
+    from: string,
+    delta: 1 | -1
+  ): boolean {
+    const at = shownOrder.indexOf(from);
+    const target = shownOrder[at + delta];
+    if (at < 0 || target === undefined) return false;
+    const anchor = anchorRef.current ?? { id: from, base: model.selected };
+    anchorRef.current = anchor;
+    changeSelection(
+      model,
+      setIds(anchor.base, rangeIds(shownOrder, anchor.id, target), true)
+    );
+    const item = rootRef.current?.querySelector(
+      `[data-nav-item="row"][data-row-id="${CSS.escape(target)}"]`
+    );
+    if (item !== null && item !== undefined) focusTargetOf(item)?.focus();
+    return true;
+  }
+
+  // ---- drag -------------------------------------------------------------
+
+  const [dragging, setDragging] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+  const [drop, setDrop] = useState<DropState | null>(null);
+  // The ids being dragged (also in dataTransfer, which dragover cannot
+  // read) and canDrop's answers for this drag, asked once per group.
+  const dragRef = useRef<{
+    ids: readonly string[];
+    verdicts: Map<string, true | string>;
+  } | null>(null);
+
+  function endDrag() {
+    dragRef.current = null;
+    setDragging(new Set());
+    setDrop(null);
+  }
+
+  const dragModel: DragModel | null =
+    drag === undefined
+      ? null
+      : {
+          draggable: finePointer,
+          dragging,
+          drop,
+          start(event, row) {
+            const chosen = selection?.selected;
+            const ids =
+              chosen !== undefined && chosen.has(row.id)
+                ? shownOrder.filter((id) => chosen.has(id))
+                : [row.id];
+            dragRef.current = { ids, verdicts: new Map() };
+            const transfer = event.dataTransfer;
+            transfer.effectAllowed = 'move';
+            transfer.setData('text/plain', ids.join(','));
+            setDragImage(event, rootRef.current, drag, ids.length);
+            setDragging(new Set(ids));
+          },
+          end: endDrag,
+          over(event, group) {
+            const current = dragRef.current;
+            if (current === null) return;
+            if (group.droppable === false) {
+              setDrop((was) => (was === null ? was : null));
+              return;
+            }
+            let verdict = current.verdicts.get(group.id);
+            if (verdict === undefined) {
+              verdict = drag.canDrop(current.ids, group.id);
+              current.verdicts.set(group.id, verdict);
+            }
+            if (verdict === true) {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+            } else {
+              event.dataTransfer.dropEffect = 'none';
+            }
+            const next = verdict;
+            setDrop((was) =>
+              was !== null && was.groupId === group.id && was.verdict === next
+                ? was
+                : { groupId: group.id, verdict: next }
+            );
+          },
+          leave(event, group) {
+            const into = event.relatedTarget;
+            if (into instanceof Node && event.currentTarget.contains(into)) {
+              return;
+            }
+            setDrop((was) =>
+              was !== null && was.groupId === group.id ? null : was
+            );
+          },
+          dropOn(event, group) {
+            const current = dragRef.current;
+            if (current === null) return;
+            event.preventDefault();
+            const verdict =
+              current.verdicts.get(group.id) ??
+              (group.droppable === false
+                ? ''
+                : drag.canDrop(current.ids, group.id));
+            const ids = current.ids;
+            endDrag();
+            if (verdict === true) drag.onDrop(ids, group.id);
+          },
+        };
+
+  // ---- keys -------------------------------------------------------------
 
   // The table's own navigation; returns false for keys it leaves alone.
   function navigate(
@@ -224,13 +560,44 @@ export function TaskGroupTable({
     }
   }
 
+  // Selection keys: x toggles the focused row, Shift+↑/↓ extend from the
+  // anchor, ⌘/Ctrl+A selects every drawn row. Returns true when handled.
+  function selectionKey(
+    event: KeyboardEvent<HTMLDivElement>,
+    rowId: string | undefined
+  ): boolean {
+    if (selection === undefined || selectionModel === null) return false;
+    const plain = !event.altKey && !event.ctrlKey && !event.metaKey;
+    const key = event.key;
+    if ((event.metaKey || event.ctrlKey) && !event.altKey) {
+      if (key.toLowerCase() !== 'a' || event.shiftKey) return false;
+      changeSelection(selection, setIds(selection.selected, shownOrder, true));
+      return true;
+    }
+    if (!plain || rowId === undefined) return false;
+    if ((key === 'x' || key === 'X') && !event.shiftKey) {
+      selectionModel.toggleRow(rowId, false);
+      return true;
+    }
+    if (event.shiftKey && (key === 'ArrowDown' || key === 'ArrowUp')) {
+      extendSelection(selection, rowId, key === 'ArrowDown' ? 1 : -1);
+      return true;
+    }
+    return false;
+  }
+
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const root = rootRef.current;
     const target = event.target as HTMLElement;
+    if (event.defaultPrevented || isHostControlEvent(target)) return;
     const item = target.closest<HTMLElement>('[data-nav-item]');
     if (root === null || item === null || !root.contains(item)) return;
     const isGroup = item.dataset.navItem === 'group';
     const group = groupById.get(item.dataset.groupId ?? '');
+    if (selectionKey(event, isGroup ? undefined : item.dataset.rowId)) {
+      event.preventDefault();
+      return;
+    }
     // A held modifier means someone else's shortcut (the palette, the
     // browser): never navigation, but a host row command may want it.
     const modified = event.altKey || event.ctrlKey || event.metaKey;
@@ -255,29 +622,83 @@ export function TaskGroupTable({
     return <EmptyState>{emptyMessage}</EmptyState>;
   }
 
+  const slots: RowSlots = { renderCell, rowActions, onRowContextMenu };
+  const allOn =
+    selection !== undefined &&
+    shownOrder.length > 0 &&
+    shownOrder.every((id) => selection.selected.has(id));
+  const someOn =
+    selection !== undefined &&
+    !allOn &&
+    shownOrder.some((id) => selection.selected.has(id));
+
   return (
     <div
       ref={rootRef}
       className={styles.root}
-      style={{ '--task-cols': template } as CSSProperties}
+      style={rootStyle}
+      {...dropAttrs}
       onKeyDown={onKeyDown}
       role="group"
       aria-label={label}
       aria-describedby={hintId}
+      data-select={selection !== undefined ? '' : undefined}
+      data-touch-select={selection?.hideOnTouch === true ? 'hidden' : undefined}
+      data-drag={drag !== undefined ? '' : undefined}
+      data-row-actions={rowActions !== undefined ? '' : undefined}
+      data-dragging={dragging.size > 0 ? '' : undefined}
     >
       <p id={hintId} className="srOnly">
         Up and down arrows move between groups and issues. Left and right
         collapse and expand a group. Enter opens.
+        {selection !== undefined
+          ? ' X selects the focused issue; Shift with up or down extends the selection; Control or Command A selects every shown issue.'
+          : null}
       </p>
-      <div className={styles.head} aria-hidden="true">
-        <span className={cx(styles.headCell, styles.headTitle)}>
+      <div
+        className={styles.head}
+        aria-hidden={selection === undefined ? 'true' : undefined}
+      >
+        {drag !== undefined ? (
+          <span className={styles.leadCell} aria-hidden="true" />
+        ) : null}
+        {selection !== undefined ? (
+          <span className={styles.checkCell}>
+            <Checkbox
+              label={`Select all ${plural(shownOrder.length, 'shown issue', 'shown issues')}`}
+              hideLabel
+              checked={allOn}
+              indeterminate={someOn}
+              disabled={shownOrder.length === 0}
+              onChange={(on) => {
+                anchorRef.current = null;
+                changeSelection(
+                  selection,
+                  setIds(selection.selected, shownOrder, on)
+                );
+              }}
+            />
+          </span>
+        ) : null}
+        <span
+          className={cx(styles.headCell, styles.headTitle)}
+          aria-hidden={selection !== undefined ? 'true' : undefined}
+        >
           {labels.title}
         </span>
         {columns.map((c) => (
-          <span key={c} className={styles.headCell}>
+          <span
+            key={c}
+            className={styles.headCell}
+            data-column={dropColumns !== undefined ? c : undefined}
+            aria-hidden={selection !== undefined ? 'true' : undefined}
+          >
             {labels[c]}
           </span>
         ))}
+        {rowActions !== undefined ? (
+          <span className={styles.leadCell} aria-hidden="true" />
+        ) : null}
       </div>
       {sections.map((section) => (
         <Section
@@ -293,10 +714,34 @@ export function TaskGroupTable({
           onOpenRow={onOpenRow}
           onOpenGroup={onOpenGroup}
           activeRowId={activeRowId}
+          selection={selectionModel}
+          drag={dragModel}
+          slots={slots}
+          groupActions={groupActions}
         />
       ))}
     </div>
   );
+}
+
+/** Draws the drag image: a small paper label in a 1px ink frame naming
+    how many rows move ("3 ISSUES"), appended inside the table (so its
+    styles apply in scoped mode) and removed once the browser has taken
+    its picture. */
+function setDragImage(
+  event: DragEvent<HTMLElement>,
+  root: HTMLElement | null,
+  drag: TaskDragProps,
+  count: number
+): void {
+  const transfer = event.dataTransfer;
+  if (root === null || typeof transfer.setDragImage !== 'function') return;
+  const ghost = document.createElement('div');
+  ghost.className = styles.dragGhost ?? '';
+  ghost.textContent = drag.label(count);
+  root.appendChild(ghost);
+  transfer.setDragImage(ghost, 14, 14);
+  setTimeout(() => ghost.remove(), 0);
 }
 
 interface SectionProps {
@@ -311,6 +756,10 @@ interface SectionProps {
   onOpenRow: TaskGroupTableProps['onOpenRow'];
   onOpenGroup: TaskGroupTableProps['onOpenGroup'];
   activeRowId: string | undefined;
+  selection: SelectionModel | null;
+  drag: DragModel | null;
+  slots: RowSlots;
+  groupActions: TaskGroupTableProps['groupActions'];
 }
 
 function Section({
@@ -325,16 +774,22 @@ function Section({
   onOpenRow,
   onOpenGroup,
   activeRowId,
+  selection,
+  drag,
+  slots,
+  groupActions,
 }: SectionProps) {
   let count = 0;
-  for (const group of section.groups) count += group.rows.length;
+  for (const group of section.groups) count += group.count ?? group.rows.length;
   const note = section.note ?? plural(count, 'issue', 'issues');
   return (
     <div className={styles.section} data-section-id={section.id}>
-      <Heading className={styles.sectionRow}>
-        <span className={styles.sectionLabel}>{section.label}</span>
-        <span className={styles.sectionNote}>{note}</span>
-      </Heading>
+      {section.label !== undefined ? (
+        <Heading className={styles.sectionRow}>
+          <span className={styles.sectionLabel}>{section.label}</span>
+          <span className={styles.sectionNote}>{note}</span>
+        </Heading>
+      ) : null}
       {section.groups.length === 0 ? (
         <p className={styles.emptyLine}>
           {section.emptyLabel ?? 'Nothing in this section'}
@@ -353,6 +808,10 @@ function Section({
           onOpenRow={onOpenRow}
           onOpenGroup={onOpenGroup}
           activeRowId={activeRowId}
+          selection={selection}
+          drag={drag}
+          slots={slots}
+          groupActions={groupActions}
         />
       ))}
     </div>
@@ -370,6 +829,10 @@ interface GroupProps {
   onOpenRow: TaskGroupTableProps['onOpenRow'];
   onOpenGroup: TaskGroupTableProps['onOpenGroup'];
   activeRowId: string | undefined;
+  selection: SelectionModel | null;
+  drag: DragModel | null;
+  slots: RowSlots;
+  groupActions: TaskGroupTableProps['groupActions'];
 }
 
 function Group({
@@ -383,6 +846,10 @@ function Group({
   onOpenRow,
   onOpenGroup,
   activeRowId,
+  selection,
+  drag,
+  slots,
+  groupActions,
 }: GroupProps) {
   // The spoken name: a comma, not the visible "›", which screen readers
   // read out as punctuation ("right angle quote").
@@ -394,6 +861,11 @@ function Group({
   // A muted group is never loud: no accent on its date or progress.
   const muted = group.muted === true;
   const dueAccent = !muted && group.dueTone === 'accent';
+  const count = group.count ?? group.rows.length;
+  const drop =
+    drag !== null && drag.drop !== null && drag.drop.groupId === group.id
+      ? drag.drop.verdict
+      : null;
 
   function onTitleClick(event: MouseEvent<HTMLAnchorElement>) {
     if (onOpenGroup === undefined || !isPlainClick(event)) return;
@@ -422,17 +894,46 @@ function Group({
       <span className={styles.groupTitle}>{group.title}</span>
     );
 
+  let groupCheck: ReactNode = null;
+  if (selection !== null) {
+    const ids = group.rows.map((r) => r.id);
+    const on = ids.filter((id) => selection.selected.has(id)).length;
+    const all = ids.length > 0 && on === ids.length && !collapsed;
+    groupCheck = (
+      <span className={styles.groupLead}>
+        <span className={styles.checkCell}>
+          <Checkbox
+            label={`Select the ${plural(ids.length, 'shown issue', 'shown issues')} in ${group.title}`}
+            hideLabel
+            checked={all}
+            indeterminate={!all && on > 0}
+            disabled={ids.length === 0}
+            onChange={(next) => selection.setGroup(group, next)}
+          />
+        </span>
+      </span>
+    );
+  } else if (drag !== null) {
+    groupCheck = <span className={styles.groupLead} aria-hidden="true" />;
+  }
+
   return (
     <div
       className={cx(styles.group, collapsed ? styles.collapsed : undefined)}
       data-group-id={group.id}
       data-collapsed={collapsed}
+      data-drop={drop === null ? undefined : drop === true ? 'ok' : 'no'}
+      title={typeof drop === 'string' && drop !== '' ? drop : undefined}
+      onDragOver={drag === null ? undefined : (e) => drag.over(e, group)}
+      onDragLeave={drag === null ? undefined : (e) => drag.leave(e, group)}
+      onDrop={drag === null ? undefined : (e) => drag.dropOn(e, group)}
     >
       <div
         className={styles.groupRow}
         data-nav-item="group"
         data-group-id={group.id}
       >
+        {groupCheck}
         <button
           type="button"
           className={styles.toggle}
@@ -458,6 +959,11 @@ function Group({
               muted={muted}
             />
           ) : null}
+          {group.mark !== undefined ? (
+            <span className={styles.groupMark}>
+              <PickerMarkView mark={group.mark} />
+            </span>
+          ) : null}
           {group.eyebrow !== undefined && group.eyebrow !== '' ? (
             <>
               <span className={styles.eyebrow}>{group.eyebrow}</span>
@@ -467,11 +973,25 @@ function Group({
             </>
           ) : null}
           {title}
+          {group.tags !== undefined && group.tags.length > 0 ? (
+            <span className={styles.tags}>
+              {group.tags.map((tag) => (
+                <span key={tag} className={styles.tag}>
+                  {tag}
+                </span>
+              ))}
+            </span>
+          ) : null}
           <span id={countId} className={styles.count}>
-            {plural(group.rows.length, 'issue', 'issues')}
+            {plural(count, 'issue', 'issues')}
           </span>
         </Heading>
         <div className={styles.groupMeta}>
+          {typeof drop === 'string' && drop !== '' ? (
+            <span className={styles.dropReason} role="status">
+              {drop}
+            </span>
+          ) : null}
           {group.dueLabel !== undefined ? (
             <span
               className={cx(
@@ -505,7 +1025,13 @@ function Group({
             </span>
           ) : null}
         </div>
+        {groupActions !== undefined ? (
+          <span className={styles.groupActions}>{groupActions(group)}</span>
+        ) : null}
       </div>
+      {group.missingLabel !== undefined && group.missingLabel !== '' ? (
+        <p className={styles.missing}>{group.missingLabel}</p>
+      ) : null}
       <ul
         id={listId}
         className={styles.rows}
@@ -523,10 +1049,33 @@ function Group({
                 labels={labels}
                 onOpenRow={onOpenRow}
                 active={row.id === activeRowId}
+                selection={selection}
+                drag={drag}
+                slots={slots}
               />
             ))}
-        {!collapsed && group.rows.length === 0 ? (
-          <li className={styles.emptyLine}>No open issues</li>
+        {!collapsed && group.rows.length === 0 && group.footer === undefined ? (
+          <li className={styles.emptyLine}>
+            {group.emptyLabel ?? 'No open issues'}
+          </li>
+        ) : null}
+        {!collapsed && group.footer !== undefined ? (
+          <li className={styles.footer}>
+            <span>{group.footer.text}</span>
+            {group.footer.actions.map((action) => (
+              <span key={action.label} className={styles.footerItem}>
+                <span aria-hidden="true">·</span>
+                <button
+                  type="button"
+                  className={styles.footerAction}
+                  disabled={action.disabled}
+                  onClick={action.onActivate}
+                >
+                  {action.label}
+                </button>
+              </span>
+            ))}
+          </li>
         ) : null}
       </ul>
     </div>
@@ -540,23 +1089,52 @@ interface RowProps {
   labels: Record<TaskColumnId | 'title', string>;
   onOpenRow: TaskGroupTableProps['onOpenRow'];
   active: boolean;
+  selection: SelectionModel | null;
+  drag: DragModel | null;
+  slots: RowSlots;
 }
 
-function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
+function Row({
+  row,
+  group,
+  columns,
+  labels,
+  onOpenRow,
+  active,
+  selection,
+  drag,
+  slots,
+}: RowProps) {
   const external = row.external === true;
   // Under a PROJECT › MILESTONE heading the project cell repeats the
   // heading; phones drop it so the meta fits one line.
   const projectRepeatsHeading =
     row.project !== undefined && row.project === group.eyebrow;
+  const isSelected = selection !== null && selection.selected.has(row.id);
+  const tapToggles = selection !== null && selection.toggleOnClick;
 
-  function onClick(event: MouseEvent<HTMLAnchorElement>) {
+  function onClick(event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>) {
     if (onOpenRow === undefined || !isPlainClick(event)) return;
     event.preventDefault();
     onOpenRow(row, group);
   }
 
+  // In touch Select mode a tap on the title toggles the row, so it is
+  // drawn (and named to assistive tech) as what it does: a checkbox with
+  // the title as its name and the selection as its state, not a link
+  // that would not open. It stays the row's focus target.
   const primary =
-    row.href !== undefined ? (
+    tapToggles && selection !== null ? (
+      <button
+        type="button"
+        role="checkbox"
+        aria-checked={isSelected}
+        className={styles.titleLink}
+        onClick={() => selection.toggleRow(row.id, false)}
+      >
+        {row.title}
+      </button>
+    ) : row.href !== undefined ? (
       <Link
         href={row.href}
         className={styles.titleLink}
@@ -581,11 +1159,16 @@ function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
       <button
         type="button"
         className={styles.titleLink}
-        onClick={() => onOpenRow?.(row, group)}
+        onClick={() => {
+          onOpenRow?.(row, group);
+        }}
       >
         {row.title}
       </button>
     );
+
+  const onContextMenu = slots.onRowContextMenu;
+  const isDragged = drag !== null && drag.dragging.has(row.id);
 
   return (
     <li
@@ -594,7 +1177,44 @@ function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
       data-group-id={group.id}
       data-row-id={row.id}
       aria-current={active ? 'true' : undefined}
+      aria-busy={row.pending === true ? 'true' : undefined}
+      data-selected={isSelected ? 'true' : undefined}
+      data-pending={row.pending === true ? 'true' : undefined}
+      data-done={row.done === true ? 'true' : undefined}
+      data-dragged={isDragged ? 'true' : undefined}
+      onContextMenu={
+        onContextMenu === undefined
+          ? undefined
+          : (event) => {
+              const target = event.target as HTMLElement;
+              if (isHostControlEvent(target)) return;
+              onContextMenu(event, row, group);
+            }
+      }
     >
+      {drag !== null ? (
+        <div className={styles.gripCell}>
+          <span
+            className={styles.grip}
+            aria-hidden="true"
+            draggable={drag.draggable ? true : undefined}
+            data-draggable={drag.draggable ? 'true' : undefined}
+            onDragStart={drag.draggable ? (e) => drag.start(e, row) : undefined}
+            onDragEnd={drag.draggable ? () => drag.end() : undefined}
+          >
+            <GripVertical size={14} strokeWidth={1.5} aria-hidden="true" />
+          </span>
+        </div>
+      ) : null}
+      {selection !== null ? (
+        <div className={styles.checkCell}>
+          <ShiftAwareCheckbox
+            label={`Select ${row.key}`}
+            checked={isSelected}
+            onToggle={(shift) => selection.toggleRow(row.id, shift)}
+          />
+        </div>
+      ) : null}
       <div className={styles.titleCell}>
         <span className={styles.key}>{row.key}</span>
         <span className={styles.titleWrap}>
@@ -627,22 +1247,86 @@ function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
               ))}
             </span>
           ) : null}
+          {row.note !== undefined && row.note.text !== '' ? (
+            <span
+              className={styles.note}
+              data-tone={row.note.tone ?? 'default'}
+            >
+              {row.note.text}
+            </span>
+          ) : null}
         </span>
       </div>
-      {columns.map((column) => (
-        <div
-          key={column}
-          className={styles.cell}
-          data-column={column}
-          data-repeats-heading={
-            column === 'project' && projectRepeatsHeading ? '' : undefined
-          }
-        >
-          <span className="srOnly">{labels[column]}: </span>
-          <CellValue row={row} column={column} />
-        </div>
-      ))}
+      {columns.map((column) => {
+        const custom = slots.renderCell?.(column, row, group);
+        if (custom !== undefined) {
+          return (
+            <div
+              key={column}
+              className={styles.cell}
+              data-column={column}
+              data-control=""
+              data-priority={column === 'priority' ? row.priority : undefined}
+              data-repeats-heading={
+                column === 'project' && projectRepeatsHeading ? '' : undefined
+              }
+            >
+              {custom}
+            </div>
+          );
+        }
+        return (
+          <div
+            key={column}
+            className={styles.cell}
+            data-column={column}
+            data-repeats-heading={
+              column === 'project' && projectRepeatsHeading ? '' : undefined
+            }
+          >
+            <span className="srOnly">{labels[column]}: </span>
+            <CellValue row={row} column={column} />
+          </div>
+        );
+      })}
+      {slots.rowActions !== undefined ? (
+        <div className={styles.actionsCell}>{slots.rowActions(row, group)}</div>
+      ) : null}
     </li>
+  );
+}
+
+/** A row's checkbox that knows whether shift was held: Checkbox reports
+    only the new state, so the click's modifier is read on the way in
+    (capture phase, before the input's change). */
+function ShiftAwareCheckbox({
+  label,
+  checked,
+  onToggle,
+}: {
+  label: string;
+  checked: boolean;
+  onToggle: (shift: boolean) => void;
+}) {
+  const shiftRef = useRef(false);
+  return (
+    <span
+      className={styles.checkWrap}
+      onClickCapture={(event) => {
+        shiftRef.current = event.shiftKey;
+      }}
+    >
+      <Checkbox
+        label={label}
+        hideLabel
+        checked={checked}
+        onChange={() => {
+          const shift = shiftRef.current;
+          shiftRef.current = false;
+          onToggle(shift);
+        }}
+      />
+    </span>
   );
 }
 
@@ -689,5 +1373,44 @@ function CellValue({
           {row.due ?? '—'}
         </span>
       );
+    case 'assignee': {
+      const name = row.assignee ?? '';
+      // Initials in the system's square; nobody is the same square,
+      // dashed and empty, beside "Unassigned" in its tone.
+      return name === '' ? (
+        <span className={styles.person} data-tone={row.assigneeTone ?? 'muted'}>
+          <span className={styles.avatarEmpty} aria-hidden="true" />
+          <span className={styles.personName}>Unassigned</span>
+        </span>
+      ) : (
+        <span className={styles.person}>
+          <PickerMarkView mark={{ kind: 'avatar', name }} />
+          <span className={styles.personName}>{name}</span>
+        </span>
+      );
+    }
+    case 'milestone': {
+      const milestone = row.milestone ?? '';
+      const project = row.milestoneProject ?? '';
+      if (milestone === '') {
+        return (
+          <span className={styles.milestone} data-tone="muted">
+            No milestone
+          </span>
+        );
+      }
+      // The name keeps its room; the project after it is cut first.
+      return (
+        <span
+          className={styles.milestone}
+          title={project === '' ? milestone : `${project} › ${milestone}`}
+        >
+          <span className={styles.milestoneName}>{milestone}</span>
+          {project !== '' ? (
+            <span className={styles.milestoneProject}> · {project}</span>
+          ) : null}
+        </span>
+      );
+    }
   }
 }

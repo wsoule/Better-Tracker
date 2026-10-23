@@ -455,5 +455,12 @@ export interface Store {
 
   // --- audit ----------------------------------------------------------------
   appendAudit(entry: AuditEntry): Promise<void>;
+  /**
+   * Additive: appends many entries in one statement (a bulk issue edit),
+   * in the given order: their ids follow it, so listAudit (occurred_at
+   * DESC, id DESC) reads entries sharing one `at` back in reverse. An
+   * empty list writes nothing.
+   */
+  appendAuditEntries(entries: readonly AuditEntry[]): Promise<void>;
   listAudit(workspaceId: string, limit: number): Promise<AuditEntry[]>;
 }

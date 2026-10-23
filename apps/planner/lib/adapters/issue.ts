@@ -3,6 +3,8 @@ import {
   diffDays,
   estimateLabel,
   type EstimateScale,
+  foldedTitles,
+  foldText,
   type Issue,
   ISSUE_DESCRIPTION_MAX_LENGTH,
   ISSUE_TITLE_MAX_LENGTH,
@@ -11,6 +13,8 @@ import {
   type IssueDetailMilestone,
   type IssuePersonRef,
   type IssueRelationRow,
+  issueSearchScore,
+  issueSearchTerms,
   PRIORITY_LABEL,
   RUBRIC_GAP_SHORT_LABEL,
   type Snapshot,
@@ -273,11 +277,6 @@ export interface IssueSearchHit {
 /** How many issues the relation picker's search answers with. */
 export const ISSUE_SEARCH_LIMIT = 20;
 
-// Lower case without diacritics, so "resume" finds "Résumé".
-function fold(text: string): string {
-  return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-}
-
 function isOpenType(type: WorkflowStateType | undefined): boolean {
   return type !== 'completed' && type !== 'canceled';
 }
@@ -299,25 +298,21 @@ export function searchIssueMirror(
     options.near === null || options.near === undefined
       ? undefined
       : snapshot.issues.get(options.near);
-  const q = fold(query.trim());
-  const words = q.split(/\s+/).filter((word) => word !== '');
+  // Core's matcher (issue-search.ts), shared with the issue list's search.
+  const terms = issueSearchTerms(query);
+  const titles = terms.folded === '' ? null : foldedTitles(snapshot);
   const scored: { issue: Issue; score: number; open: boolean }[] = [];
   for (const issue of snapshot.issues.values()) {
     const type = snapshot.states.get(issue.stateId)?.type;
     const open = isOpenType(type);
-    let score: number;
-    if (q === '') {
-      if (!open) continue;
-      score = 3;
-    } else {
-      const key = issue.identifier.toLowerCase();
-      if (key === q) score = 0;
-      else if (key.startsWith(q)) score = 1;
-      else if (key.includes(q)) score = 2;
-      else if (words.every((word) => fold(issue.title).includes(word))) {
-        score = 3;
-      } else continue;
-    }
+    // An empty query lists open issues only.
+    if (terms.folded === '' && !open) continue;
+    const score = issueSearchScore(
+      issue,
+      terms,
+      titles === null ? '' : (titles.get(issue.id) ?? foldText(issue.title))
+    );
+    if (score === null) continue;
     scored.push({ issue, score, open });
   }
   const nearness = (issue: Issue): number => {

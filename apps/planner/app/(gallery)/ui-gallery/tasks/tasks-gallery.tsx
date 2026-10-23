@@ -44,6 +44,7 @@ import {
   WEEK_STATS,
   ZOOM_OPTIONS,
 } from './fixtures';
+import { IssueListGallery } from './issue-list-gallery';
 import css from './page.module.css';
 
 // The gallery's router: a plain anchor that records the href instead of
@@ -289,10 +290,32 @@ export default function TasksGallery({
             </div>
           </section>
 
+          {/* ---- Issue list --------------------------------------------- */}
+          <section className="block" aria-labelledby="issues-title">
+            <BlockBar
+              index="04"
+              title="Issue list"
+              meta="Selection, drag, cell pickers, menus, chips, bulk bar"
+            />
+            <div className={css.collapse}>
+              <header className={css.hero}>
+                <h2 id="issues-title" className={css.greeting}>
+                  Issues
+                </h2>
+                <p className={css.receipts}>
+                  Every issue across 3 projects. Select rows (shift-click, x,
+                  Shift+↓, ⌘A), drag one onto another group, or pick from a
+                  cell; the rows are hatched while the pretend change is sent.
+                </p>
+              </header>
+            </div>
+            <IssueListGallery record={setOpened} />
+          </section>
+
           {/* ---- Projects ----------------------------------------------- */}
           <section className="block" aria-label="Projects">
             <BlockBar
-              index="04"
+              index="05"
               title="Projects"
               meta="5 active · 1 inactive"
             />
@@ -402,7 +425,7 @@ export default function TasksGallery({
           {/* ---- Runs + Settings ----------------------------------------- */}
           <div className={`block ${css.pair}`}>
             <section aria-label="Runs" className={css.collapse}>
-              <BlockBar index="05" title="Runs" meta="Allocation log" />
+              <BlockBar index="06" title="Runs" meta="Allocation log" />
               <Register
                 label="Allocation runs"
                 stackedColumns="repeat(3, minmax(0, 1fr))"
@@ -466,7 +489,7 @@ export default function TasksGallery({
               </Register>
             </section>
             <section aria-label="Settings" className={css.collapse}>
-              <BlockBar index="06" title="Settings · modes" meta="Audited" />
+              <BlockBar index="07" title="Settings · modes" meta="Audited" />
               <Register
                 label="Modes"
                 columns="minmax(0, 1fr) auto"
@@ -538,7 +561,7 @@ export default function TasksGallery({
           {/* ---- Primitives --------------------------------------------- */}
           <section className="block" aria-label="Primitives">
             <BlockBar
-              index="07"
+              index="08"
               title="Primitives"
               meta="Tasks family sampler"
             />

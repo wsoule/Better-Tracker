@@ -190,6 +190,12 @@ describe('a Linear guest', () => {
         h.engine.addBlocker(actor, 'iss-ops-5', 'iss-ops-6')
       );
       await refusedReadOnly(h.engine.removeRelation(actor, 'rel-atlas'));
+      // The issue list's bulk moves (owner request 2026-10-22).
+      await refusedReadOnly(
+        h.engine.updateIssues(actor, ['iss-ops-1', 'iss-ops-5'], {
+          priority: 1,
+        })
+      );
       for (const mode of ['dry_run', 'live'] as const) {
         await refusedReadOnly(
           h.engine.runAllocation({
@@ -250,6 +256,17 @@ describe('a member', () => {
     );
     await h.engine.removeRelation(member, relation.id);
     await h.engine.removeRelation(member, 'rel-atlas');
+    const bulk = await h.engine.updateIssues(
+      member,
+      ['iss-ops-5', 'iss-ops-6'],
+      { priority: 4 }
+    );
+    expect(bulk.counts).toEqual({
+      changed: 2,
+      unchanged: 0,
+      skipped: 0,
+      failed: 0,
+    });
     const run = await h.engine.runAllocation({
       workspaceId: WORKSPACE_ID,
       mode: 'dry_run',
@@ -272,6 +289,8 @@ describe('a member', () => {
       'user-elena:createBlockingRelation:iss-ops-6>iss-ops-5',
       `user-elena:deleteRelation:${relation.id}`,
       'user-elena:deleteRelation:rel-atlas',
+      'user-elena:updateIssueFields:iss-ops-5',
+      'user-elena:updateIssueFields:iss-ops-6',
     ]);
     const audit = await h.store.listAudit(WORKSPACE_ID, 100);
     expect(new Set(audit.map((entry) => entry.actorUserId))).toEqual(

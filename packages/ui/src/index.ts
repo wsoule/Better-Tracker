@@ -44,7 +44,18 @@ export { StatsStrip } from './tasks/stats-strip';
 export { Switch } from './tasks/switch';
 export { PriorityGlyph, StateGlyph } from './tasks/task-glyphs';
 export { TaskGroupTable } from './tasks/task-group-table';
+export {
+  pruneSelection,
+  rangeIds,
+  setIds,
+  toggleId,
+} from './tasks/task-selection';
+export { BulkBar } from './tasks/bulk-bar';
+export { FilterChips } from './tasks/filter-chips';
+export { ToolbarBadge, ViewToolbar } from './tasks/view-toolbar';
 export type {
+  BulkBarConfirm,
+  BulkBarProps,
   ButtonAsButtonProps,
   ButtonAsLinkProps,
   ButtonProps,
@@ -59,6 +70,8 @@ export type {
   DeadlineItem,
   DeadlineListProps,
   EmptyStateProps,
+  FilterChipData,
+  FilterChipsProps,
   NavTabItem,
   NavTabsProps,
   NoticeProps,
@@ -77,13 +90,17 @@ export type {
   SwitchProps,
   TaskChipData,
   TaskColumnId,
+  TaskDragProps,
   TaskGroupData,
   TaskGroupProgress,
   TaskGroupTableProps,
   TaskPriority,
   TaskRowData,
   TaskSectionData,
+  TaskSelectionProps,
   TaskStateKind,
+  ViewToolbarProps,
+  ViewToolbarSearch,
 } from './tasks/types';
 
 // ---- shell family (src/shell): the app frame and overlays (architecture
@@ -101,6 +118,7 @@ export {
   useOptionalCommandPalette,
 } from './shell/command-palette';
 export { type FuzzyMatch, fuzzyMatch, highlightRuns } from './shell/fuzzy';
+export { useModKeyLabel } from './shell/dom';
 export { Kbd, KbdKeys } from './shell/kbd';
 export { default as PropertyList } from './shell/property-list';
 export { sidebarCollapseScript } from './shell/sidebar-script';

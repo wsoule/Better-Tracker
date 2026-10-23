@@ -57,6 +57,23 @@ links, "Open as graph" and the milestone drawer, the projects register's group
 links, every issue's chain) are in §8.4 "Timeline" and "Projects" and §8.5. The
 graph is read-only, so guests keep every graph link.
 
+**Owner request 2026-10-22, "every issue in one list"** (the owner's words:
+"Need good and intuitive ways to see all tasks then filter by projects and
+initiatives and milestones and order by weight based on those and easily group
+things and move them to milestones and stuff."): one list of every issue the
+person can see, filtered by initiative, project, milestone, assignee, team,
+status, priority, text and three quick filters, ordered by the weight rule or by
+a field, grouped by milestone, project, initiative, assignee, status or priority
+(optionally inside initiative or project sections), and issues moved to a
+milestone (with its project), a project, a person, a status or a priority, one
+at a time or up to 100 at once. A move is an issue edit of the 2026-10-21
+decision (project, milestone, assignee, status, priority), made with the
+person's own token, refused for a guest (`requireWritable`) and audited per
+issue, so there is no new kind of Linear write. The mirror gains each issue's
+due date. The contracts are in §2.7, §2.13, §2.14, §3, §4, §4.1, §5, §7 and
+§7.3; the Issues page (`/issues`, the `/tasks` redirect, the toolbar, the list
+and moving issues from it) is in §8.1, §8.3, §8.4 "Issues" and §8.5.
+
 ## 1. Layout
 
 ```
@@ -201,6 +218,21 @@ Milestones: (1) overdue before everything else; (2) within each group, higher
 priority (urgent 1, high 2, medium 3, low 4, none 0 last); (5) milestone
 `sortOrder`; (6) id. Issues inside a milestone: priority (same rank), then
 `createdAt` ascending (age), then identifier.
+
+The issue list's weight order (§2.14) builds on this without changing
+`compareMilestones` (My week, the graph, digests and allocation keep it as it
+is). Issues fall in tiers, so paused work never outranks live work and the
+unplanned work of live projects comes before it (builder's calls, flagged in the
+design doc): **A** in a mirrored milestone of an active project (§2.8); **B** in
+an active project with no mirrored milestone; **C** no mirrored project; **D**
+in a milestone of an inactive project; **E** an inactive project with no
+milestone. Inside A and D, milestones that are not complete come before complete
+ones, then `compareMilestones` (one global sort per build, partitioned stably);
+inside B and E, projects in `orderProjects` order (first initiative, then
+project priority, `sortOrder`, id). Inside a milestone, or a project's "No
+milestone", open issues come before closed ones, then `compareIssues`. The
+weight stays display only: `nextMilestoneId` and `planAllocation` never read the
+tiers or the weight (a core test changes a weight and compares the plans).
 
 ### 2.8 Allocation plan (§6.1–6.4, §7.4)
 
@@ -518,6 +550,129 @@ private teams):
   among its recipients, and each digest names only the open issues its recipient
   can see (`visibleDigest`, also used for the Settings preview with the
   previewing person's scope; counts and plain lines name nothing and stay).
+- The issue list and its picker options (§2.14) are built from the viewer's
+  snapshot only, so a hidden team's issues, projects, milestones and relations
+  reach no row, count, flag, ref or option. A filter value the viewer's snapshot
+  lacks matches nothing and is reported in `unknownIds`, unknown and hidden
+  alike, and never becomes a header or a drop target. `buildIssueListOptions`
+  narrows each project's `teamIds` to the viewer's teams: `visibleSnapshot`
+  keeps a shared project's full team list, and the options go to the browser.
+
+### 2.14 Issue list (`issue-list.ts`, owner request 2026-10-22)
+
+`buildIssueList({ snapshot, ctx, assessments, allocationPlan, query, viewerId })`
+→ `IssueListView`, over the viewer's snapshot (§2.13). One pass per step, never
+per comparison. At 50,000 issues one build took 70–200 ms on a busy 4-core
+sandbox, and the default view (500 rows, 200 headers and their refs) is about
+390 KB of JSON; the core scale test asserts under 600 KB and the shared 4 s
+bound.
+
+- **Query** (`IssueListQuery`): `filters`, `group`
+  (`milestone | project | initiative | assignee | state | priority | none`),
+  `sections` (`none | initiative | project`), `sort`
+  (`weight | priority | due | updated | created | title`), `dir` and `limit`.
+  `normalizeIssueListQuery(raw)` never throws: unknown enum values, blank
+  values, values over 200 characters, repeats and values past 50 per field are
+  dropped (values keep their order); `q` is trimmed to 200 characters; an empty
+  status list means the open types; `limit` is rounded up to a multiple of 500
+  in [500, 2000]; an invalid pair resets `sections` to `none` (initiative
+  sections with every group but `initiative`; project sections with `milestone`,
+  `assignee`, `state`, `priority`, `none`; `issueListSectionsAllowed`); the
+  weight sort has no direction (`asc`), the others default to
+  `ISSUE_LIST_DEFAULT_DIR` (`updated` and `created` newest first).
+  `buildIssueList` normalizes again and returns the query as applied.
+- **Filters**: values within a field are OR'd, fields and quick filters AND'd,
+  an empty field adds no condition. `LIST_NONE` (`'none'`, equal to
+  `NO_INITIATIVE_ID`) means no project / milestone / assignee / initiative;
+  `LIST_ME` (`'me'`) is `viewerId` (none: matches nothing). Status by type
+  across teams, open by default. Initiative: the issue's mirrored project's
+  first initiative (`homeInitiativeIds`, the timeline's rule), `none` for a
+  project in no mirrored initiative; an issue without a project matches no
+  initiative value. Project and milestone count only what the snapshot mirrors
+  (a milestone of another project than the issue's reads as none). Quick:
+  `blocked` (open with an open blocker), `at_risk` (open, its milestone overdue
+  or at risk in an active project), `next` (open, in its active project's next
+  milestone). Text: `issueSearchScore` (`issue-search.ts`, shared with the
+  relation picker's search) with every query word in the accent-folded title,
+  and the identifier only when the query holds a digit ("24" finds ENG-24; "eng"
+  does not match every ENG issue).
+- **Fallback**: a snapshot without initiatives (a guest's, or a workspace with
+  none) facing a query that names initiatives, groups or divides by them drops
+  the initiative values, groups by project instead and divides by nothing, with
+  `fallback: { reason: 'no_initiatives' }`; every initiative id gets the same
+  answer. A query that names no initiative (the default view) needs no fallback,
+  so a guest's plain `/issues` has no such notice: nothing on it speaks of
+  initiatives (the Group menu's initiative choices say "No initiatives to
+  show").
+- **Order**: the weight order of §2.7, or a field first (priority with none
+  last, the issue's own `dueDate` with undated last, `updatedAt`, `createdAt`,
+  folded title then identifier; nulls last in both directions), ties broken by
+  the weight key. Field sorts order rows inside groups; groups keep their own
+  order.
+- **Groups** (key `<sectionKey>/<valueKey>`): milestone (`m:<id>`; a project's
+  `nm:<projectId>`; `np`), by tier, then the milestone or project rank; project
+  (`p:<id>`): active projects in `orderProjects` order, then `np`, then inactive
+  ones; initiative (`i:<id|none>`): `compareInitiatives`, "No initiative", then
+  `np`; assignee (`a:<id|none>`): the viewer, active people by folded name,
+  deactivated (and app or unknown) people, then unassigned; state
+  (`s:<type>:<stateNameKey>`): one group per type and name across teams
+  (`stateNameKey` trims and lower-cases, so ENG's and OPS's "In Review" are
+  one), by type, then the lowest position, then name; priority (`pr:<0-4>`): all
+  five even when empty when there are no sections, Urgent to No priority; none
+  (`all`). A group's `count` counts every match, shown or not. Each group
+  carries its drop `patch` (`IssueBulkPatch`, §7.3): a milestone moves there
+  with its project, a project's "No milestone" and a project group move into the
+  project with no milestone, "No project" clears the project, an assignee group
+  assigns (null for a deactivated person, an app or an unknown person: the bulk
+  edit would refuse them), a state group sets that status by name, a priority
+  group that priority; initiative groups and `all` take no drop. Groups of an
+  inactive project are `muted`.
+- **Sections**: with `sections: none` and grouped by milestone, the tiers as
+  dividers: `t:overdue` (tier A, milestone overdue), `t:upcoming` (the rest of
+  A, complete milestones last), `t:unplanned` (B, then C) and `t:inactive` (D,
+  E), empty ones left out; any other grouping is one unlabelled section `all`.
+  `sections: initiative`: one per first initiative (`i:<id>`), then `i:none`,
+  then `p:none`; `sections: project`: active projects (`p:<id>`), `p:none`,
+  inactive ones. Inside a section, groups keep their global order; a section's
+  `count` counts its matches.
+- **Empty milestones as drop targets** (grouped by milestone only): with 1 to 5
+  real project ids in the project filter, every milestone of those projects that
+  is not complete is listed even without matches, as is every milestone the
+  milestone filter names that the viewer's snapshot holds (complete or not);
+  such a group has `count: 0`, no rows and `emptyTarget: true`. Its header's ref
+  carries the milestone's whole progress, so the planner can tell "no open
+  issues here yet" from "none of its open issues match".
+- **Budgets**: sections, then groups, in order: the first 200 groups
+  (`ISSUE_LIST_MAX_GROUPS`) are kept and the rest only counted in `moreGroups`
+  (their issues still count in `total`); each kept group takes rows from the row
+  budget (`limit`) until it runs out, so later groups may have none.
+- **Rows** (`IssueListRow`): the issue's fields with its mirrored project and
+  milestone (null when not mirrored), its state's name and type, `dueDate`
+  (`Issue.dueDate`, none when absent or malformed), `blockedBy` (open blockers),
+  `holdsUpMilestoneId` (open and blocking an open issue of an overdue or at-risk
+  milestone of an active project: the first such milestone in weight order),
+  `unassignedInNext` (§2.12's `unassignedInNextMilestone`) and `projectActive`
+  (true without a project).
+- **Counts and presets**: one pass also counts the preset tabs over open issues,
+  whatever the current filters: `all`, `mine` (assigned to the viewer),
+  `unplanned` (no mirrored milestone), `unassigned`, `blocked`, `at_risk`; each
+  equals the `total` of its own filters in `ISSUE_LIST_PRESETS`.
+  `sameIssueListFilters` compares filters field by field as sets.
+- **Refs**: names and facts only for what kept rows, groups, sections and filter
+  values reference, closed over milestones' projects and projects' first
+  initiatives, leads and next milestones (people, teams, initiatives, projects
+  with lead, next milestone and allocation outcome, milestones with date, days
+  left, status, risk reasons, rubric, `isNext`, weight and progress).
+- **Also**: `unknownIds` (filter values the snapshot lacks, per facet; `me` and
+  `none` never), `alsoIn` (with an initiative filter: projects in a chosen
+  initiative whose first initiative is another, so their issues are not listed),
+  `includesClosed` (the status filter names a closed type), `projectCount`
+  (mirrored projects that are not completed or canceled) and `today`.
+- `buildIssueListOptions(snapshot, ctx, assessments)` → `IssueListOptions`, the
+  pickers' data: initiatives (`compareInitiatives`), projects active first then
+  the rest (timeline order) with their milestones in §2.6 order (date, days
+  left, status, `isNext`, weight), non-app people active first by folded name,
+  and teams by name with their states (type group, then position).
 
 ## 3. Core API (packages/core/src/index.ts)
 
@@ -679,6 +834,53 @@ export function estimateOptions(scale: EstimateScale): EstimateOption[];
 export function isAllowedEstimate(scale: EstimateScale, value: number): boolean;
 export function estimateLabel(scale: EstimateScale, value: number): string;
 export function isEstimateScaleType(value: string): value is EstimateScaleType;
+// issue-search.ts — the issue text matcher (§2.14), shared with the planner's
+// relation search
+export function foldText(text: string): string; // "Résumé" → "resume"
+export function issueSearchTerms(text: string): IssueSearchTerms;
+export function foldedTitles(snapshot: Snapshot): ReadonlyMap<string, string>; // once per snapshot
+export function issueSearchScore(
+  issue: Issue,
+  terms: IssueSearchTerms,
+  foldedTitle: string,
+  options?: { identifier?: boolean } // false: titles only
+): 0 | 1 | 2 | 3 | null; // identifier exact, prefix, contains; every title word
+// issue-list.ts — the issue list (§2.14)
+export const OPEN_STATE_TYPES: readonly WorkflowStateType[];
+export const ALL_STATE_TYPES: readonly WorkflowStateType[];
+export const ISSUE_LIST_DEFAULT_LIMIT = 500; // also _LIMIT_STEP 500, _MAX_LIMIT 2000
+export const ISSUE_LIST_MAX_GROUPS = 200; // also _MAX_VALUES 50, _QUERY_MAX 200,
+// _VALUE_MAX_LENGTH 200, _EMPTY_TARGET_PROJECTS 5
+export const ISSUE_LIST_DEFAULT_DIR: Readonly<
+  Record<IssueListSort, 'asc' | 'desc'>
+>;
+export const DEFAULT_ISSUE_LIST_QUERY: IssueListQuery; // frozen
+export const ISSUE_LIST_PRESETS: Readonly<
+  Record<IssueListPresetId, IssueListFilters>
+>;
+export function normalizeIssueListQuery(raw: unknown): IssueListQuery; // never throws
+export function sameIssueListFilters(
+  a: IssueListFilters,
+  b: IssueListFilters
+): boolean;
+export function issueListSectionsAllowed(
+  group: IssueListGroupBy,
+  sections: IssueListSectionBy
+): boolean;
+export function stateNameKey(name: string): string; // trimmed, lower case
+export function buildIssueList(input: {
+  snapshot: Snapshot;
+  ctx: EvalContext;
+  assessments: ReadonlyMap<string, MilestoneAssessment>;
+  allocationPlan: AllocationPlan;
+  query: IssueListQuery;
+  viewerId: string | null; // resolves LIST_ME
+}): IssueListView;
+export function buildIssueListOptions(
+  snapshot: Snapshot,
+  ctx: EvalContext,
+  assessments: ReadonlyMap<string, MilestoneAssessment>
+): IssueListOptions;
 // visibility.ts — per-viewer visibility (§2.13)
 export function viewerScope(snapshot: Snapshot, userId: string): ViewerScope;
 export function visibleSnapshot(
@@ -703,10 +905,27 @@ export const STATUS_LABEL: Record<MilestoneStatus, string>;
 export const BLOCK_REASON_LABEL: Record<AllocationBlockReason, string>;
 export const PRIORITY_LABEL: Record<Priority, string>;
 export const ISSUE_FIELD_LABEL: Record<IssuePatchField, string>; // "Status", "Due date", …
+// the issue list's copy: STATE_TYPE_LABEL (Triage, Backlog, Todo, In progress,
+// Done, Canceled), ISSUE_LIST_GROUP_LABEL, ISSUE_LIST_SECTION_LABEL,
+// ISSUE_LIST_SORT_LABEL, ISSUE_LIST_SORT_HINT, ISSUE_LIST_QUICK_LABEL (Blocked,
+// At risk, In next milestones), ISSUE_LIST_TIER_LABEL (Overdue, Upcoming, No
+// milestone, Inactive projects), ISSUE_LIST_PRESET_LABEL
 ```
 
 Graph types (`types.ts`, §2.10): `GraphLevel`, `GraphScope`, `GraphContainer`,
 `GraphFallback`, `GraphChain`, `GraphNode`, `GraphEdge`, `DependencyGraph`.
+
+`Issue.dueDate?: IsoDate | null` (since 2026-10-22, §4): the issue's own Linear
+due date; absent on mirrors written before it, read as none.
+
+Issue list types (`types.ts`, §2.14): `LIST_NONE`, `LIST_ME`,
+`IssueListGroupBy`, `IssueListSectionBy`, `IssueListSort`, `IssueListQuick`,
+`IssueListIdFacet`, `IssueListPresetId`, `IssueListFilters`, `IssueListQuery`,
+`IssueListRow`, `IssueListGroupValue`, `IssueListGroup`,
+`IssueListSectionValue`, `IssueListSection`, `IssueListRefs`, `IssueListView`,
+`IssueListOptions`, and the bulk edit's `IssueBulkPatch`
+(`move: { projectId, milestoneId }`, `assigneeId`, `priority`,
+`state: { type, name }`, §7.3).
 
 Issue page types (`types.ts`): `IssueDetail`, `IssueRelationRow`,
 `IssueDetailProject`, `IssueDetailMilestone`, `IssueDetailTiming`,
@@ -744,6 +963,12 @@ The allocation comment (§7.4) is exactly:
   approximation = latest of createdAt/startedAt/completedAt/canceledAt.
 - `fetchLastStateChanges(ids)` batches issue `history` lookups with aliases and
   returns the newest entry whose `toStateId` is set.
+- `IssueFields`, the fragment of every issue the mirror reads (the sync, a
+  webhook's refetch, `updateIssue`, `updateIssueFields`), selects `dueDate`
+  (since 2026-10-22, for the issue list's due-date sort and column); `mapIssue`
+  maps it with the milestone date helper (a malformed or absent one reads as
+  null). It is a scalar on the issue, so it costs no connection and needs no
+  migration (issues are stored as jsonb).
 - For per-viewer visibility (§2.13) `fetchWorkspace` also reads `User.guest`,
   `Team.visibility` (`public | private | restricted`; the deprecated
   `Team.private` is not used, an unknown value reads as `private`, logged) and
@@ -818,6 +1043,11 @@ The allocation comment (§7.4) is exactly:
     change without a milestone drops the old project's milestone. Seeded
     comments live in `seededComments`; `comments` stays the list of comments
     written through the gateway.
+  - The due date lives only in that fields store, its one source: every issue
+    the fixture gateway returns (`fetchWorkspace`, `fetchIssue`, `updateIssue`,
+    `updateIssueFields`) is a copy carrying it (`withFields`), so a due-date
+    edit shows on the next read of the issue and of the workspace; a read never
+    creates a fields entry, and the store's own issues never hold the field.
 
 ### 4.1 Linear facts this design relies on
 
@@ -888,6 +1118,21 @@ Verified against Linear's SDL (vendored at `packages/linear/schema/`, SDK
   parent's settings, and every level may inherit (the chain is followed to the
   first team that does not; one inheriting past the levels read is logged).
   Scale values: linear.app/docs/estimates (§2.12).
+- Issue list (owner request 2026-10-22): `Issue.dueDate: TimelessDate`,
+  `Issue.estimate: Float` and `Issue.labelIds: [String!]!` are scalars; the
+  mirror reads `dueDate` only (estimates would need each team's scale to be
+  shown honestly, labels a mirrored label catalog). `IssueUpdateInput` also has
+  `addedLabelIds`, `removedLabelIds`, `teamId` and `sortOrder`, which the
+  planner never sends (no team changes, no manual order). Linear has a batch
+  mutation,
+  `issueBatchUpdate(ids: [UUID!]!, input: IssueUpdateInput!): IssueBatchPayload!`
+  (`{ issues, lastSyncId, success }`); its `ids` are documented "Can't be more
+  than 50 at a time", one input is shared by every id, and it is documented only
+  as "Updates multiple issues at once": no atomicity and no per-issue errors
+  (`issueBatchCreate` is the one documented "atomically"). The bulk edits (§7.3)
+  therefore write per issue with `updateIssueFields`; the batch may go behind
+  the same contract after one check against a real workspace, recorded in
+  `docs/research.md`.
 - Identity:
   `{ viewer { id name displayName email active avatarUrl app guest } organization { id name urlKey } }`.
   With an actor=app token, `viewer` is the app user (`app: true`), never the
@@ -1047,7 +1292,15 @@ Tables (all keyed by `workspace_id`):
   comment also with its `commentId`), never any of their words: Settings → Audit
   is open to every signed-in person, while those texts are read with each
   person's own token (§7.2); labels as `[{ id, name }]`; state, assignee,
-  project and milestone as ids.
+  project and milestone as ids. `appendAuditEntries(entries)` (additive) appends
+  many entries in one statement,
+  `INSERT … SELECT … FROM jsonb_array_elements($1) WITH ORDINALITY … ORDER BY`
+  the ordinality, so the identity ids follow the given order (an
+  `INSERT … SELECT` without `ORDER BY` promises none, and `listAudit` sorts
+  `occurred_at DESC, id DESC`); an empty list writes nothing, and strings are
+  cleaned as `write()` cleans them. A bulk issue edit (§7.3) writes through it
+  exactly the entries the single edits would, all sharing one `at`, in field
+  order then request order. No migration.
 - `listRunEntriesForIssue(workspaceId, issueId, limit)` (additive, issue page) →
   `IssueRunEntry[]`: the run entries about one issue, dry runs included, newest
   first (`created_at`, then run start, run id, seq), each with its run's
@@ -1132,22 +1385,22 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `fullSync` first (if installed).
 - **Per-viewer visibility** (§2.13; `visibility.ts`, the one place views apply
   it): `load`, `getWeekView`, `getTimelineView`, `getGraph`,
-  `getMilestoneDetail`, `getRun`, `listAudit` and `runWarnings({ previewOnly })`
-  take an additive optional `viewer: Actor`; with it the mirror is narrowed
-  (`visibleSnapshot`, cached per mirror snapshot and set of visible teams)
-  before anything is built, so the assessments and the allocation plan are
-  computed over what that person sees. Every read the web app makes for a person
-  passes it (§8.1); only the worker's jobs (sync, allocation, the warnings sent
-  to leads and watchers) and tests read the whole mirror. A viewer of another
-  workspace is `wrong_workspace`. The issue page and every edit
-  (`getIssueDetail`, `updateIssue`, `addComment`, `addBlocker`,
-  `removeRelation`, milestone and project edits) look entities up in the
-  viewer's narrowed mirror, so an issue of a team they cannot see is `not_found`
-  like an unknown one, while what a write changes in the mirror is decided on
-  the whole mirror. `getRun` and `listAudit` leave out entries about a project,
-  milestone or issue the viewer cannot see; an entry about one the mirror no
-  longer holds (a closed project, a deleted issue) cannot be placed in a team,
-  so members see it and guests do not. The digest preview narrows each
+  `getMilestoneDetail`, `getIssueList`, `getIssueListOptions`, `getRun`,
+  `listAudit` and `runWarnings({ previewOnly })` take an additive optional
+  `viewer: Actor`; with it the mirror is narrowed (`visibleSnapshot`, cached per
+  mirror snapshot and set of visible teams) before anything is built, so the
+  assessments and the allocation plan are computed over what that person sees.
+  Every read the web app makes for a person passes it (§8.1); only the worker's
+  jobs (sync, allocation, the warnings sent to leads and watchers) and tests
+  read the whole mirror. A viewer of another workspace is `wrong_workspace`. The
+  issue page and every edit (`getIssueDetail`, `updateIssue`, `addComment`,
+  `addBlocker`, `removeRelation`, milestone and project edits) look entities up
+  in the viewer's narrowed mirror, so an issue of a team they cannot see is
+  `not_found` like an unknown one, while what a write changes in the mirror is
+  decided on the whole mirror. `getRun` and `listAudit` leave out entries about
+  a project, milestone or issue the viewer cannot see; an entry about one the
+  mirror no longer holds (a closed project, a deleted issue) cannot be placed in
+  a team, so members see it and guests do not. The digest preview narrows each
   recipient's digest to what the previewing person sees. A mirror written before
   team visibility was mirrored is synced by `load` first (if that sync fails it
   is read as it is, which shows people nothing). Since the owner decision of
@@ -1181,12 +1434,12 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `runAllocation` (a person's run; the worker's `actor: null` is not guarded),
   `runWarnings` with a `viewer` (the digest preview), `setMilestoneTargetDate`,
   `setProjectLead`, `setMilestoneWeight`, `setMilestoneDoneMeans`,
-  `updateSettings`, `updateIssue`, `addComment`, `addBlocker` and
-  `removeRelation`. `fullSync` takes no actor: the web's resync route calls the
-  same guard first (§8.1). `finishSignIn` with `grant_write`, or any sign-in
-  whose token came back with `write` scope (an edited authorize URL), refuses a
-  guest (Linear's identity says `guest`, or the mirror does) with `read_only`,
-  revoking the grant Linear just issued and creating no session.
+  `updateSettings`, `updateIssue`, `addComment`, `addBlocker`, `removeRelation`
+  and `updateIssues` (§7.3). `fullSync` takes no actor: the web's resync route
+  calls the same guard first (§8.1). `finishSignIn` with `grant_write`, or any
+  sign-in whose token came back with `write` scope (an edited authorize URL),
+  refuses a guest (Linear's identity says `guest`, or the mirror does) with
+  `read_only`, revoking the grant Linear just issued and creating no session.
   `getIssueDetail` reports `readOnly` and
   `canEdit: canWriteLinear && !readOnly`. Nothing a refused call touches is
   written: not Linear, the mirror, settings, the run log or the audit log.
@@ -1237,7 +1490,29 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   visible), its milestones come with it but its issues cannot (there is no
   per-project issue read), so a `fullSync` follows at once (its failure is
   logged; the webhook's own change stays applied). Errors are recorded on the
-  delivery and logged; the periodic resync heals drift.
+  delivery and logged; the periodic resync heals drift. An Issue refetch equal
+  to what the mirror holds writes nothing (since 2026-10-22, for the issue
+  list's moves): when no project refresh was needed, the mirror has the issue,
+  `sameIssue(mirrored, refetched)` holds (every `Issue` key compared with `===`,
+  an absent `dueDate` read as null, after the `lastStateChangeAt` rule above)
+  and Linear's relations of the issue are exactly the mirrored ones touching it
+  (same ids, same ends), the webhook answers "changed nothing" and the mirror
+  version, and every cached snapshot, stays as it was. So the echo of the
+  planner's own write (a person's edit, a bulk edit once it patched the mirror)
+  re-indexes nothing; an echo that lands while a bulk edit is still writing
+  still applies once. The refetch itself (2 app requests per issue) is still
+  made: skipping it would need proof that relation-only changes move
+  `Issue.updatedAt`.
+- **Issue list reads** (owner request 2026-10-22; `issue-list.ts`):
+  `getIssueList(workspaceId, query, viewer?)` → `IssueListResult`
+  `{ view, mirrorVersion }` and `getIssueListOptions(workspaceId, viewer?)` →
+  `IssueListOptionsResult` `{ options, mirrorVersion }`: thin wrappers like
+  `getTimelineView` that run core's `buildIssueList` / `buildIssueListOptions`
+  (§2.14) over `load` with the viewer, `viewerId` = the viewer's user id (so
+  `me` is whoever reads; without a viewer it matches nothing). They are reads:
+  no `requireWritable`, so a guest gets both (with the no-initiatives fallback);
+  a viewer of another workspace is `wrong_workspace`. The mirror version lets
+  the planner refetch the options only when the mirror moved.
 - **runAllocation** (§7.4, §6.3, §6.12, §9 safety):
   1. `store.startRun` (null → `EngineInputError('conflict')`); a run still
      `running` `ALLOCATION_RUN_STALE_MINUTES` (30) after it started counts as
@@ -1320,9 +1595,12 @@ worker derives its timeout cap from, and every type in `src/types.ts` (including
 (additive): `ISSUE_HISTORY_LIMIT` (20), `normalizeIssuePatch`,
 `normalizeCommentBody`, `textSummary` (a text's `{ length }` for the audit log)
 and `engineErrorFromLinear`. The read-only guard (additive): `requireWritable`
-and `READ_ONLY_MESSAGE`, which the web's resync and preview routes call.
-`DONE_MEANS_MAX_LENGTH`, `WEIGHT_MIN` and `WEIGHT_MAX` come from
-`milestone-edits.ts` (was `pm-edits.ts`).
+and `READ_ONLY_MESSAGE`, which the web's resync and preview routes call. The
+issue list (additive, §7.3): `ISSUE_BULK_MAX` (100), `ISSUE_BULK_CONCURRENCY`
+(4) and `normalizeIssueBulkPatch`, with the types `IssueListResult`,
+`IssueListOptionsResult`, `IssueBulkResult`, `IssueBulkOutcome` and
+`IssueBulkBefore`. `DONE_MEANS_MAX_LENGTH`, `WEIGHT_MIN` and `WEIGHT_MAX` come
+from `milestone-edits.ts` (was `pm-edits.ts`).
 
 `createEngineFromEnv`:
 
@@ -1565,6 +1843,97 @@ else (there is no role to check since the owner decision of 2026-10-22).
   (502). Nothing is written to the mirror or the audit log on a failure.
 - The planner's only automatic write is still allocation (§7 runAllocation).
 
+### 7.3 Bulk issue edits (owner request 2026-10-22, `bulk-issue-edits.ts`)
+
+**updateIssues(actor, issueIds, patch: IssueBulkPatch) → IssueBulkResult** is
+the issue list's bulk change, drop and Undo. It sends nothing new to Linear:
+each issue gets the single edit's write (`updateIssueFields`, §7.2) of the
+fields a move may set (project and milestone, assignee, status, priority), with
+the person's own token (`linear.forSession`), so Linear's permissions apply and
+its history credits the person. Nothing creates, deletes or archives issues or
+changes their team. Steps:
+
+1. `engine.ts` wraps it in `writable`: `requireWritable` first (a guest is
+   refused `read_only` before anything runs), then `requireWriteScope`
+   (`needs_write_scope`).
+2. Whole-request checks before anything is read: 1–100 (`ISSUE_BULK_MAX`)
+   non-empty ids (repeats once, first place kept); `normalizeIssueBulkPatch`: a
+   plain object with only `move`, `assigneeId`, `priority` and `state`, at least
+   one; `move` exactly `{ projectId, milestoneId }`, each an id or null, a
+   milestone only with a project; `priority` an integer 0–4; `state` exactly
+   `{ type, name }`, one of the six types and a name of 1–100 characters
+   (trimmed, no control characters). Else `EngineInputError('invalid')`.
+3. Every issue is locked like a single edit locks it: `serializeAll` takes the
+   `issue\0<workspace>\0<id>` keys of `rt.serialize` one after another in sorted
+   order, so a single edit never interleaves with a bulk edit of the same issue
+   and two overlapping bulk edits cannot wait on each other in a cycle.
+4. `load` with the person as viewer gives the visible snapshot (every lookup),
+   the whole mirror and the allocation plan before. The targets must be in the
+   visible snapshot: the move's project and milestone (`not_found` for an
+   unknown or hidden one alike; a milestone of another project is `invalid`,
+   "{Milestone} is not a milestone of {Project}."), and an assignee who is an
+   active person (an app or a deactivated person is `invalid` with the single
+   edit's words). Nothing is written when one fails.
+5. Per issue, in request order: missing from the snapshot → `failed` /
+   `not_found` ("{id} is not in the planner any more."); a status resolves to
+   the issue's team's state of that type whose name matches (`stateNameKey`:
+   trimmed, case-insensitive; the lowest position if several), and a team
+   without one skips the issue (`skipped` / `state_not_in_team`, "{Team} has no
+   {name} status; {KEY} was left as it was."; never guessed by type); only the
+   fields that differ from the mirror are sent (`projectMilestoneId` compared
+   with the issue's milestone), and an issue left with nothing to send is
+   `unchanged`; then `checkAgainstMirror` (the single edit's check, which also
+   clears the old project's milestone) → its `invalid` makes the issue `failed`.
+6. Writes, at most `ISSUE_BULK_CONCURRENCY` (4) in flight, each error through
+   `engineErrorFromLinear`: forbidden → `failed` / `linear_forbidden` with
+   Linear's sentence, Linear's not found or invalid input → `failed` with that
+   code, network, server or GraphQL failures (already retried) → `failed` /
+   `linear_error` with Linear's words, as the single edit's 502 says them; any
+   other error (a bug, a token that would not decrypt) is logged and answered
+   with a fixed "Linear could not update {KEY}. It was logged.", since an
+   outcome goes to the browser and an internal error's text can name internals;
+   a rate limit or a rejected sign-in stops new writes (in-flight ones finish),
+   and the issue it hit and every one not started are `skipped` /
+   `not_attempted`, with
+   `stopped: { code: 'rate_limited' | 'not_signed_in', retryAt }`. When the run
+   stopped before anything changed it throws like a single edit:
+   `EngineAuthError('not_signed_in')` (401) or
+   `EngineInputError('rate_limited', …, { retryAt })` (429).
+7. The mirror is patched once for the call (one version bump of its own),
+   against the mirror as it is after the last write (webhooks take no issue lock
+   and may have applied a newer copy meanwhile): an issue whose mirrored copy is
+   newer (`updatedAt` later) or already `sameIssue` with the write's answer (its
+   echo) is left alone, and so is one the mirror no longer holds (every issue
+   written was in the mirror loaded in step 4, so a webhook found it deleted,
+   archived or moved out of the kept projects meanwhile, or the call's own echo
+   removed it; writing the older answer would bring it back until the next full
+   sync); the rest merge `issueMirrorChanges`, and a write that did not move the
+   state keeps the later `lastStateChangeAt`. A failure to read or patch the
+   mirror is logged, not thrown (`patchMirror`): Linear already has the change,
+   the audit and the result still follow, and webhooks or the next sync bring
+   the mirror up to date.
+8. The audit gets the single edit's entries (`issue.project`, `issue.milestone`,
+   `issue.assignee`, `issue.state`, `issue.priority`; before and after as ids or
+   numbers), all with one `at` (`rt.nowIso()` once per call, also `result.at`),
+   in field order then request order, through one `appendAuditEntries` (§5); a
+   failure is logged at error and the result is still returned.
+9. `allocation`, from the viewer's plan before and a fresh `load` after:
+   `handedOver` lists, per project, the changed issues the next run gives to the
+   lead that the earlier plan did not (with `live` from
+   `settings.allocationMode`); `stopped` the old and new projects of changed
+   issues that are blocked now and were not before, with the reason and rubric
+   gaps (emptying a next milestone, for example, makes the next one next).
+10. One log line, `issues edited in bulk`, with the counts and the stop code.
+
+`IssueBulkResult` is `{ at, outcomes, counts, stopped, allocation }`; `outcomes`
+are in request order, each `changed` (with the fields sent and the issue's
+`before`: project, milestone, assignee, priority, status type and name, which
+Undo sends back), `unchanged`, `skipped` or `failed` (with a code and a
+sentence). Linear's `issueBatchUpdate` is not used (§4.1). The web route is
+`PATCH /api/issues` (§8.1), and the Issues page (§8.4) is its only caller: the
+bulk bar, a drop, a row menu's or key's pick, and Undo (one request per group of
+issues that go back to the same place).
+
 ## 8. Web app (apps/planner)
 
 Two references, one rule: **layout and interaction from Gr8r Studio
@@ -1597,10 +1966,14 @@ nothing is imported from it.
 | `POST /api/webhooks/linear`      | Linear            | verify, ack 200, process in `after()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `PATCH /api/milestones/[id]`     | not a guest       | `{ targetDate?, weight?, doneMeans? }`; `targetDate` needs Linear write access                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `PATCH /api/projects/[id]`       | write access      | `{ leadId }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `/issues`                        | signed in         | the Issues page: every issue the person can see; the URL is the whole view (`?q=&initiative=&project=&milestone=&assignee=&team=&state=&priority=&quick=&group=&sections=&sort=&dir=&limit=`); `?issue=<key>` opens the slide-over (§8.5); read-only for a guest                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `/tasks`                         | all               | a 307 to `/issues` (a `next.config.ts` redirect, query kept), never a page                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `/issues/[id]`                   | signed in         | the issue page (§8.5), by identifier (`/issues/ENG-24`) or id; edit controls for anyone with Linear write access (never a guest)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `GET /api/issues/[id]`           | signed in         | `{ result: IssueDetailResult }` by id or identifier, private, never cached (the pages render the issue on the server)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GET /api/issues/options`        | signed in         | `{ options: IssueListOptions, mirrorVersion }`: the Issues page's picker data (initiatives, projects with their milestones, people, teams with their states) as the person may see it, fetched on the first popover open; private, never cached                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `GET /api/issues/search?q=`      | signed in         | the relation picker's mirror search (`&near=<issue id>` ranks that issue's milestone and project first) → `{ results }`, at most 20, private                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `PATCH /api/issues/[id]`         | write access      | `[id]` is the issue id (not the identifier, unlike the GET); an `IssuePatch` (§3) → `{ result: IssueUpdateResult }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `PATCH /api/issues`              | write access      | the Issues page's bulk change, drop and Undo (§7.3): `{ issueIds (1–100, distinct), patch: IssueBulkPatch, returnTo? }`, strict → `{ result: IssueBulkResult }` (partial results included), private; a guest 403 `read_only` before the body; no grant 403 `needs_write_scope` with the link back to the sanitized `/issues…` `returnTo` (else `/issues`); a stop with nothing changed 401 or 429 with `Retry-After`; an unknown or hidden target 404                                                                                                                                                                                                                                                        |
 | `POST /api/issues/[id]/comments` | write access      | `{ body }` → 201 `{ comment }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `POST /api/issues/[id]/blockers` | write access      | `{ blockerIssueId }` (it blocks `[id]`) → 201 `{ relation }`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `DELETE /api/relations/[id]`     | write access      | removes a blocks relation (no body) → 204                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
@@ -1692,6 +2065,13 @@ Auth and frame details (decided while building `apps/planner`; binding):
   single root 404); like every `(app)` page it streams under
   `(app)/loading.tsx`, so `redirect()`/`notFound()` there are client-side (meta
   refresh / `noindex`, status 200). Unmatched `/api/*` paths answer a JSON 404.
+- `/tasks` → `/issues` is a `next.config.ts` `redirects()` entry
+  (`permanent: false`, a real 307 that keeps the query), because a page-level
+  `redirect()` under `(app)` would stream under `loading.tsx` as a client-side
+  refresh with status 200 (above). The Issues page lives in the
+  `app/(app)/issues/(list)/` route group, beside `issues/[id]/`, so its
+  `loading.tsx` never wraps the issue page (Next's `loading.js` wraps every page
+  below its folder).
 - `app/global-error.tsx` is the styled last resort when a root layout throws
   (the engine cannot start or read the session: database unreachable,
   configuration incomplete), which `(app)/error.tsx` does not wrap: the
@@ -1919,11 +2299,11 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   **sidebar** (252px) that is the chrome zone — hatched background, 1px right
   hairline, accent registration marks at its outer corners — containing: brand
   row (`MILESTONE PLANNER` mono + workspace name + collapse button), primary nav
-  (My week with a count of this-week issues, Timeline, Projects, Graph, Runs), a
-  `PROJECTS` section listing active projects with the status mark of each
-  project's next milestone (click → `/timeline?project=<id>`), and a footer with
-  Settings, the signed-in user (no role chip: there are no roles since the owner
-  decision of 2026-10-22; a Linear guest's line carries a `Guest` chip,
+  (My week with a count of this-week issues, Issues, Timeline, Projects, Graph,
+  Runs), a `PROJECTS` section listing active projects with the status mark of
+  each project's next milestone (click → `/timeline?project=<id>`), and a footer
+  with Settings, the signed-in user (no role chip: there are no roles since the
+  owner decision of 2026-10-22; a Linear guest's line carries a `Guest` chip,
   `GUEST_BADGE`, and someone read-only for another reason a `Read only` chip,
   `userBadge` from `ShellFrame.readOnly` and `readOnlyReason`), theme toggle and
   sign out. The shell also provides `readOnlyReason` to every read-only notice
@@ -1935,8 +2315,10 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   K" palette trigger. `[` collapses the sidebar to an icon rail (choice
   remembered in localStorage).
 - **Phone (≤ 900px)**: sidebar becomes an off-canvas drawer opened from a topbar
-  menu button; a fixed bottom **tab bar** (My week / Timeline / Projects / Graph
-  / More) like Gr8r's phone layout; pages become single column.
+  menu button; a fixed bottom **tab bar** (My week / Issues / Timeline /
+  Projects / More; Graph and Runs live in More's drawer since the Issues page
+  took Graph's place, owner request 2026-10-22) like Gr8r's phone layout; pages
+  become single column.
 - **Command palette** (Ctrl/⌘ K, or the topbar trigger): centered 640px panel,
   1px ink border, 2px accent top rule, scrim from `--ink`; sections
   _Suggestions_ (`PALETTE_SUGGESTIONS` in `lib/adapters/shell.ts`, the same for
@@ -1944,15 +2326,54 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   run)", "Resync from Linear", "Switch theme"; a Linear guest gets only "Switch
   theme", `paletteSuggestions(readOnly)`), _Jump to_ (projects, milestones, the
   user's open issues by identifier — fetched from `/api/palette` on first open),
-  and _Navigation_ with two-key shortcuts (G W My week, G T Timeline, G P
-  Projects, G G Graph, G R Runs, G S Settings). ↑/↓ move, ↵ selects, Tab cycles
-  sections, Esc closes; fuzzy match on label + identifier (a hint matches only
-  as a substring or a run of word starts, "eng24" → `ENG-24`, so a project's
-  "Project · <lead>" hint never pulls it in by scattered letters). On a phone
-  the hint ellipsizes before the label. `?` opens a shortcuts sheet.
+  and _Navigation_ with two-key shortcuts (G W My week, G I Issues, G T
+  Timeline, G P Projects, G G Graph, G R Runs, G S Settings; a nav target's
+  optional `hint` is its item's hint, so "tasks" finds Issues, hinted "All
+  tasks"). ↑/↓ move, ↵ selects, Tab cycles sections, Esc closes; fuzzy match on
+  label + identifier (a hint matches only as a substring or a run of word
+  starts, "eng24" → `ENG-24`, so a project's "Project · <lead>" hint never pulls
+  it in by scattered letters). On a phone the hint ellipsizes before the label.
+  `?` opens a shortcuts sheet. The palette API's `isSequencePending()` is true
+  between a sequence's first key and its second (1.2 s); a page's own single-key
+  commands (the issue list's `m`, `a`, `s`, `p` on a focused row) yield while it
+  is true, so G S and G P still navigate with a row focused.
+- **Acting on lists** (`packages/ui`, for the Issues page; Gr8r's list view in
+  this look): `TaskGroupTable` takes optional `selection` (a checkbox per row,
+  the Matrix switch's 13px square: a hollow 1px box when off, the accent fill
+  with an on-accent check when on; tri-state group and column-header boxes,
+  shift-click ranges, `x`, Shift+↑/↓, ⌘/Ctrl+A; a selected row carries a 2px
+  accent rule at its left edge, drawn as a border so forced colours keep it, the
+  checkbox carrying the state, never `aria-selected` on the list items), `drag`
+  (HTML5, from an 18px grip shown on row hover under
+  `(hover: hover) and (pointer: fine)` only; a selected row carries the
+  selection; the dragged rows dim, the drag image is a paper label in a 1px ink
+  frame naming the count, a target group gets a 2px accent frame inside its own,
+  a refused one the not-allowed cursor and its reason in the header; no
+  reordering inside a group), and slots (`renderCell` for cell pickers with
+  `appearance="cell"`, `rowActions`, `groupActions`, `onRowContextMenu`).
+  Without them it renders My week exactly as before. `ViewToolbar` (the timeline
+  toolbar's idiom: a strip in a 1px ink frame with the mono search field in the
+  `.input` primitive's 36px box, Filter / Sort / Group as bare mono actions, end
+  actions, and a 2px accent rule along its bottom edge while busy),
+  `FilterChips` (a 1px-framed strip that collapses into the toolbar: square
+  chips with the field as a mono key, "is", then the values, joined by a mono
+  "and"; a value the planner cannot find in the accent, as needing action; Clear
+  all; a removed chip hands focus to its neighbour, Clear all to "+ Filter") and
+  `BulkBar` (fixed at the bottom centre while rows are selected and drawn like
+  the toasts: paper in a 1px ink frame, no shadow, no radius; "{n} SELECTED" in
+  the mono key voice, spoken through a polite status that stays mounted while
+  nothing is selected so the first selection is heard; the host's mono actions,
+  ✕, an inline confirm strip, busy and limit notes, focus back on the action
+  after a busy spell, Esc clears) complete it; menus are `PickerPopover` with
+  `searchable={false}`. Details in `packages/ui/README.md`.
 - **Toasts**: bottom-right stack, 1px ink border (2px accent for errors), mono
-  label + one sentence, auto-dismiss after 4 s, `aria-live="polite"`; used after
-  saves, runs and copies.
+  label + one sentence, an optional action (the Issues page's Undo),
+  auto-dismiss after 4 s (or the toast's own `duration`: 8 s for an Undo),
+  `aria-live="polite"` (a toast's `announce` replaces its sentence there only,
+  e.g. "›" spoken as a comma and "Press Z to undo."; `onClose` hears it leave);
+  used after saves, runs and copies. While a bulk bar is up the stack sits above
+  it (the bar publishes its height as `--bulk-bar-h`), so an Undo toast never
+  covers its actions or ✕, on a phone too.
 - **Loading**: `loading.tsx` per route renders hatched skeleton rows in the
   page's real layout (Gr8r skeletons), not spinners.
 - **Slide-over drawer** (milestone details): opens from the right over the
@@ -2016,6 +2437,290 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   attention" for projects the user leads that are blocked (reason) or have
   unassigned next-milestone issues. Everyone gets a person picker (`?user=<id>`,
   honoured on the server for anyone signed in, only for people in the mirror).
+  Beside it, one quiet link to the Issues page: "All my issues"
+  (`/issues?assignee=me`) on your own week, "All of <first name>'s issues"
+  (`/issues?assignee=<id>`) on someone else's (`WeekPageModel.allIssuesHref` and
+  `allIssuesLabel`); it lists the same open issues in the weight order, without
+  the This week / Later split and with inactive projects last.
+- **Issues** (Gr8r's Tasks page in the Analytics look; owner request 2026-10-22,
+  "every issue in one list"; `app/(app)/issues/(list)/`,
+  `lib/adapters/issue-list.ts`): every issue the person can see, filtered,
+  weight-ordered and grouped on the server by core's `buildIssueList` (§2.14,
+  over the viewer's snapshot, §2.13), the client island only following the URL.
+  Issues move from it one at a time, in bulk or by dragging (see Moving below;
+  §7.3 has the engine).
+  - **URL** (the whole view; `parseIssueListParams`, `issueListHref`):
+    `q, initiative, project, milestone, assignee, team, state, priority, quick, group, sections, sort, dir, limit, issue`
+    in that order, values comma-separated (`none` = no project / milestone /
+    initiative / assignee, `me` = whoever opens the link; priorities as
+    `urgent,high,medium,low,none`; `state=all` for every status, none for the
+    four open types), defaults left out (`group=milestone`, `sections=none`,
+    `sort=weight`, the sort's own `dir`, `limit=500`). Lenient: unknown
+    parameters and values are dropped by core's `normalizeIssueListQuery` (50
+    values per field, 200 characters per value and for `q`, `limit` stepped by
+    500 to 2,000, a sections level that cannot divide the grouping dropped); a
+    non-canonical URL is rewritten in place (`history.replaceState`, no
+    refetch). Every discrete change (a value, a tab, the grouping, the sort,
+    Clear all, "Only this …") is a `router.push` in a transition; the search
+    applies 250 ms after typing stops, its first change pushed and the rest
+    replaced (one history entry per search, so Back leaves it); Show more
+    replaces. While the server answers, the old list stays at full contrast (no
+    fade: a fade would drop the accent and muted text under 4.5:1), marked by
+    `aria-busy`, a progress cursor and the toolbar's 2px accent progress rule.
+    The island follows the address bar (Back, Forward, a tab or sidebar link),
+    skipping the URLs it wrote and keeping a half-typed search while the URL
+    still means the view shown. Changing a filter starts the row budget over;
+    removing a project from the project filter drops that project's milestones
+    from the milestone filter (`withFilterValues`).
+  - **Header**: "Issues", "Every issue across {n} projects.", and a receipts
+    line (sans, muted, as on My week): "{all} open issues · {unplanned} without
+    a milestone · {blocked} blocked · {at risk} at risk" with the default
+    filters, else "{total} match these filters · {all} open in all", plus " ·
+    showing {shown}" when the row budget cut the list. Under it the preset tabs
+    (`NavTabs`, scrolling sideways on a phone): All · Mine · Unplanned ·
+    Unassigned · Blocked · At risk, each with its own preset's count
+    (`IssueListView.counts`, so the count is what the tab then shows), each
+    keeping the grouping, sections and sort, current only when the filters are
+    exactly its preset's. A plain click on a tab goes through the island like
+    any other view change (`NavTabItem.onFollow`): the tab, chips and busy list
+    follow at once; its href still opens a new tab.
+  - **Notices** under the tabs, quiet `Notice tone="default"` lines in this
+    order: the read-only notice (a guest); "Linear read only · Allow edits in
+    Linear to change issues here." with the grant link back to the view (no
+    write grant, not a guest); the no-initiatives fallback worded by why (a
+    guest: "Linear shows guests no initiatives, so this list covers every
+    project you can see."; someone the mirror does not know yet; a workspace
+    without initiatives: "… so the list is grouped by project."); a filter
+    naming something the planner lacks ("… closed, deleted, or in a team you
+    cannot see …"); each project of a chosen initiative that counts under
+    another first initiative; closed issues' coverage with a closed status; more
+    than 200 groups.
+  - **Toolbar** (`ViewToolbar`): "Search issues" (`/` focuses it), **Filter**
+    (`f` opens it; a small square accent badge counts the set fields, the
+    default status not counted), **Sort: Weight**, **Group: Milestone** ("· by
+    initiative" with sections; on a phone the "Sort:" / "Group:" words drop),
+    and at the right **Open as graph** (`issueListGraphHref`: the narrowest
+    single container the filters name, one milestone's issues,
+    `/graph?milestone=<id>`, else one project's, `/graph?project=<id>`, a `none`
+    value of either being no container; else one initiative's projects,
+    `/graph?initiative=<id|none>`; otherwise `/graph`) and **Copy link** (the
+    address bar's URL; "Link copied."), both in the timeline toolbar's quiet
+    "Open as graph" voice (muted mono caps, no icon). The search is the `.input`
+    primitive's 36px box, as on the timeline and projects toolbars. Every menu
+    is a `PickerPopover` with `searchable={false}`: Filter lists the fields
+    (Initiative only for a viewer with initiatives, Team only with two or more
+    teams) and the quick filters (Blocked, At risk, In next milestones; hinted
+    "On" while set); Sort and Group are one multi-select list with one choice
+    per part, each chosen one marked with a trailing tick (`marks="tick"`), not
+    checkbox squares (sort and direction; grouping and sections, a section level
+    that cannot divide the grouping disabled with "Already grouped by …"; for a
+    viewer without initiatives the initiative choices are disabled, and the
+    island applies core's fallback to the URL's view too, `withoutInitiatives`,
+    so a guest's `?group=initiative` reads "Group: Project", as the list is
+    grouped). A "?" sheet group "Issues" lists `/`, F and G I while the page is
+    mounted. The search's first change pushes one history entry and later
+    changes replace it only once that entry is in the address bar (a replace
+    sent while the push is pending would cancel it, and Back would skip the
+    unfiltered list).
+  - **Chips** (`FilterChips`): one per set field in URL order, "{Field} is
+    {values}" ("3 projects" from three values on; "Not found", the chip in the
+    accent, for an id the planner lacks), then one per quick filter ("Issue is
+    blocked"), joined by "and"; the default status reads "Status is open" and
+    removing it means every status (`state=all`), which then reads "Status is
+    any" (counted in the badge; its × goes back to open issues), so closed
+    issues never come in without a chip saying so. Choosing a field in the
+    Filter menu adds a pending "{Field} is …" chip with its picker open (it goes
+    away if closed with nothing chosen); clicking a chip reopens its
+    multi-select picker, which stays open while values toggle, each toggle
+    applied at once. The pickers that list workspace data fetch
+    `GET /api/issues/options` on first open (`use-issue-list-options.ts`,
+    refetched when the page renders a newer mirror version; a failure offers
+    Retry) and are filtered by the page, at most 200 options then a disabled
+    "Keep typing to narrow N more": initiatives then "No initiative"; projects
+    as Active projects, Other projects, then "No project"; milestones by project
+    in timeline order (only the filtered projects' when a project filter is
+    set), each with its status mark and date, then "No milestone"; people as "Me
+    (name)", "Unassigned", active people, deactivated ones hinted; teams; the
+    six status types; the five priorities. "+ Filter" opens the same menu; Clear
+    all restores the default filters, keeps the layout and is disabled when
+    there is nothing to clear.
+  - **List**: one `TaskGroupTable` (column header sticky under the topbar,
+    collapsed groups remembered per viewer and grouping under
+    `milestone-planner:issues:collapsed:<group>`, complete milestones and groups
+    whose rows the budget left out folded by default; the header paints above
+    every in-row control while rows scroll under it). Columns Milestone (the
+    milestone's name, then " · {project}" muted and cut first, the project left
+    out when project groups or sections already name it; the full "Project ›
+    Milestone" as its tooltip; or a muted "No milestone") · Assignee · Status ·
+    Priority · Due, minus the one the grouping names. When the list is too
+    narrow for them beside a readable title (`dropColumns`: 260px of title at
+    1160, 1000 and 860px of list width), Due goes first, then Priority, Status
+    and Assignee; the Milestone column never does; below 720px the cards show
+    them all. Grouped by milestone without sections, the tiers divide it:
+    Overdue / Upcoming / No milestone / Inactive projects. Milestone groups
+    carry the status mark, the project eyebrow, the milestone (linking to its
+    timeline drawer), "Next" and "↑2" tags, the count of every match, the due
+    date and countdown, the whole milestone's progress and the mono accent
+    "Missing: …" line when it fails the rubric (an overdue or undated
+    milestone's date, and the progress of one that is overdue or behind pace, in
+    the accent, as on My week; the list's milestone refs carry the assessment's
+    risk reasons for this); a project's "No milestone" and "No project" groups;
+    project groups (the next milestone's mark or "No open milestone", the first
+    initiative as eyebrow, "Lead: <name>", the same accent line saying "No lead"
+    or "Allocation stopped: <why>" on an active project); initiative groups
+    ("{n} projects"); people ("<name> (you)" first, "· deactivated", Unassigned
+    last, avatar marks); statuses by name across teams; all five priorities;
+    "All issues". Rows: the mono key, the title (opens the slide-over, §8.5; the
+    ↗ opens Linear), the accent "Blocked" (open blockers) and "Holds up
+    <milestone>" chips (the projects register's Blocked), the assignee
+    ("Unassigned" in the accent when it is in its active project's next
+    milestone), the state and priority glyphs, and the issue's own due date (in
+    the accent when overdue, as My week colours a date); a closed issue is
+    struck through, and an inactive project's rows carry no tone at all. A group
+    showing fewer rows than it holds ends with "Showing 12 of 212" (or "212
+    issues not shown") · **Show more** (+500 rows, up to 2,000, then "Narrow the
+    filter to see the rest.") · **Only this milestone** (project, person,
+    priority, "Only In progress issues", …: that group's own filter in place of
+    the field's value). With one to five projects in the project filter (grouped
+    by milestone) their open milestones are listed even when empty: "No open
+    issues here yet." when the milestone has none ("… Drag issues here, or use
+    Move to milestone." for someone who can move), else "None of its 3 open
+    issues match these filters. · Only this milestone". Nothing matching at all:
+    "No open issues match these filters." (or "No issues …" with an explicit
+    status) and Clear filters.
+  - **Phone** (≤ 768px 16px gutters): the header and tabs as above, the toolbar
+    in two rows (search, then the controls scrolling sideways), rows as cards by
+    the list's own width (as My week), the slide-over full screen. A touch
+    screen or a phone (`(pointer: coarse), (width <= 640px)`) has no checkboxes
+    until the toolbar's **Select** button turns selection mode on ("Done" turns
+    it off and clears the selection); a tap on a card then selects it instead of
+    opening it, and the card's title is drawn and named as what it does (a
+    checkbox named by the title, its state the selection, not a link). Both are
+    decided in CSS (`hideOnTouch`, and the Select button rendered always and
+    shown by the same query), so the server's markup and the hydrated page agree
+    and no checkbox flashes on load. The bulk bar sits above the tab bar with
+    Move to milestone, Assignee and **More** (statuses and priorities in one
+    grouped list), its labels hidden at 390px; while anything is selected the
+    list keeps room under its last row for the bar. Pickers open as bottom
+    sheets; there is no drag.
+  - **Moving** (`issues-screen.tsx`, `issue-row-actions.tsx`,
+    `use-issue-moves.ts`; pure parts in `lib/adapters/issue-moves.ts`). Who:
+    `canMove` (a Linear write grant and not a guest) brings the checkboxes,
+    grips, cell pickers, the row menu's edits and the bulk bar; without the
+    grant the edits are listed disabled ("Needs Linear write access") beside the
+    notice; a guest gets the read-only row items only. The milestone weight is
+    the planner's own, so its menu is there for everyone but a guest. The page
+    model carries what moves compare against: each shown row's facts
+    (`rowFacts`: team, project, milestone, assignee, priority, state, whether it
+    blocks or waits on anything), each group's drop target (`targets`: core's
+    drop patch, its words, and why it takes nothing), the milestone groups'
+    weights (`milestoneMenus`) and the referenced projects' names.
+    - **Cells**: Milestone (the move picker), Assignee (active people, "You"),
+      Status (the row's own team's statuses) and Priority are `PickerPopover`s
+      with `appearance="cell"`, each saving one issue through
+      `PATCH /api/issues/[id]` (`engine.updateIssue`, the one single-edit path):
+      the new value shows "Saving", then stays (the list refreshes) or rolls
+      back with "Not saved · …" and the not-saved toast ("Allow edits" on
+      `needs_write_scope`). The milestone cell's choices map to the single
+      edit's patch (`movePatch`: a milestone brings its project; "No milestone"
+      under a project keeps the project; "No project" clears both). A row whose
+      change is in flight shows plain values.
+    - **Row "…" menu** (also right-click on a desktop row, which opens it, and
+      the stage it turns into, at the pointer; and the row keys): Open ↵; Move
+      to milestone… M, Assign to… A, Status… S, Priority… P (headed "{n}
+      selected issues" when the row is in a selection of several, which they
+      then act on); Blocking chain (when the issue blocks or waits on something:
+      its own chain, `/graph?chain=<KEY>`); Open issue page; Open in Linear ↗;
+      Copy link. Choosing an edit turns the same "…" button's popover into that
+      field's picker (search focused); closing it leaves focus on the button. M,
+      A, S and P on a focused row open those pickers directly for the selection
+      when the row is in it, else for the row, and yield while a G chord is
+      pending (`isSequencePending`).
+    - **The move picker** (the cell, the menu, M, the bulk bar): one group per
+      project, the moving issues' own projects first, then other active projects
+      in timeline order, then inactive ones ("{name} · inactive"); each lists
+      its milestones (status mark; "Oct 28 · next · ↑2"; complete ones last,
+      "complete"; "not ENG's" when the project does not include the issues'
+      team), then "No milestone"; it ends with "Other" › "No project". Filtered
+      by the page, at most 200 options with "Keep typing to narrow N more".
+      Options come from `GET /api/issues/options`, fetched on first open.
+    - **Selection** (`TaskGroupTable`'s `selection`): click, shift-click ranges
+      across groups, group and header tri-state boxes, `x`, Shift+↑/↓, ⌘/Ctrl+A;
+      the set is the island's and is cut to the shown rows on every render (rows
+      that leave the view drop out; the rest stay selected for a quick re-move).
+      Esc clears it (after any open popover and the slide-over) and puts focus
+      back on the last focused row.
+    - **Bulk bar** (`BulkBar`, while anything is selected): "{n} selected",
+      **Move to milestone**, **Assignee** ("Unassign", you, active people),
+      **Status** (the selected issues' teams' statuses joined by type and name,
+      so "In Review" of ENG and OPS is one choice; "not in {Team}" when a team
+      lacks it, whose issues are then left as they are), **Priority**, ✕. More
+      than 100 selected disables them: "At most 100 at a time ({n} selected)." A
+      change of 20 or more issues (`BULK_CONFIRM_AT`), or a drag that changes
+      any issue's project, asks first in the bar: "Move 24 issues to Garnet
+      mobile app › Push notifications? 3 of them move from Atlas billing
+      migration to Garnet mobile app. 1 is in Operations, which Garnet mobile
+      app does not include. This changes them in Linear, as you." [Move 24
+      issues] [Cancel] ("Set {n} issues to {value}? …" for the other fields);
+      while sending it reads "Moving 24 issues…". While the bar is up the toasts
+      stack above it (the bar publishes its height as `--bulk-bar-h`), so the
+      Undo toast never covers its actions or ✕, on a phone too.
+    - **Drag** (`TaskGroupTable`'s `drag`, desktop fine pointers only): the grip
+      drags the row, or the selection when the row is in it. A group takes the
+      drop when its patch would change at least one dragged issue; a project
+      group (grouped by project) takes only the issues from other projects, so a
+      row released on its own project keeps its milestone. A group that takes
+      nothing says why while dragged over: "Initiatives come from the project.
+      Drop on a project or a milestone.", "Already there.", "Order inside a
+      group comes from the weight. Change the milestone's weight instead." (one
+      row on its own milestone), "{name} is deactivated in Linear.", "At most
+      100 issues at a time.". There is no reordering inside a group.
+    - **In flight** (one `PATCH /api/issues` per pick or drop): the rows show
+      the new value at once over the loading hatch (never a spinner; the text
+      keeps its contrast) with "Moving to Push notifications…" (or "Saving…"),
+      and stay where they are; unchanged, skipped and failed rows are back at
+      once, the failed and skipped ones noted "Not moved · {reason}" (mono, in
+      the accent) until the selection changes or the next change; changed rows
+      wait for the refresh started after the answer, which places them. Keyboard
+      focus that was in a row when its change was sent (a row key's picker, the
+      "…" menu, a cell picker) comes back once the refresh has placed the rows:
+      to that row's title where it now is, else to the row that took its place,
+      else to the group's toggle; a bulk change gives it back to the bar's
+      action that sent it (the bar blurs it while busy). A picker a row key
+      opened returns focus to the row's title on Esc or a choice, not to the "…"
+      button.
+    - **Toasts** (`bulkResultToast`, one action each): "Moved 2 issues to Garnet
+      mobile app › Push notifications." ("Moved ENG-12 to …"; "Assigned …",
+      "Unassigned …", "Set … to In Review.", "Set … to High priority.") with
+      **Undo** for 8 s (while it is up, the page's **Z** key runs it: the toast
+      sits after the list, beyond Tab's reach in 8 s; its live text reads the
+      target as "Garnet mobile app, Push notifications" and ends "Press Z to
+      undo."), plus " 1 already had that."; "Nothing to change: the 3 issues
+      already had that."; "Partly saved · Changed 2 of 3 issues. 1 not changed:
+      {reason}" with **Select them**; Linear's rate limit ("… Try the rest after
+      3:05 PM.") or a rejected sign-in, with Select them; then the allocation
+      sentences from the plans before and after ("2 of them are unassigned in
+      Garnet mobile app's next milestone: the next allocation run gives them to
+      Ben Carter." / "… a live allocation run would give them to … (allocation
+      is in dry run)." / "Allocation is stopped for Garnet mobile app: …") and "
+      2 no longer match these filters." (judged on the fields the change sets).
+    - **Undo** (`undoRequests`): the changed issues grouped by their values
+      before, of every field the change set (so a two-field change goes back by
+      the pair), one `PATCH /api/issues` per group, one after another; an
+      ordinary audited edit. "Undone · 2 issues are back where they were.", or
+      "Undid 1 of 2: ENG-12 left the planner; undo it in Linear." for an issue
+      the change took out of the mirror (never retried).
+    - **Weight** (a milestone group's "…" menu): Raise weight, Lower weight
+      (each hinted "Becomes 3" / "Becomes −1", the weight it leaves, within
+      ±1000), Clear weight when set, the line "Weight changes only the order on
+      screen, never which milestone is next." (a disabled row, wrapped), and
+      Open milestone (the timeline drawer's exact field). Each saves through
+      `PATCH /api/milestones/[id] { weight }` (audited `milestone.weight`),
+      toasts "Dual-write has weight 2 now." / "… has no weight now.", refreshes
+      the list (the group moves) and puts focus back on the group's toggle.
+    - **Keys** (the "?" sheet's Issues group adds them for a person who can
+      move): X, Shift+↑↓, ⌘A (Ctrl A off Apple platforms, as the palette's own
+      row reads), M, A, S, P, Esc.
 - **Timeline** (Gr8r Timeline in the Matrix drawing style): banners first (no
   lead / no date / unplanned / blocked, each a count that expands to a list), as
   one compact block: a 1px hairline frame with a single 2px accent rule on its
@@ -2100,6 +2805,12 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     activity filter and draws everything it waits on. Only the workspace's
     milestone graph feeds the chart's connectors (`chartDependencies` gives none
     for any other scope).
+  - Links into the Issues page (owner request 2026-10-22): the milestone
+    drawer's "Open as list" under its issues
+    (`/issues?milestone=<id>&state=all`, since the drawer lists closed issues
+    too), and "Plan in Issues" on each project row of the Unplanned banner
+    (`/issues?project=<id>&milestone=none`: its unplanned issues beside its open
+    milestones, listed as targets).
   - The drawer opens on click with a skeleton and fills when the server answers
     `?milestone=`; an id the mirror lacks closes it and shows a "Not found"
     notice. A lane focused by `?project=` is scrolled into the page too (chart
@@ -2141,11 +2852,11 @@ planner uses these marks, mono labels, and the accent only for "needs action"
   / `BLOCKED` filled accent with the reason as a mono line under it, worded as
   on the timeline's Blocked banner and My week's "Needs attention": "Project has
   no lead", "Next milestone is missing: done means…" / `NOTHING TO DO` /
-  `NO OPEN MILESTONE` / `INACTIVE`), links to its timeline lane (the row), graph
-  and Linear. Each initiative block's bar carries a **Graph** accent link
-  (accessible name "Dependency graph of <group>") to
-  `/graph?initiative=<id|none>`, or `/graph?level=project` when the viewer has
-  no initiatives; a row's Graph link is its project's issue graph
+  `NO OPEN MILESTONE` / `INACTIVE`), links to its timeline lane (the row),
+  graph, issues (`/issues?project=<id>`) and Linear. Each initiative block's bar
+  carries a **Graph** accent link (accessible name "Dependency graph of
+  <group>") to `/graph?initiative=<id|none>`, or `/graph?level=project` when the
+  viewer has no initiatives; a row's Graph link is its project's issue graph
   (`/graph?project=<id>`). An inactive project's next milestone is drawn in
   greys (grey mark, muted date, ink progress). Search + status filter (All /
   Blocked / At risk = an active project's next milestone at risk or overdue /
@@ -2219,19 +2930,23 @@ planner uses these marks, mono labels, and the accent only for "needs action"
     inactive"), Open issues ("20 open · 7 unassigned"), At risk (the active
     projects' next milestones at risk or overdue, "Atlas billing migration ›
     Dual-write (overdue)", accent); links "Projects in X", "Milestones in X",
-    "Issues in X", "Open on the timeline" (`/timeline?initiative=`); no Linear
-    link (the mirror keeps no initiative URL). A project: breadcrumb its first
-    initiative ("Project" without initiatives), the next milestone's mark (or
-    "No open milestone"), Linear status, Lead ("No lead" accent when active),
-    Next milestone, Progress, Allocation (the register's cell), Initiatives when
-    it is in several ("Platform reliability · also in Customer growth"), Scope
-    for an external ("Outside <container>: it blocks or waits on a project
-    here"); links "Milestones of P", "Issues of P", "Lane on the timeline",
-    "Project in Linear". A milestone: today's panel plus "Milestones of
-    <project>" (`?project=&level=milestone&node=<id>`) after "Issues of this
-    milestone", and Scope for an external. An issue box opens the issue
-    slide-over (`?issue=`, §8.5). The "Waits on" / "Blocks" lists select
-    neighbours at every level.
+    "Issues in X", "Open as list" (`/issues?initiative=<id|none>`, its projects'
+    issues on the Issues page by the same first-initiative rule), "Open on the
+    timeline" (`/timeline?initiative=`); no Linear link (the mirror keeps no
+    initiative URL). A project: breadcrumb its first initiative ("Project"
+    without initiatives), the next milestone's mark (or "No open milestone"),
+    Linear status, Lead ("No lead" accent when active), Next milestone,
+    Progress, Allocation (the register's cell), Initiatives when it is in
+    several ("Platform reliability · also in Customer growth"), Scope for an
+    external ("Outside <container>: it blocks or waits on a project here");
+    links "Milestones of P", "Issues of P", "Open as list"
+    (`/issues?project=<id>`), "Lane on the timeline", "Project in Linear". A
+    milestone: today's panel plus "Milestones of <project>"
+    (`?project=&level=milestone&node=<id>`) after "Issues of this milestone",
+    "Open as list" (`/issues?milestone=<id>`, the same issues on the Issues
+    page) before "Open on the timeline", and Scope for an external. An issue box
+    opens the issue slide-over (`?issue=`, §8.5). The "Waits on" / "Blocks"
+    lists select neighbours at every level.
   - **Arrival.** `?node=<id>` (initiative, project or milestone levels only, and
     not while `?issue=` is open) selects that box, keeps it drawn, opens its
     panel and scrolls it into view; the page remounts the client island per
@@ -2275,22 +2990,23 @@ LINEAR" strip at the top of the content column.
   planner's own links use the identifier (`/issues/ENG-24`). It is the task
   view's page layout (`TaskDetail`, properties in a right rail when the view is
   at least 760px wide) with Linear ↗ and Copy link in its header; the topbar
-  reads `ISSUES › ENG-24` (the Issues root is not a link: there is no index
-  page), and an issue the mirror lacks is the app's 404. The **slide-over** is
-  `?issue=<identifier or id>` on `/week`, `/timeline` and `/graph`, rendered on
-  the server from the search params like the milestone drawer
-  (`lib/issue-load.ts`, one `getIssueDetail` per render); a click opens it at
-  once with a skeleton until the server answers, and closing it removes the
-  parameter (scroll kept). Its header carries Linear ↗, copy link and
-  open-as-page (icons); an unknown key reads "Issue not found" in the panel. It
-  opens from My week's row titles (the row's separate ↗ icon still opens Linear;
-  the open row keeps the ink fill), from the milestone drawer's issue list (the
-  issue replaces the milestone in the same panel, crumb `‹ <MILESTONE> / <KEY>`
-  goes back to it; ✕ and Esc close both), from the graph's issue nodes and its
-  "no blocking relations" issue rows (same panel as the node details; the node
-  stays selected on the canvas), and from the relation rows inside it (a plain
-  click swaps the issue in place, a modified click opens its page). The command
-  palette's issues open the page.
+  reads `ISSUES › ENG-24` (`ISSUES` links to the Issues page, §8.4; it was an
+  unlinked root before that page existed), and an issue the mirror lacks is the
+  app's 404. The **slide-over** is `?issue=<identifier or id>` on `/week`,
+  `/issues`, `/timeline` and `/graph`, rendered on the server from the search
+  params like the milestone drawer (`lib/issue-load.ts`, one `getIssueDetail`
+  per render); a click opens it at once with a skeleton until the server
+  answers, and closing it removes the parameter (scroll kept). Its header
+  carries Linear ↗, copy link and open-as-page (icons); an unknown key reads
+  "Issue not found" in the panel. It opens from My week's and the Issues page's
+  row titles (the row's separate ↗ icon still opens Linear; on `/issues` the URL
+  keeps the whole view beside `?issue=`; the open row keeps the ink fill), from
+  the milestone drawer's issue list (the issue replaces the milestone in the
+  same panel, crumb `‹ <MILESTONE> / <KEY>` goes back to it; ✕ and Esc close
+  both), from the graph's issue nodes and its "no blocking relations" issue rows
+  (same panel as the node details; the node stays selected on the canvas), and
+  from the relation rows inside it (a plain click swaps the issue in place, a
+  modified click opens its page). The command palette's issues open the page.
 - **Data.** `engine.getIssueDetail(actor, id)` never fails for Linear being
   unreachable: with `extra` null the page shows the mirror's facts and
   `extraError` where the description and comments would be, and the live fields
@@ -2387,7 +3103,13 @@ LINEAR" strip at the top of the content column.
 - **Audit.** Settings → Audit words each edit as "ENG-24 · assignee" with "Ana
   Moreno → Dev Patel" (descriptions and comments as their length only, "Added a
   comment (42 characters)", never their words, since the audit is open to
-  everyone signed in; relations as "ENG-24 · blocked by" with "Added ENG-23").
+  everyone signed in; relations as "ENG-24 · blocked by" with "Added ENG-23"). A
+  bulk change (§7.3) is folded (`foldAuditEntries`): inside one run of entries
+  sharing an `at`, issue entries with the same person, action and value after
+  become one row, "2 issues · milestone" with "→ Push notifications" and
+  "ENG-54, ENG-55" (three keys, then "and N more"); they need not be adjacent,
+  so a cross-project move reads as exactly two rows (project, milestone). The
+  page reads the newest 500 entries and shows the newest 50 rows after folding.
 
 ## 9. Worker (apps/worker)
 
@@ -2530,7 +3252,36 @@ not read; a deploy that still sets it boots normally and logs one warning
   refused `read_only` by every mutating method (also with a crafted
   `canWriteLinear`), nothing reaches Linear, the mirror, settings, runs or the
   audit, the same calls work for a member, and (`auth.test.ts`) a guest's
-  `grant_write` and install are refused and the mirror decides `readOnly`.
+  `grant_write` and install are refused and the mirror decides `readOnly`; the
+  issue list (owner request 2026-10-22): reads narrowed per viewer (a guest with
+  the fallback, a project shared with a hidden team listing only the viewer's
+  team), `me`, `wrong_workspace`, the mirror version
+  (`test/issue-list.test.ts`); bulk edits (`test/bulk-issue-edits.test.ts`):
+  moves within and across projects, "No milestone in P", "No project", no-ops,
+  status by name across teams and a team without it, every whole-request refusal
+  writing nothing, the person's gateway at most 4 in flight, one mirror patch
+  per call, a newer or identical mirrored copy kept, the shared audit instant in
+  field then request order, a forbidden issue, a rate limit part-way and before
+  any change, a rejected sign-in, the issue locks with a single edit and between
+  two bulk edits, and the allocation effects (handed over, already planned,
+  Garnet stopped); identical Issue webhooks (`test/webhooks.test.ts`, in
+  `mode: 'linear'`, since demo mode ignores webhooks) write nothing, changed
+  fields and relation sets still apply, and the echoes of a bulk move and a bulk
+  status change write nothing.
+- core (issue list): the matcher (`test/issue-search.test.ts`); the list
+  (`test/issue-list.test.ts`): every filter with `none` and `me`, OR within and
+  AND across fields, the first-initiative rule and `alsoIn`, the quick filters,
+  the text rule, unknown ids, the no-initiatives fallback, the weight order's
+  tiers and ranks as goldens, every field sort both ways, every grouping's order
+  and drop patch, sections and invalid pairs, empty targets, the row and group
+  budgets, refs, preset counts, lenient normalization, and a weight change that
+  reorders the list but leaves `planAllocation` equal; the list and options per
+  viewer in `test/visibility.test.ts`; the 50k scale block in `test/api.test.ts`
+  also builds the list five ways and its options.
+- linear and store (issue list): `IssueFields` selects `dueDate`, `mapIssue`
+  reads it (malformed or absent → null), the fixture's reads carry it from the
+  fields store; `appendAuditEntries` writes in one statement, in order, with
+  U+0000 dropped, and an empty list writes nothing.
 - planner: unit tests for cookie signing/origin checks; the adapters; the route
   handlers with a fake actor resolver, and end to end on the demo engine
   (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),
@@ -2546,6 +3297,52 @@ not read; a deploy that still sets it boots normally and logs one warning
   settings) and must hold no inputs, Save buttons, drag handles or grant links,
   while keeping every graph link (the drawer's two, the timeline's group links
   and "Open as graph", the issue's Blocked-by Graph).
+- planner (issue list): `test/adapters-issue-list.test.ts` (the URL grammar:
+  canonical order, defaults left out, `state=all`, `me` and `none`, dropped
+  values, the 50-value and 200-character caps, `limit` steps, invalid section
+  pairs; the project → milestone cascade; chips, tabs with counts equal to their
+  own view, the Filter / Sort / Group menus and the no-initiatives fallback; the
+  pickers' options with the 200 cut; the page model's receipts, notices in order
+  worded by why, columns per grouping, tier dividers, group headings of every
+  kind, row tones and an inactive project's quiet rows, empty milestone targets,
+  budget footers and folded groups, the empty state), the options route in
+  `test/issue-routes.test.ts` (private, the viewer passed, a guest too), the
+  links into the page (`adapters-{shell,week,timeline,projects,graph}.test.ts`)
+  and the page rendered for a guest and for someone without the write grant
+  (`test/read-only-render.test.tsx`); in the browser, `e2e/issues.e2e.ts`: the
+  default view, a filter kept by reload, Back and Forward, a project's unplanned
+  issues with its milestones as targets, the slide-over, the search's one
+  history entry, `/tasks`, no sideways scroll at 390px, and the guest's
+  read-only page.
+- planner (moving issues): `test/adapters-issue-moves.test.ts` (the page's cap
+  equals the engine's; the move picker's grouping, the moving issues' projects
+  first, inactive last, "not ENG's", the 200 cut; `movePatch` and the bulk
+  change per choice; statuses joined across ENG and OPS and "not in {Team}"; the
+  page model's row facts, drop targets and milestone menus; drops, a project
+  group sending only the other projects' issues and "Already there.", one row on
+  its own milestone; the confirmation at 19, 20 and for a cross-project drag,
+  with the team sentence; the pending rows; leaving the filters; every
+  `bulkResultToast` variant and the allocation sentences; `undoRequests` grouped
+  by the before tuple of a two-field change, and an issue that left the planner
+  reported, never retried; the row and milestone menus), `PATCH /api/issues` in
+  `test/issue-routes.test.ts` (the order: cross-origin, signed out, a guest's
+  `read_only` before the body; the 400s for 0 or 101 ids, a repeat, unknown
+  keys, an empty patch, a bad state, a blank name, a live field such as `title`;
+  `needs_write_scope` with the link back to the sanitized `/issues…` view or
+  `/issues`; 200 with a partial result; 401; 429 with `Retry-After`; 404; 413),
+  `foldAuditEntries` in `test/adapters-settings.test.ts` (a bulk move folded, a
+  cross-project move as exactly two rows even interleaved, single edits and
+  different values apart), `test/issue-list-demo.test.ts` (on the demo engine
+  through the real route: Chloe moves ENG-54 and ENG-55 into "Push
+  notifications", the mirror, the list and the audit show it, Undo puts them
+  back; Gus is refused `read_only` and nothing changes, version and audit
+  included, while his list reads Operations only with the fallback), and the
+  page's controls rendered for a member, a member without the grant and a guest
+  (`test/read-only-render.test.tsx`); in the browser, `e2e/issues.e2e.ts` adds a
+  shift-click selection moved with the bulk bar and kept by a reload, the `m`
+  key with Undo, a drag onto another milestone with Undo, the phone's Select
+  mode, and the guest's refused `PATCH /api/issues`, each move put back for the
+  tests after it.
 - planner browser smoke (Playwright 1.56, `apps/planner/e2e/*.e2e.ts`,
   `playwright.config.ts`; moon `planner:test-e2e`, which builds first; CI runs
   it as a `moon ci` target whenever the planner or anything it depends on

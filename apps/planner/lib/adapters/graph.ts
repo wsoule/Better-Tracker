@@ -668,6 +668,13 @@ function initiativeDetail(
     scopeLink(ctx, graphHeading(snapshot, at('milestone')), at('milestone')),
     scopeLink(ctx, graphHeading(snapshot, at('issue')), at('issue')),
     {
+      // Its projects' issues on the Issues page (by the same
+      // first-initiative rule as the graph; "none" included).
+      label: 'Open as list',
+      href: `/issues?initiative=${encodeURIComponent(id)}`,
+      external: false,
+    },
+    {
       label: 'Open on the timeline',
       href: timelineInitiativeHref(id),
       external: false,
@@ -755,6 +762,12 @@ function projectDetail(
       level: 'issue',
       projectId: node.id,
     }),
+    {
+      // The same issues on the Issues page (filter, group, move).
+      label: 'Open as list',
+      href: `/issues?project=${encodeURIComponent(node.id)}`,
+      external: false,
+    },
     {
       label: 'Lane on the timeline',
       href: timelineProjectHref(node.id),
@@ -853,6 +866,12 @@ function milestoneDetail(
           { level: 'milestone', projectId: project.id },
           node.id
         ),
+    {
+      // The same issues on the Issues page (filter, group, move).
+      label: 'Open as list',
+      href: `/issues?milestone=${encodeURIComponent(node.id)}`,
+      external: false,
+    },
     {
       label: 'Open on the timeline',
       href: timelineMilestoneHref(node.id),

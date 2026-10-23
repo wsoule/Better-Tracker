@@ -1,0 +1,212 @@
+/* Issues page furniture around the package components, in the idiom of
+   My week, Projects and the timeline: the page header (title, the "every
+   issue across" line, the receipts line in the same quiet sans), the
+   preset tabs (the NavTabs strip), the notices, the toolbar and chips bar
+   (each its own 1px frame, the chips collapsing into the toolbar), then
+   the grouped list as one table. The old list stays on screen at full
+   contrast, marked busy (aria-busy, the toolbar's 2px progress rule and a
+   progress cursor) while the server answers a view change. Built only
+   from the shared tokens: hairlines, zero radius, no shadows. */
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 1440px;
+  margin: 28px auto 0;
+  padding: 0 48px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.subtitle {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* The counts line: My week's, Projects' and the timeline's receipts
+   voice (quiet sans, muted). */
+.receipts {
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The preset tabs scroll sideways rather than wrap on a narrow screen.
+   Focus rings sit inside each cell (NavTabs), so the clip cuts none. */
+.tabs {
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 48px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+/* NavTabs wraps its strip; here it stays one row and the strip scrolls
+   instead. */
+.tabs ul {
+  flex-wrap: nowrap;
+  width: max-content;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 1440px;
+  margin: 16px auto 0;
+  padding: 0 48px;
+}
+
+/* The toolbar and chips bar draw their own frames and inner gutter
+   (--view-toolbar-gutter, 18px by default). */
+.toolbarWrap {
+  max-width: 1440px;
+  margin: 16px auto 0;
+  padding: 0 48px;
+}
+
+/* The toolbar's trailing actions (Open as graph, Copy link): the
+   timeline toolbar's "Open as graph" voice, muted mono caps that flood
+   the accent on hover. */
+.endAction {
+  flex: none;
+  margin: 0 -6px;
+  padding: 5px 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--grey-2-ink);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.endAction + .endAction {
+  margin-left: 6px;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .endAction:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* The table's column header sticks under the shell's topbar. */
+.list {
+  --task-sticky-top: var(--nav-h, 0px);
+
+  max-width: 1440px;
+  margin: 24px auto 0;
+  padding: 0 48px 72px;
+}
+
+/* Busy: no fade (a fade drops the accent and muted text under 4.5:1);
+   the toolbar's progress rule and aria-busy say it, the cursor too. */
+.list[data-busy='true'] {
+  cursor: progress;
+}
+
+/* While rows are selected the bulk bar floats over the end of the list
+   (20px off the bottom, its height on <html> as --bulk-bar-h): room to
+   scroll the last rows above it. */
+.list[data-selecting='true'] {
+  padding-bottom: calc(20px + var(--bulk-bar-h, 44px) + 24px);
+}
+
+/* Loading skeleton: the header's lines, the tabs and the toolbar row. */
+.skeletonHead {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(420px, 100%);
+}
+
+.skeletonTabs {
+  display: flex;
+  align-items: center;
+  height: 36px;
+}
+
+.skeletonToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+  min-height: 48px;
+  padding: 9px 18px;
+  border: 1px solid var(--border);
+}
+
+/* The list's rows in the table's own 1px frame. */
+.skeletonList {
+  border: 1px solid var(--border);
+}
+
+@media (width <= 768px) {
+  .head {
+    margin-top: 20px;
+    padding: 0 16px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .tabs,
+  .notices,
+  .toolbarWrap {
+    padding: 0 16px;
+  }
+
+  .tabs {
+    margin-top: 20px;
+  }
+
+  .list {
+    margin-top: 20px;
+    padding: 0 16px 56px;
+  }
+
+  .skeletonToolbar {
+    padding: 10px 14px;
+  }
+}
+
+/* Phones: the toolbar's triggers drop their "Sort:" / "Group:" words, so
+   the controls row stays short. */
+@media (width <= 640px) {
+  .toolbarWrap :global([data-toolbar-word]) {
+    display: none;
+  }
+}
+
+/* The toolbar's Select button (wrapped, so the button's own display
+   stays its own): only where the checkboxes wait for it, touch screens
+   and phones (the list's hideOnTouch query). */
+.selectWrap {
+  display: none;
+}
+
+@media (pointer: coarse), (width <= 640px) {
+  .selectWrap {
+    display: contents;
+  }
+}

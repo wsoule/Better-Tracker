@@ -1,0 +1,230 @@
+/* The filter chips bar: a strip in a 1px ink frame that collapses into
+   the toolbar above it (-1px, as the timeline's legend row meets its
+   toolbar), holding one square chip per set filter in the chip voice:
+   the field as a mono key, "is", then the values in the reading voice,
+   chips joined by a mono "and". A chip naming something the host cannot
+   find draws its frame and values in the accent (needs action). The
+   padding inside the frame is --view-toolbar-gutter (18px, the block
+   chrome's), shared with the toolbar. */
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-height: 44px;
+  margin-top: -1px;
+  padding: 8px var(--view-toolbar-gutter, 18px);
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.lead {
+  flex: none;
+  color: var(--muted);
+}
+
+/* The chips wrap inside the list, which wraps inside the bar. */
+.list {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.and {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 2px 0 8px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.chip[data-unknown='true'] {
+  border-color: var(--accent);
+}
+
+/* A chip whose face is the host's picker: the trigger carries 4px of the
+   chip's left padding, so its hover wash reaches past the text. (A
+   negative margin on the trigger would make the chip measure 4px short
+   and cut its values to "…".) */
+.chip[data-editable='true'] {
+  padding-left: 4px;
+}
+
+.face {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.icon {
+  display: inline-flex;
+  flex: none;
+  align-self: center;
+  color: var(--muted);
+}
+
+.field {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.is {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink-soft);
+}
+
+.summary[data-unknown='true'] {
+  color: var(--accent-ink);
+}
+
+/* The host's picker trigger around the face: it takes the chip's voice
+   instead of its own appearance, with the flat-surface wash on hover and
+   while open. */
+.editor {
+  display: inline-flex;
+  min-width: 0;
+}
+
+/* The picker caps its parts at 100% of their box, which in this
+   shrink-to-fit chip cut the summary short of its own width. */
+.editor [data-picker],
+.editor [data-picker] > span {
+  max-width: none;
+}
+
+.chip .editor button[data-appearance] {
+  max-width: none;
+  min-height: 0;
+  height: 24px;
+  margin: 0;
+  padding: 0 4px;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  color: inherit;
+}
+
+.chip .editor button[data-appearance][aria-expanded='true'] {
+  background: var(--tint);
+}
+
+/* ×: the toast's dismiss at chip size. */
+.remove {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.remove:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.add {
+  display: inline-flex;
+  align-items: center;
+}
+
+.clear {
+  display: inline-flex;
+  margin-left: auto;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .chip .editor button[data-appearance]:hover {
+    background: var(--tint);
+    color: inherit;
+  }
+
+  .remove:hover {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+}
+
+/* Phones: the chips wrap at once, so the leading icon would sit alone;
+   a chip wider than the bar gives way, its values ending in "…" (the
+   picker's parts take their 100% caps back). */
+@media (width <= 640px) {
+  .bar {
+    padding-right: var(--view-toolbar-gutter, 14px);
+    padding-left: var(--view-toolbar-gutter, 14px);
+  }
+
+  .lead {
+    display: none;
+  }
+
+  .editor [data-picker],
+  .editor [data-picker] > span,
+  .chip .editor button[data-appearance] {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remove {
+    transition: none;
+  }
+}

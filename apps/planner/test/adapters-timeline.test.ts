@@ -710,6 +710,15 @@ describe('banners', () => {
       'ENG-1',
       'ENG-2',
     ]);
+    // Each unplanned project row offers the Issues page, its unplanned
+    // issues listed beside its open milestones (owner request 2026-10-22).
+    expect(banners[2]?.items.map((item) => item.action)).toEqual(
+      banners[2]?.items.map((item) => ({
+        label: 'Plan in Issues',
+        href: `/issues?project=${item.id}&milestone=none`,
+      }))
+    );
+    expect(banners[0]?.items[0]?.action).toBeUndefined();
     expect(banners[3]?.items).toEqual([
       {
         id: 'p-harbor',
@@ -1005,6 +1014,8 @@ describe('milestone drawer', () => {
       },
       { label: 'Its issues', href: '/graph?milestone=ms-1' },
     ]);
+    // "Open as list": the drawer lists closed issues too.
+    expect(m.listHref).toBe('/issues?milestone=ms-1&state=all');
     expect(m.waitsOn).toEqual([
       { id: 'ms-schema', label: 'Atlas › Schema cutover' },
     ]);

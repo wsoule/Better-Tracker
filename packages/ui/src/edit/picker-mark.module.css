@@ -17,6 +17,11 @@
   text-transform: uppercase;
 }
 
+/* Nobody: the same square, dashed and empty. */
+.avatar[data-empty='true'] {
+  border-style: dashed;
+}
+
 .swatch {
   display: inline-block;
   flex: none;

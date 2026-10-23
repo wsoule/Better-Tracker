@@ -391,9 +391,10 @@ describe('buildProjectsPage', () => {
     );
   });
 
-  test('links each row to its timeline lane, graph and Linear project', () => {
+  test('links each row to its timeline lane, graph, issues and Linear project', () => {
     expect(row('proj-2').timelineHref).toBe('/timeline?project=proj-2');
     expect(row('proj-2').graphHref).toBe('/graph?project=proj-2');
+    expect(row('proj-2').issuesHref).toBe('/issues?project=proj-2');
     expect(row('proj-2').linearUrl).toBe(
       'https://linear.app/northwind/project/atlas'
     );

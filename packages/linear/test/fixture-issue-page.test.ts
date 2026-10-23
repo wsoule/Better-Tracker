@@ -169,8 +169,13 @@ describe('fixture updateIssueFields', () => {
       updatedAt: fixedNow.toISOString(),
       lastStateChangeAt: fixedNow.toISOString(),
       startedAt: fixedNow.toISOString(),
+      dueDate: '2026-10-30',
     });
     expect(await app.fetchIssue('iss-eng-12')).toEqual(updated);
+    // The mirror reads the due date too (Issue.dueDate, since 2026-10-22).
+    expect(
+      (await app.fetchWorkspace()).issues.find((i) => i.id === 'iss-eng-12')
+    ).toEqual(updated);
     expect(await app.fetchIssueDetail('iss-eng-12')).toMatchObject({
       description: 'New text',
       dueDate: '2026-10-30',
@@ -192,6 +197,41 @@ describe('fixture updateIssueFields', () => {
       labels: [],
     });
     expect((await app.fetchIssue('iss-eng-12'))?.assigneeId).toBeNull();
+    expect((await app.fetchIssue('iss-eng-12'))?.dueDate).toBeNull();
+    expect(
+      (await app.fetchWorkspace()).issues.find((i) => i.id === 'iss-eng-12')
+        ?.dueDate
+    ).toBeNull();
+  });
+
+  test('every issue read carries its due date from the fields store', async () => {
+    const { store, app, ana } = setup();
+    const seeded = Object.entries(store.issueFields).find(
+      ([, fields]) => fields.dueDate !== null
+    );
+    if (seeded === undefined) throw new Error('no seeded due date');
+    const [issueId, fields] = seeded;
+    expect((await app.fetchIssue(issueId))?.dueDate).toBe(fields.dueDate);
+    const workspace = await app.fetchWorkspace();
+    for (const issue of workspace.issues) {
+      expect(issue.dueDate).toBe(store.issueFields[issue.id]?.dueDate ?? null);
+    }
+    // An allocation write returns it too; the store's issues never hold it.
+    const allocated = await app.updateIssue(issueId, {
+      assigneeId: 'user-ana',
+    });
+    expect(allocated.dueDate).toBe(fields.dueDate);
+    expect(
+      store.data.issues.find((i) => i.id === issueId)?.dueDate
+    ).toBeUndefined();
+    // Reads never create a fields entry for an issue without one.
+    const bare = store.data.issues.find(
+      (i) => store.issueFields[i.id] === undefined
+    );
+    if (bare !== undefined) {
+      expect((await ana.fetchIssue(bare.id))?.dueDate).toBeNull();
+      expect(store.issueFields[bare.id]).toBeUndefined();
+    }
   });
 
   test('closing sets completedAt; a project change drops the old milestone', async () => {

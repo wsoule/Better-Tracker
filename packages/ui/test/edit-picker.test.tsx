@@ -7,9 +7,12 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, describe, expect, mock, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { useState } from 'react';
 
 import {
+  PickerMarkView,
   type PickerOption,
   PickerPopover,
   type SaveResult,
@@ -259,6 +262,50 @@ describe('PickerPopover: filtering and the keyboard', () => {
     } finally {
       document.removeEventListener('keydown', onKey);
     }
+  });
+
+  // A host's single-key shortcut opened it from elsewhere (a row's title):
+  // Esc and a choice go back there; Tab still leaves from the trigger.
+  test('returnFocus takes focus on Esc and on a choice, not on Tab', () => {
+    function KeyHost() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <a href="#row" data-testid="title">
+            Row title
+          </a>
+          <PickerPopover
+            label="Assignee"
+            options={PEOPLE}
+            value="ana"
+            open={open}
+            onOpenChange={setOpen}
+            returnFocus={() => screen.getByTestId('title')}
+            onChange={() => undefined}
+          />
+          <button type="button" onClick={() => setOpen(true)}>
+            Open by key
+          </button>
+        </>
+      );
+    }
+    render(<KeyHost />);
+    const title = screen.getByTestId('title');
+    const openIt = () =>
+      fireEvent.click(screen.getByRole('button', { name: 'Open by key' }));
+    openIt();
+    fireEvent.keyDown(combobox(), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(title);
+    openIt();
+    fireEvent.keyDown(combobox(), { key: 'ArrowDown' });
+    fireEvent.keyDown(combobox(), { key: 'Enter' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(title);
+    openIt();
+    fireEvent.keyDown(combobox(), { key: 'Tab' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger());
   });
 
   test('Tab closes and leaves from the trigger', () => {
@@ -673,5 +720,240 @@ describe('PickerPopover inside the task drawer', () => {
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.keyDown(trigger(), { key: 'Escape' });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('PickerPopover as a menu (searchable={false})', () => {
+  const ITEMS: PickerOption[] = [
+    { value: 'open', label: 'Open', hint: '↵' },
+    { value: 'move', label: 'Move to milestone…', hint: 'M' },
+    { value: 'chain', label: 'Blocking chain', disabled: true },
+    { value: 'copy', label: 'Copy link' },
+  ];
+
+  function Menu({ onPick }: { onPick: (value: string | null) => void }) {
+    return (
+      <PickerPopover
+        label="Actions for ENG-12"
+        options={ITEMS}
+        value={null}
+        action
+        searchable={false}
+        trigger="…"
+        triggerLabel="Actions for ENG-12"
+        onChange={onPick}
+      />
+    );
+  }
+
+  test('no search row: the list takes focus and drives the active option', () => {
+    render(<Menu onPick={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for ENG-12' }));
+    expect(screen.queryByRole('combobox')).toBeNull();
+    const list = screen.getByRole('listbox', { name: 'Actions for ENG-12' });
+    expect(document.activeElement).toBe(list);
+    const active = () =>
+      document.getElementById(list.getAttribute('aria-activedescendant') ?? '');
+    expect(active()?.textContent).toContain('Open');
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(active()?.textContent).toContain('Move to milestone…');
+    // The disabled item is skipped.
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    expect(active()?.textContent).toContain('Copy link');
+  });
+
+  test('Enter and Space pick; Esc closes and returns focus to the trigger', async () => {
+    const picks: (string | null)[] = [];
+    render(<Menu onPick={(value) => picks.push(value)} />);
+    const button = screen.getByRole('button', { name: 'Actions for ENG-12' });
+    fireEvent.click(button);
+    let list = screen.getByRole('listbox');
+    fireEvent.keyDown(list, { key: 'ArrowDown' });
+    // A pick saves through the action's (resolved) promise: let it settle.
+    await act(async () => {
+      fireEvent.keyDown(list, { key: 'Enter' });
+      await Promise.resolve();
+    });
+    expect(picks).toEqual(['move']);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(button);
+    fireEvent.click(button);
+    list = screen.getByRole('listbox');
+    await act(async () => {
+      fireEvent.keyDown(list, { key: ' ' });
+      await Promise.resolve();
+    });
+    expect(picks).toEqual(['move', 'open']);
+    fireEvent.click(button);
+    fireEvent.keyDown(screen.getByRole('listbox'), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(button);
+  });
+
+  test('a phone sheet keeps a Done button without the search row', () => {
+    render(<Menu onPick={() => undefined} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Actions for ENG-12' }));
+    const dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});
+
+describe('PickerPopover review additions', () => {
+  test("marks='tick': a one-choice-per-group menu draws trailing ticks, no squares", () => {
+    render(
+      <PickerPopover
+        label="Sort"
+        multiple
+        marks="tick"
+        searchable={false}
+        value={['sort:weight']}
+        options={[
+          { value: 'sort:weight', label: 'Weight', group: 'Sort by' },
+          { value: 'sort:priority', label: 'Priority', group: 'Sort by' },
+          {
+            value: 'dir:asc',
+            label: 'Ascending',
+            group: 'Order',
+            disabled: true,
+          },
+        ]}
+        onChange={() => undefined}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /^Sort/ }));
+    const list = screen.getByRole('listbox', { name: 'Sort' });
+    expect(list.getAttribute('aria-multiselectable')).toBe('true');
+    const weight = screen.getByRole('option', { name: /Weight/ });
+    expect(weight.getAttribute('aria-selected')).toBe('true');
+    // No checkbox squares on any row, chosen, open or disabled.
+    expect(list.querySelectorAll('[data-checked]')).toHaveLength(0);
+    expect(
+      Array.from(list.querySelectorAll('[role="option"]')).map(
+        (option) => option.querySelector('svg.lucide-check') !== null
+      )
+    ).toEqual([true, false, false]);
+  });
+
+  test('anchorPoint opens the popover at that point, not under the trigger', () => {
+    render(
+      <PickerPopover
+        label="Actions for ENG-12"
+        options={[{ value: 'open', label: 'Open' }]}
+        value={null}
+        action
+        searchable={false}
+        open
+        anchorPoint={{ x: 300, y: 200 }}
+        trigger="…"
+        triggerLabel="Actions for ENG-12"
+        onChange={() => undefined}
+      />
+    );
+    const layer = screen.getByRole('dialog').closest('[popover]');
+    if (!(layer instanceof HTMLElement)) throw new Error('no popover layer');
+    expect(layer.dataset.side).toBe('below');
+    expect(layer.style.getPropertyValue('--picker-left')).toBe('300px');
+    expect(layer.style.getPropertyValue('--picker-top')).toBe('204px');
+  });
+
+  test('a disabled row (a note, a reason) wraps instead of being cut', () => {
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'edit',
+        'picker-popover.module.css'
+      ),
+      'utf8'
+    );
+    expect(css).toMatch(/\.disabled \.optionLabel \{\s*white-space: normal;/);
+  });
+});
+
+describe('PickerPopover appearances for lists', () => {
+  test('cell and bar draw the trigger in their own voice', () => {
+    render(
+      <>
+        <PickerPopover
+          label="Status"
+          options={[{ value: 's1', label: 'In Progress' }]}
+          value="s1"
+          appearance="cell"
+          onChange={() => undefined}
+        />
+        <PickerPopover
+          label="Priority"
+          options={[{ value: '1', label: 'Urgent' }]}
+          value={null}
+          action
+          appearance="bar"
+          trigger="Priority"
+          triggerLabel="Set priority for 3 issues"
+          onChange={() => undefined}
+        />
+      </>
+    );
+    const cell = screen.getByRole('button', { name: 'Status: In Progress' });
+    expect(cell.getAttribute('data-appearance')).toBe('cell');
+    const bar = screen.getByRole('button', {
+      name: 'Set priority for 3 issues',
+    });
+    expect(bar.getAttribute('data-appearance')).toBe('bar');
+    expect(bar.textContent).toBe('Priority');
+  });
+
+  test('the stylesheet defines both', () => {
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'edit',
+        'picker-popover.module.css'
+      ),
+      'utf8'
+    );
+    expect(css).toMatch(/^\.cell \{/m);
+    expect(css).toMatch(/^\.bar \{/m);
+    // The bulk bar is paper: its actions are the paper's ink, in the mono
+    // voice, and flood the accent on hover (no inverted fill, no opacity).
+    const bar = /^\.bar \{[^}]*\}/m.exec(css)?.[0] ?? '';
+    expect(bar).toContain('color: var(--foreground);');
+    expect(bar).toContain('font-family: var(--font-mono);');
+    expect(bar).not.toContain('opacity');
+    expect(css).toMatch(
+      /\.bar:not\(:disabled, \[aria-expanded='true'\]\):hover \{\s*background: var\(--accent\);\s*color: var\(--on-accent\);/
+    );
+    // A cell trigger takes the cell's voice instead of its own.
+    const cell = /^\.cell \{[^}]*\}/m.exec(css)?.[0] ?? '';
+    expect(cell).toContain('font: inherit;');
+  });
+});
+
+describe('PickerMarkView avatar', () => {
+  test('initials in the square; nobody is the same square, dashed and empty', () => {
+    const { container } = render(
+      <>
+        <PickerMarkView mark={{ kind: 'avatar', name: 'Ana Moreno' }} />
+        <PickerMarkView mark={{ kind: 'avatar', name: '' }} />
+        <PickerMarkView mark={{ kind: 'avatar', name: '  ' }} />
+      </>
+    );
+    const marks = [...container.querySelectorAll('[data-mark="avatar"]')];
+    expect(marks.map((m) => m.textContent)).toEqual(['AM', '', '']);
+    expect(marks.map((m) => m.getAttribute('data-empty'))).toEqual([
+      null,
+      'true',
+      'true',
+    ]);
+    const css = readFileSync(
+      path.join(import.meta.dir, '../src/edit/picker-mark.module.css'),
+      'utf8'
+    );
+    expect(css).toMatch(
+      /\.avatar\[data-empty='true'\]\s*\{\s*border-style: dashed;/
+    );
   });
 });

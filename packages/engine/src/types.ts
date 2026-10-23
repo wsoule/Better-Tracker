@@ -1,4 +1,5 @@
 import type {
+  AllocationBlockReason,
   AllocationMode,
   AllocationPlan,
   BlockingRelation,
@@ -13,16 +14,23 @@ import type {
   IssueComment,
   IssueDetail,
   IssueExtras,
+  IssueBulkPatch,
   IssueLabel,
+  IssueListOptions,
+  IssueListQuery,
+  IssueListView,
   IssuePatch,
   IssuePatchField,
   MilestoneAssessment,
   MilestoneDetail,
+  Priority,
+  RubricGap,
   Snapshot,
   TimelineView,
   User,
   WarningsMode,
   WeekView,
+  WorkflowStateType,
   WorkspaceSettings,
 } from '@better-tracker/core';
 import type {
@@ -185,6 +193,105 @@ export interface IssueUpdateResult {
    * change that cleared the old milestone lists projectMilestoneId too.
    */
   changed: IssuePatchField[];
+}
+
+/**
+ * The issue list (owner request 2026-10-22, "every issue in one list"):
+ * what getIssueList returns, with the mirror version it was built from.
+ */
+export interface IssueListResult {
+  view: IssueListView;
+  mirrorVersion: number;
+}
+
+/** The issue list's picker options, with the mirror version. */
+export interface IssueListOptionsResult {
+  options: IssueListOptions;
+  mirrorVersion: number;
+}
+
+/** An issue's placement, owner, priority and status before a bulk edit (Undo's input). */
+export interface IssueBulkBefore {
+  projectId: string | null;
+  milestoneId: string | null;
+  assigneeId: string | null;
+  priority: Priority;
+  stateType: WorkflowStateType;
+  /** '' when the mirror does not know the state. */
+  stateName: string;
+}
+
+/** What a bulk edit did to one requested issue. */
+export type IssueBulkOutcome =
+  | {
+      status: 'changed';
+      issueId: string;
+      identifier: string;
+      /** The fields Linear was asked to change, in patch order. */
+      changed: IssuePatchField[];
+      before: IssueBulkBefore;
+    }
+  /** It already had every value: nothing was sent. */
+  | { status: 'unchanged'; issueId: string; identifier: string }
+  | {
+      status: 'skipped';
+      issueId: string;
+      identifier: string;
+      /**
+       * state_not_in_team: its team has no status of that type and name;
+       * not_attempted: a rate limit or a rejected sign-in stopped the run.
+       */
+      reason: 'state_not_in_team' | 'not_attempted';
+      message: string;
+    }
+  | {
+      status: 'failed';
+      issueId: string;
+      /** Null when the planner does not hold the issue. */
+      identifier: string | null;
+      code: 'not_found' | 'invalid' | 'linear_forbidden' | 'linear_error';
+      message: string;
+    };
+
+/** What updateIssues did (architecture §7.3). */
+export interface IssueBulkResult {
+  /** The one instant every audit entry of the call shares. */
+  at: IsoDateTime;
+  /** In request order (repeated ids once). */
+  outcomes: IssueBulkOutcome[];
+  counts: {
+    changed: number;
+    unchanged: number;
+    skipped: number;
+    failed: number;
+  };
+  /** Set when a rate limit or a rejected sign-in stopped the run part-way. */
+  stopped: null | {
+    code: 'rate_limited' | 'not_signed_in';
+    retryAt: IsoDateTime | null;
+  };
+  /** How the change moved the viewer's allocation plan (the toast's second sentence). */
+  allocation: {
+    /**
+     * Changed issues the next allocation run gives to a lead that the plan
+     * before the change did not, by project.
+     */
+    handedOver: {
+      projectId: string;
+      projectName: string;
+      leadName: string;
+      issueIds: string[];
+      /** allocationMode is live (else the run is a dry run). */
+      live: boolean;
+    }[];
+    /** Touched projects whose allocation is blocked now but was not before. */
+    stopped: {
+      projectId: string;
+      projectName: string;
+      reason: AllocationBlockReason;
+      gaps: RubricGap[];
+    }[];
+  };
 }
 
 /** A loaded, indexed workspace plus everything derived from it. */
@@ -370,6 +477,21 @@ export interface Engine {
     milestoneId: string,
     viewer?: Actor
   ): Promise<MilestoneDetail>;
+  /**
+   * Additive (owner request 2026-10-22): the issue list (architecture
+   * §2.14) as `viewer` may see it; LIST_ME is the viewer. A read: guests
+   * get it too.
+   */
+  getIssueList(
+    workspaceId: string,
+    query: IssueListQuery,
+    viewer?: Actor
+  ): Promise<IssueListResult>;
+  /** Additive: the issue list's picker options as `viewer` may see them. */
+  getIssueListOptions(
+    workspaceId: string,
+    viewer?: Actor
+  ): Promise<IssueListOptionsResult>;
   listRuns(workspaceId: string, limit: number): Promise<AllocationRun[]>;
   /** With `viewer`, entries about what they cannot see are left out. */
   getRun(
@@ -523,6 +645,20 @@ export interface Engine {
   ): Promise<BlockingRelation>;
   /** Removes a blocks relation (by its Linear id). */
   removeRelation(actor: Actor, relationId: string): Promise<void>;
+  /**
+   * Additive (owner request 2026-10-22, architecture §7.3): moves up to
+   * ISSUE_BULK_MAX issues at once (milestone and project, assignee,
+   * status by name, priority) with the person's own token, each issue
+   * the single edit's write, all audited with one shared `at`. A guest is
+   * refused first (read_only), then write scope is needed. Per-issue
+   * failures are outcomes; a stop with nothing changed throws
+   * not_signed_in or rate_limited.
+   */
+  updateIssues(
+    actor: Actor,
+    issueIds: readonly string[],
+    patch: IssueBulkPatch
+  ): Promise<IssueBulkResult>;
 
   /**
    * Housekeeping for the worker: deletes expired sessions (revoking their

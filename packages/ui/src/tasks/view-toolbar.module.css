@@ -1,0 +1,201 @@
+/* The list toolbar, in the timeline chart toolbar's idiom: a strip in a
+   1px ink frame holding the search field (the .input primitive's 36px
+   box, as the timeline and projects toolbars draw it: mono, a 1px ink
+   box, here with a leading glass), then the host's
+   Filter / Sort / Group triggers (bare mono actions) and, at the right
+   edge, its trailing actions. The padding inside the frame is
+   --view-toolbar-gutter (18px, the block chrome's). While busy, a 2px
+   accent rule runs along the bottom edge. */
+
+.bar {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  min-height: 48px;
+  padding: 9px var(--view-toolbar-gutter, 18px);
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.search {
+  position: relative;
+  display: flex;
+  flex: 0 1 220px;
+  align-items: center;
+  min-width: 140px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 10px 8px 28px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  /* A placeholder longer than the field ends in "…", not mid-word. */
+  text-overflow: ellipsis;
+}
+
+.input::placeholder {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+/* The native clear button stays (a quick way out of a search), drawn as
+   the .input primitive draws it: a 10px ink cross, not the browser's blue
+   glyph. */
+.input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 10px;
+  height: 10px;
+  margin-left: 8px;
+  background:
+    linear-gradient(
+      45deg,
+      transparent 44%,
+      currentcolor 44%,
+      currentcolor 56%,
+      transparent 56%
+    ),
+    linear-gradient(
+      -45deg,
+      transparent 44%,
+      currentcolor 44%,
+      currentcolor 56%,
+      transparent 56%
+    );
+  cursor: pointer;
+}
+
+.controls {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px 10px;
+  margin-left: auto;
+}
+
+/* The count of set filters on the Filter trigger: a small square of the
+   accent fill (the selected-filter count, not a status). */
+.badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  background: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  color: var(--on-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Loading: an accent segment sliding along the bottom edge, over the
+   frame's own rule. */
+.progress {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  left: -1px;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 30%;
+  background: var(--accent);
+  animation: slide 1.1s var(--ease-out-quint) infinite;
+}
+
+@keyframes slide {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(340%);
+  }
+}
+
+/* Phone: the search takes the first row; the controls keep one line and
+   scroll sideways under it (no scrollbar drawn, no page scroll). */
+@media (width <= 640px) {
+  .bar {
+    padding-right: var(--view-toolbar-gutter, 14px);
+    padding-left: var(--view-toolbar-gutter, 14px);
+  }
+
+  .search {
+    flex: 1 1 100%;
+  }
+
+  .controls {
+    flex: 1 1 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+  }
+
+  .controls::-webkit-scrollbar {
+    display: none;
+  }
+
+  .controls > *,
+  .end > * {
+    flex: none;
+  }
+}
+
+/* 16px keeps iOS from zooming into the field. */
+@media (width <= 640px), (pointer: coarse) {
+  .input {
+    font-size: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .progress::after {
+    width: 100%;
+    animation: none;
+  }
+}

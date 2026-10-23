@@ -5,6 +5,12 @@ import {
   BLOCK_REASON_LABEL,
   buildDependencyGraph,
   buildDigests,
+  buildIssueList,
+  buildIssueListOptions,
+  DEFAULT_ISSUE_LIST_QUERY,
+  ISSUE_LIST_DEFAULT_LIMIT,
+  ISSUE_LIST_MAX_GROUPS,
+  normalizeIssueListQuery,
   buildTimelineView,
   buildWeekView,
   countLabel,
@@ -80,6 +86,16 @@ describe('public API (docs/architecture.md §3)', () => {
     'estimateOptions',
     'estimateLabel',
     'isAllowedEstimate',
+    'foldText',
+    'issueSearchTerms',
+    'issueSearchScore',
+    'foldedTitles',
+    'normalizeIssueListQuery',
+    'sameIssueListFilters',
+    'issueListSectionsAllowed',
+    'stateNameKey',
+    'buildIssueList',
+    'buildIssueListOptions',
   ])('exports function %s', (name) => {
     expect(typeof (core as Record<string, unknown>)[name]).toBe('function');
   });
@@ -94,6 +110,19 @@ describe('public API (docs/architecture.md §3)', () => {
     'ISSUE_FIELD_LABEL',
     'GRAPH_LEVELS_WITHIN',
     'DEFAULT_GRAPH_LEVEL',
+    'OPEN_STATE_TYPES',
+    'ALL_STATE_TYPES',
+    'DEFAULT_ISSUE_LIST_QUERY',
+    'ISSUE_LIST_PRESETS',
+    'ISSUE_LIST_DEFAULT_DIR',
+    'STATE_TYPE_LABEL',
+    'ISSUE_LIST_GROUP_LABEL',
+    'ISSUE_LIST_SECTION_LABEL',
+    'ISSUE_LIST_SORT_LABEL',
+    'ISSUE_LIST_SORT_HINT',
+    'ISSUE_LIST_QUICK_LABEL',
+    'ISSUE_LIST_TIER_LABEL',
+    'ISSUE_LIST_PRESET_LABEL',
   ])('exports constant %s', (name) => {
     expect(typeof (core as Record<string, unknown>)[name]).toBe('object');
   });
@@ -182,7 +211,7 @@ describe('labels', () => {
 describe('scale', () => {
   // 2,000 milestones × 25 issues with a blocks chain through every
   // milestone: quadratic code would take far longer than the test timeout.
-  test('50k issues assess, plan, warn, graph and view quickly', () => {
+  test('50k issues assess, plan, warn, graph, view and list quickly', () => {
     const projects: Project[] = [];
     const milestones: Milestone[] = [];
     const issues: Issue[] = [];
@@ -202,6 +231,7 @@ describe('scale', () => {
           issues.push(
             issue(`${id}-i${i}`, {
               identifier: `ENG-${issues.length + 1}`,
+              title: `Work item ${issues.length + 1}`,
               projectId: `p${p}`,
               milestoneId: id,
               assigneeId: i % 3 === 0 ? null : 'lead',
@@ -260,7 +290,40 @@ describe('scale', () => {
     ];
     buildTimelineView({ ...evaluated, allocationPlan });
     buildWeekView({ ...evaluated, userId: 'lead', recentAllocations: [] });
+    // The issue list (architecture §2.14) for the queries people use most.
+    const listInput = { ...evaluated, allocationPlan, viewerId: 'lead' };
+    const lists = [
+      DEFAULT_ISSUE_LIST_QUERY,
+      normalizeIssueListQuery({ filters: { q: 'item 4' } }),
+      normalizeIssueListQuery({ group: 'assignee', sort: 'created' }),
+      normalizeIssueListQuery({ sections: 'initiative' }),
+      normalizeIssueListQuery({ filters: { quick: ['blocked'] } }),
+    ].map((query) => buildIssueList({ ...listInput, query }));
+    const options = buildIssueListOptions(
+      evaluated.snapshot,
+      evaluated.ctx,
+      evaluated.assessments
+    );
     const elapsed = performance.now() - started;
+
+    for (const list of lists) {
+      expect(list.shown).toBeLessThanOrEqual(ISSUE_LIST_DEFAULT_LIMIT);
+      expect(
+        list.sections.reduce((sum, section) => sum + section.groups.length, 0)
+      ).toBeLessThanOrEqual(ISSUE_LIST_MAX_GROUPS);
+    }
+    const [defaultList] = lists;
+    expect(defaultList?.total).toBe(36_000);
+    expect(defaultList?.shown).toBe(500);
+    // The default view's payload stays well under 600 KB of JSON.
+    expect(JSON.stringify(defaultList).length).toBeLessThan(600_000);
+    // Initiative sections: the first initiative's 200 milestones fill the
+    // group budget; the rest are counted.
+    expect(lists[3]?.sections.map((section) => section.key)).toEqual([
+      'i:init-0',
+    ]);
+    expect(lists[3]?.moreGroups).toEqual({ groups: 1800, issues: 32_400 });
+    expect(options.projects).toHaveLength(200);
 
     expect(evaluated.assessments.size).toBe(2000);
     expect(allocationPlan.projects).toHaveLength(200);

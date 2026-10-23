@@ -223,3 +223,39 @@ describe('toasts', () => {
     expect(document.activeElement).toBe(first);
   });
 });
+
+describe('toasts: spoken text and close callbacks', () => {
+  test('announce replaces the sentence in the live region only', () => {
+    setup();
+    show({
+      kind: 'info',
+      label: 'Saved',
+      message: 'Moved ENG-11 to Atlas billing migration › Read path switch.',
+      announce:
+        'Moved ENG-11 to Atlas billing migration, Read path switch. Press Z to undo.',
+    });
+    expect(stackText()).toContain(
+      'Atlas billing migration › Read path switch.'
+    );
+    expect(stackText()).not.toContain('Press Z');
+    expect(screen.getByRole('status').textContent).toBe(
+      'Saved: Moved ENG-11 to Atlas billing migration, Read path switch. Press Z to undo.'
+    );
+  });
+
+  test('onClose runs once when the toast leaves, however it goes', () => {
+    setup();
+    const timedOut = mock(() => undefined);
+    const dismissed = mock(() => undefined);
+    show({ kind: 'info', message: 'One.', duration: 1000, onClose: timedOut });
+    const id = show({ kind: 'info', message: 'Two.', onClose: dismissed });
+    expect(timedOut).not.toHaveBeenCalled();
+    act(() => {
+      jest.advanceTimersByTime(1100);
+    });
+    expect(timedOut).toHaveBeenCalledTimes(1);
+    act(() => holder.api?.dismiss(id));
+    expect(dismissed).toHaveBeenCalledTimes(1);
+    expect(timedOut).toHaveBeenCalledTimes(1);
+  });
+});

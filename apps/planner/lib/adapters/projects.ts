@@ -96,6 +96,8 @@ export interface ProjectRowModel {
   tags: ProjectFilterId[];
   timelineHref: string;
   graphHref: string;
+  /** The project's issues on the Issues page (`/issues?project=<id>`). */
+  issuesHref: string;
   linearUrl: string;
   /** Lower-cased words the search box matches against. */
   searchText: string;
@@ -232,6 +234,7 @@ function toRow(
     tags,
     timelineHref: `/timeline?project=${encodeURIComponent(lane.projectId)}`,
     graphHref: graphHref({ level: 'issue', projectId: lane.projectId }),
+    issuesHref: `/issues?project=${encodeURIComponent(lane.projectId)}`,
     linearUrl: lane.url,
     searchText: [
       lane.name,

@@ -29,7 +29,7 @@ import { plural } from '../../../lib/format';
 import css from './page.module.css';
 
 const COLUMNS =
-  'minmax(0, 1.2fr) 116px minmax(0, 1.5fr) 140px minmax(0, 0.8fr) minmax(0, 1.2fr) 104px';
+  'minmax(0, 1.2fr) 116px minmax(0, 1.5fr) 140px minmax(0, 0.8fr) minmax(0, 1.2fr) 168px';
 
 /* The seven columns stay readable down to a register about 1000px wide
    (1440 with the sidebar open). Narrower (1280 with the sidebar, a
@@ -69,7 +69,8 @@ function syncUrl(query: string, filter: ProjectFilterId): string {
    over the rows the server built (filterProjectGroups does the matching),
    then one hairline block per initiative, whose bar links to the
    initiative's dependency graph. Rows open the project's timeline lane;
-   the end cell links to its graph and to Linear. */
+   the end cell links to its graph, its issues (the Issues page) and
+   Linear. */
 export default function ProjectsRegister({
   groups,
   filters,
@@ -289,6 +290,9 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
         <span className={css.links}>
           <Link href={row.graphHref} className="accentLink">
             Graph
+          </Link>
+          <Link href={row.issuesHref} className="accentLink">
+            Issues
           </Link>
           <Link
             href={row.linearUrl}

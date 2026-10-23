@@ -7,8 +7,8 @@ import { initials, isHexColor } from './shared';
 import type { PickerMark } from './types';
 
 /* The leading mark of a picker option or trigger, drawn from the system's
-   own glyphs: the state circle, the priority bars, square initials, the
-   milestone status square, a label's colour square or a host's node. Not
+   own glyphs: the state circle, the priority bars, square initials (a
+   dashed empty square for nobody), the milestone status square, a label's colour square or a host's node. Not
    a client module, so a read-only face renders on the server too. The
    marks are decorative (the label is always printed beside them) except
    the status square, which names its status. */
@@ -23,7 +23,17 @@ export function PickerMarkView({ mark }: PickerMarkViewProps): ReactNode {
     case 'priority':
       return <PriorityGlyph priority={mark.priority} size={13} />;
     case 'avatar':
-      return (
+      // Nobody (a blank name: "Unassigned", "Unassign") is the same
+      // square, dashed and empty, as the list's unassigned cell draws it;
+      // never a "?".
+      return mark.name.trim() === '' ? (
+        <span
+          className={styles.avatar}
+          aria-hidden="true"
+          data-mark="avatar"
+          data-empty="true"
+        />
+      ) : (
         <span className={styles.avatar} aria-hidden="true" data-mark="avatar">
           {initials(mark.name)}
         </span>

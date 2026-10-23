@@ -11,7 +11,9 @@ import type { NavTabsProps } from './types';
    Horizontal cells collapse on one hairline and wrap; vertical cells stack
    into a column (Gr8r's settings sub-nav) and turn into a wrapping strip
    on narrow screens. A cell without href cannot be followed yet: it is
-   drawn hatched and muted, with its note saying why. */
+   drawn hatched and muted, with its note saying why. A cell with onFollow
+   takes a plain click itself (the host navigates and shows the change at
+   once); its href still opens in a new tab. */
 export function NavTabs({
   items,
   label,
@@ -54,6 +56,23 @@ export function NavTabs({
                     item.current === true ? styles.current : undefined
                   )}
                   aria-current={item.current === true ? 'page' : undefined}
+                  onClick={
+                    item.onFollow === undefined
+                      ? undefined
+                      : (event) => {
+                          if (
+                            event.button !== 0 ||
+                            event.metaKey ||
+                            event.ctrlKey ||
+                            event.shiftKey ||
+                            event.altKey
+                          ) {
+                            return;
+                          }
+                          event.preventDefault();
+                          item.onFollow?.();
+                        }
+                  }
                 >
                   {body}
                 </Link>

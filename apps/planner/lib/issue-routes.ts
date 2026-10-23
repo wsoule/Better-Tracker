@@ -2,12 +2,17 @@ import {
   COMMENT_MAX_LENGTH,
   ISSUE_DESCRIPTION_MAX_LENGTH,
   ISSUE_TITLE_MAX_LENGTH,
+  type IssueBulkPatch,
   type IssuePatch,
   isValidIsoDate,
   type Priority,
   type Snapshot,
 } from '@better-tracker/core';
-import type { Actor, Engine } from '@better-tracker/engine';
+import {
+  type Actor,
+  type Engine,
+  ISSUE_BULK_MAX,
+} from '@better-tracker/engine';
 import { z } from 'zod';
 
 import { findIssue, issuePagePath, searchIssueMirror } from './adapters/issue';
@@ -30,6 +35,9 @@ import { type ApiActorResolver, parseEntityId } from './timeline-edits';
 //   POST   /api/issues/[id]/blockers   { blockerIssueId } → 201 { relation }
 //   DELETE /api/relations/[id]         → 204
 //   GET    /api/issues/search?q=&near= the relation picker's mirror search
+//   GET    /api/issues/options         the issue list's picker options
+//   PATCH  /api/issues                 { issueIds, patch, returnTo? } → { result }
+//                                      (the issue list's bulk change, drop and Undo)
 //
 // The app/api route files only pass their params and requireApiActor in;
 // the handlers live here so tests can run them with a fake actor resolver
@@ -339,5 +347,171 @@ export async function searchIssues<E extends SearchEngine>(
     );
   } catch (error) {
     return errorResponse(error);
+  }
+}
+
+export type IssueListOptionsEngine = Pick<Engine, 'getIssueListOptions'>;
+
+/**
+ * GET /api/issues/options (signed in, a guest too): the Issues page's
+ * filter and move pickers' data (initiatives, projects with their
+ * milestones, people, teams with their states), built from what the
+ * person may see (§2.13: the viewer is passed, so a project shared with a
+ * private team lists only the teams they see), with the mirror version it
+ * was built from. Fetched on the first popover open. Private, never
+ * cached. 200 { options, mirrorVersion }.
+ */
+export async function getIssueListOptionsRoute<
+  E extends IssueListOptionsEngine,
+>(request: Request, resolve: ApiActorResolver<E>): Promise<Response> {
+  const context = await resolve(request);
+  if (context instanceof Response) return context;
+  const { engine, actor } = context;
+  try {
+    const { options, mirrorVersion } = await engine.getIssueListOptions(
+      actor.session.workspaceId,
+      actor
+    );
+    return Response.json(
+      { options, mirrorVersion },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch (error) {
+    return errorResponse(error);
+  }
+}
+
+/** The workflow state types a bulk status change names. */
+const STATE_TYPES = [
+  'triage',
+  'backlog',
+  'unstarted',
+  'started',
+  'completed',
+  'canceled',
+] as const;
+
+/**
+ * PATCH /api/issues body (the issue list's bulk change, a drop, Undo):
+ * 1–ISSUE_BULK_MAX distinct issue ids and an IssueBulkPatch with at least
+ * one field (`move` places issues in a milestone, a project's "No
+ * milestone", or no project; `state` names a status by type and name,
+ * resolved per issue's team by the engine). `returnTo` is where a
+ * grant_write link comes back to (sanitized to an /issues path).
+ * Strict: unknown keys and live fields such as `title` are refused.
+ */
+export const bulkPatchSchema = z.strictObject({
+  issueIds: z
+    .array(entityId)
+    .min(1, { message: 'name at least one issue' })
+    .max(ISSUE_BULK_MAX, {
+      message: `name at most ${ISSUE_BULK_MAX} issues at a time`,
+    })
+    .refine((ids) => new Set(ids).size === ids.length, {
+      message: 'must not repeat an issue',
+    }),
+  patch: z
+    .strictObject({
+      move: z
+        .strictObject({
+          projectId: entityId.nullable(),
+          milestoneId: entityId.nullable(),
+        })
+        .optional(),
+      assigneeId: entityId.nullable().optional(),
+      priority: z
+        .number()
+        .int({ message: 'must be 0 (none), 1 (urgent), 2, 3 or 4 (low)' })
+        .min(0, { message: 'must be 0 (none), 1 (urgent), 2, 3 or 4 (low)' })
+        .max(4, { message: 'must be 0 (none), 1 (urgent), 2, 3 or 4 (low)' })
+        .optional(),
+      state: z
+        .strictObject({
+          type: z.enum(STATE_TYPES),
+          name: z.string().trim().min(1).max(100),
+        })
+        .optional(),
+    })
+    .refine((patch) => Object.values(patch).some((v) => v !== undefined), {
+      message: 'send at least one field to change',
+    }),
+  returnTo: z.string().max(2000).optional(),
+});
+
+// A control character (a newline, a tab, DEL) anywhere in `text`.
+function hasControlCharacter(text: string): boolean {
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
+}
+
+/** The Issues page a bulk change's grant_write link returns to: the
+    view it was sent from when that is an /issues path, else /issues. */
+export function issuesReturnTo(raw: string | undefined): string {
+  if (
+    raw === undefined ||
+    !/^\/issues(?:[/?]|$)/.test(raw) ||
+    raw.includes('\\') ||
+    hasControlCharacter(raw)
+  ) {
+    return '/issues';
+  }
+  return raw;
+}
+
+/** The engine's IssueBulkPatch from a parsed body: only the sent fields. */
+function bulkPatchFrom(
+  body: z.infer<typeof bulkPatchSchema>['patch']
+): IssueBulkPatch {
+  const patch: IssueBulkPatch = {};
+  if (body.move !== undefined) patch.move = { ...body.move };
+  if (body.assigneeId !== undefined) patch.assigneeId = body.assigneeId;
+  if (body.priority !== undefined) patch.priority = body.priority as Priority;
+  if (body.state !== undefined) patch.state = { ...body.state };
+  return patch;
+}
+
+export type IssueBulkEngine = Pick<Engine, 'updateIssues'>;
+
+/**
+ * PATCH /api/issues (Linear write access; owner request 2026-10-22,
+ * architecture §7.3): changes up to ISSUE_BULK_MAX issues at once with the
+ * person's own token. Order: the CSRF guard and the session (the
+ * resolver) → 403 read_only for a Linear guest, before the body is read →
+ * the strict body (400) → write scope (403 needs_write_scope, the grant
+ * link back to the sanitized /issues view) → engine.updateIssues, which
+ * refuses a guest again and checks every target against the mirror.
+ * 200 { result } (partial results included); a stop with nothing changed
+ * is 401 not_signed_in or 429 rate_limited with Retry-After; an unknown or
+ * hidden target is 404.
+ */
+export async function bulkUpdateIssues<E extends IssueBulkEngine>(
+  request: Request,
+  resolve: ApiActorResolver<E>
+): Promise<Response> {
+  const context = await resolve(request);
+  if (context instanceof Response) return context;
+  const readOnly = refuseReadOnly(context.actor);
+  if (readOnly !== null) return readOnly;
+  const body = await readJson(request, bulkPatchSchema);
+  if (body instanceof Response) return body;
+  const { engine, actor } = context;
+  const returnTo = issuesReturnTo(body.returnTo);
+  const refused = refuseWithoutWriteScope(actor, returnTo);
+  if (refused !== null) return refused;
+  try {
+    const result = await engine.updateIssues(
+      actor,
+      body.issueIds,
+      bulkPatchFrom(body.patch)
+    );
+    return Response.json(
+      { result },
+      { headers: { 'Cache-Control': 'private, no-store' } }
+    );
+  } catch (error) {
+    return errorResponse(error, { returnTo });
   }
 }

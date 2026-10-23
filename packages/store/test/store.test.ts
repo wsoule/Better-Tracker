@@ -1758,6 +1758,110 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(await store.listAudit(ws, 2)).toEqual([entries[2], entries[1]]);
         expect(await store.listAudit(newWorkspaceId(), 10)).toEqual([]);
       });
+
+      // A bulk issue edit (architecture §5, §7.3): every field change of
+      // every issue in one statement, sharing one `at`.
+      test('appendAuditEntries writes every entry in one statement, in order', async () => {
+        const ws = newWorkspaceId();
+        const at = '2026-10-21T10:00:00.000Z';
+        let statements = 0;
+        const counting: Sql = {
+          query: (text, params) => sql.query(text, params),
+          transaction: (fn) =>
+            sql.transaction((tx) =>
+              fn({
+                ...tx,
+                query: (text, params) => {
+                  if (text.includes('audit_log')) statements += 1;
+                  return tx.query(text, params);
+                },
+              })
+            ),
+          close: () => Promise.resolve(),
+        };
+        const bulk = createSqlStore(counting, {
+          encryptionKey: TEST_KEY,
+          now: () => clock,
+        });
+        const base = {
+          workspaceId: ws,
+          actorUserId: 'u-ana',
+          at,
+        };
+        await bulk.appendAuditEntries([
+          {
+            ...base,
+            action: 'issue.project',
+            subjectId: 'iss-1',
+            before: 'p-orion',
+            after: 'p-vega',
+          },
+          {
+            ...base,
+            action: 'issue.project',
+            subjectId: 'iss-2',
+            before: null,
+            after: 'p-vega',
+          },
+          {
+            ...base,
+            action: 'issue.milestone',
+            subjectId: 'iss-1',
+            before: 'm-alpha',
+            after: 'm-\u0000beta',
+          },
+          {
+            ...base,
+            action: 'issue.milestone',
+            subjectId: 'iss-2',
+            before: undefined,
+            after: 'm-beta',
+          },
+        ]);
+        expect(statements).toBe(1);
+        const listed = await store.listAudit(ws, 10);
+        // Newest first; with one shared `at`, the last appended comes first.
+        expect(listed.map((e) => [e.action, e.subjectId])).toEqual([
+          ['issue.milestone', 'iss-2'],
+          ['issue.milestone', 'iss-1'],
+          ['issue.project', 'iss-2'],
+          ['issue.project', 'iss-1'],
+        ]);
+        expect(listed.every((e) => e.at === at)).toBe(true);
+        expect(listed.every((e) => e.actorUserId === 'u-ana')).toBe(true);
+        // U+0000 is dropped; undefined is stored as JSON null.
+        expect(listed[1]?.after).toBe('m-beta');
+        expect(listed[0]?.before).toBeNull();
+        expect(listed[2]?.before).toBeNull();
+        expect(listed[3]).toEqual({
+          ...base,
+          action: 'issue.project',
+          subjectId: 'iss-1',
+          before: 'p-orion',
+          after: 'p-vega',
+        });
+      });
+
+      test('appendAuditEntries with no entries writes nothing', async () => {
+        let statements = 0;
+        const counting: Sql = {
+          query: (text, params) => {
+            statements += 1;
+            return sql.query(text, params);
+          },
+          transaction: (fn) => {
+            statements += 1;
+            return sql.transaction(fn);
+          },
+          close: () => Promise.resolve(),
+        };
+        const bulk = createSqlStore(counting, {
+          encryptionKey: TEST_KEY,
+          now: () => clock,
+        });
+        await bulk.appendAuditEntries([]);
+        expect(statements).toBe(0);
+      });
     });
   });
 }

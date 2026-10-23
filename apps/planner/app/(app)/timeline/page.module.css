@@ -130,6 +130,12 @@
   gap: 4px 10px;
 }
 
+/* "Plan in Issues": the unplanned row's way into the Issues page, an
+   accentLink pushed to the row's end. */
+.bannerPlan {
+  margin-left: auto;
+}
+
 .issueKeyLink {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -552,6 +558,11 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px 18px;
+  margin-top: 12px;
+}
+
+/* "Open as list", an accentLink right under the drawer's issues. */
+.listLink {
   margin-top: 12px;
 }
 

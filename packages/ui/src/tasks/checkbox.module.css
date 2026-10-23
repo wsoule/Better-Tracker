@@ -59,6 +59,16 @@
   opacity: 1;
 }
 
+/* Mixed (some of a group selected): the accent box with a dash. */
+.glyph[data-mixed='true'] {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.glyph[data-mixed='true'] .check {
+  opacity: 1;
+}
+
 .input:focus-visible + .glyph {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -102,9 +112,24 @@
   border-color: var(--grey-3);
 }
 
-.checkbox[data-disabled='true'] .input:checked + .glyph {
+.checkbox[data-disabled='true'] .input:checked + .glyph,
+.checkbox[data-disabled='true'] .glyph[data-mixed='true'] {
   border-color: var(--grey-3);
   background: var(--grey-3);
+}
+
+/* Forced colours paint the accent fill as the canvas but leave the SVG
+   check's on-accent stroke alone, so a ticked or mixed box looked empty
+   (white on white). There the check and the dash take the text colour
+   (greyed while disabled) inside the forced frame. */
+@media (forced-colors: active) {
+  .check {
+    stroke: CanvasText;
+  }
+
+  .checkbox[data-disabled='true'] .check {
+    stroke: GrayText;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -376,6 +376,7 @@ export function mapIssue(value: unknown): Issue {
       completedAt,
       canceledAt,
     }),
+    dueDate: optionalTimelessDate(node, 'dueDate'),
   };
 }
 

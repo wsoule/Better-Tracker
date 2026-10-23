@@ -987,23 +987,22 @@ function labelsValue(value: unknown): string {
 }
 
 /** A string field of a logged object, or null. */
-function field(value: unknown, name: string): string | null {
+function loggedString(value: unknown, name: string): string | null {
   if (typeof value !== 'object' || value === null) return null;
   const found = (value as Record<string, unknown>)[name];
   return typeof found === 'string' ? found : null;
 }
 
 /**
- * One audit row of a person's issue edit (owner decision 2026-10-21):
- * "ENG-24 · assignee" with "Ana Moreno → Dev Patel", in the names the
- * mirror has now (ids it no longer knows read as removed).
+ * How an issue field's logged value reads, for the audit log's "before →
+ * after" lines: the field's name ("status") and the value in the names
+ * the mirror has now (ids it no longer knows read as removed). Null for
+ * an action that is not a one-field issue edit (comments, relations).
  */
-export function issueAuditRow(
-  entry: AuditEntry,
+function issueFieldReader(
+  action: AuditEntry['action'],
   snapshot: AuditSnapshot
-): { what: string; changes: string[] } {
-  const key =
-    snapshot.issues?.get(entry.subjectId)?.identifier ?? 'A removed issue';
+): { label: string; show: (value: unknown) => string } | null {
   const person = (v: unknown) =>
     typeof v === 'string' ? nameOf(snapshot.users, v) : 'unassigned';
   const state = (v: unknown) =>
@@ -1022,31 +1021,51 @@ export function issueAuditRow(
     typeof v === 'number' && Object.hasOwn(PRIORITY_LABEL, v)
       ? PRIORITY_LABEL[v as Priority]
       : 'none';
-  const pair = (label: string, show: (v: unknown) => string) => ({
-    what: `${key} · ${label}`,
-    changes: [`${show(entry.before)} → ${show(entry.after)}`],
-  });
-  switch (entry.action) {
+  switch (action) {
     case 'issue.title':
-      return pair('title', plainValue);
+      return { label: 'title', show: plainValue };
     case 'issue.description':
-      return pair('description', textValue);
+      return { label: 'description', show: textValue };
     case 'issue.state':
-      return pair('status', state);
+      return { label: 'status', show: state };
     case 'issue.assignee':
-      return pair('assignee', person);
+      return { label: 'assignee', show: person };
     case 'issue.priority':
-      return pair('priority', priority);
+      return { label: 'priority', show: priority };
     case 'issue.project':
-      return pair('project', project);
+      return { label: 'project', show: project };
     case 'issue.milestone':
-      return pair('milestone', milestone);
+      return { label: 'milestone', show: milestone };
     case 'issue.due_date':
-      return pair('due date', dateValue);
+      return { label: 'due date', show: dateValue };
     case 'issue.estimate':
-      return pair('estimate', plainValue);
+      return { label: 'estimate', show: plainValue };
     case 'issue.labels':
-      return pair('labels', labelsValue);
+      return { label: 'labels', show: labelsValue };
+    default:
+      return null;
+  }
+}
+
+/**
+ * One audit row of a person's issue edit (owner decision 2026-10-21):
+ * "ENG-24 · assignee" with "Ana Moreno → Dev Patel", in the names the
+ * mirror has now (ids it no longer knows read as removed).
+ */
+export function issueAuditRow(
+  entry: AuditEntry,
+  snapshot: AuditSnapshot
+): { what: string; changes: string[] } {
+  const key =
+    snapshot.issues?.get(entry.subjectId)?.identifier ?? 'A removed issue';
+  const field = issueFieldReader(entry.action, snapshot);
+  if (field !== null) {
+    return {
+      what: `${key} · ${field.label}`,
+      changes: [`${field.show(entry.before)} → ${field.show(entry.after)}`],
+    };
+  }
+  switch (entry.action) {
     case 'issue.comment':
       return {
         what: `${key} · comment`,
@@ -1058,16 +1077,16 @@ export function issueAuditRow(
       };
     case 'issue.blocker_added':
       return {
-        what: `${field(entry.after, 'blockedIdentifier') ?? key} · blocked by`,
+        what: `${loggedString(entry.after, 'blockedIdentifier') ?? key} · blocked by`,
         changes: [
-          `Added ${field(entry.after, 'blockerIdentifier') ?? 'an issue'}`,
+          `Added ${loggedString(entry.after, 'blockerIdentifier') ?? 'an issue'}`,
         ],
       };
     case 'issue.relation_removed':
       return {
-        what: `${field(entry.before, 'blockedIdentifier') ?? key} · blocked by`,
+        what: `${loggedString(entry.before, 'blockedIdentifier') ?? key} · blocked by`,
         changes: [
-          `Removed ${field(entry.before, 'blockerIdentifier') ?? 'an issue'}`,
+          `Removed ${loggedString(entry.before, 'blockerIdentifier') ?? 'an issue'}`,
         ],
       };
     default:
@@ -1124,4 +1143,95 @@ export function auditRows(
       when: formatInstant(entry.at, timeZone),
     };
   });
+}
+
+/** At most this many issue keys are named in a folded row. */
+const FOLD_KEYS_SHOWN = 3;
+
+// "ENG-12, ENG-14, ENG-15 and 4 more".
+function keyList(keys: readonly string[]): string {
+  const shown = keys.slice(0, FOLD_KEYS_SHOWN).join(', ');
+  const rest = keys.length - FOLD_KEYS_SHOWN;
+  return rest > 0 ? `${shown} and ${rest} more` : shown;
+}
+
+/**
+ * Settings → Audit with bulk issue edits folded (architecture §5, §7.3):
+ * a bulk change writes one entry per changed field per issue, all with
+ * one shared `at`. Inside each run of entries sharing an `at` (one call),
+ * issue entries with the same person, action and value after become one
+ * row, "2 issues · milestone", with "→ Push notifications" and the keys
+ * ("ENG-54, ENG-55", "… and 4 more"); they need not be next to each
+ * other, so a cross-project move reads as exactly two rows (project,
+ * milestone). A single edit, settings and milestone entries stay one row
+ * each, and entries with different values after never fold. At most
+ * `limit` rows, newest first, as the entries come.
+ */
+export function foldAuditEntries(
+  entries: readonly AuditEntry[],
+  snapshot: AuditSnapshot,
+  timeZone: string,
+  limit: number = Number.POSITIVE_INFINITY
+): AuditRow[] {
+  const plain = auditRows(entries, snapshot, timeZone);
+  const rows: AuditRow[] = [];
+  let start = 0;
+  while (start < entries.length && rows.length < limit) {
+    const at = entries[start]?.at;
+    let end = start;
+    while (end < entries.length && entries[end]?.at === at) end += 1;
+    // Within the run: fold groups of equal issue edits, keep the rest.
+    const groups = new Map<string, number[]>();
+    for (let i = start; i < end; i += 1) {
+      const entry = entries[i];
+      if (entry === undefined || !entry.action.startsWith('issue.')) continue;
+      if (issueFieldReader(entry.action, snapshot) === null) continue;
+      const key = JSON.stringify([
+        entry.actorUserId,
+        entry.action,
+        entry.after ?? null,
+      ]);
+      const list = groups.get(key);
+      if (list === undefined) groups.set(key, [i]);
+      else list.push(i);
+    }
+    const folded = new Map<number, number[]>();
+    const skip = new Set<number>();
+    for (const list of groups.values()) {
+      if (list.length < 2) continue;
+      const [first, ...rest] = list;
+      if (first === undefined) continue;
+      folded.set(first, list);
+      for (const index of rest) skip.add(index);
+    }
+    for (let i = start; i < end && rows.length < limit; i += 1) {
+      if (skip.has(i)) continue;
+      const members = folded.get(i);
+      const row = plain[i];
+      const entry = entries[i];
+      if (row === undefined || entry === undefined) continue;
+      if (members === undefined) {
+        rows.push(row);
+        continue;
+      }
+      const field = issueFieldReader(entry.action, snapshot);
+      const keys = members
+        .map(
+          (index) =>
+            snapshot.issues?.get(entries[index]?.subjectId ?? '')?.identifier ??
+            'a removed issue'
+        )
+        .sort((a, b) => a.localeCompare(b, 'en', { numeric: true }));
+      rows.push({
+        ...row,
+        what: `${members.length} issues · ${field?.label ?? 'edit'}`,
+        changes: [
+          `→ ${field?.show(entry.after) ?? plainValue(entry.after)}`,
+          keyList(keys),
+        ],
+      });
+    }
+    start = end;
+  }
+  return rows;
 }

@@ -612,7 +612,14 @@ describe('fixture gateway', () => {
   test('reads are deep copies', async () => {
     const { store, app } = setup();
     const workspace = await app.fetchWorkspace();
-    expect(workspace).toEqual(store.data);
+    // Issues come back with their due date from the fields store.
+    expect(workspace).toEqual({
+      ...store.data,
+      issues: store.data.issues.map((issue) => ({
+        ...issue,
+        dueDate: store.issueFields[issue.id]?.dueDate ?? null,
+      })),
+    });
     const first = workspace.issues[0];
     if (first !== undefined) first.title = 'mutated';
     const issue = await app.fetchIssue('iss-eng-1');

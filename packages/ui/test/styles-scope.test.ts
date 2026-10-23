@@ -114,3 +114,34 @@ describe('global stylesheets are scopable', () => {
     expect(tokens).not.toMatch(/var\(--font-(geist|jetbrains)\)/);
   });
 });
+
+// Component stylesheets are CSS modules: every selector must start from
+// one of the module's own (hashed) classes, so nothing reaches a host's
+// elements. A `:global(...)` context is allowed only in front of a local
+// class (the bulk bar lifts itself above the shell's tab bar that way).
+describe('the issue list modules are scoped', () => {
+  const modules = [
+    'tasks/view-toolbar.module.css',
+    'tasks/filter-chips.module.css',
+    'tasks/bulk-bar.module.css',
+    'tasks/task-group-table.module.css',
+    'tasks/checkbox.module.css',
+    'edit/picker-popover.module.css',
+  ];
+  const keyframeStop = /^(from|to|\d+(\.\d+)?%)$/;
+  for (const file of modules) {
+    test(`${file}: every selector starts from a local class`, () => {
+      const css = readFileSync(
+        path.join(import.meta.dir, '..', 'src', file),
+        'utf8'
+      );
+      const selectors = selectorsOf(css).filter((s) => !keyframeStop.test(s));
+      expect(selectors.length).toBeGreaterThan(3);
+      const leaking = selectors.filter((selector) => {
+        const local = selector.replace(/:global\((?:[^()]|\([^()]*\))*\)/g, '');
+        return !local.trim().startsWith('.');
+      });
+      expect(leaking).toEqual([]);
+    });
+  }
+});

@@ -41,6 +41,11 @@ export {
   normalizeIssuePatch,
   textSummary,
 } from './issue-edits';
+export {
+  ISSUE_BULK_CONCURRENCY,
+  ISSUE_BULK_MAX,
+  normalizeIssueBulkPatch,
+} from './bulk-issue-edits';
 export { engineErrorFromLinear } from './linear-errors';
 // The read-only guard (owner decision 2026-10-22, "Guests limited to read
 // only"): the web routes that start actor-less jobs for a person (resync,
