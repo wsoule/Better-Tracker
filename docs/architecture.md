@@ -3395,23 +3395,30 @@ hover floods on controls, and the timeline's today.
     URL through `useSearchParams`, the cookie from `document.cookie`), never a
     cached server prop, so Back and Forward show what each entry says
     (2026-10-23 review: the router cache used to bring back the first render's
-    mode and write it over the entry). The cookie is read as the first valid
-    `graph-highlight` pair in the raw Cookie header (`highlightFromCookies`;
-    browsers send the reader's own `Path=/graph` pick before a wider one, while
-    Next's `cookies()` kept the last). The address bar (`addressHref`) leaves
-    `?highlight=` out only when the mode and what a bare URL shows on this
-    device are both Status, so a copied link shows anyone what is seen and an
-    explicit `?highlight=status` survives a cookie that says Risk; it is written
-    on arrival, after each switch and after each navigation lands, never while
-    one is on its way (the issue drawer's open, swap and close run in a
-    transition; a link click holds it until the URL moves on): Next turns a
-    history write into a restore that would cancel that navigation. `graphHref`
-    stays canonical; the links the screen draws (level tabs, the trail, panel
-    and narrower-graph links) carry the mode when it is not what the next page
-    would pick on this device anyway (`carryHighlight`), so a mode that arrived
-    in a shared link survives a click. The island therefore draws the page
-    header (trail, h1, receipts, notices) too. What each highlight draws (ui
-    `DependencyGraph highlight`):
+    mode and write it over the entry). A page loaded at another path (`/issues`,
+    `/timeline`, `/week`) never sees the `Path=/graph` cookie from script, even
+    once a link has moved it to `/graph` (browsers match a script's cookies to
+    the path the page was loaded at), so where `document.cookie` has none the
+    island takes the mode last picked in this tab, else the server's read made
+    for that navigation (`initialBare`): the Issues page's "Open as graph" and a
+    row's Blocking chain, the timeline's "Open as graph" and the sidebar's Graph
+    open in the mode picked on this device, as a reload does. The cookie is read
+    as the first valid `graph-highlight` pair in the raw Cookie header
+    (`highlightFromCookies`; browsers send the reader's own `Path=/graph` pick
+    before a wider one, while Next's `cookies()` kept the last). The address bar
+    (`addressHref`) leaves `?highlight=` out only when the mode and what a bare
+    URL shows on this device are both Status, so a copied link shows anyone what
+    is seen and an explicit `?highlight=status` survives a cookie that says
+    Risk; it is written on arrival, after each switch and after each navigation
+    lands, never while one is on its way (the issue drawer's open, swap and
+    close run in a transition; a link click holds it until the URL moves on):
+    Next turns a history write into a restore that would cancel that navigation.
+    `graphHref` stays canonical; the links the screen draws (level tabs, the
+    trail, panel and narrower-graph links) carry the mode when it is not what
+    the next page would pick on this device anyway (`carryHighlight`), so a mode
+    that arrived in a shared link survives a click. The island therefore draws
+    the page header (trail, h1, receipts, notices) too. What each highlight
+    draws (ui `DependencyGraph highlight`):
     - **Status** (the default): each box in its readiness tone (§2.10
       "Readiness", core `readinessClass`, planner `READINESS_TONE`): ready (an
       issue in the blocking flow that nothing open blocks, a box nothing outside

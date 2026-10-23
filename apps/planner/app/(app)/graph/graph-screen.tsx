@@ -40,7 +40,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   addressHref,
   carryHighlight,
-  DEFAULT_GRAPH_HIGHLIGHT,
   GRAPH_HIGHLIGHT_LABEL,
   GRAPH_HIGHLIGHTS,
   type GraphNodeDetail,
@@ -64,6 +63,31 @@ const HIGHLIGHT_OPTIONS: SegmentedOption[] = GRAPH_HIGHLIGHTS.map((id) => ({
   label: GRAPH_HIGHLIGHT_LABEL[id],
 }));
 
+/**
+ * The highlight last picked on the switch in this tab (null until one is),
+ * kept for the life of the page so a later graph opened without a reload
+ * knows it even where the cookie cannot be read (initialBare).
+ */
+let pickedInThisTab: GraphHighlight | null = null;
+
+/**
+ * What a /graph URL with no ?highlight= shows on this device, as the
+ * island first renders: the graph-highlight cookie read on the client,
+ * else the mode last picked in this tab, else the server's read of the
+ * cookie (`server`). The client read comes first because a remount from
+ * the router cache (Back, Forward) carries a stale server prop. It can
+ * come back empty when the cookie is there: browsers decide which cookies
+ * a page's script sees by the path the page was loaded at, so a page
+ * loaded at /issues or /timeline never sees the Path=/graph cookie, even
+ * after a link moves it to /graph. The server's read, made for this very
+ * navigation, is right then, unless this tab picked a mode since it was
+ * made.
+ */
+function initialBare(server: GraphHighlight): GraphHighlight {
+  if (typeof document === 'undefined') return server;
+  return highlightFromCookies(document.cookie) ?? pickedInThisTab ?? server;
+}
+
 /* The graph's client island: the page header (trail, h1, receipts,
    notices), level tabs (route links) and the highlight switch (Status /
    Risk / Critical path) in the graph's toolbar, or the tabs alone in the
@@ -79,8 +103,9 @@ const HIGHLIGHT_OPTIONS: SegmentedOption[] = GRAPH_HIGHLIGHTS.map((id) => ({
    selection while it is open. The page remounts this island per scope and
    ?node= (model.pageKey), so the arrival selection is just the initial
    state. The highlight is client state, read from the history entry's
-   URL (?highlight=) and this device's graph-highlight cookie, never from
-   a cached server prop, so Back and Forward show what each entry says:
+   URL (?highlight=) and this device's graph-highlight cookie (initialBare:
+   never a cached server prop, so Back and Forward show what each entry
+   says, but the server's fresh read on a link from another page):
    switching never asks the server or moves a box; it writes the cookie
    and ?highlight= in place (every other parameter kept, and never while a
    navigation is on its way, which a history write would cancel), and the
@@ -99,12 +124,9 @@ export default function GraphScreen({
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const query = searchParams.toString();
-  // What a bare URL shows on this device: the cookie, read again on the
-  // client (a remount from the router cache carries a stale prop).
+  // What a bare URL shows on this device (initialBare).
   const [bare, setBare] = useState<GraphHighlight>(() =>
-    typeof document === 'undefined'
-      ? bareHighlight
-      : (highlightFromCookies(document.cookie) ?? DEFAULT_GRAPH_HIGHLIGHT)
+    initialBare(bareHighlight)
   );
   // What this history entry shows: its ?highlight=, else the cookie's.
   const entryMode = parseHighlight(searchParams.get('highlight')) ?? bare;
@@ -165,6 +187,7 @@ export default function GraphScreen({
     if (mode === null) return;
     setHighlight(mode);
     setBare(mode);
+    pickedInThisTab = mode;
     // Remembered on this device for the next graph (Path=/graph).
     document.cookie = highlightCookie(
       mode,

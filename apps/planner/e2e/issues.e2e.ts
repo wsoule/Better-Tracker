@@ -115,6 +115,42 @@ test.describe('as a member', () => {
     await expect(page).toHaveURL(/\/issues$/);
   });
 
+  // The graph-highlight cookie is Path=/graph, and a page loaded at
+  // /issues never sees it from script, even once a link has moved it to
+  // /graph: the graph island takes the server's read of it instead, so
+  // "Open as graph" and a row's Blocking chain keep the mode picked on
+  // this device, as a reload does.
+  test('links into the graph keep the highlight picked on this device', async ({
+    page,
+  }) => {
+    await page.goto('/graph', { waitUntil: 'networkidle' });
+    await page
+      .getByRole('radiogroup', { name: 'Highlight' })
+      .getByRole('radio', { name: 'Risk' })
+      .click();
+    await expect(page).toHaveURL(/\/graph\?highlight=risk$/);
+    await page.goto('/issues?project=proj-atlas', { waitUntil: 'networkidle' });
+    await page.getByRole('link', { name: 'Open as graph' }).click();
+    await expect(page).toHaveURL(/\/graph\?project=proj-atlas&highlight=risk$/);
+    await expect(page.locator('[data-highlight]')).toHaveAttribute(
+      'data-highlight',
+      'risk'
+    );
+    await page.goto('/issues?project=proj-atlas', { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: 'Actions for ENG-12' }).click();
+    await page.getByRole('option', { name: 'Blocking chain' }).click();
+    await expect(page).toHaveURL(/\/graph\?chain=ENG-12&highlight=risk$/);
+    await expect(page.locator('[data-highlight]')).toHaveAttribute(
+      'data-highlight',
+      'risk'
+    );
+    await expect(
+      page
+        .getByRole('radiogroup', { name: 'Highlight' })
+        .getByRole('radio', { name: 'Risk' })
+    ).toHaveAttribute('aria-checked', 'true');
+  });
+
   test('the search narrows the list and keeps one history entry', async ({
     page,
   }) => {
