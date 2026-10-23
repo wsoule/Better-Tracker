@@ -100,6 +100,14 @@ export function isNotInstalledError(error: unknown): boolean {
 }
 
 /**
+ * True for api_key mode's "no workspace member has a key connected, so
+ * nothing can read Linear" (a quiet state, not a failure to log).
+ */
+export function isNoReaderError(error: unknown): boolean {
+  return engineAuthCode(error) === 'no_reader';
+}
+
+/**
  * For pages: the actor, or a redirect to the landing page carrying
  * `returnTo` (the page's own path and query), so signing in comes back to
  * it (a digest's deep link opened signed out, architecture §8.1).
@@ -172,7 +180,7 @@ export async function loadShellFrame(
       ]);
     } catch (error) {
       loadFailed = true;
-      if (!isNotInstalledError(error)) {
+      if (!isNotInstalledError(error) && !isNoReaderError(error)) {
         logger.error('could not load the sidebar views', {
           workspaceId,
           userId: actor.session.userId,
@@ -187,6 +195,7 @@ export async function loadShellFrame(
     userName: actor.session.userName,
     readOnly: actor.readOnly,
     readOnlyReason: actor.readOnlyReason,
+    apiKeyMode: engine.config.auth === 'api_key',
     installed,
     timeline,
     week,

@@ -260,3 +260,57 @@ describe('signInLocation and signInHref (a deep link opened signed out)', () => 
     );
   });
 });
+
+describe('api_key-mode session cookies', () => {
+  const KEYMODE_HTTPS = {
+    auth: 'api_key',
+    appUrl: 'https://planner.example.com',
+  };
+  const KEYMODE_HTTP = { auth: 'api_key', appUrl: 'http://localhost:3360' };
+
+  test('sessionCookieName: __Host- only in api_key mode on https', async () => {
+    const { sessionCookieName } = await import('../lib/auth-cookies');
+    expect(sessionCookieName(KEYMODE_HTTPS)).toBe('__Host-mp_session');
+    expect(sessionCookieName(KEYMODE_HTTP)).toBe('mp_session');
+    expect(
+      sessionCookieName({ auth: 'oauth', appUrl: 'https://p.example' })
+    ).toBe('mp_session');
+    expect(sessionCookieName({ appUrl: 'https://p.example' })).toBe(
+      'mp_session'
+    );
+  });
+
+  test('apiKeySessionCookie: a browser-session cookie, Secure and __Host- on https', async () => {
+    const { apiKeySessionCookie } = await import('../lib/auth-cookies');
+    expect(apiKeySessionCookie('tok_123', { secure: false })).toBe(
+      'mp_session=tok_123; Path=/; HttpOnly; SameSite=Lax'
+    );
+    const secure = apiKeySessionCookie('tok_123', { secure: true });
+    expect(secure).toBe(
+      '__Host-mp_session=tok_123; Path=/; HttpOnly; SameSite=Lax; Secure'
+    );
+    expect(secure).not.toMatch(/Max-Age|Expires|Domain/i);
+    expect(() => apiKeySessionCookie('a;b', { secure: false })).toThrow();
+  });
+
+  test('clearApiKeySessionCookies expires both names', async () => {
+    const { clearApiKeySessionCookies } = await import('../lib/auth-cookies');
+    const cookies = clearApiKeySessionCookies(false);
+    expect(cookies).toHaveLength(2);
+    expect(cookies[0]).toStartWith('mp_session=;');
+    expect(cookies[1]).toStartWith('__Host-mp_session=;');
+    for (const cookie of cookies) expect(cookie).toContain('Max-Age=0');
+    expect(cookies[1]).toContain('Secure');
+  });
+
+  test('on https, a request carrying only mp_session reads no session', async () => {
+    const { readCookie, sessionCookieName } =
+      await import('../lib/auth-cookies');
+    const request = new Request('https://planner.example.com/', {
+      headers: { cookie: 'mp_session=tossed-by-a-sibling' },
+    });
+    expect(
+      readCookie(request, sessionCookieName(KEYMODE_HTTPS))
+    ).toBeUndefined();
+  });
+});

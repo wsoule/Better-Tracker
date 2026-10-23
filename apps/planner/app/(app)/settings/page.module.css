@@ -250,3 +250,13 @@
     text-align: left;
   }
 }
+
+/* api_key mode: "Forget my key and sign out" under the Status register,
+   a bar with the same hairline as the form bars. */
+.forgetKey {
+  display: flex;
+  justify-content: flex-end;
+  border: 1px solid var(--border);
+  border-top: 0;
+  padding: 12px 14px;
+}

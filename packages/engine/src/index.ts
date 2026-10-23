@@ -7,16 +7,38 @@ import { LinearApiError } from '@better-tracker/linear';
 import { isLinearApiError } from './linear-errors';
 
 export * from './types';
-export { createEngine } from './engine';
-export { createEngineFromEnv, type CreateEngineFromEnvOptions } from './boot';
+export { createEngine, SCHEDULED_OFF_MESSAGE } from './engine';
 export {
+  createApiKeyEngine,
+  createEngineFromEnv,
+  type CreateEngineFromEnvOptions,
+} from './boot';
+export {
+  API_KEY_UNUSED_ENV_VARIABLES,
+  apiKeyUnusedEnvVariables,
+  DEFAULT_API_KEY_SYNC_INTERVAL_MINUTES,
   DEFAULT_APP_NAME,
   DEFAULT_DAILY_LEASE_MINUTES,
   type EngineEnv,
   fixtureDatasetFromEnv,
+  isApiKeyEnv,
   isFixtureEnv,
+  linearAuthFromEnv,
   loadEngineConfigFromEnv,
+  processFlagProblem,
 } from './config';
+// api_key mode (owner request 2026-10-23). The key vault itself is not
+// exported: only the engine reaches it.
+export { API_KEY_IDLE_MS, API_KEY_MAX_MS } from './key-vault';
+export { KEY_SHAPE_MESSAGE } from './key-auth';
+export {
+  isKeyPermissionRefusal,
+  KEY_FORGOTTEN_MESSAGE,
+  KEY_REJECTED_MESSAGE,
+  NO_READER_MESSAGE,
+} from './key-provider';
+export { KEY_TEXT_MESSAGE } from './issue-edits';
+export { OAUTH_OFF_MESSAGE } from './auth';
 export {
   createFixtureLinearProvider,
   createLinearProvider,
@@ -53,6 +75,7 @@ export { engineErrorFromLinear } from './linear-errors';
 // the digest preview) call the same check the engine's methods do.
 export {
   READ_ONLY_MESSAGE,
+  READ_ONLY_MESSAGES,
   requireCanInstall,
   requireWritable,
 } from './permissions';

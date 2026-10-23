@@ -77,6 +77,7 @@ import {
   weightToast,
 } from '../../../../lib/adapters/issue-moves';
 import { notSavedToast, sendJson } from '../../../../lib/api-client';
+import { refuseKeyText } from '../../../../lib/key-text';
 import {
   IssueDrawer,
   type IssueDrawerServer,
@@ -324,8 +325,14 @@ export default function IssuesScreen({
 
   const searchInput = useRef<HTMLInputElement>(null);
   const searchTimer = useRef<number | null>(null);
+  // A search that holds a Linear API key is refused here, before it can
+  // reach the URL (lib/key-text.ts); the sentence shows instead.
+  const [searchRefusal, setSearchRefusal] = useState<string | null>(null);
   const applySearch = useCallback(
     (text: string) => {
+      const refusal = refuseKeyText(text);
+      setSearchRefusal(refusal);
+      if (refusal !== null) return;
       const next = withSearch(queryRef.current, text);
       if (issueListHref(next) === issueListHref(queryRef.current)) return;
       navigate(next, typing.current === 'shown' ? 'replace' : 'push');
@@ -850,6 +857,13 @@ export default function IssuesScreen({
         </div>
       ) : null}
 
+      {searchRefusal !== null ? (
+        <div className={css.notices}>
+          <Notice label="NOT SEARCHED" tone="danger" role="alert">
+            {searchRefusal}
+          </Notice>
+        </div>
+      ) : null}
       <div className={css.toolbarWrap}>
         <ViewToolbar
           label="Issue list options"

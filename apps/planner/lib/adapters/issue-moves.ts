@@ -933,7 +933,9 @@ export function bulkResultToast(
               ? 'Try the rest in a few minutes.'
               : `Try the rest after ${clockTime(result.stopped.retryAt, context.timeZone)}.`
           }`
-        : `Linear stopped accepting your sign-in after ${counts.changed} of ${requested}. Sign in again, then retry the rest.`;
+        : result.stopped.code === 'read_only'
+          ? `Your Linear API key only allows reading: ${counts.changed} of ${requested} changed. Connect a key with Write access to change the rest.`
+          : `Linear stopped accepting your sign-in after ${counts.changed} of ${requested}. Sign in again, then retry the rest.`;
     return {
       kind: 'error',
       label: 'Partly saved',

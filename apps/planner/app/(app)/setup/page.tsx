@@ -48,11 +48,59 @@ async function installContext(
    "Guests limited to read only"; Linear would not let one approve it
    either), only the read-only notice. While an installed workspace's
    first sync has not landed nobody can be placed, so everyone is
-   read-only, but Reinstall stays (readOnlyReason `not_synced`). */
+   read-only, but Reinstall stays (readOnlyReason `not_synced`). With
+   personal API keys (LINEAR_AUTH=api_key) there is nothing to install:
+   one sentence, the workspace the planner serves, and the way home. */
 export default async function SetupPage() {
   const { engine, actor } = await requirePageActor('/setup');
   const workspaceId = actor.session.workspaceId;
   const installation = await loadInstallation(engine, workspaceId);
+
+  if (engine.config.auth === 'api_key') {
+    return (
+      <div className="page">
+        <header className={styles.head}>
+          <h1 className={styles.title}>Setup</h1>
+          <p className={styles.receipts}>
+            {installation === null
+              ? 'No workspace bound yet'
+              : `${installation.workspaceName} · linear.app/${installation.urlKey}`}
+          </p>
+        </header>
+        <section className="block" aria-label="Personal API keys">
+          <BlockBar index="01" title="Personal API keys" meta="Memory only" />
+          <div className={styles.panel}>
+            <p className={styles.note}>
+              This planner uses personal API keys: there is nothing to install.
+            </p>
+            {installation === null ? null : (
+              <PropertyList
+                label="Workspace"
+                items={[
+                  {
+                    id: 'workspace',
+                    label: 'Workspace',
+                    value: installation.workspaceName,
+                  },
+                  {
+                    id: 'url',
+                    label: 'URL key',
+                    value: `linear.app/${installation.urlKey}`,
+                  },
+                ]}
+              />
+            )}
+            <div className={styles.actions}>
+              <Button href="/" variant="primary">
+                Go home
+              </Button>
+            </div>
+          </div>
+        </section>
+        <PageCrumb label="Setup" />
+      </div>
+    );
+  }
   const state = setupState(installation);
 
   if (installation !== null && state === 'installed') {

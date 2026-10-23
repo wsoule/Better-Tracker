@@ -1,5 +1,6 @@
 import {
   ALL_STATE_TYPES,
+  containsLinearCredential,
   DEFAULT_ISSUE_LIST_QUERY,
   diffDays,
   foldText,
@@ -158,8 +159,11 @@ export function parseIssueListParams(params: SearchParams): IssueListQuery {
     const priority = PRIORITY_BY_TOKEN.get(token.trim().toLowerCase());
     if (priority !== undefined) priorities.push(priority);
   }
+  // A search that holds a Linear credential is ignored, never echoed back
+  // into the page (the search box refuses to send one, §8.12).
+  const rawQ = single(params, 'q') ?? '';
   const filters: Record<string, unknown> = {
-    q: single(params, 'q') ?? '',
+    q: containsLinearCredential(rawQ) ? '' : rawQ,
     stateTypes,
     priorities,
     quick: joined(params, 'quick') ?? '',

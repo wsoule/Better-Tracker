@@ -4,6 +4,7 @@ import {
   Chip,
   EmptyState,
   NavTabs,
+  Notice,
   Register,
   RegisterCell,
   RegisterRow,
@@ -12,10 +13,13 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
 import {
+  API_KEY_SCHEDULE_NOTE,
+  API_KEY_WATCHERS_NOTE,
   foldAuditEntries,
   modesReadOnlyRows,
   notificationRows,
   parseSettingsSection,
+  sectionDescription,
   scheduleForm,
   scheduleReadOnlyRows,
   sectionTabs,
@@ -32,6 +36,7 @@ import {
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import ReadOnlyNotice from '../components/read-only-notice';
+import ForgetKeyForm from './forget-key-form';
 import ModesForm from './modes-form';
 import css from './page.module.css';
 import { ReadOnlySettings, ReadOnlyWatchers } from './read-only-sections';
@@ -101,7 +106,11 @@ export default async function SettingsPage({
                   : SECTION_META[section.id]
               }
             />
-            <p className={css.sectionText}>{section.description}</p>
+            <p className={css.sectionText}>
+              {sectionDescription(section, {
+                apiKeyMode: engine.config.auth === 'api_key',
+              })}
+            </p>
             {readOnly && EDITABLE_SECTIONS.has(section.id) ? (
               <div className={css.readOnlyNotice}>
                 <ReadOnlyNotice />
@@ -166,11 +175,23 @@ async function renderSection(
   const { settings, snapshot } = loaded;
   const timeZone = settings.timezone;
   const readOnly = context.actor.readOnly;
+  // Personal API keys (LINEAR_AUTH=api_key): nothing runs on a schedule
+  // and no digest is sent, and the sections say so.
+  const apiKeyMode = engine.config.auth === 'api_key';
+  const apiKeyNote = (text: string): ReactNode =>
+    apiKeyMode ? (
+      <Notice label="PERSONAL API KEYS" tone="muted">
+        {text}
+      </Notice>
+    ) : null;
   switch (id) {
     case 'modes':
       if (readOnly) {
         return (
-          <ReadOnlySettings label="Modes" rows={modesReadOnlyRows(settings)} />
+          <ReadOnlySettings
+            label="Modes"
+            rows={modesReadOnlyRows(settings, { apiKeyMode })}
+          />
         );
       }
       return (
@@ -179,34 +200,49 @@ async function renderSection(
             allocationMode: settings.allocationMode,
             warningsMode: settings.warningsMode,
           }}
+          apiKeyMode={apiKeyMode}
         />
       );
     case 'watchers':
       if (readOnly) {
         return (
-          <ReadOnlyWatchers
-            rows={watcherRows(snapshot.data.users, settings)}
-            watcherUserIds={settings.watcherUserIds}
-            hint={watchersHint(settings.watcherUserIds.length)}
-          />
+          <>
+            {apiKeyNote(API_KEY_WATCHERS_NOTE)}
+            <ReadOnlyWatchers
+              rows={watcherRows(snapshot.data.users, settings)}
+              watcherUserIds={settings.watcherUserIds}
+              hint={watchersHint(settings.watcherUserIds.length)}
+            />
+          </>
         );
       }
       return (
-        <WatchersForm
-          rows={watcherRows(snapshot.data.users, settings)}
-          watcherUserIds={settings.watcherUserIds}
-        />
+        <>
+          {apiKeyNote(API_KEY_WATCHERS_NOTE)}
+          <WatchersForm
+            rows={watcherRows(snapshot.data.users, settings)}
+            watcherUserIds={settings.watcherUserIds}
+          />
+        </>
       );
     case 'schedule':
       if (readOnly) {
         return (
-          <ReadOnlySettings
-            label="Schedule"
-            rows={scheduleReadOnlyRows(settings)}
-          />
+          <>
+            {apiKeyNote(API_KEY_SCHEDULE_NOTE)}
+            <ReadOnlySettings
+              label="Schedule"
+              rows={scheduleReadOnlyRows(settings)}
+            />
+          </>
         );
       }
-      return <ScheduleForm initial={scheduleForm(settings)} />;
+      return (
+        <>
+          {apiKeyNote(API_KEY_SCHEDULE_NOTE)}
+          <ScheduleForm initial={scheduleForm(settings)} />
+        </>
+      );
     case 'status': {
       const rows = statusRows({
         installation,
@@ -215,6 +251,14 @@ async function renderSection(
         timeZone,
         demo: engine.mode === 'fixture',
         demoWorkspace: fixtureDatasetFromEnv(process.env),
+        apiKey: apiKeyMode
+          ? {
+              keyConnection: await engine.getKeyConnection(context.actor),
+              syncMinutes: Math.round(
+                (engine.config.apiKey?.syncIntervalMs ?? 0) / 60_000
+              ),
+            }
+          : null,
       });
       return (
         <>
@@ -241,6 +285,9 @@ async function renderSection(
           </Register>
           {/* Resync and the digest preview are for members only. */}
           {readOnly ? null : <StatusActions />}
+          {/* Signing out changes nothing in Linear or the planner, so it
+              is offered to everyone, read-only people included. */}
+          {apiKeyMode ? <ForgetKeyForm /> : null}
         </>
       );
     }

@@ -3,20 +3,24 @@
 // receives this object instead of the raw deps so they share one cache.
 
 import {
+  containsLinearCredential,
   defaultSettings,
   indexWorkspace,
   type IsoDateTime,
+  redactLinearSecrets,
   type Snapshot,
   type WorkspaceSettings,
 } from '@better-tracker/core';
-import type { FetchLike } from '@better-tracker/linear';
+import { type FetchLike, LinearApiError } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 import type { Installation, Store, SyncState } from '@better-tracker/store';
 
 import {
+  type ApiKeyDeps,
   EngineAuthError,
   type EngineConfig,
   type EngineDeps,
+  EngineInputError,
   type LinearProvider,
   type SyncResult,
 } from './types';
@@ -68,6 +72,11 @@ export interface EngineRuntime {
   serialize<T>(key: string, fn: () => Promise<T>): Promise<T>;
   /** The full sync each workspace has running, if any (see fullSync). */
   syncs: Map<string, InFlightSync>;
+  /**
+   * api_key mode: the in-memory key vault and its sync scheduler (null in
+   * every other mode). Never handed out of the engine.
+   */
+  keys: ApiKeyDeps | null;
 }
 
 /**
@@ -158,6 +167,7 @@ export function createRuntime(deps: EngineDeps): EngineRuntime {
     mirror: createMirrorCache(deps.store),
     serialize: createKeyedSerializer(),
     syncs: new Map(),
+    keys: deps.keys ?? null,
   };
 }
 
@@ -194,11 +204,15 @@ export async function readSettings(
 export const NOT_INSTALLED_MESSAGE: {
   missing(appName: string): string;
   lostAccess(appName: string): string;
+  unbound(appName: string): string;
 } = {
   missing: (appName) =>
     `${appName} is not installed in this Linear workspace yet.`,
   lostAccess: (appName) =>
     `${appName} lost its access to this Linear workspace (uninstalled, or its authorization stopped working); an admin must install it again.`,
+  // api_key mode: nothing to install; the first member's key binds it.
+  unbound: (appName) =>
+    `${appName} serves no Linear workspace yet: a workspace member connects their API key first.`,
 };
 
 /** The workspace's active installation, or EngineAuthError('not_installed'). */
@@ -210,7 +224,9 @@ export async function requireInstallation(
   if (installation === null) {
     throw new EngineAuthError(
       'not_installed',
-      NOT_INSTALLED_MESSAGE.missing(rt.config.appName)
+      rt.config.auth === 'api_key'
+        ? NOT_INSTALLED_MESSAGE.unbound(rt.config.appName)
+        : NOT_INSTALLED_MESSAGE.missing(rt.config.appName)
     );
   }
   // revokedAt: uninstalled in Linear, or its grant stopped refreshing.
@@ -221,6 +237,39 @@ export async function requireInstallation(
     );
   }
   return installation;
+}
+
+/**
+ * `error`, or a copy of it without credential-shaped text when its message
+ * or stack holds any (a Linear credential echoed by a failure). A full
+ * sync's error is shared with every caller that joined it (another
+ * person's Resync), so it must never carry the reader's key. The copy
+ * keeps the engine's and Linear's error classes, codes and kinds.
+ */
+export function withoutCredentials(error: unknown): unknown {
+  if (!(error instanceof Error)) return error;
+  if (
+    !containsLinearCredential(error.message) &&
+    !containsLinearCredential(error.stack ?? '')
+  ) {
+    return error;
+  }
+  const message = redactLinearSecrets(error.message);
+  let copy: Error;
+  if (error instanceof EngineAuthError) {
+    copy = new EngineAuthError(error.code, message);
+  } else if (error instanceof EngineInputError) {
+    copy = new EngineInputError(error.code, message, {
+      retryAt: error.retryAt,
+    });
+  } else if (error instanceof LinearApiError) {
+    copy = new LinearApiError(error.kind, message, { retryAt: error.retryAt });
+  } else {
+    copy = new Error(message);
+    copy.name = redactLinearSecrets(error.name);
+  }
+  copy.stack = redactLinearSecrets(error.stack ?? `${copy.name}: ${message}`);
+  return copy;
 }
 
 /** A readable message for any thrown value (never includes a stack). */

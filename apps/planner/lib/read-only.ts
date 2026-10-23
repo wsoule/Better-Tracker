@@ -20,18 +20,35 @@ export type ReadOnlyReasonCopy = ReadOnlyReason;
 export const FIRST_SYNC_PENDING_HEADLINE =
   'The first sync from Linear has not landed yet.';
 
+/** api_key mode: the planner has no copy of Linear and no member's key to read one. */
+export const API_KEY_NOT_SYNCED_NOTICE =
+  "The planner has no copy of Linear yet. It reads Linear with a workspace member's key: once a member connects, reload.";
+
+/** api_key mode: Linear refused a write as out of the key's scope. */
+export const READ_ONLY_KEY_NOTICE =
+  'Your Linear API key only allows reading, so you can look but not change anything here. Connect a key with Write access to edit.';
+
 /**
  * The notice's sentence for a reason: a Linear guest is told they are one
  * (READ_ONLY_NOTICE); someone the mirror does not know yet, and everyone
  * in a workspace whose first sync has not landed, are told what is
- * actually going on instead of being called a guest.
+ * actually going on instead of being called a guest. With personal API
+ * keys (`apiKeyMode`) a read-only key says so, and "no copy yet" says a
+ * member has to connect instead of mentioning a reinstall.
  */
-export function readOnlyNotice(reason: ReadOnlyReasonCopy | undefined): string {
+export function readOnlyNotice(
+  reason: ReadOnlyReasonCopy | undefined,
+  options: { apiKeyMode?: boolean } = {}
+): string {
   switch (reason) {
     case 'unknown':
       return 'The planner has not seen your Linear account yet, so this view is read-only until a sync from Linear includes you.';
     case 'not_synced':
-      return `${FIRST_SYNC_PENDING_HEADLINE} Changes are paused until it does; reload in a minute, and if this stays, a workspace admin can reinstall from Setup.`;
+      return options.apiKeyMode === true
+        ? API_KEY_NOT_SYNCED_NOTICE
+        : `${FIRST_SYNC_PENDING_HEADLINE} Changes are paused until it does; reload in a minute, and if this stays, a workspace admin can reinstall from Setup.`;
+    case 'read_only_key':
+      return READ_ONLY_KEY_NOTICE;
     default:
       return READ_ONLY_NOTICE;
   }

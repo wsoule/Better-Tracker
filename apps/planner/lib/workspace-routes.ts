@@ -180,10 +180,12 @@ export function createResyncCooldown(
 const processCooldown = createResyncCooldown();
 
 /**
- * POST /api/sync {}: a full resync from Linear. 200 { sync }; 429
- * resync_cooldown with Retry-After (seconds) when this workspace was
- * resynced from the web less than RESYNC_COOLDOWN_MS ago; 403 read_only
- * for a Linear guest (which, like a bad body, never starts the clock).
+ * POST /api/sync {}: a full resync from Linear. 200 { sync } (the result
+ * without its counts: they are of the whole mirror, which may hold teams
+ * the caller cannot see, §2.13); 429 resync_cooldown with Retry-After
+ * (seconds) when this workspace was resynced from the web less than
+ * RESYNC_COOLDOWN_MS ago; 403 read_only for a Linear guest (which, like a
+ * bad body, never starts the clock).
  */
 export async function resync<E extends SyncEngine>(
   request: Request,
@@ -215,8 +217,11 @@ export async function resync<E extends SyncEngine>(
   }
   cooldown.acceptedAt.set(workspaceId, now);
   try {
-    const sync = await engine.fullSync(workspaceId);
-    return Response.json({ sync });
+    const { ok, version, durationMs, error } =
+      await engine.fullSync(workspaceId);
+    return Response.json({
+      sync: { workspaceId, ok, version, durationMs, error },
+    });
   } catch (error) {
     return errorResponse(error);
   }

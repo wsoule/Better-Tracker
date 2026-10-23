@@ -13,9 +13,11 @@ import {
   jsonResponse,
   milestoneNode,
   noSleep,
+  pagedHandler,
   projectNode,
   relationNode,
   userNode,
+  workspaceHandlers,
 } from './helpers';
 
 const TOKEN = 'test-token';
@@ -26,32 +28,8 @@ const identity: GraphqlHandler = () =>
     organization: { id: 'org-1', name: 'Acme', urlKey: 'acme' },
   });
 
-// Serves `pages` of a root connection keyed by the incoming `after` cursor:
-// page i is returned for cursor `c{i}` (null for the first page).
-function pagedHandler(field: string, pages: unknown[][]): GraphqlHandler {
-  return (variables) => {
-    const after = variables['after'];
-    const index = typeof after === 'string' ? Number(after.slice(1)) : 0;
-    const nodes = pages[index] ?? [];
-    const next = index + 1 < pages.length ? `c${index + 1}` : null;
-    return dataResponse({ [field]: connection(nodes, next) });
-  };
-}
-
 function emptyWorkspaceHandlers(): Record<string, GraphqlHandler> {
-  return {
-    Identity: identity,
-    Users: pagedHandler('users', [[]]),
-    Teams: pagedHandler('teams', [[]]),
-    WorkflowStates: pagedHandler('workflowStates', [[]]),
-    Initiatives: pagedHandler('initiatives', [[]]),
-    Projects: pagedHandler('projects', [[]]),
-    ProjectMilestones: pagedHandler('projectMilestones', [[]]),
-    ProjectIssues: pagedHandler('issues', [[]]),
-    OpenIssuesWithoutProject: pagedHandler('issues', [[]]),
-    IssueRelations: pagedHandler('issueRelations', [[]]),
-    TeamMemberships: pagedHandler('teamMemberships', [[]]),
-  };
+  return workspaceHandlers();
 }
 
 function gatewayWith(handlers: Record<string, GraphqlHandler>) {

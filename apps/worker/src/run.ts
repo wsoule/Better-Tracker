@@ -20,6 +20,7 @@ import {
   type CreateEngineFromEnvOptions,
   type EngineEnv,
   isFixtureEnv,
+  linearAuthFromEnv,
 } from '@better-tracker/engine';
 import {
   createLogger,
@@ -33,6 +34,7 @@ import { fileURLToPath } from 'node:url';
 
 import { type CliCommand, parseArgs, USAGE } from './cli';
 import {
+  apiKeyModeOutcome,
   type CommandContext,
   EXIT_FAILED,
   EXIT_OK,
@@ -290,6 +292,23 @@ export async function runCli(
     { command: command.name }
   );
 
+  // Personal API keys (LINEAR_AUTH=api_key) live only in the planner's
+  // memory: decided before booting, so the store is not even opened
+  // (migrate excepted).
+  const apiKeyOutcome =
+    linearAuthFromEnv(deps.env) === 'api_key'
+      ? apiKeyModeOutcome(command.name)
+      : null;
+  if (apiKeyOutcome !== null) {
+    if (apiKeyOutcome.code === EXIT_OK) {
+      output.out(apiKeyOutcome.line);
+    } else {
+      logger.error(apiKeyOutcome.line);
+      output.err(apiKeyOutcome.line);
+    }
+    return apiKeyOutcome.code;
+  }
+
   let config: WorkerConfig;
   try {
     config = loadWorkerConfig(deps.env);
@@ -338,6 +357,8 @@ export async function runCli(
     engine = await createEngine(deps.env, {
       logger: engineLogger.child({ command: command.name }),
       now,
+      // migrate never handles a key: no api_key deploy checks for it.
+      ...(command.name === 'migrate' ? { migrateOnly: true } : {}),
     });
   } catch (error) {
     runDeadline?.cancel();

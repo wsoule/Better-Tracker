@@ -189,6 +189,7 @@ export function CommandPalette({
   placeholder = 'Type a command or search…',
   sectionOrder,
   maxPerSection = 50,
+  refuseQuery,
 }: CommandPaletteProps): ReactNode {
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -203,7 +204,10 @@ export function CommandPalette({
   // opening the palette never shifts the layout).
   useScrollLock(useMediaQuery(PHONE_QUERY));
 
+  // Text the host refuses outright (a pasted API key) matches nothing.
+  const refusal = refuseQuery?.(query) ?? null;
   const sections = useMemo(() => {
+    if (refusal !== null) return [];
     const ranked = rankSections(
       items,
       query,
@@ -232,7 +236,7 @@ export function CommandPalette({
       });
     }
     return ranked;
-  }, [items, query, sectionOrder, maxPerSection, error, onRetry]);
+  }, [items, query, sectionOrder, maxPerSection, error, onRetry, refusal]);
 
   const flat = useMemo(() => sections.flatMap((s) => s.items), [sections]);
   const count = flat.length;
@@ -469,7 +473,11 @@ export function CommandPalette({
             </div>
           ) : null}
 
-          {count === 0 && !loading ? (
+          {refusal !== null ? (
+            <p className={styles.empty} role="alert">
+              {refusal}
+            </p>
+          ) : count === 0 && !loading ? (
             <p className={styles.empty}>
               {query.trim() === ''
                 ? 'Nothing to jump to yet'
@@ -607,6 +615,7 @@ export function CommandPaletteProvider({
   shortcutGroups,
   placeholder,
   maxPerSection,
+  refuseQuery,
   children,
 }: CommandPaletteProviderProps): ReactNode {
   const [view, setView] = useState<PaletteView | null>(null);
@@ -819,6 +828,7 @@ export function CommandPaletteProvider({
           placeholder={placeholder}
           sectionOrder={sectionOrder}
           maxPerSection={maxPerSection}
+          refuseQuery={refuseQuery}
         />
       ) : null}
       {view === 'shortcuts' ? (

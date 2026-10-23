@@ -18,7 +18,12 @@ import {
 import type { LinearGateway } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 
-import { type EngineRuntime, errorMessage, readSettings } from './runtime';
+import {
+  type EngineRuntime,
+  errorMessage,
+  readSettings,
+  withoutCredentials,
+} from './runtime';
 import { bootstrapWatchers } from './settings';
 import type { SyncResult } from './types';
 
@@ -257,7 +262,9 @@ async function runFullSync(
     const durationMs = Math.round(performance.now() - startedMs);
     log.info('full sync finished', { version, durationMs, ...counts });
     return { workspaceId, ok: true, version, counts, durationMs, error: null };
-  } catch (error) {
+  } catch (caught) {
+    // Shared with every joined caller: never with a credential in it.
+    const error = withoutCredentials(caught);
     const message = errorMessage(error);
     log.error('full sync failed', { error });
     try {

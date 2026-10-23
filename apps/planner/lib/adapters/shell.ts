@@ -287,6 +287,11 @@ export interface ShellFrame {
   readOnly: boolean;
   /** Why, when `readOnly` (Actor.readOnlyReason); the notices say it. */
   readOnlyReason: ReadOnlyReasonCopy | undefined;
+  /**
+   * The planner uses personal API keys (LINEAR_AUTH=api_key): the
+   * read-only and error copy says so instead of mentioning installs.
+   */
+  apiKeyMode: boolean;
   /** Null when the week view could not be read (not installed, error). */
   weekCount: number | null;
   weekCountLabel: string | null;
@@ -303,6 +308,8 @@ export interface ShellFrameInput {
   readOnly: boolean;
   /** Actor.readOnlyReason. */
   readOnlyReason?: ReadOnlyReasonCopy | undefined;
+  /** engine.config.auth is api_key (default false). */
+  apiKeyMode?: boolean;
   /** The app has a working Linear installation for this workspace. */
   installed: boolean;
   timeline: TimelineView | null;
@@ -329,6 +336,7 @@ export function buildShellFrame(input: ShellFrameInput): ShellFrame {
     readOnlyReason: input.readOnly
       ? (input.readOnlyReason ?? 'guest')
       : undefined,
+    apiKeyMode: input.apiKeyMode === true,
     weekCount: count?.count ?? null,
     weekCountLabel: count?.label ?? null,
     projects,

@@ -1,0 +1,75 @@
+/* The connect block (api_key mode): headline, lead and trust copy, then
+   the key field. Hairlines and square corners like every block; the field
+   is the shared ui input, its focus ring and the primary button the only
+   accent. */
+
+.panel {
+  border: 1px solid var(--border);
+  border-top: 0;
+  padding: 28px 18px 30px;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.lead {
+  max-width: 64ch;
+  margin-top: 12px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.trust {
+  max-width: 64ch;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.form {
+  display: grid;
+  gap: 8px;
+  max-width: 520px;
+  margin-top: 22px;
+}
+
+.label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+}
+
+.hint {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.actions {
+  margin-top: 8px;
+}
+
+@media (width <= 768px) {
+  .panel {
+    padding: 22px 14px 24px;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+}

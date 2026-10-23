@@ -114,3 +114,59 @@ describe('landing', () => {
     ]);
   });
 });
+
+describe('landing with personal API keys', () => {
+  test('every connect code has its own sentence', async () => {
+    const { authErrorMessage: message } =
+      await import('../lib/adapters/landing');
+    for (const code of [
+      'key_shape',
+      'key_rejected',
+      'key_cannot_read',
+      'key_wrong_workspace',
+      'guest_cannot_bind',
+      'connect_rate_limited',
+      'insecure_transport',
+      'key_capacity',
+      'linear_unreachable',
+    ]) {
+      const sentence = message(code, { apiKeyMode: true }) ?? '';
+      expect(sentence).not.toBe('');
+      expect(sentence).not.toContain(code);
+      expect(sentence).not.toMatch(/Start again\.$/);
+    }
+    expect(message('key_shape', { apiKeyMode: true })).toContain('lin_api_');
+  });
+
+  test('not_signed_in, read_only and wrong_workspace read for keys', async () => {
+    const { authErrorMessage: message } =
+      await import('../lib/adapters/landing');
+    expect(message('not_signed_in', { apiKeyMode: true })).toBe(
+      'That Linear account cannot connect: it is deactivated, or it is an app user rather than a person.'
+    );
+    const readOnly = message('read_only', { apiKeyMode: true }) ?? '';
+    expect(readOnly).not.toMatch(/install/i);
+    expect(message('wrong_workspace', { apiKeyMode: true })).toBe(
+      'That key belongs to a different Linear workspace from the one this planner serves.'
+    );
+    // OAuth keeps its own wording.
+    expect(message('read_only')).toMatch(/install the app/);
+  });
+
+  test('landingFeatures: allocation and warnings variants; OAuth unchanged', async () => {
+    const { landingFeatures } = await import('../lib/adapters/landing');
+    expect(landingFeatures({ apiKeyMode: false })).toBe(LANDING_FEATURES);
+    const keyed = landingFeatures({ apiKeyMode: true });
+    expect(keyed.map((f) => f.key)).toEqual(LANDING_FEATURES.map((f) => f.key));
+    const allocation = keyed.find((f) => f.title === 'Allocation');
+    expect(allocation?.body).toContain(
+      'runs when someone starts it, over what they can see, written as that person in Linear.'
+    );
+    const warnings = keyed.find((f) => f.title === 'Warnings');
+    expect(warnings?.body).toStartWith(
+      'Preview only: no digests are sent with personal API keys.'
+    );
+    for (const feature of keyed)
+      expect(feature.body).not.toMatch(/sign(ed)? in/i);
+  });
+});

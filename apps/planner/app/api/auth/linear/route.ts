@@ -36,7 +36,10 @@ import { signValue } from '../../../../lib/signed-cookie';
  */
 export async function GET(request: Request): Promise<Response> {
   const engine = await getEngine();
-  if (engine.mode === 'fixture') return redirectWithCookies('/');
+  // Demo mode has no OAuth; with personal API keys OAuth is off too.
+  if (engine.mode === 'fixture' || engine.config.auth === 'api_key') {
+    return redirectWithCookies('/');
+  }
 
   const params = new URL(request.url).searchParams;
   const intent = parseIntent(params.get('intent'));

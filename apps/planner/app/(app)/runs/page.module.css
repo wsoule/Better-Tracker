@@ -133,3 +133,10 @@
     padding: 12px 14px;
   }
 }
+
+/* api_key mode: what a run reads and writes with (under the actions). */
+.keyNote {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}

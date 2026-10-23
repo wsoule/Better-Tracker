@@ -16,6 +16,7 @@ import type {
   WorkspaceData,
   WorkspaceSettings,
 } from '@better-tracker/core';
+import { redactLinearSecrets } from '@better-tracker/core';
 // The Store over SQL: one implementation for node-postgres and PGlite. Rows
 // are mapped to the camelCase contract types explicitly; instants travel as
 // ISO strings bound to `::timestamptz` parameters and come back as Date
@@ -38,7 +39,7 @@ import {
   type SqlLogger,
   type SqlParam,
 } from './db';
-import { StoreNotFoundError } from './errors';
+import { StoreCredentialError, StoreNotFoundError } from './errors';
 import { runMigrations } from './migrations';
 import type {
   AllocationRun,
@@ -74,8 +75,12 @@ export interface StoreOptions {
   databaseUrl?: string;
   /** PGlite data directory; unset → in-memory (tests). */
   pgliteDir?: string;
-  /** TOKEN_ENCRYPTION_KEY: 32 random bytes, base64. */
-  encryptionKey: string;
+  /**
+   * TOKEN_ENCRYPTION_KEY: 32 random bytes, base64. Null opens a
+   * credential-free store (LINEAR_AUTH=api_key): it refuses every Linear
+   * token (StoreCredentialError) and never decrypts a stored one.
+   */
+  encryptionKey: string | null;
   logger?: StoreLogger;
   /**
    * Clock for timestamps the contract does not pass in (session createdAt,
@@ -86,7 +91,8 @@ export interface StoreOptions {
 }
 
 export interface SqlStoreOptions {
-  encryptionKey: string;
+  /** As StoreOptions.encryptionKey: null is credential-free. */
+  encryptionKey: string | null;
   logger?: StoreLogger;
   now?: () => Date;
 }
@@ -114,10 +120,11 @@ export async function openSql(options: {
 /**
  * Opens the store: node-postgres when databaseUrl is set, PGlite otherwise.
  * The encryption key is validated before connecting so a bad key fails
- * fast. Call migrate() before first use.
+ * fast; a null key opens a credential-free store. Call migrate() before
+ * first use.
  */
 export async function openStore(options: StoreOptions): Promise<Store> {
-  parseEncryptionKey(options.encryptionKey);
+  if (options.encryptionKey !== null) parseEncryptionKey(options.encryptionKey);
   const sql = await openSql(options);
   return createSqlStore(sql, options);
 }
@@ -408,15 +415,35 @@ function storableString(value: string): string {
   return value.replaceAll('\u0000', '').replace(LONE_SURROGATE, '�');
 }
 
+/**
+ * Planner-owned or error text with every Linear credential-shaped run
+ * replaced (core's redactLinearSecrets), in every mode: a key pasted by
+ * mistake into "done means…", a setting or an error message is stored as
+ * `lin_api_[redacted]`. Never applied to the mirror (Linear's own data,
+ * which must round-trip byte for byte), sessions, installations or
+ * webhook records.
+ */
+function credentialFree(text: string): string;
+function credentialFree(text: string | null): string | null;
+function credentialFree(text: string | null): string | null {
+  return text === null ? null : redactLinearSecrets(text);
+}
+
 // Serializes a value for a `::text::jsonb` parameter, cleaning every string
-// with storableString. undefined (and other values JSON cannot represent)
-// become JSON null rather than SQL NULL so a NOT NULL jsonb column never
-// rejects them.
-function jsonParam(value: unknown): string {
+// with storableString (and, for planner-owned values, credentialFree).
+// undefined (and other values JSON cannot represent) become JSON null
+// rather than SQL NULL so a NOT NULL jsonb column never rejects them.
+function jsonParam(
+  value: unknown,
+  options: { credentialFree?: boolean } = {}
+): string {
+  const scrub = options.credentialFree === true;
   const text: string | undefined = JSON.stringify(
     value,
     (_key: string, item: unknown): unknown =>
-      typeof item === 'string' ? storableString(item) : item
+      typeof item === 'string'
+        ? storableString(scrub ? credentialFree(item) : item)
+        : item
   );
   return text ?? 'null';
 }
@@ -620,13 +647,17 @@ function auditFromRow(row: AuditRow): AuditEntry {
 
 class SqlStore implements Store {
   private readonly sql: Sql;
-  private readonly key: Buffer;
+  /** Null: credential-free (tokenParams refuses tokens, nothing is decrypted). */
+  private readonly key: Buffer | null;
   private readonly logger: StoreLogger | undefined;
   private readonly clock: () => Date;
 
   constructor(sql: Sql, options: SqlStoreOptions) {
     this.sql = sql;
-    this.key = parseEncryptionKey(options.encryptionKey);
+    this.key =
+      options.encryptionKey === null
+        ? null
+        : parseEncryptionKey(options.encryptionKey);
     this.logger = options.logger;
     this.clock = options.now ?? (() => new Date());
   }
@@ -656,25 +687,50 @@ class SqlStore implements Store {
   }
 
   // The four token columns shared by installations and sessions, in the
-  // order the INSERT/UPDATE statements below bind them.
+  // order the INSERT/UPDATE statements below bind them. A blank access
+  // token is stored as '' (a binding row written in api_key mode). A
+  // credential-free store refuses any token at all.
   private tokenParams(tokens: StoredTokens): SqlParam[] {
+    const key = this.key;
+    if (key === null) {
+      if (tokens.accessToken !== '' || tokens.refreshToken !== null) {
+        throw new StoreCredentialError(
+          'This store keeps no Linear credentials (LINEAR_AUTH=api_key).'
+        );
+      }
+      return ['', null, tokens.expiresAt, jsonParam(tokens.scopes)];
+    }
     return [
-      encryptToken(tokens.accessToken, this.key),
+      tokens.accessToken === '' ? '' : encryptToken(tokens.accessToken, key),
       tokens.refreshToken === null
         ? null
-        : encryptToken(tokens.refreshToken, this.key),
+        : encryptToken(tokens.refreshToken, key),
       tokens.expiresAt,
       jsonParam(tokens.scopes),
     ];
   }
 
+  // A credential-free store never decrypts: whatever the columns hold (an
+  // OAuth deploy's ciphertexts), it hands back blank tokens.
   private tokensFromRow(row: TokenColumns): StoredTokens {
+    const key = this.key;
+    if (key === null) {
+      return {
+        accessToken: '',
+        refreshToken: null,
+        expiresAt: toIsoOrNull(row.token_expires_at),
+        scopes: stringArray(row.token_scopes),
+      };
+    }
     return {
-      accessToken: decryptToken(row.access_token_enc, this.key),
+      accessToken:
+        row.access_token_enc === ''
+          ? ''
+          : decryptToken(row.access_token_enc, key),
       refreshToken:
         row.refresh_token_enc === null
           ? null
-          : decryptToken(row.refresh_token_enc, this.key),
+          : decryptToken(row.refresh_token_enc, key),
       expiresAt: toIsoOrNull(row.token_expires_at),
       scopes: stringArray(row.token_scopes),
     };
@@ -977,7 +1033,11 @@ class SqlStore implements Store {
        VALUES ($1, $2::text::jsonb, $3::timestamptz)
        ON CONFLICT (workspace_id) DO UPDATE SET
          data = EXCLUDED.data, updated_at = EXCLUDED.updated_at`,
-      [settings.workspaceId, jsonParam(data), this.nowIso()]
+      [
+        settings.workspaceId,
+        jsonParam(data, { credentialFree: true }),
+        this.nowIso(),
+      ]
     );
   }
 
@@ -1001,7 +1061,13 @@ class SqlStore implements Store {
     checkMetaValue(field, value);
     const rows = await this.write<MilestoneMetaRow>(
       UPDATE_META_FIELD_SQL[field],
-      [workspaceId, milestoneId, value, at, updatedBy]
+      [
+        workspaceId,
+        milestoneId,
+        typeof value === 'string' ? credentialFree(value) : value,
+        at,
+        updatedBy,
+      ]
     );
     const row = rows[0];
     if (row === undefined) {
@@ -1025,7 +1091,7 @@ class SqlStore implements Store {
         workspaceId,
         meta.milestoneId,
         meta.weight,
-        meta.doneMeans,
+        credentialFree(meta.doneMeans),
         meta.updatedAt,
         meta.updatedBy,
       ]
@@ -1151,7 +1217,12 @@ class SqlStore implements Store {
          last_full_sync_at = EXCLUDED.last_full_sync_at,
          last_full_sync_status = EXCLUDED.last_full_sync_status,
          last_full_sync_error = EXCLUDED.last_full_sync_error`,
-      [workspaceId, result.at, result.ok ? 'ok' : 'failed', result.error]
+      [
+        workspaceId,
+        result.at,
+        result.ok ? 'ok' : 'failed',
+        credentialFree(result.error),
+      ]
     );
   }
 
@@ -1313,7 +1384,12 @@ class SqlStore implements Store {
            COALESCE(r.value->'detail', '{}'::jsonb), r.value->>'error',
            $4::timestamptz
          FROM jsonb_array_elements($3::text::jsonb) WITH ORDINALITY AS r(value, ord)`,
-        [runId, run.workspace_id, jsonParam(payload), createdAt]
+        [
+          runId,
+          run.workspace_id,
+          jsonParam(payload, { credentialFree: true }),
+          createdAt,
+        ]
       );
     });
   }
@@ -1335,8 +1411,8 @@ class SqlStore implements Store {
       [
         runId,
         result.status,
-        jsonParam(result.summary),
-        result.error,
+        jsonParam(result.summary, { credentialFree: true }),
+        credentialFree(result.error),
         result.now,
       ]
     );
@@ -1484,8 +1560,8 @@ class SqlStore implements Store {
         record.recipientId,
         record.channel,
         record.status,
-        jsonParam(record.digest),
-        record.error,
+        jsonParam(record.digest, { credentialFree: true }),
+        credentialFree(record.error),
         record.now,
       ]
     );
@@ -1509,7 +1585,7 @@ class SqlStore implements Store {
         input.recipientId,
         input.status,
         input.channel,
-        input.error,
+        credentialFree(input.error),
       ]
     );
   }
@@ -1618,8 +1694,8 @@ class SqlStore implements Store {
         entry.actorUserId,
         entry.action,
         entry.subjectId,
-        jsonParam(entry.before),
-        jsonParam(entry.after),
+        jsonParam(entry.before, { credentialFree: true }),
+        jsonParam(entry.after, { credentialFree: true }),
         entry.at,
       ]
     );
@@ -1651,7 +1727,8 @@ class SqlStore implements Store {
             before: entry.before === undefined ? null : entry.before,
             after: entry.after === undefined ? null : entry.after,
             at: entry.at,
-          }))
+          })),
+          { credentialFree: true }
         ),
       ]
     );

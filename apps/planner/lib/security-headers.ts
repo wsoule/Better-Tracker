@@ -49,3 +49,49 @@ export function securityHeaders(
     },
   ];
 }
+
+/**
+ * Whether LINEAR_AUTH=api_key, read from the environment at request time
+ * (the proxy must not import the engine, which would bundle the store
+ * into it). Kept in step with the engine's linearAuthFromEnv by a test.
+ */
+export function isApiKeyAuthEnv(
+  env: Readonly<Record<string, string | undefined>>
+): boolean {
+  return env.LINEAR_AUTH?.trim().toLowerCase() === 'api_key';
+}
+
+/**
+ * The nonce Content-Security-Policy of api_key mode (architecture §8,
+ * security S9), which proxy.ts sends on every page: only scripts carrying
+ * this request's nonce (and what they load, 'strict-dynamic') run, so an
+ * injected inline script cannot draw a fake connect form and capture the
+ * next key someone types. style-src keeps 'unsafe-inline' without a nonce
+ * (a nonce would disable it, and the timeline positions bars with style
+ * attributes); forms post only to this origin (there is no OAuth in this
+ * mode); upgrade-insecure-requests only on https, where it cannot break a
+ * loopback http run.
+ */
+export function contentSecurityPolicy(options: {
+  nonce: string;
+  development?: boolean;
+  https?: boolean;
+}): string {
+  const scriptSrc = ["'self'", `'nonce-${options.nonce}'`, "'strict-dynamic'"];
+  if (options.development === true) scriptSrc.push("'unsafe-eval'");
+  const directives = [
+    "default-src 'self'",
+    `script-src ${scriptSrc.join(' ')}`,
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+    "worker-src 'none'",
+  ];
+  if (options.https === true) directives.push('upgrade-insecure-requests');
+  return directives.join('; ');
+}

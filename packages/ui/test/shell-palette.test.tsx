@@ -376,3 +376,26 @@ describe('CommandPalette over other overlays', () => {
     }
   });
 });
+
+describe('CommandPalette: refused text', () => {
+  test('text the host refuses matches nothing, shows the sentence and runs nothing', () => {
+    const refuse = (query: string): string | null =>
+      query.includes('lin_api_')
+        ? 'That looks like a Linear API key; it was not sent.'
+        : null;
+    const { navigate } = setup({ refuseQuery: refuse });
+    fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+    fireEvent.change(input(), {
+      target: { value: 'lin_api_TESTKEY_member_q7Wz3Kp9Vx2Lm8Rt5Yb1Nc' },
+    });
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    expect(screen.getByRole('alert').textContent).toBe(
+      'That looks like a Linear API key; it was not sent.'
+    );
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(navigate).not.toHaveBeenCalled();
+    // An ordinary query still matches.
+    fireEvent.change(input(), { target: { value: 'atlas' } });
+    expect(screen.getAllByRole('option').length).toBeGreaterThan(0);
+  });
+});

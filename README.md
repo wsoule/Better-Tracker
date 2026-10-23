@@ -49,6 +49,10 @@ the live demo; `1` is the small scenario workspace the tests pin. The graph
 draws all of it at every level (see `docs/architecture.md` §4 "Showcase demo
 workspace", "Draw budget").
 
+To use real Linear without an OAuth app, set `LINEAR_AUTH=api_key`: each person
+pastes their own personal Linear API key, which the planner holds only in memory
+and never saves (`docs/deploy.md` §7).
+
 ## Layout
 
 ```
@@ -74,6 +78,7 @@ moon run root:format root:lint
 moonx :build :typecheck :test
 moonx planner:dev --ignore-ci-checks
 moonx planner:test-e2e   # Playwright smoke in demo mode (also runs in CI)
+moonx planner:test-e2e-api-key   # the API-key mode against a fake Linear (CI too)
 ```
 
 When moon cannot download its toolchain plugins, run the tools directly as

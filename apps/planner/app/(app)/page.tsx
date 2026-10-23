@@ -16,7 +16,8 @@ import {
   type DemoUserRow,
   demoUserRows,
   firstParam,
-  LANDING_FEATURES,
+  landingFeatures,
+  signedOutNotice,
 } from '../../lib/adapters/landing';
 import {
   DEFAULT_RETURN_TO,
@@ -24,6 +25,9 @@ import {
   signInHref,
 } from '../../lib/auth-cookies';
 import { getPageContext } from '../../lib/load';
+import ConnectKeyBlock, {
+  ConnectNotices,
+} from './components/connect-key-block';
 import DemoNotice from './components/demo-notice';
 import { PageCrumb } from './components/page-crumb';
 import Receipts from './components/receipts';
@@ -52,21 +56,73 @@ async function loadDemo(
    a signed-in person who hit one (install, write access) sees it too
    instead of being bounced to My week. ?returnTo=<path> (a page opened
    signed out, such as a digest's timeline link) is passed on to the
-   sign-in, so it lands there instead of on My week. */
+   sign-in, so it lands there instead of on My week. With personal API
+   keys (LINEAR_AUTH=api_key) the sign-in block is the connect form
+   (components/connect-key-block.tsx), a plain server-rendered form that
+   posts the key to /api/auth/key; ?signed_out=1 (forgotten everywhere),
+   ?signed_out=ended (this browser's connection had already ended) and a
+   stale session cookie each get a notice. */
 export default async function HomePage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const [{ engine, actor }, params] = await Promise.all([
+  const [{ engine, actor, hadSessionCookie }, params] = await Promise.all([
     getPageContext(),
     searchParams,
   ]);
-  const errorMessage = authErrorMessage(firstParam(params.auth_error));
+  const apiKeyMode = engine.config.auth === 'api_key';
+  const errorMessage = authErrorMessage(firstParam(params.auth_error), {
+    apiKeyMode,
+  });
   const returnTo = sanitizeReturnTo(
     firstParam(params.returnTo),
     DEFAULT_RETURN_TO
   );
+
+  if (apiKeyMode) {
+    // Signed in: home, unless a connect just failed (a person replacing
+    // their key with another one sees why, with the form to try again).
+    if (actor !== null && errorMessage === null) redirect(returnTo);
+    return (
+      <div className="page">
+        <ConnectNotices
+          errorMessage={errorMessage}
+          signedOut={signedOutNotice(firstParam(params.signed_out))}
+          connectionEnded={hadSessionCookie && actor === null}
+          idleHours={Math.round(
+            (engine.config.apiKey?.idleMs ?? 0) / 3_600_000
+          )}
+          maxHours={Math.round(
+            (engine.config.apiKey?.absoluteMs ?? 0) / 3_600_000
+          )}
+        />
+        <ConnectKeyBlock
+          returnTo={returnTo === DEFAULT_RETURN_TO ? null : returnTo}
+          idleHours={Math.round(
+            (engine.config.apiKey?.idleMs ?? 0) / 3_600_000
+          )}
+          maxHours={Math.round(
+            (engine.config.apiKey?.absoluteMs ?? 0) / 3_600_000
+          )}
+          syncMinutes={Math.round(
+            (engine.config.apiKey?.syncIntervalMs ?? 0) / 60_000
+          )}
+        />
+        <section className="block" aria-label="What it does">
+          <BlockBar
+            index="02"
+            title="What it does"
+            meta="Linear stays the source of truth"
+          />
+          <Receipts
+            items={landingFeatures({ apiKeyMode: true })}
+            label="What the planner does"
+          />
+        </section>
+      </div>
+    );
+  }
 
   if (actor !== null) {
     if (errorMessage === null) redirect(returnTo);
@@ -201,7 +257,10 @@ export default async function HomePage({
           title="What it does"
           meta="Linear stays the source of truth"
         />
-        <Receipts items={LANDING_FEATURES} label="What the planner does" />
+        <Receipts
+          items={landingFeatures({ apiKeyMode: false })}
+          label="What the planner does"
+        />
       </section>
     </div>
   );

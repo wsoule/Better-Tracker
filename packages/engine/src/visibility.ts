@@ -65,16 +65,31 @@ export function viewerSnapshot(
 }
 
 /**
+ * How log filters treat what they cannot place (api_key mode passes
+ * `failClosed`, architecture §7 "API-key mode"): the mirror there is the
+ * reader key's view, which can lose a private team when the reader
+ * changes, so nothing is shown that the mirror does not hold now.
+ */
+export interface LogVisibilityOptions {
+  /**
+   * No `everything` shortcut, and a subject the mirror does not hold is
+   * hidden from everyone, members included.
+   */
+  failClosed?: boolean;
+}
+
+/**
  * Whether a viewer may see an entity a log entry is about. One the mirror
  * holds is visible when the narrowed snapshot holds it; one the mirror no
  * longer holds (a closed project, a deleted issue) cannot be placed in a
- * team, so members see it and guests do not.
+ * team, so members see it and guests do not (nobody, failing closed).
  */
 function seesSubject(
   full: Snapshot,
   seen: ViewerSnapshot,
   kind: 'issue' | 'project' | 'milestone',
-  id: string
+  id: string,
+  failClosed: boolean
 ): boolean {
   const known =
     kind === 'issue'
@@ -82,7 +97,7 @@ function seesSubject(
       : kind === 'project'
         ? full.projects.has(id)
         : full.milestones.has(id);
-  if (!known) return !seen.scope.guest;
+  if (!known) return !failClosed && !seen.scope.guest;
   return kind === 'issue'
     ? seen.snapshot.issues.has(id)
     : kind === 'project'
@@ -94,14 +109,16 @@ function seesSubject(
 export function visibleRunEntries(
   full: Snapshot,
   seen: ViewerSnapshot,
-  entries: readonly RunEntry[]
+  entries: readonly RunEntry[],
+  options: LogVisibilityOptions = {}
 ): RunEntry[] {
-  if (seen.scope.everything) return [...entries];
+  const failClosed = options.failClosed === true;
+  if (seen.scope.everything && !failClosed) return [...entries];
   return entries.filter(
     (entry) =>
-      seesSubject(full, seen, 'project', entry.projectId) &&
+      seesSubject(full, seen, 'project', entry.projectId, failClosed) &&
       (entry.issueId === null ||
-        seesSubject(full, seen, 'issue', entry.issueId))
+        seesSubject(full, seen, 'issue', entry.issueId, failClosed))
   );
 }
 
@@ -112,13 +129,15 @@ export function visibleRunEntries(
 export function visibleAuditEntries(
   full: Snapshot,
   seen: ViewerSnapshot,
-  entries: readonly AuditEntry[]
+  entries: readonly AuditEntry[],
+  options: LogVisibilityOptions = {}
 ): AuditEntry[] {
-  if (seen.scope.everything) return [...entries];
+  const failClosed = options.failClosed === true;
+  if (seen.scope.everything && !failClosed) return [...entries];
   return entries.filter((entry) => {
     const [kind] = entry.action.split('.');
     if (kind === 'issue' || kind === 'milestone' || kind === 'project') {
-      return seesSubject(full, seen, kind, entry.subjectId);
+      return seesSubject(full, seen, kind, entry.subjectId, failClosed);
     }
     return true;
   });

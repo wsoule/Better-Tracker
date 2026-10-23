@@ -72,6 +72,12 @@ export default async function RunsPage() {
         ) : (
           <RunActions liveRunsOn={page.liveRunsOn} />
         )}
+        {engine.config.auth === 'api_key' && !actor.readOnly ? (
+          <p className={css.keyNote}>
+            Runs plan over what you can see. Live runs write with your Linear
+            key: assignments and their comments appear in Linear as you.
+          </p>
+        ) : null}
         <section className={css.collapse} aria-label="Allocation runs">
           <BlockBar
             index="01"
@@ -80,8 +86,9 @@ export default async function RunsPage() {
           />
           {page.rows.length === 0 ? (
             <EmptyState label="No runs">
-              No allocation runs yet. Runs appear here after the scheduled daily
-              run, or when someone starts one with Preview (dry run).
+              {engine.config.auth === 'api_key'
+                ? 'No allocation runs yet. Runs appear here when someone starts one with Preview (dry run); nothing runs on a schedule.'
+                : 'No allocation runs yet. Runs appear here after the scheduled daily run, or when someone starts one with Preview (dry run).'}
             </EmptyState>
           ) : (
             <Register

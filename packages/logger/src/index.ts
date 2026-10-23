@@ -1,7 +1,13 @@
 // Structured JSON-lines logger shared by the web app, the worker, and the
 // engine. One line per event on stdout/stderr so Railway (or any log drain)
 // can index fields without a parser. Secrets never reach the output: any
-// field whose key looks like a credential is replaced before serialising.
+// field whose key looks like a credential is replaced before serialising,
+// and every string written (the message, field values at any depth, error
+// names, messages, stacks and causes) has Linear credential-shaped runs
+// (`lin_api_…`, `lin_oauth_…`) redacted by value too (architecture §7
+// "API-key mode", core's redactLinearSecrets).
+
+import { redactLinearSecrets } from '@better-tracker/core';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -41,6 +47,13 @@ const REDACTED = '[redacted]';
 // `authorization` are all caught, while `tokenCount`-style names are not.
 const SECRET_KEY =
   /^(.*[_-]?(token|secret|password|authorization|cookie|signature|apikey|api_key))$/i;
+// Names that are credentials only as a whole word (`key`, `credential`):
+// `keyCount` or `credentialSource` are kept.
+const SECRET_EXACT_KEY = /^(key|apikey|api_key|credential)$/i;
+
+function isSecretKey(key: string): boolean {
+  return SECRET_KEY.test(key) || SECRET_EXACT_KEY.test(key);
+}
 
 function isLogLevel(value: string | undefined): value is LogLevel {
   return (
@@ -66,19 +79,26 @@ function defaultSink(level: LogLevel, line: string): void {
 }
 
 // Turns arbitrary field values into JSON-safe data: errors keep their name,
-// message and stack; secret-looking keys are redacted at any depth; cycles
-// are cut instead of throwing.
+// message and stack; secret-looking keys are redacted at any depth; every
+// string has credential-shaped runs redacted; cycles are cut instead of
+// throwing.
 function sanitize(value: unknown, seen: WeakSet<object>): unknown {
   if (value instanceof Error) {
+    if (seen.has(value)) return '[circular]';
+    seen.add(value);
     return {
-      name: value.name,
-      message: value.message,
-      stack: value.stack,
+      name: redactLinearSecrets(value.name),
+      message: redactLinearSecrets(value.message),
+      stack:
+        typeof value.stack === 'string'
+          ? redactLinearSecrets(value.stack)
+          : value.stack,
       ...(value.cause === undefined
         ? {}
         : { cause: sanitize(value.cause, seen) }),
     };
   }
+  if (typeof value === 'string') return redactLinearSecrets(value);
   if (value === null || typeof value !== 'object') {
     if (typeof value === 'bigint') return value.toString();
     return value;
@@ -88,7 +108,7 @@ function sanitize(value: unknown, seen: WeakSet<object>): unknown {
   if (Array.isArray(value)) return value.map((v) => sanitize(v, seen));
   const out: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(value)) {
-    out[key] = SECRET_KEY.test(key) ? REDACTED : sanitize(v, seen);
+    out[key] = isSecretKey(key) ? REDACTED : sanitize(v, seen);
   }
   return out;
 }
@@ -110,7 +130,7 @@ export function createLogger(options: LoggerOptions): Logger {
         time: now().toISOString(),
         level,
         logger: options.name,
-        msg: message,
+        msg: redactLinearSecrets(message),
         ...merged,
       });
       sink(level, line);

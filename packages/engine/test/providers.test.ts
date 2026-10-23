@@ -278,6 +278,24 @@ describe('real provider: installation tokens', () => {
     expect(saved?.revokedAt).toBeNull();
   });
 
+  test('a blank token (an api_key-mode binding) is lost access, without calling Linear', async () => {
+    await store.saveInstallation({
+      ...installation(null, null),
+      appUserId: '',
+      tokens: {
+        accessToken: '',
+        refreshToken: null,
+        expiresAt: null,
+        scopes: [],
+      },
+    });
+    const error = await rejection(provider.forApp('org-acme'));
+    expect(error).toMatchObject({ code: 'not_installed' });
+    expect((error as Error).message).toContain('lost its access');
+    expect(fake.graphqlTokens).toEqual([]);
+    expect(fake.refreshCalls).toEqual([]);
+  });
+
   test('missing or revoked installations are not installed', async () => {
     expect(await rejection(provider.forApp('org-acme'))).toMatchObject({
       code: 'not_installed',

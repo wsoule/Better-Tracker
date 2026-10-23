@@ -1,4 +1,5 @@
 import { sidebarCollapseScript } from '@better-tracker/ui';
+import { headers } from 'next/headers';
 
 import { THEME_STORAGE_KEY } from '../../../fonts';
 import { SIDEBAR_STORAGE_KEY } from './fixtures';
@@ -13,11 +14,15 @@ export const metadata = { title: 'UI gallery · shell' };
    would have gone. /ui-gallery/shell/signed-out shows the SignedOutFrame.
 
    The inline script applies a remembered collapsed rail before first paint,
-   as a host layout would next to themeScript(). */
-export default function ShellGalleryPage() {
+   as a host layout would next to themeScript(), with the request's CSP
+   nonce (proxy.ts, api_key mode only). */
+export default async function ShellGalleryPage() {
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <>
       <script
+        nonce={nonce}
+        suppressHydrationWarning
         dangerouslySetInnerHTML={{
           __html: sidebarCollapseScript(SIDEBAR_STORAGE_KEY),
         }}

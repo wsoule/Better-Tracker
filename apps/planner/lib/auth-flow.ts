@@ -1,4 +1,8 @@
-import { type Engine, isLinearApiError } from '@better-tracker/engine';
+import {
+  type Engine,
+  isLinearApiError,
+  type SignOutResult,
+} from '@better-tracker/engine';
 import { createLogger } from '@better-tracker/logger';
 
 import { engineAuthCode, engineInputCode } from './engine-errors';
@@ -27,18 +31,24 @@ export function authErrorCode(error: unknown, op: string): string {
 }
 
 /**
- * Ends a session that a new sign-in replaced (its Linear token is revoked
- * by the engine, best effort). Never throws: the new session already
- * exists, and a stale row expires on its own.
+ * Ends a session that a new sign-in replaced, or the one the logout route
+ * ends (its Linear token is revoked by the engine, best effort). Never
+ * throws: the new session already exists, and a stale row expires on its
+ * own. Returns what signOut did, or null when it failed.
  */
 export async function signOutQuietly(
   engine: Engine,
-  token: string
-): Promise<void> {
+  token: string,
+  options?: { everyDevice?: boolean }
+): Promise<SignOutResult | null> {
   try {
-    await engine.signOut(token);
+    const result = await (options === undefined
+      ? engine.signOut(token)
+      : engine.signOut(token, options));
+    return result ?? null;
   } catch (error) {
     logger.warn('could not end the previous session', { err: error });
+    return null;
   }
 }
 

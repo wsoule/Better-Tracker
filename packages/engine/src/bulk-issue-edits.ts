@@ -337,9 +337,14 @@ function plan(
   return { send };
 }
 
-const NOT_ATTEMPTED: Record<'rate_limited' | 'not_signed_in', string> = {
+const NOT_ATTEMPTED: Record<
+  'rate_limited' | 'not_signed_in' | 'read_only',
+  string
+> = {
   rate_limited: "Not attempted: Linear's rate limit was reached.",
   not_signed_in: 'Not attempted: Linear stopped accepting your sign-in.',
+  // api_key mode: the key turned out to be read-only (key-provider.ts).
+  read_only: 'Not attempted: your Linear API key only allows reading.',
 };
 
 // Changed issues the new plan gives to a lead that the old plan did not,
@@ -497,9 +502,10 @@ async function patchMirrorAfterBulk(
 /**
  * Changes up to ISSUE_BULK_MAX issues as the person (see the file
  * comment). Outcomes come back in request order; a Linear refusal fails
- * only its issue. A rate limit or a rejected sign-in stops new writes
- * (the rest are not attempted); when that happens before anything
- * changed, it throws like a single edit (not_signed_in, rate_limited).
+ * only its issue. A rate limit, a rejected sign-in or (api_key mode) a key
+ * that may only read stops new writes (the rest are not attempted); when
+ * that happens before anything changed, it throws like a single edit
+ * (not_signed_in, rate_limited, read_only).
  */
 export async function updateIssues(
   rt: EngineRuntime,
@@ -623,8 +629,9 @@ export async function updateIssues(
             mapped instanceof EngineInputError && mapped.code === 'rate_limited'
               ? 'rate_limited'
               : mapped instanceof EngineAuthError &&
-                  mapped.code === 'not_signed_in'
-                ? 'not_signed_in'
+                  (mapped.code === 'not_signed_in' ||
+                    mapped.code === 'read_only')
+                ? mapped.code
                 : null;
           if (stopCode !== null) {
             if (stopped === null) {

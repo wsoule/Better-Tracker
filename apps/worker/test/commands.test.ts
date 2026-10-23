@@ -8,6 +8,7 @@ import {
 import { describe, expect, test } from 'bun:test';
 
 import {
+  apiKeyModeOutcome,
   type CommandContext,
   type CommandResult,
   exitCodeFor,
@@ -550,5 +551,21 @@ describe('workerEngineFrom', () => {
         'ws-a'
       )
     ).toBe('Asia/Tokyo');
+  });
+});
+
+describe('apiKeyModeOutcome', () => {
+  test('tick and serve exit 0, the one-shot jobs exit 1, migrate boots', () => {
+    expect(apiKeyModeOutcome('tick')?.code).toBe(0);
+    expect(apiKeyModeOutcome('serve')?.line).toContain(
+      'api-key mode: no scheduled sync'
+    );
+    for (const command of ['sync', 'daily', 'allocate', 'warn'] as const) {
+      expect(apiKeyModeOutcome(command)).toEqual({
+        code: 1,
+        line: `${command}: off when LINEAR_AUTH=api_key: keys live only in the planner's memory; start a run or a resync from the planner`,
+      });
+    }
+    expect(apiKeyModeOutcome('migrate')).toBeNull();
   });
 });

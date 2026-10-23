@@ -53,8 +53,39 @@ import type {
   SyncState,
 } from '@better-tracker/store';
 
+import type { KeySyncScheduler } from './key-sync';
+import type { KeyVault } from './key-vault';
+
+/**
+ * How the planner reaches Linear (`LINEAR_AUTH`, architecture §7.1):
+ * `demo` the in-memory demo workspace (LINEAR_FIXTURE), `oauth` an OAuth
+ * app with stored, encrypted tokens, `api_key` each person's own personal
+ * API key held only in the planner's memory (owner request 2026-10-23).
+ */
+export type LinearAuthMode = 'demo' | 'oauth' | 'api_key';
+
+/** EngineConfig.apiKey: what api_key mode runs with. */
+export interface ApiKeyConfig {
+  /** API_KEY_IDLE_MS: a key unused this long is forgotten. */
+  idleMs: number;
+  /** API_KEY_MAX_MS: a key is forgotten this long after connecting. */
+  absoluteMs: number;
+  /** SYNC_INTERVAL_MINUTES in ms: background sync while a member is connected. */
+  syncIntervalMs: number;
+  /** LINEAR_WORKSPACE as given (URL key or organization id), or null. */
+  workspacePin: string | null;
+  /** The GraphQL endpoint: LINEAR_API_URL (test-only) or Linear's. */
+  endpoint: string;
+  /** NODE_ENV=production on a non-loopback APP_URL. */
+  deployed: boolean;
+}
+
 /** Static configuration for one deployment. */
 export interface EngineConfig {
+  /** Additive: how the planner reaches Linear (LINEAR_AUTH). */
+  auth: LinearAuthMode;
+  /** Set only when auth is api_key. */
+  apiKey: ApiKeyConfig | null;
   /** Display name used in Linear comments and digests ("Milestone Planner"). */
   appName: string;
   /** Public base URL, no trailing slash (OAuth redirect, deep links). */
@@ -110,6 +141,23 @@ export interface EngineDeps {
    * exchange. Defaults to the global fetch; tests inject a fake.
    */
   fetch?: FetchLike;
+  /**
+   * Additive, api_key mode only: the in-memory key vault and its
+   * background sync scheduler (boot.ts createApiKeyEngine builds them).
+   */
+  keys?: ApiKeyDeps;
+  /**
+   * Additive, api_key mode: builds a gateway around a key getter (the
+   * connect check and the vault use the same one). Defaults to the real
+   * GraphQL gateway at config.apiKey.endpoint; tests inject the fixture.
+   */
+  apiKeyGateway?: (credential: () => string | null) => LinearGateway;
+}
+
+/** The api_key-mode pieces createEngine wires in (EngineDeps.keys). */
+export interface ApiKeyDeps {
+  vault: KeyVault;
+  scheduler: KeySyncScheduler | null;
 }
 
 /**
@@ -148,8 +196,16 @@ export interface Actor {
   readOnlyReason?: ReadOnlyReason;
 }
 
-/** Why an Actor is read-only (Actor.readOnlyReason). */
-export type ReadOnlyReason = 'guest' | 'unknown' | 'not_synced';
+/**
+ * Why an Actor is read-only (Actor.readOnlyReason). Additive:
+ * `read_only_key`, a personal API key Linear refused a write for as out of
+ * its scope (api_key mode).
+ */
+export type ReadOnlyReason =
+  | 'guest'
+  | 'unknown'
+  | 'not_synced'
+  | 'read_only_key';
 
 /**
  * The issue page (owner decision 2026-10-21): what getIssueDetail returns.
@@ -265,9 +321,12 @@ export interface IssueBulkResult {
     skipped: number;
     failed: number;
   };
-  /** Set when a rate limit or a rejected sign-in stopped the run part-way. */
+  /**
+   * Set when a rate limit, a rejected sign-in or (api_key mode) a key that
+   * may only read stopped the run part-way.
+   */
   stopped: null | {
-    code: 'rate_limited' | 'not_signed_in';
+    code: 'rate_limited' | 'not_signed_in' | 'read_only';
     retryAt: IsoDateTime | null;
   };
   /** How the change moved the viewer's allocation plan (the toast's second sentence). */
@@ -367,6 +426,38 @@ export interface SignInResult {
   needsInstall: boolean;
 }
 
+/** What connectApiKey returns (api_key mode). */
+export interface ApiKeyConnectResult extends SignInResult {
+  /** The route should start a sync after responding (§7.7). */
+  syncAfter: boolean;
+}
+
+/** What signOut did (additive). */
+export interface SignOutResult {
+  /**
+   * Whether the token named anyone: a session row, or (api_key mode) a
+   * connected key, live, expired or recently ended on its own. False for
+   * a token nobody knows (the logout route then never says the key was
+   * forgotten everywhere).
+   */
+  known: boolean;
+  /** Connected API keys forgotten (api_key mode; always 0 otherwise). */
+  keysForgotten: number;
+}
+
+/**
+ * The connected person's key status for Settings (api_key mode). Holds no
+ * key or token, by construction.
+ */
+export interface KeyConnectionStatus {
+  connectedAt: IsoDateTime;
+  /** The absolute limit. */
+  expiresAt: IsoDateTime;
+  idleMinutes: number;
+  /** Whose key the mirror is read with right now, if anyone's. */
+  reader: { userId: string; userName: string } | null;
+}
+
 /** Thrown for authorization failures; the web layer maps it to 401/403. */
 export class EngineAuthError extends Error {
   readonly code:
@@ -381,7 +472,18 @@ export class EngineAuthError extends Error {
      * Additive: the person is a Linear guest (Actor.readOnly), who may
      * look but change nothing through the planner (403).
      */
-    | 'read_only';
+    | 'read_only'
+    /** Additive (api_key mode): Linear did not accept the pasted key. */
+    | 'key_rejected'
+    /** Additive (api_key mode): the pasted key cannot read Linear. */
+    | 'key_cannot_read'
+    /** Additive (api_key mode): a guest tried to bind an unbound planner. */
+    | 'guest_cannot_bind'
+    /**
+     * Additive (api_key mode): no workspace member has a key connected,
+     * so nothing can read Linear for the mirror (503, not "signed out").
+     */
+    | 'no_reader';
   constructor(code: EngineAuthError['code'], message: string) {
     super(message);
     this.name = 'EngineAuthError';
@@ -434,7 +536,25 @@ export interface Engine {
   devSignIn(userId: string): Promise<SignInResult>;
   /** Resolves a cookie token into an Actor, or null. */
   authenticate(sessionToken: string | undefined): Promise<Actor | null>;
-  signOut(sessionToken: string): Promise<void>;
+  /**
+   * Ends a session. Additive `everyDevice` (api_key mode only, ignored
+   * elsewhere): forget every connected key of that person, not just this
+   * browser's, even when this browser's own connection already ended on
+   * its own. Additive result: whether the token named anyone, and how many
+   * keys were forgotten.
+   */
+  signOut(
+    sessionToken: string,
+    options?: { everyDevice?: boolean }
+  ): Promise<SignOutResult>;
+  /**
+   * Additive (api_key mode): checks a pasted personal API key with Linear
+   * (viewer and organization), binds the workspace on the first member's
+   * connect, and holds the key in memory only. Any other mode refuses it.
+   */
+  connectApiKey(input: { apiKey: string }): Promise<ApiKeyConnectResult>;
+  /** Additive: the actor's key status (null outside api_key mode). */
+  getKeyConnection(actor: Actor): Promise<KeyConnectionStatus | null>;
   /** Users offered on the fixture-mode sign-in screen. */
   listDemoUsers(): Promise<User[]>;
 

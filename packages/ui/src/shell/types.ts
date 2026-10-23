@@ -203,6 +203,8 @@ export interface CommandPaletteProviderProps {
   placeholder?: string;
   /** Rows shown per section before "keep typing" (default 50). */
   maxPerSection?: number;
+  /** Passed to the palette (CommandPaletteProps.refuseQuery). */
+  refuseQuery?: (query: string) => string | null;
   children?: ReactNode;
 }
 
@@ -319,6 +321,12 @@ export interface CommandPaletteProps {
   sectionOrder?: string[];
   /** Rows shown per section before "keep typing" (default 50, at least 1). */
   maxPerSection?: number;
+  /**
+   * A sentence when the typed text must not be used at all (the planner
+   * refuses text shaped like a Linear API key): nothing is matched or run,
+   * and the sentence shows instead of the results. Null lets it through.
+   */
+  refuseQuery?: (query: string) => string | null;
 }
 
 export interface ShortcutSheetProps {

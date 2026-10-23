@@ -2,9 +2,15 @@
 
 import { Button } from '@better-tracker/ui';
 
-import { FIRST_SYNC_PENDING_HEADLINE } from '../../lib/read-only';
+import {
+  API_KEY_NOT_SYNCED_NOTICE,
+  FIRST_SYNC_PENDING_HEADLINE,
+} from '../../lib/read-only';
 import MessageBlock from './components/message-block';
-import { useReadOnlyReason } from './components/read-only-notice';
+import {
+  useApiKeyMode,
+  useReadOnlyReason,
+} from './components/read-only-notice';
 
 /* The error boundary for every (app) page: the frame stays, the page body
    says what failed and offers a retry (which re-fetches the page from the
@@ -13,7 +19,8 @@ import { useReadOnlyReason } from './components/read-only-notice';
    an installed workspace's first sync has not landed (the shell's
    read-only reason is `not_synced`), every page that reads the mirror
    fails the same way, so this says that instead and points at Setup,
-   where a reinstall stays open. */
+   where a reinstall stays open. With personal API keys there is nothing
+   to install: the copy waits for a member's key and links home. */
 export default function AppError({
   error,
   retry,
@@ -22,6 +29,31 @@ export default function AppError({
   retry: () => void;
 }) {
   const reason = useReadOnlyReason();
+  const apiKeyMode = useApiKeyMode();
+  if (reason === 'not_synced' && apiKeyMode) {
+    return (
+      <MessageBlock
+        index="SYNC"
+        title="No copy of Linear yet"
+        headline="Waiting for a workspace member's key."
+        actions={
+          <>
+            <Button variant="primary" onClick={() => retry()}>
+              Try again
+            </Button>
+            <Button href="/">Go home</Button>
+          </>
+        }
+      >
+        <p>
+          {API_KEY_NOT_SYNCED_NOTICE}
+          {error.digest !== undefined
+            ? ` Error reference: ${error.digest}.`
+            : ''}
+        </p>
+      </MessageBlock>
+    );
+  }
   if (reason === 'not_synced') {
     return (
       <MessageBlock

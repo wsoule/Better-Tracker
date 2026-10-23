@@ -6,7 +6,9 @@
 // `writable` (or calls requireWritable itself), so a Linear guest is
 // refused with read_only before any module runs. finishInstall uses
 // requireCanInstall, which also lets a workspace whose first sync has not
-// landed be reinstalled.
+// landed be reinstalled. With personal API keys (config.auth api_key) the
+// auth methods go to key-auth.ts, OAuth is off, nothing runs unattended
+// (no scheduled run, digest or webhook) and the logs fail closed.
 
 import { runAllocation } from './allocation-run';
 import {
@@ -15,6 +17,7 @@ import {
   finishInstall,
   finishSignIn,
   listDemoUsers,
+  OAUTH_OFF_MESSAGE,
   publicInstallation,
   signOut,
   startOAuth,
@@ -30,6 +33,13 @@ import {
   updateIssue,
 } from './issue-edits';
 import { getIssueList, getIssueListOptions } from './issue-list';
+import {
+  authenticateWithKey,
+  bindingFor,
+  connectApiKey,
+  getKeyConnection,
+  signOutWithKey,
+} from './key-auth';
 import { loadWorkspace } from './load';
 import {
   setMilestoneDoneMeans,
@@ -41,7 +51,13 @@ import { requireCanInstall, requireWritable } from './permissions';
 import { createRuntime, readSettings } from './runtime';
 import { updateSettings } from './settings';
 import { fullSync } from './sync';
-import type { Actor, Engine, EngineDeps, LoadedWorkspace } from './types';
+import {
+  type Actor,
+  type Engine,
+  type EngineDeps,
+  EngineInputError,
+  type LoadedWorkspace,
+} from './types';
 import {
   getGraph,
   getMilestoneDetail,
@@ -70,22 +86,44 @@ function writable<Rest extends unknown[], R>(
   };
 }
 
+/** What scheduled work says with personal API keys (§7.8). */
+export const SCHEDULED_OFF_MESSAGE =
+  'Scheduled runs are off when the planner uses personal API keys: nothing can read Linear while nobody is connected.';
+
 /** Builds the engine over its dependencies (store, Linear, channel, …). */
 export function createEngine(deps: EngineDeps): Engine {
   const rt = createRuntime(deps);
+  const apiKeyMode = deps.config.auth === 'api_key';
+  const pin = deps.config.apiKey?.workspacePin ?? null;
+  const oauthOff = (): never => {
+    throw new EngineInputError('invalid', OAUTH_OFF_MESSAGE);
+  };
+  const scheduledOff = (): never => {
+    throw new EngineInputError('invalid', SCHEDULED_OFF_MESSAGE);
+  };
+  // Log entries pass the visibility filters failing closed with personal
+  // keys: the mirror is then the reader key's view (§7.6).
+  const logVisibility = { failClosed: apiKeyMode };
   return {
     config: deps.config,
     mode: deps.linear.mode,
 
-    startOAuth: (intent) => startOAuth(rt, intent),
-    finishSignIn: (input) => finishSignIn(rt, input),
+    startOAuth: (intent) => (apiKeyMode ? oauthOff() : startOAuth(rt, intent)),
+    finishSignIn: async (input) =>
+      apiKeyMode ? oauthOff() : finishSignIn(rt, input),
     finishInstall: async (input) => {
+      if (apiKeyMode) oauthOff();
       requireCanInstall(input.actor);
       return finishInstall(rt, input);
     },
-    devSignIn: (userId) => devSignIn(rt, userId),
-    authenticate: (token) => authenticate(rt, token),
-    signOut: (token) => signOut(rt, token),
+    devSignIn: async (userId) =>
+      apiKeyMode ? oauthOff() : devSignIn(rt, userId),
+    authenticate: (token) =>
+      apiKeyMode ? authenticateWithKey(rt, token) : authenticate(rt, token),
+    signOut: async (token, options) =>
+      apiKeyMode ? signOutWithKey(rt, token, options) : signOut(rt, token),
+    connectApiKey: (input) => connectApiKey(rt, input),
+    getKeyConnection: (actor) => getKeyConnection(rt, actor),
     listDemoUsers: () => listDemoUsers(rt),
 
     load: async (workspaceId, viewer): Promise<LoadedWorkspace> => {
@@ -125,7 +163,12 @@ export function createEngine(deps: EngineDeps): Engine {
       const seen = viewerSnapshot(loaded.fullSnapshot, workspaceId, viewer);
       return {
         run: found.run,
-        entries: visibleRunEntries(loaded.fullSnapshot, seen, found.entries),
+        entries: visibleRunEntries(
+          loaded.fullSnapshot,
+          seen,
+          found.entries,
+          logVisibility
+        ),
       };
     },
     listNotifications: (workspaceId, limit) =>
@@ -135,7 +178,12 @@ export function createEngine(deps: EngineDeps): Engine {
       if (viewer === undefined) return entries;
       const loaded = await loadWorkspace(rt, workspaceId, { viewer });
       const seen = viewerSnapshot(loaded.fullSnapshot, workspaceId, viewer);
-      return visibleAuditEntries(loaded.fullSnapshot, seen, entries);
+      return visibleAuditEntries(
+        loaded.fullSnapshot,
+        seen,
+        entries,
+        logVisibility
+      );
     },
     getInstallation: async (workspaceId) => {
       const installation = await deps.store.getInstallation(workspaceId);
@@ -156,20 +204,32 @@ export function createEngine(deps: EngineDeps): Engine {
         actor: input.actor,
       });
     },
-    // The digest preview shows everyone's digests: not for a guest.
+    // The digest preview shows everyone's digests: not for a guest. With
+    // personal keys only the preview runs (nothing is sent).
     runWarnings: async (input) => {
+      if (apiKeyMode && input.previewOnly !== true) scheduledOff();
       if (input.viewer !== undefined) requireWritable(input.viewer);
       return runWarnings(rt, input);
     },
-    runDaily: (input) => runDaily(rt, input),
-    listWorkspaceIds: async () =>
-      (await deps.store.listInstallations())
+    runDaily: async (input) =>
+      apiKeyMode ? scheduledOff() : runDaily(rt, input),
+    listWorkspaceIds: async () => {
+      if (apiKeyMode) {
+        const binding = await bindingFor(deps.store, pin);
+        return binding === null || binding.revokedAt !== null
+          ? []
+          : [binding.workspaceId];
+      }
+      return (await deps.store.listInstallations())
         .filter((installation) => installation.revokedAt === null)
-        .map((installation) => installation.workspaceId),
+        .map((installation) => installation.workspaceId);
+    },
     listRevokedWorkspaceIds: async () =>
-      (await deps.store.listInstallations())
-        .filter((installation) => installation.revokedAt !== null)
-        .map((installation) => installation.workspaceId),
+      apiKeyMode
+        ? []
+        : (await deps.store.listInstallations())
+            .filter((installation) => installation.revokedAt !== null)
+            .map((installation) => installation.workspaceId),
 
     setMilestoneTargetDate: writable((actor, milestoneId, targetDate) =>
       setMilestoneTargetDate(rt, actor, milestoneId, targetDate)
@@ -204,8 +264,16 @@ export function createEngine(deps: EngineDeps): Engine {
       updateIssues(rt, actor, issueIds, patch)
     ),
 
-    cleanup: () => cleanup(rt),
+    cleanup: async () => {
+      // Personal keys: forget expired ones too (the scheduler also does).
+      rt.keys?.vault.sweep();
+      return cleanup(rt);
+    },
     now: () => rt.nowIso(),
-    close: () => deps.store.close(),
+    close: async () => {
+      rt.keys?.scheduler?.close();
+      rt.keys?.vault.clear();
+      await deps.store.close();
+    },
   };
 }

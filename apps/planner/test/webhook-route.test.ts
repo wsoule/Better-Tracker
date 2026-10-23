@@ -113,3 +113,21 @@ describe('POST /api/webhooks/linear', () => {
     expect(response.status).toBe(200);
   });
 });
+
+describe('POST /api/webhooks/linear with personal API keys', () => {
+  test('LINEAR_AUTH=api_key answers a bare 404 without reading the body', async () => {
+    const savedAuth = process.env.LINEAR_AUTH;
+    process.env.LINEAR_AUTH = 'api_key';
+    try {
+      const body = payload();
+      const request = deliver(body, { 'linear-signature': sign(body) });
+      const response = await POST(request);
+      expect(response.status).toBe(404);
+      expect(await response.text()).toBe('');
+      expect(request.bodyUsed).toBe(false);
+    } finally {
+      if (savedAuth === undefined) delete process.env.LINEAR_AUTH;
+      else process.env.LINEAR_AUTH = savedAuth;
+    }
+  });
+});

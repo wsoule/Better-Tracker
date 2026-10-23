@@ -73,8 +73,13 @@ export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
     oldDeliveries: 0,
   };
   const oauth = rt.config.oauth;
-  if (rt.linear.mode === 'fixture' || oauth === null) {
-    // Demo sessions carry no real Linear grant to revoke.
+  if (
+    rt.linear.mode === 'fixture' ||
+    rt.config.auth === 'api_key' ||
+    oauth === null
+  ) {
+    // Demo sessions carry no real Linear grant to revoke, and personal API
+    // keys keep no sessions here (and have nothing to revoke, F5).
     result.expiredSessions = await rt.store.deleteExpiredSessions(
       now.toISOString()
     );

@@ -33,6 +33,8 @@ describe('loadEngineConfigFromEnv', () => {
   test('demo mode needs no other variables', () => {
     const config = loadEngineConfigFromEnv({ LINEAR_FIXTURE: '1' });
     expect(config).toEqual({
+      auth: 'demo',
+      apiKey: null,
       appName: 'Milestone Planner',
       appUrl: 'http://localhost:3000',
       defaultTimezone: 'UTC',
@@ -587,5 +589,145 @@ describe('isLinearApiError', () => {
     expect(isLinearApiError(foreign)).toBe(true);
     expect(isLinearApiError(new Error('plain'))).toBe(false);
     expect(isLinearApiError({ name: 'LinearApiError', kind: 'x' })).toBe(false);
+  });
+});
+
+describe('createEngineFromEnv in api_key mode', () => {
+  test('boots over a keyed store, purges nothing, and warns about unused variables', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'engine-apikey-'));
+    const pgliteDir = join(dir, 'pglite');
+    try {
+      // An earlier OAuth deploy left a session and an encrypted install.
+      const { openStore } = await import('@better-tracker/store');
+      const keyed = await openStore({ pgliteDir, encryptionKey: TEST_KEY });
+      await keyed.migrate();
+      await keyed.saveInstallation({
+        workspaceId: 'org-acme',
+        workspaceName: 'Acme',
+        urlKey: 'acme',
+        appUserId: 'user-app',
+        installedByUserId: 'user-ana',
+        revokedAt: null,
+        tokens: {
+          accessToken: 'oauth-access-token',
+          refreshToken: 'oauth-refresh-token',
+          expiresAt: null,
+          scopes: ['read', 'write'],
+        },
+        createdAt: '2026-10-01T00:00:00.000Z',
+        updatedAt: '2026-10-01T00:00:00.000Z',
+      });
+      const session = await keyed.createSession({
+        workspaceId: 'org-acme',
+        userId: 'user-ana',
+        userName: 'Ana',
+        tokens: {
+          accessToken: 'oauth-user-token',
+          refreshToken: null,
+          expiresAt: null,
+          scopes: ['read'],
+        },
+        expiresAt: '2099-01-01T00:00:00.000Z',
+      });
+      await keyed.close();
+
+      const { logger, lines } = recordingLogger();
+      const engine = await createEngineFromEnv(
+        {
+          LINEAR_AUTH: 'api_key',
+          APP_URL: 'http://localhost:3360',
+          PGLITE_DIR: pgliteDir,
+          TOKEN_ENCRYPTION_KEY: TEST_KEY,
+          LINEAR_API_URL: 'http://127.0.0.1:3361/graphql',
+        },
+        { logger, execArgv: [] }
+      );
+      try {
+        expect(engine.config.auth).toBe('api_key');
+        expect(engine.mode).toBe('linear');
+        expect(engine.config.apiKey?.endpoint).toBe(
+          'http://127.0.0.1:3361/graphql'
+        );
+        // The credential-free store reads the old installation blank.
+        expect(
+          (await engine.getInstallation('org-acme'))?.tokens.accessToken
+        ).toBe('');
+        expect(await engine.authenticate(session.token)).toBeNull();
+      } finally {
+        await engine.close();
+      }
+      const warning = lines.find((line) =>
+        line.includes('TOKEN_ENCRYPTION_KEY is unused when LINEAR_AUTH=api_key')
+      );
+      expect(warning).toContain('"level":"warn"');
+      const endpoint = lines.find((line) =>
+        line.includes('LINEAR_API_URL is set')
+      );
+      expect(endpoint).toContain('"level":"error"');
+      expect(endpoint).toContain('http://127.0.0.1:3361');
+      expect(lines.find((line) => line.includes('engine ready'))).toContain(
+        '"auth":"api_key"'
+      );
+      // Not deployed: PGlite is the local default, no warning.
+      expect(lines.some((line) => line.includes('on a deployed planner'))).toBe(
+        false
+      );
+
+      // Both rows are still there for a keyed store (nothing was purged).
+      const again = await openStore({ pgliteDir, encryptionKey: TEST_KEY });
+      try {
+        expect(
+          (await again.getInstallation('org-acme'))?.tokens.accessToken
+        ).toBe('oauth-access-token');
+        expect(
+          (await again.getSession(session.token, '2026-10-23T00:00:00.000Z'))
+            ?.tokens.accessToken
+        ).toBe('oauth-user-token');
+      } finally {
+        await again.close();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses inspector flags', async () => {
+    expect(
+      await rejectionMessage(
+        createEngineFromEnv(
+          { LINEAR_AUTH: 'api_key', APP_URL: 'http://localhost:3360' },
+          { execArgv: ['--inspect'] }
+        )
+      )
+    ).toContain('--inspect is refused when LINEAR_AUTH=api_key');
+  });
+
+  test('a deployed planner on PGlite warns that every deploy erases its data', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'engine-apikey-deployed-'));
+    try {
+      const { logger, lines } = recordingLogger();
+      const engine = await createEngineFromEnv(
+        {
+          LINEAR_AUTH: 'api_key',
+          APP_URL: 'https://planner.example.com',
+          NODE_ENV: 'production',
+          LINEAR_WORKSPACE: 'acme',
+          NODE_OPTIONS: '--disable-sigusr1',
+          PGLITE_DIR: join(dir, 'pglite'),
+        },
+        { logger, execArgv: [] }
+      );
+      await engine.close();
+      const warning = lines.find((line) =>
+        line.includes('on a deployed planner')
+      );
+      expect(warning).toContain('"level":"warn"');
+      expect(warning).toContain('set DATABASE_URL');
+      expect(lines.find((line) => line.includes('engine ready'))).toContain(
+        '"deployed":true'
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

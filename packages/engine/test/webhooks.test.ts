@@ -565,3 +565,27 @@ describe('other events', () => {
     }
   });
 });
+
+describe('webhooks with personal API keys', () => {
+  test('api_key mode ignores every delivery', async () => {
+    const { createApiKeyHarness } = await import('./api-key-harness');
+    const h = await createApiKeyHarness();
+    try {
+      expect(
+        await h.engine.handleWebhook({
+          deliveryId: 'delivery-1',
+          workspaceId: 'org-northwind',
+          type: 'Issue',
+          action: 'update',
+          entityId: 'iss-eng-1',
+          updatedFrom: null,
+        })
+      ).toBe('ignored');
+      expect(h.logs.some((line) => line.includes('personal API keys'))).toBe(
+        true
+      );
+    } finally {
+      await h.close();
+    }
+  });
+});

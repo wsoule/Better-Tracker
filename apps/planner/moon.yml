@@ -70,3 +70,25 @@ tasks:
       cache: false
       runInCI: true
       envFile: '/.env.worktree'
+
+  # The api-key browser test (playwright.api-key.config.ts): the same
+  # production build, served with LINEAR_AUTH=api_key against a loopback
+  # fake of Linear (e2e/fake-linear-server.ts) on E2E_PORT and E2E_PORT+1
+  # (default 3392 + the worktree offset), then a scan of everything the
+  # server wrote (E2E_ARTIFACTS_DIR, a fresh temp dir by default) for the
+  # test keys (e2e/scan-api-key-leaks.ts). A `moon ci` target like
+  # test-e2e.
+  test-e2e-api-key:
+    script:
+      'export E2E_ARTIFACTS_DIR="${E2E_ARTIFACTS_DIR:-$(mktemp -d)}" &&
+      playwright test -c playwright.api-key.config.ts && bun
+      e2e/scan-api-key-leaks.ts "$E2E_ARTIFACTS_DIR"'
+    deps:
+      - 'build'
+    inputs:
+      - 'e2e/**/*'
+      - 'playwright.api-key.config.ts'
+    options:
+      cache: false
+      runInCI: true
+      envFile: '/.env.worktree'
