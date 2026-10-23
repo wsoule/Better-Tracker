@@ -512,21 +512,23 @@ to the next chip (its face's picker, else its ×), else the previous one; Clear
 all hands it to the add control; a host whose last chip can go places focus
 itself.
 
-`BulkBar` is the fixed toolbar at the bottom centre, drawn like the toasts:
-paper in a 1px ink frame, no shadow, no radius (above the shell's tab bar on
-phones): "{n} selected" in the mono key voice, spoken by a polite live region
-that stays mounted (empty) at 0 so the first selection is announced, the host's
-action triggers (pickers with `appearance="bar"`), ✕. `busy` ("Moving 12
-issues…") replaces the count and disables the actions (they sit in a
-`<fieldset>`; when it ends, focus that fell to `<body>` goes back to the action
-last used, else the first), as does a `note` ("At most 100 at a time");
-`confirm` replaces the actions with a sentence, a primary button that takes
-focus, and Cancel (focus returns to the first action). Esc clears the selection
-(or cancels the confirmation), ← and → move between its buttons; after `onClear`
-the host puts focus back in the list. Mark a trigger's text `data-bulk-label`:
-it hides at 390px and below, so give each trigger a `triggerLabel`. While the
-bar is up (`data-bulk-bar`) the toasts stack above it: it publishes its height
-as `--bulk-bar-h` on the root element.
+`BulkBar` is the fixed toolbar at the bottom centre of the content column (the
+shell sets `--shell-content-left` to its sidebar's or rail's width, 0 on phones;
+outside a shell it centres on the window), drawn like the toasts: paper in a 1px
+ink frame, no shadow, no radius (above the shell's tab bar on phones): "{n}
+selected" in the mono key voice, spoken by a polite live region that stays
+mounted (empty) at 0 so the first selection is announced, the host's action
+triggers (pickers with `appearance="bar"`), ✕. `busy` ("Moving 12 issues…")
+replaces the count and disables the actions (they sit in a `<fieldset>`; when it
+ends, focus that fell to `<body>` goes back to the action last used, else the
+first), as does a `note` ("At most 100 at a time"); `confirm` replaces the
+actions with a sentence, a primary button that takes focus, and Cancel (focus
+returns to the first action). Esc clears the selection (or cancels the
+confirmation), ← and → move between its buttons; after `onClear` the host puts
+focus back in the list. Mark a trigger's text `data-bulk-label`: it hides at
+390px and below, so give each trigger a `triggerLabel`. While the bar is up
+(`data-bulk-bar`) the toasts stack above it: it publishes its height as
+`--bulk-bar-h` on the root element.
 
 `NavTabs` items may take `onFollow`: a plain click calls it instead of following
 `href` (a host that navigates itself and shows the change at once); a modified

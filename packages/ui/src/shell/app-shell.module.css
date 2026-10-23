@@ -7,6 +7,9 @@
 .shell {
   --shell-sidebar-w: 252px;
   --shell-rail-w: 52px;
+  /* Where the content column starts: what fixed bars centre on (the bulk
+     bar), the sidebar here, the rail when collapsed, 0 on a phone. */
+  --shell-content-left: var(--shell-sidebar-w);
   --shell-topbar-h: 46px;
   --shell-tabbar-h: 56px;
   /* One left edge for crumbs, banner and page blocks: the .block gutter
@@ -642,6 +645,10 @@
     width: var(--shell-rail-w);
   }
 
+  :global(html[data-shell-collapsed='true']) .shell {
+    --shell-content-left: var(--shell-rail-w);
+  }
+
   :global(html[data-shell-collapsed='true']) .column {
     margin-left: var(--shell-rail-w);
   }
@@ -742,6 +749,10 @@
    ========================================================================== */
 
 @media (width <= 900px) {
+  .shell {
+    --shell-content-left: 0px;
+  }
+
   .sidebar {
     z-index: 60;
     width: min(300px, 86vw);

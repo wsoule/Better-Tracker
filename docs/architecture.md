@@ -2774,14 +2774,15 @@ hover floods on controls, and the timeline's today.
   chips with the field as a mono key, "is", then the values, joined by a mono
   "and"; a value the planner cannot find in amber, a missing input, with "NOT
   FOUND" in its words; Clear all; a removed chip hands focus to its neighbour,
-  Clear all to "+ Filter") and `BulkBar` (fixed at the bottom centre while rows
-  are selected and drawn like the toasts: paper in a 1px ink frame, no shadow,
-  no radius; "{n} SELECTED" in the mono key voice, spoken through a polite
-  status that stays mounted while nothing is selected so the first selection is
-  heard; the host's mono actions, ✕, an inline confirm strip, busy and limit
-  notes, focus back on the action after a busy spell, Esc clears) complete it;
-  menus are `PickerPopover` with `searchable={false}`. Details in
-  `packages/ui/README.md`.
+  Clear all to "+ Filter") and `BulkBar` (fixed at the bottom centre of the
+  content column, past the sidebar or rail through the shell's
+  `--shell-content-left`, while rows are selected and drawn like the toasts:
+  paper in a 1px ink frame, no shadow, no radius; "{n} SELECTED" in the mono key
+  voice, spoken through a polite status that stays mounted while nothing is
+  selected so the first selection is heard; the host's mono actions, ✕, an
+  inline confirm strip, busy and limit notes, focus back on the action after a
+  busy spell, Esc clears) complete it; menus are `PickerPopover` with
+  `searchable={false}`. Details in `packages/ui/README.md`.
 - **Toasts**: bottom-right stack, 1px ink border (2px red for errors), mono
   label + one sentence, an optional action (the Issues page's Undo),
   auto-dismiss after 4 s (or the toast's own `duration`: 8 s for an Undo),
