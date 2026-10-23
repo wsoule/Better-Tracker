@@ -378,7 +378,7 @@ the types for the rest.
 |          | `TaskGroupTable` (grouped issue list; selection, drag and slots below)                                                 | `sections`                                                         |
 |          | `ViewToolbar` (list toolbar: search, the host's Filter / Sort / Group, end actions), `ToolbarBadge`                    | `search`, `controls`                                               |
 |          | `FilterChips` ("PROJECT is …" chips joined by "and", + Filter, Clear all)                                              | `chips`                                                            |
-|          | `BulkBar` (the floating bar of a selection; confirm strip, busy, note)                                                 | `count`, `onClear`, `children`                                     |
+|          | `BulkBar` (the floating bar of a selection; confirm strip, busy, note), `useBulkBarHeight()` (its height while up)     | `count`, `onClear`, `children`                                     |
 |          | `DeadlineList`, `StatsStrip`, `ProgressRule`                                                                           | `groups`; `cells`; `done`/`total`                                  |
 |          | `Register`, `RegisterRow`, `RegisterCell`                                                                              | `columns`, `label`, `children`                                     |
 |          | `Notice`, `EmptyState` (optional mono `label` above the sentence), `NavTabs`, `Checklist`                              | see `tasks/types.ts`                                               |
@@ -527,8 +527,11 @@ returns to the first action). Esc clears the selection (or cancels the
 confirmation), ← and → move between its buttons; after `onClear` the host puts
 focus back in the list. Mark a trigger's text `data-bulk-label`: it hides at
 390px and below, so give each trigger a `triggerLabel`. While the bar is up
-(`data-bulk-bar`) the toasts stack above it: it publishes its height as
-`--bulk-bar-h` on the root element.
+(`data-bulk-bar`) the toasts stack above it: it publishes its height through
+`useBulkBarHeight()` (px, or null while no bar is up), and `ToastProvider` sets
+it as `--bulk-bar-h` on its own viewport. A host list that must keep room under
+its last rows reads the same hook. Nothing is set on `<html>`: an inherited
+custom property there restyles every element of the page.
 
 `NavTabs` items may take `onFollow`: a plain click calls it instead of following
 `href` (a host that navigates itself and shows the change at once); a modified
@@ -745,8 +748,8 @@ touches none of it.
   through a media query and appends (then removes) a drag-image element.
   `BulkBar` is `position: fixed` and lifts itself above
   `[data-shell-tabbar='true']` on phones, as the toasts do; while it is up it
-  sets `--bulk-bar-h` on `<html>` (removed when it goes) and the toasts stack
-  above it.
+  publishes its height to `useBulkBarHeight()` (null when it goes) and the
+  toasts stack above it.
 - `SlideOver` closes on Esc and traps focus; `TaskGroupTable` can persist folded
   groups in `localStorage` or `sessionStorage` (`storage="session"` suits a
   desktop app). Storage failures are tolerated everywhere.

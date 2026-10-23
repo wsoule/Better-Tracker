@@ -13,6 +13,7 @@ import {
   useState,
 } from 'react';
 
+import { useBulkBarHeight } from '../tasks/bulk-bar-height';
 import { cx } from './render';
 import styles from './toast.module.css';
 import type {
@@ -195,6 +196,15 @@ export function ToastProvider({
 
   const api = useMemo<ToastApi>(() => ({ toast, dismiss }), [toast, dismiss]);
 
+  // A bulk bar's height, on the stack's own element (toast.module.css
+  // lifts the stack above the bar by it): a custom property on <html>
+  // would restyle every element of the page each time a bar comes or goes.
+  const barHeight = useBulkBarHeight();
+  const viewportStyle =
+    barHeight === null
+      ? undefined
+      : ({ '--bulk-bar-h': `${barHeight}px` } as CSSProperties);
+
   return (
     <ToastContext.Provider value={api}>
       {children}
@@ -203,6 +213,7 @@ export function ToastProvider({
       <section
         ref={viewportRef}
         className={styles.viewport}
+        style={viewportStyle}
         aria-label={toasts.length > 0 ? label : undefined}
         onFocus={(event) => {
           const from = event.relatedTarget;

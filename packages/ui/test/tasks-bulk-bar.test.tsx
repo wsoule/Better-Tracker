@@ -4,7 +4,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { useState } from 'react';
 
-import { BulkBar, type BulkBarConfirm } from '../src/index';
+import {
+  BulkBar,
+  type BulkBarConfirm,
+  ToastProvider,
+  useBulkBarHeight,
+} from '../src/index';
 
 afterEach(cleanup);
 
@@ -256,22 +261,37 @@ describe('BulkBar', () => {
 });
 
 describe('BulkBar and the toasts', () => {
+  // The height goes to what must clear the bar (useBulkBarHeight), which
+  // sets it on its own element: the toast stack's viewport here. Never a
+  // custom property on <html>: every element inherits that one, so the
+  // bar coming or going restyled the whole page (0.5-0.7 s on the
+  // showcase's 300-row /issues).
   test('while up it is marked for the toasts and publishes its height', () => {
     const root = document.documentElement;
-    const view = render(
-      <BulkBar count={2} onClear={() => undefined}>
-        {actions()}
-      </BulkBar>
+    const heights: (number | null)[] = [];
+    function Reader() {
+      heights.push(useBulkBarHeight());
+      return null;
+    }
+    const page = (count: number) => (
+      <ToastProvider>
+        <Reader />
+        <BulkBar count={count} onClear={() => undefined}>
+          {actions()}
+        </BulkBar>
+      </ToastProvider>
     );
+    const view = render(page(2));
     const bar = view.getByRole('toolbar');
     expect(bar.getAttribute('data-bulk-bar')).toBe('true');
     // happy-dom lays nothing out: the measured height is 0px, but set.
-    expect(root.style.getPropertyValue('--bulk-bar-h')).toBe('0px');
-    view.rerender(
-      <BulkBar count={0} onClear={() => undefined}>
-        {actions()}
-      </BulkBar>
-    );
+    expect(heights.at(-1)).toBe(0);
+    const viewport = view.container.ownerDocument.querySelector('section');
+    expect(viewport?.style.getPropertyValue('--bulk-bar-h')).toBe('0px');
+    expect(root.style.getPropertyValue('--bulk-bar-h')).toBe('');
+    view.rerender(page(0));
+    expect(heights.at(-1)).toBeNull();
+    expect(viewport?.style.getPropertyValue('--bulk-bar-h')).toBe('');
     expect(root.style.getPropertyValue('--bulk-bar-h')).toBe('');
   });
 

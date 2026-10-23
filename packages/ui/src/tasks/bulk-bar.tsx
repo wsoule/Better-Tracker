@@ -3,6 +3,7 @@
 import { X } from 'lucide-react';
 import { type KeyboardEvent, type ReactNode, useEffect, useRef } from 'react';
 
+import { publishBulkBarHeight } from './bulk-bar-height';
 import styles from './bulk-bar.module.css';
 import type { BulkBarProps } from './types';
 
@@ -27,7 +28,7 @@ import type { BulkBarProps } from './types';
      clears the selection; the host then puts focus back in the list.
      ← and → move between the bar's buttons.
    - While it is up, the toasts stack above it (its height is published
-     as --bulk-bar-h on the root element). */
+     through useBulkBarHeight, bulk-bar-height.ts). */
 export function BulkBar({
   count,
   countLabel,
@@ -53,20 +54,17 @@ export function BulkBar({
   // Into the confirmation: its primary button. Out of it (Cancel, or the
   // host dropping it): the first action, when focus was in the bar or
   // fell to <body> with the strip's buttons.
-  // While the bar is up, the toasts stack above it (toast.module.css reads
-  // --bulk-bar-h on the root element): an Undo toast must not cover the
-  // selection's actions or ✕. The height follows the bar (a confirmation
-  // can wrap on a phone).
+  // While the bar is up, the toasts stack above it and a host's list keeps
+  // room under its last rows: both read the height published here
+  // (useBulkBarHeight) and set it on their own element, so an Undo toast
+  // never covers the selection's actions or ✕. The height follows the bar
+  // (a confirmation can wrap on a phone).
   const shown = count > 0;
   useEffect(() => {
     const bar = barRef.current;
     if (!shown || bar === null) return undefined;
-    const root = document.documentElement;
     const measure = () => {
-      root.style.setProperty(
-        '--bulk-bar-h',
-        `${Math.round(bar.getBoundingClientRect().height)}px`
-      );
+      publishBulkBarHeight(Math.round(bar.getBoundingClientRect().height));
     };
     measure();
     const observer =
@@ -74,7 +72,7 @@ export function BulkBar({
     observer?.observe(bar);
     return () => {
       observer?.disconnect();
-      root.style.removeProperty('--bulk-bar-h');
+      publishBulkBarHeight(null);
     };
   }, [shown]);
 

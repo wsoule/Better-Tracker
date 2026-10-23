@@ -51,6 +51,7 @@ export {
   toggleId,
 } from './tasks/task-selection';
 export { BulkBar } from './tasks/bulk-bar';
+export { useBulkBarHeight } from './tasks/bulk-bar-height';
 export { FilterChips } from './tasks/filter-chips';
 export { ToolbarBadge, ViewToolbar } from './tasks/view-toolbar';
 export type {
