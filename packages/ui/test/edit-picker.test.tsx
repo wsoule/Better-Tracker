@@ -917,14 +917,16 @@ describe('PickerPopover appearances for lists', () => {
     );
     expect(css).toMatch(/^\.cell \{/m);
     expect(css).toMatch(/^\.bar \{/m);
-    // The bulk bar is paper: its actions are the paper's ink, in the mono
-    // voice, and flood the accent on hover (no inverted fill, no opacity).
+    // The bulk bar is Gr8r's inverted pill: its actions are ghost buttons
+    // in --text-inv at 0.85 opacity (4.5:1 on the fill: tasks-contrast),
+    // in the sentence-case sans, with a faint light wash on hover (never
+    // the accent flood).
     const bar = /^\.bar \{[^}]*\}/m.exec(css)?.[0] ?? '';
-    expect(bar).toContain('color: var(--foreground);');
-    expect(bar).toContain('font-family: var(--font-mono);');
-    expect(bar).not.toContain('opacity');
+    expect(bar).toContain('color: var(--text-inv);');
+    expect(bar).toContain('opacity: 0.85;');
+    expect(bar).not.toContain('font-family: var(--font-mono);');
     expect(css).toMatch(
-      /\.bar:not\(:disabled, \[aria-expanded='true'\]\):hover \{\s*background: var\(--accent\);\s*color: var\(--on-accent\);/
+      /\.bar:not\(:disabled\):hover \{\s*background: color-mix\(in srgb, var\(--text-inv\) 14%, transparent\);\s*opacity: 1;/
     );
     // A cell trigger takes the cell's voice instead of its own.
     const cell = /^\.cell \{[^}]*\}/m.exec(css)?.[0] ?? '';
@@ -933,7 +935,7 @@ describe('PickerPopover appearances for lists', () => {
 });
 
 describe('PickerMarkView avatar', () => {
-  test('initials in the square; nobody is the same square, dashed and empty', () => {
+  test('initials in the round avatar; nobody is the same circle, dashed and empty', () => {
     const { container } = render(
       <>
         <PickerMarkView mark={{ kind: 'avatar', name: 'Ana Moreno' }} />
@@ -948,12 +950,20 @@ describe('PickerMarkView avatar', () => {
       'true',
       'true',
     ]);
+    // The package's one avatar (InitialsAvatar), so a person reads the same
+    // hue in a picker as everywhere else.
+    expect(marks[0]?.getAttribute('data-hue')).not.toBeNull();
+    expect(marks[1]?.getAttribute('data-hue')).toBeNull();
     const css = readFileSync(
-      path.join(import.meta.dir, '../src/edit/picker-mark.module.css'),
+      path.join(
+        import.meta.dir,
+        '../src/components/initials-avatar.module.css'
+      ),
       'utf8'
     );
+    expect(css).toMatch(/\.avatar \{[^}]*border-radius: 50%;/);
     expect(css).toMatch(
-      /\.avatar\[data-empty='true'\]\s*\{\s*border-style: dashed;/
+      /\.avatar\[data-empty='true'\]\s*\{[^}]*border: 1\.3px dashed var\(--border-strong\);/
     );
   });
 });

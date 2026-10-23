@@ -8,8 +8,8 @@ import type { TimelineBar, TimelineLane } from './types';
 // drawn in greys whatever its milestones' status (§2.8: never loud).
 
 /** The tone a lane's sublabel is drawn in (data-tone), or undefined for
- * the quiet grey: only a status tone colours it (warning for NO LEAD or a
- * deactivated lead), and never on an inactive lane. */
+ * the quiet grey: only a status tone colours it (warning for "No lead" or
+ * a deactivated lead), and never on an inactive lane. */
 export function laneSublabelTone(
   lane: Pick<TimelineLane, 'muted' | 'sublabelTone'>
 ): UiTone | undefined {

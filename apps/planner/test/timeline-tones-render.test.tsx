@@ -18,6 +18,8 @@ import {
   type UiLinkProps,
 } from '@better-tracker/ui';
 import { describe, expect, mock, test } from 'bun:test';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import type { ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -141,12 +143,52 @@ describe('the banner rows', () => {
   });
 });
 
+describe('the banner panel (Gr8r look)', () => {
+  test('one labelled panel, lead-ins in sentence case, every row on every width', () => {
+    const banners = buildTimelineBanners(view, snapshot.issues);
+    const html = render(
+      <TimelineBanners banners={banners} hrefFor={() => '/timeline'} />
+    );
+    // One panel, not a stack of boxes: a single labelled section.
+    expect(html.match(/aria-label="Missing inputs"/g)).toHaveLength(1);
+    // The lead-ins are the sentence-case words (the old mono caps key
+    // carried "· <count>"; the sentence says the count).
+    for (const label of ['No lead', 'No date', 'Unplanned', 'Blocked']) {
+      expect(html).toContain(`>${label}</span>`);
+    }
+    expect(html).not.toMatch(/>No lead · \d/);
+    // Every banner is its own row with its own Show button, on a phone
+    // too: no folded summary row and nothing collapsed (main's
+    // behaviour; the stylesheet only wraps the sentence when narrow).
+    expect(html).not.toContain('missing inputs</span>');
+    expect(html).not.toContain('data-collapsed');
+    expect(html.match(/>Show \d+ items?</g)).toHaveLength(banners.length);
+    expect(banners).toHaveLength(4);
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'app',
+        '(app)',
+        'timeline',
+        'page.module.css'
+      ),
+      'utf8'
+    );
+    expect(css).not.toContain('bannerSummary');
+    expect(css).not.toMatch(/\.bannerRows\s*\{[^}]*display:\s*none/);
+  });
+});
+
 describe('the milestone drawer', () => {
   test('an overdue milestone: red strip and date, amber risk words', () => {
     // Atlas dual-write is overdue with two unassigned open issues.
     const html = drawerHtml('ms-atlas-2', GUEST);
-    // The strip's frame and key (AlertStrip emits its tone on the frame).
-    expect(html).toMatch(/data-tone="danger"><span[^>]*>Overdue<\/span>/);
+    // The strip's tint, icon and lead-in (AlertStrip emits its tone on the
+    // box; its lead is the tone's icon, then the word).
+    expect(html).toMatch(
+      /data-tone="danger"><span[^>]*><svg[\s\S]*?<\/svg><span[^>]*>Overdue<\/span>/
+    );
     // The read-only due date and the progress are red.
     expect(tonesOf(html, 'Oct')).toEqual(['danger']);
     expect(html).toMatch(
@@ -158,6 +200,25 @@ describe('the milestone drawer', () => {
     expect(html).not.toContain('data-tone="accent"');
   });
 
+  test('the risk lines are warnings, and quiet in an inactive project', () => {
+    // Atlas dual-write has open issues nobody is assigned to.
+    expect(
+      tonesOf(drawerHtml('ms-atlas-2', GUEST), 'Open issues unassigned')
+    ).toEqual(['warning']);
+    // Fjord is paused: its milestone's lines carry no tone (§2.8).
+    const fjord = drawerHtml('ms-fjord-1', GUEST);
+    expect(fjord).not.toContain('data-tone="warning"');
+    expect(fjord).not.toContain('data-tone="danger"');
+  });
+
+  test('the checklist heading counts what is met, outside its name', () => {
+    // The heading's name stays "Checklist" (main's); the count sits
+    // beside it in the same row.
+    expect(drawerHtml('ms-atlas-2', GUEST)).toMatch(
+      /<h3[^>]*>Checklist<\/h3><span[^>]*>\d+\/\d+ met<\/span>/
+    );
+  });
+
   test('a project without a lead: the missing lead is a warning', () => {
     // Delta exports has no lead (and its milestone is missing input).
     const guest = drawerHtml('ms-delta-1', GUEST);
@@ -167,5 +228,68 @@ describe('the milestone drawer', () => {
       'warning',
     ]);
     expect(member).not.toContain('data-tone="accent"');
+  });
+});
+
+// The timeline page, its drawer and the timeline gallery are migrated to
+// the Gr8r token names: none reads a deprecated migration alias, the
+// Analytics names tokens.css keeps only for sheets not yet restyled (its
+// MIGRATION ALIASES block, docs/architecture.md §8.2).
+describe('the timeline page sheets are migrated', () => {
+  const tokens = readFileSync(
+    path.join(
+      import.meta.dir,
+      '..',
+      '..',
+      '..',
+      'packages',
+      'ui',
+      'src',
+      'styles',
+      'tokens.css'
+    ),
+    'utf8'
+  );
+  const block = tokens.slice(
+    tokens.indexOf('MIGRATION ALIASES'),
+    tokens.indexOf('color-scheme: light;')
+  );
+  const retired = [
+    ...block.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/^\s*(--[\w-]+)\s*:/gm),
+  ].map((match) => match[1] ?? '');
+
+  test('the alias block is found', () => {
+    expect(retired).toContain('--paper');
+    expect(retired).toContain('--grey-2-ink');
+  });
+
+  test('no timeline page or gallery file reads a retired name', () => {
+    const dirs = [
+      path.join(import.meta.dir, '..', 'app', '(app)', 'timeline'),
+      path.join(
+        import.meta.dir,
+        '..',
+        'app',
+        '(gallery)',
+        'ui-gallery',
+        'timeline'
+      ),
+    ];
+    const found: string[] = [];
+    for (const dir of dirs) {
+      for (const name of readdirSync(dir)) {
+        if (!/\.(css|tsx?)$/.test(name)) continue;
+        const source = readFileSync(path.join(dir, name), 'utf8').replace(
+          /\/\*[\s\S]*?\*\//g,
+          ''
+        );
+        for (const token of retired) {
+          if (new RegExp(`${token}(?![\\w-])`).test(source)) {
+            found.push(`${path.basename(dir)}/${name}: ${token}`);
+          }
+        }
+      }
+    }
+    expect(found).toEqual([]);
   });
 });

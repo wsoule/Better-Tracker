@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  Fragment,
   memo,
   type NamedExoticComponent,
   type ReactElement,
@@ -24,10 +25,11 @@ import {
 } from './tones';
 import type { TimelineBar, TimelineGroup } from './types';
 
-// The phone (≤ 900px) fallback, after the competitors Matrix cards: one
-// hairline card per project listing its milestones as rows (status mark,
-// name, receipts, due date), in due-date order with the undated last. No
-// drag here: re-dating needs the drawer's date field on a phone.
+// The phone (≤ 900px) fallback, Gr8r's phone list: one bordered card per
+// project, grouped under its initiative's heading, listing its milestones
+// as rows (status mark, name, receipts, due date) in due-date order with
+// the undated last. No drag here: re-dating needs the drawer's date field
+// on a phone.
 
 export interface TimelineCardsProps {
   groups: TimelineGroup[];
@@ -39,19 +41,64 @@ export interface TimelineCardsProps {
   onOpenBar: (barId: string) => void;
 }
 
-/** One line of receipts under a milestone name: status, progress, tags,
- * the missing input. A hatched (missing-input) milestone that carries its
- * missing line says it once: the line names what is missing, so the
- * status label ("Missing input", "No issues yet") is left out. */
-function cardReceipts(bar: TimelineBar): string {
-  const parts =
-    bar.status === 'missing' && bar.missing !== undefined
-      ? []
-      : [bar.statusLabel];
-  if (bar.progressLabel !== undefined) parts.push(bar.progressLabel);
-  for (const tag of bar.tags ?? []) parts.push(tag);
-  if (bar.missing !== undefined) parts.push(bar.missing);
-  return parts.join(' · ');
+/** One line of receipts under a milestone name: status, progress, the
+ * missing input, then the tags as small pills. A missing-input milestone
+ * that carries its missing line says it once: the line names what is
+ * missing, so the status label ("Missing input", "No issues yet") is left
+ * out. The status word takes the line's tone, the missing input the
+ * warning tone; the rest stays quiet. */
+function CardReceipts({
+  bar,
+  loud,
+}: {
+  bar: TimelineBar;
+  loud: boolean;
+}): ReactElement {
+  const tone = receiptsTone(bar, loud);
+  const parts: ReactElement[] = [];
+  if (!(bar.status === 'missing' && bar.missing !== undefined)) {
+    parts.push(
+      <span key="status" className={styles.rowStatus}>
+        {bar.statusLabel}
+      </span>
+    );
+  }
+  if (bar.progressLabel !== undefined) {
+    parts.push(<span key="progress">{bar.progressLabel}</span>);
+  }
+  if (bar.missing !== undefined) {
+    parts.push(
+      <span
+        key="missing"
+        className={styles.rowMissing}
+        data-tone={loud ? 'warning' : 'default'}
+      >
+        {bar.missing}
+      </span>
+    );
+  }
+  const tags = bar.tags ?? [];
+  return (
+    <span
+      className={cx(
+        styles.rowMeta,
+        tone === 'default' ? undefined : styles.rowMetaToned
+      )}
+      data-tone={tone}
+    >
+      {parts.map((part, i) => (
+        <Fragment key={part.key}>
+          {i > 0 ? ' · ' : null}
+          {part}
+        </Fragment>
+      ))}
+      {tags.map((tag) => (
+        <span key={tag} className={styles.rowTag}>
+          {tag}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function TimelineCardsImpl({
@@ -97,7 +144,7 @@ function TimelineCardsImpl({
           aria-label={group.label}
         >
           <header className={styles.groupHead}>
-            <h3 className={styles.groupLabel}>{group.label}</h3>
+            <h3 className={styles.groupName}>{group.label}</h3>
             <span className={styles.groupCount}>
               {group.lanes.length}{' '}
               {group.lanes.length === 1 ? 'project' : 'projects'}
@@ -155,7 +202,6 @@ function TimelineCardsImpl({
                 ) : (
                   <ul className={styles.rows}>
                     {bars.map((bar) => {
-                      const metaTone = receiptsTone(bar, loud);
                       const dueTone = barDueTone(bar, loud);
                       return (
                         <li key={bar.id}>
@@ -184,17 +230,7 @@ function TimelineCardsImpl({
                               <span className={styles.rowName}>
                                 {bar.label}
                               </span>
-                              <span
-                                className={cx(
-                                  styles.rowMeta,
-                                  metaTone === 'default'
-                                    ? undefined
-                                    : styles.rowMetaToned
-                                )}
-                                data-tone={metaTone}
-                              >
-                                {cardReceipts(bar)}
-                              </span>
+                              <CardReceipts bar={bar} loud={loud} />
                             </span>
                             <span
                               className={cx(
@@ -227,7 +263,11 @@ function TimelineCardsImpl({
                           }
                           onClick={() => onOpenBar(chip.id)}
                         >
-                          <StatusMark status="missing" label="No date" />
+                          <StatusMark
+                            status="missing"
+                            label="No date"
+                            muted={!loud}
+                          />
                           <span className={styles.rowBody}>
                             <span className={styles.rowName}>{chip.label}</span>
                             <span className={styles.rowMeta}>

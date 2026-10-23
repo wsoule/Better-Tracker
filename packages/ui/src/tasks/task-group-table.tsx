@@ -16,6 +16,7 @@ import {
   useSyncExternalStore,
 } from 'react';
 
+import { avatarHue, InitialsAvatar } from '../components/initials-avatar';
 import StatusMark from '../components/status-mark';
 import { PickerMarkView } from '../edit/picker-mark';
 import { useLatest } from '../edit/save-state';
@@ -73,9 +74,9 @@ const COLUMN_WIDTHS: Record<TaskColumnId, number> = {
 const GRIP_COL_PX = 18;
 const CHECK_COL_PX = 30;
 const ACTIONS_COL_PX = 40;
-/** Before the title text: the indent under the group's mark (44), the key
-    column (68) and the gap after it (8), as in the stylesheet. */
-const TITLE_LEAD_PX = 120;
+/** Before the title text: the indent under the group's mark (38), the key
+    column (64) and the gap after it (8), as in the stylesheet. */
+const TITLE_LEAD_PX = 110;
 /** The narrowest title a step of `dropColumns` leaves. */
 const TITLE_MIN_PX = 260;
 
@@ -123,7 +124,8 @@ const FINE_POINTER_QUERY = '(hover: hover) and (pointer: fine)';
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
 // Whether a due date's tone colours its text (the tone's --tone-ink via
-// data-tone): every tone but default (ink) and muted (its own grey class).
+// data-tone): every tone but default (the text colour) and muted (its own
+// grey class).
 function hasTextTone(tone: UiTone | undefined): boolean {
   return tone !== undefined && tone !== 'default' && tone !== 'muted';
 }
@@ -199,10 +201,11 @@ interface RowSlots {
   onRowContextMenu: TaskGroupTableProps['onRowContextMenu'];
 }
 
-/* Gr8r's My Tasks grouped table in the Analytics skin. Structure: a column
-   header, then sections (THIS WEEK / LATER / NO MILESTONE) as hatched
-   dividers, each holding collapsible groups (PROJECT › MILESTONE with due,
-   days left, completed/scope and the status mark) of register rows.
+/* Gr8r's My Tasks grouped list, as one rounded panel. Structure: a column
+   header, then sections (This week / Later / No milestone) as recessed
+   bands, each holding collapsible groups (Gr8r's group header: chevron,
+   status mark, Project / Milestone, count, then due, days left and
+   completed/scope) of flat rows split by soft dividers.
 
    Semantics are plain on purpose: section and group titles are headings,
    each group's toggle is a disclosure button (aria-expanded/controls) and
@@ -217,11 +220,12 @@ interface RowSlots {
 
    The issue list adds, each only when its prop is set (without them the
    markup is My week's, unchanged): `selection` (Gr8r's row and select-all
-   checkboxes, shift ranges, x, Shift+↑/↓, ⌘A; a selected row carries the
-   2px accent rule at its left edge, and the row's checkbox carries the
-   state, never aria-selected, which a list item does not support), `drag`
-   (an HTML5 drag from an 18px grip onto any group, which answers with a
-   2px accent frame), and the slots `renderCell`, `rowActions`,
+   checkboxes, shift ranges, x, Shift+↑/↓, ⌘A; a selected row takes the
+   accent tint and a 2px accent bar at its left edge, and the row's
+   checkbox carries the state, never aria-selected, which a list item does
+   not support), `drag` (an HTML5 drag from an 18px grip onto any group,
+   which answers with a faint accent wash in an accent edge), and the slots
+   `renderCell`, `rowActions`,
    `groupActions` and `onRowContextMenu`.
 
    Groups and rows are memoized: a selection, a fold or a host render
@@ -803,10 +807,9 @@ export function TaskGroupTable({
   );
 }
 
-/** Draws the drag image: a small paper label in a 1px ink frame naming
-    how many rows move ("3 ISSUES"), appended inside the table (so its
-    styles apply in scoped mode) and removed once the browser has taken
-    its picture. */
+/** Draws the drag image: a small inverted card naming how many rows move
+    ("3 issues"), appended inside the table (so its styles apply in scoped
+    mode) and removed once the browser has taken its picture. */
 function setDragImage(
   event: DragEvent<HTMLElement>,
   root: HTMLElement | null,
@@ -988,8 +991,8 @@ const Group = memo(function Group({
   slots,
   groupActions,
 }: GroupProps) {
-  // The spoken name: a comma, not the visible "›", which screen readers
-  // read out as punctuation ("right angle quote").
+  // The spoken name: a comma, not the visible "/", which screen readers
+  // read out as punctuation ("slash").
   const name =
     group.eyebrow !== undefined && group.eyebrow !== ''
       ? `${group.eyebrow}, ${group.title}`
@@ -1082,7 +1085,7 @@ const Group = memo(function Group({
           <ChevronRight
             className={styles.chevron}
             size={14}
-            strokeWidth={1.5}
+            strokeWidth={1.8}
             aria-hidden="true"
           />
         </button>
@@ -1103,7 +1106,7 @@ const Group = memo(function Group({
             <>
               <span className={styles.eyebrow}>{group.eyebrow}</span>
               <span className={styles.crumb} aria-hidden="true">
-                ›
+                /
               </span>
             </>
           ) : null}
@@ -1138,14 +1141,7 @@ const Group = memo(function Group({
               <span className="srOnly">Due </span>
               {group.dueLabel}
               {group.daysLeftLabel !== undefined ? (
-                <span
-                  className={cx(
-                    styles.daysLeft,
-                    dueToned ? styles.toneText : undefined
-                  )}
-                >
-                  {group.daysLeftLabel}
-                </span>
+                <span className={styles.daysLeft}>{group.daysLeftLabel}</span>
               ) : null}
             </span>
           ) : null}
@@ -1201,7 +1197,9 @@ const Group = memo(function Group({
             <span>{group.footer.text}</span>
             {group.footer.actions.map((action) => (
               <span key={action.label} className={styles.footerItem}>
-                <span aria-hidden="true">·</span>
+                <span className={styles.footerDot} aria-hidden="true">
+                  ·
+                </span>
                 <button
                   type="button"
                   className={styles.footerAction}
@@ -1250,7 +1248,7 @@ const Row = memo(function Row({
   slots,
 }: RowProps) {
   const external = row.external === true;
-  // Under a PROJECT › MILESTONE heading the project cell repeats the
+  // Under a Project / Milestone heading the project cell repeats the
   // heading; phones drop it so the meta fits one line.
   const projectRepeatsHeading =
     row.project !== undefined && row.project === group.eyebrow;
@@ -1294,7 +1292,7 @@ const Row = memo(function Row({
             <ArrowUpRight
               className={styles.externalGlyph}
               size={12}
-              strokeWidth={1.5}
+              strokeWidth={1.8}
               aria-hidden="true"
             />
             <span className="srOnly"> (opens in a new tab)</span>
@@ -1348,7 +1346,7 @@ const Row = memo(function Row({
             onDragStart={drag.draggable ? (e) => drag.start(e, row) : undefined}
             onDragEnd={drag.draggable ? () => drag.end() : undefined}
           >
-            <GripVertical size={14} strokeWidth={1.5} aria-hidden="true" />
+            <GripVertical size={14} strokeWidth={1.8} aria-hidden="true" />
           </span>
         </div>
       ) : null}
@@ -1386,7 +1384,7 @@ const Row = memo(function Row({
                 aria-label={row.externalLabel ?? `Open ${row.key} in a new tab`}
                 title={row.externalLabel ?? `Open ${row.key} in a new tab`}
               >
-                <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
+                <ArrowUpRight size={13} strokeWidth={1.8} aria-hidden="true" />
               </Link>
             </span>
           )}
@@ -1520,7 +1518,24 @@ function CellValue({
 }) {
   switch (column) {
     case 'project':
-      return <span className={styles.project}>{row.project ?? '—'}</span>;
+      // Gr8r's project chip: a dot in the name's decorative hue (the
+      // avatars' hues, never a status hue), then the name.
+      return row.project === undefined || row.project === '' ? (
+        <span className={styles.project}>—</span>
+      ) : (
+        <span className={styles.project}>
+          <span
+            className={styles.projectDot}
+            style={
+              {
+                '--project-hue': `var(--${avatarHue(row.project)})`,
+              } as CSSProperties
+            }
+            aria-hidden="true"
+          />
+          <span className={styles.projectName}>{row.project}</span>
+        </span>
+      );
     case 'state':
       return (
         <span className={styles.glyphValue} data-state={row.stateKind}>
@@ -1567,19 +1582,18 @@ function CellValue({
     }
     case 'assignee': {
       const name = row.assignee ?? '';
-      // Initials in the system's square; nobody is the same square,
-      // dashed and empty, beside "Unassigned" (or the row's own words
-      // for it) in its tone.
+      // Gr8r's round avatar; nobody is the dashed empty one, beside
+      // "Unassigned" (or the row's own words for it) in its tone.
       return name === '' ? (
         <span className={styles.person} data-tone={row.assigneeTone ?? 'muted'}>
-          <span className={styles.avatarEmpty} aria-hidden="true" />
+          <InitialsAvatar name="" />
           <span className={styles.personName}>
             {row.unassignedLabel ?? 'Unassigned'}
           </span>
         </span>
       ) : (
         <span className={styles.person}>
-          <PickerMarkView mark={{ kind: 'avatar', name }} />
+          <InitialsAvatar name={name} />
           <span className={styles.personName}>{name}</span>
         </span>
       );

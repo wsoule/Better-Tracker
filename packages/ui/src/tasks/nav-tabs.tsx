@@ -3,17 +3,18 @@ import { cx } from './class-names';
 import styles from './nav-tabs.module.css';
 import type { NavTabsProps } from './types';
 
-/* The Analytics tab strip as navigation: each cell is a link (through the
-   host's <Link>), the current one is ink-filled and marked
-   aria-current="page", hover floods the accent. Unlike SegmentedControl (a
-   radio group that changes state in place) every cell is a destination:
-   a level switch whose levels are routes, or a settings sub-nav.
-   Horizontal cells collapse on one hairline and wrap; vertical cells stack
-   into a column (Gr8r's settings sub-nav) and turn into a wrapping strip
-   on narrow screens. A cell without href cannot be followed yet: it is
-   drawn hatched and muted, with its note saying why. A cell with onFollow
-   takes a plain click itself (the host navigates and shows the change at
-   once); its href still opens in a new tab. */
+/* Gr8r's tabs as navigation: each cell is a link (through the host's
+   <Link>), the current one is underlined in the text colour (horizontal)
+   or the sidebar's raised pill (vertical) and marked aria-current="page".
+   Unlike SegmentedControl (a radio group that changes state in place)
+   every cell is a destination: a level switch whose levels are routes, or
+   a settings sub-nav. Horizontal cells sit on one rule and wrap; vertical
+   cells stack into a column (Gr8r's settings sub-nav, each with an
+   optional icon) and turn into a sideways-scrolling strip on narrow
+   screens. A cell without href cannot be followed yet: it is drawn
+   dimmed, with its note saying why. A cell with onFollow takes a plain
+   click itself (the host navigates and shows the change at once); its
+   href still opens in a new tab. */
 export function NavTabs({
   items,
   label,
@@ -37,6 +38,11 @@ export function NavTabs({
         {items.map((item) => {
           const body = (
             <>
+              {item.icon !== undefined && item.icon !== null ? (
+                <span className={styles.icon} aria-hidden="true">
+                  {item.icon}
+                </span>
+              ) : null}
               <span className={styles.text}>{item.label}</span>
               {item.count !== undefined ? (
                 <span className={styles.count}>{item.count}</span>

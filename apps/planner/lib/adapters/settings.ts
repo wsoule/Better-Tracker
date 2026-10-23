@@ -571,19 +571,19 @@ export function scheduleSavedMessage(
  * One Status row. `tone` colours the value (architecture §8.2 "settings
  * status"): success = working access or a sync that went through,
  * warning = not installed or never synced, danger = revoked or a failed
- * sync, muted = demo data or no webhook yet. The mono line under it stays
+ * sync, muted = demo data or no webhook yet. The quiet line under it stays
  * muted, except a failed sync's error (`toneDetail`).
  */
 export interface StatusRow {
   id: string;
   label: string;
   value: string;
-  /** Mono line under the value. */
+  /** The quiet line under the value. */
   sub?: string;
   tone: UiTone;
   /** The `sub` line takes the tone too (RegisterCell `toneSub`): set for
       a failed sync, whose error is why the row is red, as a failed
-      digest's error is red text and a BLOCKED project's reason amber.
+      digest's error is red text and a Blocked project's reason amber.
       A date or a hint ("Since …") stays muted. */
   toneDetail?: true;
 }
@@ -706,11 +706,10 @@ export interface DigestItemPreview {
   /** The "Why" chip's colour (noticeTone): danger overdue, warning the
       rest. */
   tone: DigestTone;
-  /** The chip keeps the shape it had before the status hues: filled for
-      what needs action now (the same items as rowTone), outlined for at
-      risk. */
+  /** Tinted (Chip `filled`) for what needs action now (the same items
+      as rowTone), a dot pill for at risk. */
   chipFilled: boolean;
-  /** The row's 2px rule: the item's tone for what needs action now
+  /** The row's tone, data only (no row rule: the chip says it): the item's tone for what needs action now
       (overdue, due soon without what the rubric needs, allocation
       stopped); default for at risk, which is a warning but not yet a
       missed date or a missing input. */
@@ -719,7 +718,7 @@ export interface DigestItemPreview {
       coloured (dueTone, architecture §8.2 "due date"; My week's Upcoming
       deadlines colours its group labels instead): danger overdue, warning due
       today or tomorrow or undated, default later ("Oct 31 · in 9 days"
-      stays ink under an amber rule). */
+      stays neutral beside an amber chip). */
   dueTone: 'default' | DigestTone;
 }
 

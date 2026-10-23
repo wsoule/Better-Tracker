@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 
 import { SIDEBAR_STORAGE_KEY } from '../../lib/adapters/shell';
 import { getPageContext, loadShellFrame } from '../../lib/load';
-import { geist, jetbrainsMono, THEME_STORAGE_KEY } from '../fonts';
+import { geist, geistMono, THEME_STORAGE_KEY } from '../fonts';
 import AppProviders from './components/app-providers';
 import DemoNotice from './components/demo-notice';
 import PlannerShell from './components/planner-shell';
@@ -73,7 +73,7 @@ export default async function AppLayout({
       // Next to switch it off during route changes, so a new page starts
       // at the top instead of animating there.
       data-scroll-behavior="smooth"
-      className={`${geist.variable} ${jetbrainsMono.variable}`}
+      className={`${geist.variable} ${geistMono.variable}`}
     >
       <body>
         <script

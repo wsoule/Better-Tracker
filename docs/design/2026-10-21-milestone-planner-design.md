@@ -451,6 +451,8 @@ a restyle in Gr8r Studio's own look (rounded panels, warm greys, soft shadows),
 in their words: "I like the left for the ui, just needs color updates." The
 restyle was declined; it is kept on the branch `claude/ui-reskin` for reference
 only. This refines the "risk color" of §7.1 and §7.2; nothing else changes.
+*(The look part is superseded 2026-10-23, below: the Gr8r restyle is adopted
+after all. The status colours stay as decided here.)*
 
 - **The look stays exactly as it is**: layout, spacing, type (Geist with the
   mono uppercase labels), black hairlines, no radius, the hatching, the
@@ -586,3 +588,39 @@ else changes.
 - Wording: "Nothing here waits on it" (something not drawn may still wait on
   it); under Critical path the hint says "show the longest chain through it".
 - A box of two or three loose boxes lays them side by side, not in a column.
+
+### 2026-10-23 — owner: adopt the Gr8r restyle after all
+
+Decided by the product owner after seeing the before / after comparison of the
+restyle declined on 2026-10-22, in their words: "I think we should go with that
+reskin that you were proposing before." It supersedes the look part of the
+2026-10-22 entry "keep the current look; status colours"; the status colours
+of that entry stay.
+
+- **The look is Gr8r Studio's**, as it already was for layout and interaction:
+  warm neutral surfaces, soft low-contrast borders, 4–12px radius, soft
+  shadows only on things that float (menus, the palette, the drawer, toasts),
+  sentence-case Geist, Geist Mono only for ids and keys, round avatars, the
+  Gr8r sidebar, palette, drawer and toasts. The black hairlines, mono capital
+  labels, hatching, numbered blocks and ink floods on hover are retired.
+- **The purple stays the one brand colour**, in the role Gr8r gives its accent:
+  the primary button, focus, selection, progress, today, unread and links. It
+  never means a status.
+- **Status colours keep their meaning**: red for overdue and failed; amber for
+  at risk, blocked, a missing input and unassigned; green for on track and
+  success; blue for in progress and live; grey for paused and inactive. Only
+  the drawing changes, to Gr8r's: tinted chips and alerts, small coloured dots
+  on neutral pills, coloured text for dates and numbers, and milestone statuses
+  as small diamonds. A finished milestone keeps a filled neutral mark with a
+  tick, never a green fill next to a red one.
+- **Dark mode is a soft dark** (the owner, same day: the old near-black was
+  "too dark"): warm charcoal, nothing darker than Gr8r's own dark page.
+- **Never by colour alone, readable everywhere.** Every status keeps its shape
+  and its words; coloured text reads at 4.5:1 and marks, field edges and focus
+  rings at 3:1, light and dark; high-contrast (forced colours) mode keeps every
+  shape.
+- **Built on today's screens, not merged.** The Issues view, the every-issue
+  graph and its highlights, the showcase workspace and everything since the
+  2026-10-22 restyle get the same look; behaviour, routes, keyboard paths and
+  names do not change, and only copy that relied on capital letters is
+  rewritten in sentence case ("Demo data", "Not found").

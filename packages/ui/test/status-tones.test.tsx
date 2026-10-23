@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import {
+  Checklist,
   Chip,
   Notice,
   PriorityGlyph,
@@ -18,13 +19,16 @@ import {
   type UiTone,
 } from '../src/index';
 import AlertStrip from '../src/shell/alert-strip';
+import { hex, THEMES, tokensCss } from './contrast-helpers';
 
 // Status colours on the shared atoms (owner decision 2026-10-22,
-// docs/architecture.md §8.2). CSS modules resolve to empty objects under
-// Bun, so the atoms are checked through the data-tone they emit, and the
-// colours through their stylesheets: status is drawn with the status hues
-// (--red, --amber, --green, --blue, --grey) or the data-tone hook (--tone,
-// --tone-ink), never with the purple accent.
+// docs/architecture.md §8.2), drawn the Gr8r way (owner decision
+// 2026-10-23): tinted chips and alerts, dot pills, toned text, diamonds.
+// CSS modules resolve to empty objects under Bun, so the atoms are checked
+// through the data-tone they emit, and the colours through their
+// stylesheets: status is drawn with the status hues (--red, --amber,
+// --green, --blue, --gray) or the data-tone hook (--tone, --tone-ink,
+// --tone-soft), never with the purple accent.
 
 afterEach(cleanup);
 
@@ -51,15 +55,31 @@ describe('StatusMark colours (status-mark.module.css)', () => {
   const sheet = css('components/status-mark.module.css');
 
   test('each status takes its hue, in its own shape', () => {
-    // Done stays the filled ink square: a green fill has the red fill's
-    // lightness, so without red-green vision done and overdue would match.
-    expect(rule(sheet, '.done')).toBe('background: var(--foreground);');
-    expect(rule(sheet, '.on_track')).toContain('background: transparent');
-    expect(rule(sheet, '.on_track')).toContain('border-color: var(--green)');
-    expect(rule(sheet, '.at_risk')).toContain('border: 2px solid var(--amber)');
-    expect(rule(sheet, '.overdue')).toContain('background: var(--red)');
-    expect(rule(sheet, '.missing')).toContain('repeating-linear-gradient');
-    expect(rule(sheet, '.muted')).toContain('border-color: var(--grey)');
+    // The diamond is ::before; its edge and fills are currentColor.
+    expect(rule(sheet, '.mark::before')).toContain(
+      'border: 2px solid currentColor'
+    );
+    expect(rule(sheet, '.mark::before')).toContain('transform: rotate(45deg)');
+    // Done stays a filled NEUTRAL diamond with a tick: a green fill has the
+    // red fill's lightness, so without red-green vision done and overdue
+    // would match.
+    expect(rule(sheet, '.done')).toBe('color: var(--text);');
+    expect(rule(sheet, '.done::before')).toBe('background: currentColor;');
+    expect(rule(sheet, '.done::after')).toContain(
+      'border: solid var(--surface)'
+    );
+    expect(rule(sheet, '.on_track')).toBe('color: var(--green);');
+    expect(rule(sheet, '.at_risk')).toBe('color: var(--amber);');
+    expect(rule(sheet, '.at_risk::before')).toContain(
+      'linear-gradient(135deg, transparent 50%, currentColor 50%)'
+    );
+    expect(rule(sheet, '.overdue')).toBe('color: var(--red);');
+    expect(rule(sheet, '.overdue::before')).toBe('background: currentColor;');
+    expect(rule(sheet, '.missing')).toBe('color: var(--text-3);');
+    expect(rule(sheet, '.missing::before')).toBe('border-style: dotted;');
+    expect(rule(sheet, '.open')).toBe('color: var(--text-2);');
+    expect(rule(sheet, '.muted')).toBe('color: var(--gray);');
+    expect(sheet).not.toMatch(/\.done[^{]*\{[^}]*--green/);
   });
 
   test('the accent never draws a status', () => {
@@ -76,9 +96,50 @@ describe('Chip', () => {
       );
       view.unmount();
     }
+    // Unfilled, a status tone is Gr8r's status pill: neutral and bordered,
+    // the hue only in a 6px dot (aria-hidden; the word says it).
+    const view = render(<Chip tone="info">Running</Chip>);
+    const chip = view.container.firstElementChild;
+    expect(chip?.querySelectorAll('[aria-hidden="true"]').length).toBe(1);
+    view.unmount();
     const sheet = css('tasks/chip.module.css');
-    expect(rule(sheet, '.status')).toBe(
-      'border-color: var(--tone-ink); color: var(--tone-ink);'
+    expect(rule(sheet, '.pill')).toBe(
+      'border-color: var(--border); background: var(--surface); color: var(--text);'
+    );
+    expect(rule(sheet, '.dot')).toContain('background: var(--tone);');
+  });
+
+  // An inactive project's Linear status ("Paused") is Gr8r's status pill
+  // with a grey dot (the approved Projects shot): grey still means
+  // inactive. Without `dot` a muted chip stays plain quiet text, and `dot`
+  // does nothing on any other tone.
+  test('a muted chip with dot is the grey-dot pill; plain without it', () => {
+    const dotted = render(
+      <Chip tone="muted" dot>
+        Paused
+      </Chip>
+    );
+    const pill = dotted.container.firstElementChild;
+    expect(pill?.getAttribute('data-tone')).toBe('muted');
+    expect(pill?.querySelectorAll('[aria-hidden="true"]').length).toBe(1);
+    dotted.unmount();
+    const quiet = render(<Chip tone="muted">Inactive</Chip>);
+    expect(
+      quiet.container.firstElementChild?.querySelectorAll(
+        '[aria-hidden="true"]'
+      ).length
+    ).toBe(0);
+    quiet.unmount();
+    const neutral = render(<Chip dot>Planned</Chip>);
+    expect(
+      neutral.container.firstElementChild?.querySelectorAll(
+        '[aria-hidden="true"]'
+      ).length
+    ).toBe(0);
+    neutral.unmount();
+    // The muted tone's --tone is the inactive grey, so the dot is grey.
+    expect(tokensCss).toMatch(
+      /\[data-tone='muted'\]\) \{\s*--tone: var\(--gray\);/
     );
   });
 
@@ -105,18 +166,47 @@ describe('Chip', () => {
       outline.container.firstElementChild?.hasAttribute('data-filled')
     ).toBe(false);
     outline.unmount();
+    // Filled is Gr8r's tinted badge: the tone's text on its soft tint, no
+    // dot and no border.
+    const tinted = render(
+      <Chip tone="warning" filled>
+        Blocked
+      </Chip>
+    );
+    expect(
+      tinted.container.firstElementChild?.querySelectorAll(
+        '[aria-hidden="true"]'
+      ).length
+    ).toBe(0);
+    tinted.unmount();
     const sheet = css('tasks/chip.module.css');
-    expect(rule(sheet, '.statusFilled')).toBe(
-      'border-color: var(--tone); background: var(--tone); color: var(--on-tone);'
+    expect(rule(sheet, '.accent, .tinted')).toBe(
+      'border-color: transparent; background: var(--tone-soft); color: var(--tone-ink);'
     );
   });
 
-  test('on the accent fill a status mark turns white', () => {
+  // No chip is a solid slab any more, so a status mark inside keeps its
+  // own hue (3:1 or better on every soft tint, styles-contrast.test.ts)
+  // and replaces the pill's dot.
+  test('a status mark keeps its hue on a tint and replaces the dot', () => {
     const sheet = css('tasks/chip.module.css');
-    const body = rule(sheet, '.accent .mark');
-    for (const hue of ['--red', '--amber', '--green', '--grey']) {
-      expect(body).toContain(`${hue}: var(--on-accent)`);
-    }
+    expect(sheet).not.toMatch(/--(red|amber|green|gray|grey): var\(--on-/);
+    const view = render(
+      <Chip tone="danger" status="overdue" statusLabel="Overdue">
+        Overdue
+      </Chip>
+    );
+    expect(view.getByRole('img', { name: 'Overdue' })).toBeDefined();
+    expect(view.container.querySelectorAll('[aria-hidden="true"]').length).toBe(
+      0
+    );
+  });
+
+  test('muted is plain quiet text; inverse the dark slab', () => {
+    const sheet = css('tasks/chip.module.css');
+    expect(rule(sheet, '.muted')).toContain('background: none;');
+    expect(rule(sheet, '.muted')).toContain('color: var(--text-3);');
+    expect(rule(sheet, '.inverse')).toContain('background: var(--text);');
   });
 });
 
@@ -135,12 +225,16 @@ describe('Notice', () => {
     expect(failed.getByRole('alert').getAttribute('data-tone')).toBe('danger');
   });
 
-  test('a status notice draws its frame and key from the tone hook', () => {
-    const sheet = css('tasks/notice.module.css');
-    expect(rule(sheet, ':global(.notice).toned')).toBe(
-      'border-color: var(--tone);'
+  test('a status notice is tinted, its lead-in in the tone from the hook', () => {
+    const primitives = css('styles/primitives.css');
+    expect(primitives).toContain(
+      "[data-tone='warning'], [data-tone='danger'] ) { border-color: transparent; background: var(--tone-soft); }"
     );
+    const sheet = css('tasks/notice.module.css');
     expect(rule(sheet, '.key.toneKey')).toBe('color: var(--tone-ink);');
+    expect(rule(sheet, ':global(.notice).quiet')).toContain(
+      'background: var(--surface)'
+    );
   });
 });
 
@@ -161,11 +255,17 @@ describe('AlertStrip', () => {
     );
   });
 
-  test('frame and key come from the hook; the follow-up link stays purple', () => {
+  test('tint, icon and lead-in come from the hook; the follow-up link stays purple', () => {
     const sheet = css('shell/alert-strip.module.css');
-    expect(rule(sheet, '.strip')).toContain('border: 2px solid var(--tone)');
-    expect(rule(sheet, '.key')).toContain('color: var(--tone-ink)');
+    expect(rule(sheet, '.strip')).toContain(
+      'background: var(--tone-soft, var(--amber-soft))'
+    );
+    expect(rule(sheet, '.icon')).toContain('color: var(--tone, var(--amber))');
+    expect(rule(sheet, '.key')).toContain(
+      'color: var(--tone-ink, var(--text))'
+    );
     expect(rule(sheet, '.action')).toContain('color: var(--accent-ink)');
+    expect(rule(sheet, '.action')).toContain('text-decoration: underline');
   });
 
   test('TaskDetail passes an alert tone through', () => {
@@ -194,7 +294,7 @@ describe('AlertStrip', () => {
 });
 
 describe('ProgressRule', () => {
-  test('any tone but default paints the fill and receipt from the hook', () => {
+  test('any tone but default paints the fill from the hook; the receipt stays quiet', () => {
     for (const tone of [...SEMANTIC, 'muted', 'accent'] as UiTone[]) {
       const view = render(<ProgressRule done={1} total={2} tone={tone} />);
       expect(view.container.firstElementChild?.getAttribute('data-tone')).toBe(
@@ -203,9 +303,12 @@ describe('ProgressRule', () => {
       view.unmount();
     }
     const sheet = css('tasks/progress-rule.module.css');
-    expect(rule(sheet, '.fill')).toContain('background: var(--foreground)');
+    // Default is Gr8r's accent progress fill.
+    expect(rule(sheet, '.fill')).toContain('background: var(--accent)');
     expect(rule(sheet, '.toned .fill')).toBe('background: var(--tone);');
-    expect(rule(sheet, '.toned .label')).toBe('color: var(--tone-ink);');
+    // One fact is coloured once: the fill says it, the "3/7" stays quiet.
+    expect(rule(sheet, '.label')).toContain('color: var(--text-3)');
+    expect(sheet).not.toContain('.toned .label');
   });
 });
 
@@ -237,18 +340,22 @@ describe('Register', () => {
     ).toBe('warning');
   });
 
-  test('the left rule and the toned text come from the hook', () => {
+  test('a toned row draws no rule; the toned text comes from the hook', () => {
     const sheet = css('tasks/register.module.css');
-    expect(rule(sheet, '.rowRule')).toContain(
-      'border-left: 2px solid var(--tone)'
-    );
+    // Gr8r: a row that needs action says so with a chip or a toned cell.
+    expect(sheet).not.toContain('border-left');
+    expect(sheet).not.toContain('.rowRule');
     expect(rule(sheet, '.toneText .cellValue')).toBe('color: var(--tone-ink);');
+    // The selected row: the accent tint with a 2px accent bar.
+    expect(rule(sheet, '.selected')).toBe(
+      'background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent);'
+    );
   });
 
   test('the line under a toned value stays muted unless the cell opts in', () => {
     const sheet = css('tasks/register.module.css');
-    // The sub line is muted furniture; the tone colours only the value...
-    expect(rule(sheet, '.cellSub')).toContain('color: var(--muted);');
+    // The sub line is secondary text; the tone colours only the value...
+    expect(rule(sheet, '.cellSub')).toContain('color: var(--text-2);');
     expect(sheet).not.toContain('.toneText .cellSub');
     // ...except where the line is the status's reason (toneSub).
     expect(rule(sheet, '.toneSub .cellSub')).toBe('color: var(--tone-ink);');
@@ -271,9 +378,11 @@ describe('StatsStrip', () => {
     ).toEqual(['danger', 'warning', 'accent']);
     const sheet = css('tasks/stats-strip.module.css');
     for (const tone of ['accent', ...SEMANTIC]) {
-      expect(sheet).toContain(`.${tone} .value`);
+      expect(sheet).toContain(`.${tone} :where(.value, .note)`);
     }
-    expect(sheet).toContain('.info .note { color: var(--tone-ink); }');
+    expect(sheet).toContain(
+      '.info :where(.value, .note) { color: var(--tone-ink); }'
+    );
   });
 });
 
@@ -281,8 +390,25 @@ describe('Glyphs', () => {
   test('urgent is red, in progress blue, done green', () => {
     const sheet = css('tasks/task-glyphs.module.css');
     expect(rule(sheet, '.urgent')).toBe('color: var(--red);');
-    expect(rule(sheet, '.started')).toBe('color: var(--blue);');
-    expect(rule(sheet, '.completed')).toBe('color: var(--green);');
+    // The workflow colours are --st-* tokens, mapped to the status hues
+    // (in progress blue, done green, triage / backlog / canceled grey).
+    expect(rule(sheet, '.started')).toBe('color: var(--st-progress);');
+    expect(rule(sheet, '.completed')).toBe('color: var(--st-done);');
+    for (const [, tokens] of THEMES) {
+      expect(hex(tokens, '--st-progress')).toBe(hex(tokens, '--blue'));
+      expect(hex(tokens, '--st-done')).toBe(hex(tokens, '--green'));
+      for (const grey of ['--st-triage', '--st-backlog', '--st-canceled']) {
+        expect([
+          grey,
+          [
+            hex(tokens, '--red'),
+            hex(tokens, '--amber'),
+            hex(tokens, '--green'),
+            hex(tokens, '--blue'),
+          ].includes(hex(tokens, grey)),
+        ]).toEqual([grey, false]);
+      }
+    }
     expect(sheet).not.toContain('--accent');
     // Still decorative: the state and priority names say it.
     const view = render(
@@ -298,50 +424,66 @@ describe('Glyphs', () => {
 });
 
 describe('Button', () => {
-  test('danger is red at rest, on hover and when pressed, never purple', () => {
+  test('danger is red at rest and on hover, never purple', () => {
     const sheet = css('tasks/button.module.css');
+    // Gr8r's danger button: a red fill with its own text colour.
     expect(rule(sheet, '.danger')).toBe(
-      'border-color: var(--red); color: var(--red-ink);'
+      'background: var(--red); color: var(--on-danger);'
     );
     expect(rule(sheet, '.danger:not(:disabled):hover')).toContain(
-      'background: var(--red)'
+      'color-mix(in srgb, var(--red) 88%, var(--text))'
     );
-    expect(rule(sheet, '.danger:not(:disabled):active')).toContain(
-      'color: var(--on-red)'
-    );
+    expect(rule(sheet, '.danger')).not.toContain('--accent');
   });
 });
 
 describe('Checklist (the rubric)', () => {
-  test('met is the filled ink square, missing a hollow amber one', () => {
+  test('met is a filled neutral disc, missing a dashed amber ring and chip', () => {
     const sheet = css('tasks/checklist.module.css');
-    // Met stays ink (as done does), so the one amber item stands out.
-    expect(rule(sheet, '.met .mark')).toBe('background: var(--foreground);');
+    // Met stays neutral (as done does), so the one amber item stands out.
+    expect(rule(sheet, '.met .mark')).toBe(
+      'color: var(--text); background: currentColor;'
+    );
     expect(sheet).not.toContain('--green');
-    expect(rule(sheet, '.missing .mark')).toBe('border-color: var(--amber);');
-    expect(rule(sheet, '.missing .state')).toBe('color: var(--amber-ink);');
+    expect(rule(sheet, '.missing .mark')).toBe(
+      'color: var(--amber); border-style: dashed;'
+    );
     expect(sheet).not.toContain('--accent');
+    const view = render(
+      <Checklist
+        items={[
+          { label: 'Target date', met: true },
+          { label: 'Lead', met: false },
+        ]}
+      />
+    );
+    const missing = view.getByText('Missing').closest('[data-tone]');
+    expect(missing?.getAttribute('data-tone')).toBe('warning');
+    expect(missing?.hasAttribute('data-filled')).toBe(true);
   });
 });
 
 describe('Errors are red (a failed write or load)', () => {
   test('every error key and the error toast use the red hue', () => {
-    const cases: [string, string, string][] = [
-      ['edit/save-status.module.css', '.key', '--red-ink'],
-      ['edit/picker-popover.module.css', '.errorKey', '--red-ink'],
-      ['task/task-comment-list.module.css', '.errorKey', '--red-ink'],
-      ['task/task-description.module.css', '.errorKey', '--red-ink'],
-      ['task/task-relation-list.module.css', '.removeErrorKey', '--red-ink'],
-      ['shell/command-palette.module.css', '.groupError', '--red-ink'],
-      ['shell/toast.module.css', '.error', '--red'],
-      ['shell/toast.module.css', '.error .label', '--red-ink'],
-      ['shell/toast.module.css', '.error .timer', '--red'],
+    // --red is text-safe in the Gr8r tokens; --red-ink (its migration
+    // alias) is the same colour, so a key may use either. The toast is
+    // inverted, so its error icon and timer use --red-ink-inverse.
+    const RED = /var\(--red(-ink)?\)/;
+    const cases: [string, string, RegExp][] = [
+      ['edit/save-status.module.css', '.key', RED],
+      ['edit/picker-popover.module.css', '.errorKey', RED],
+      ['task/task-comment-list.module.css', '.errorKey', RED],
+      ['task/task-description.module.css', '.errorKey', RED],
+      ['task/task-relation-list.module.css', '.removeErrorKey', RED],
+      ['shell/command-palette.module.css', '.groupError', RED],
+      ['shell/toast.module.css', '.error .icon', /var\(--red-ink-inverse\)/],
+      ['shell/toast.module.css', '.error .timer', /var\(--red-ink-inverse\)/],
     ];
     for (const [file, selector, token] of cases) {
       expect([file, selector, rule(css(file), selector)]).toEqual([
         file,
         selector,
-        expect.stringContaining(`var(${token})`),
+        expect.stringMatching(token),
       ]);
     }
   });

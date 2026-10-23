@@ -1,29 +1,34 @@
-/* /graph page furniture around the package components: the header, the
-   graph block, and the slide-over's sections (property list, links,
-   neighbour lists). Built only from the shared tokens. */
+/* /graph page furniture around the package components, in Gr8r's look:
+   the page header (trail, title, receipts, quiet notices), the blocks
+   under it 12px apart (the section title, the graph panel, the legend's
+   key rows, Copy Mermaid, or the too-large notice and its register), and
+   the slide-over's sections (property list, links, neighbour lists).
+   Built only from the shared tokens; colour by tone comes from the
+   data-tone hook (tokens.css). */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
 }
 
+/* Gr8r's page title and the quiet line under it. */
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
 }
 
 .receipts {
   max-width: 96ch;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
 
 /* The drill-up trail above the h1 (TaskCrumbs: Workspace / initiative /
@@ -32,6 +37,7 @@
 .trail {
   min-width: 0;
   max-width: 100%;
+  margin-bottom: 4px;
 }
 
 /* Quiet one-line notes under the receipts: why the graph covers more
@@ -39,27 +45,38 @@
    counted under another initiative, a closed or cut chain. */
 .notice {
   max-width: 96ch;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+  color: var(--text-2);
 }
 
 .body {
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 20px auto 0;
   padding: 0 48px 72px;
 }
 
-.collapse > * + * {
-  margin-top: -1px;
+/* The blocks of the page, each its own panel (or quiet rows), 12px
+   apart; the section title sits right above the graph panel. */
+.collapse {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* In the graph panel's toolbar the level tabs drop their own rule (the
+   toolbar draws one under them); the current tab keeps its underline. The
+   class is doubled to outrank NavTabs' own rule for its bar. */
+.toolbarTabs.toolbarTabs > ul {
+  border-bottom-color: transparent;
 }
 
 /* Every highlight's legend stacked in one grid cell under the drawing,
    only the current one shown: the cell keeps the tallest legend's height,
-   so switching the highlight never moves what follows it (the shown
-   legend's hairline box stretches to the cell). */
+   so switching the highlight never moves what follows it. */
 .legends {
   display: grid;
+  padding: 0 2px;
 }
 
 .legendSlot {
@@ -74,9 +91,7 @@
   visibility: visible;
 }
 
-.legendSlot > * {
-  flex: 1 1 auto;
-}
+/* ---- the slide-over ------------------------------------------------------ */
 
 .panel {
   display: flex;
@@ -90,13 +105,11 @@
   gap: 8px;
 }
 
+/* Gr8r's drawer section head: body size, semibold, the count quiet. */
 .panelKey {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .links {
@@ -105,17 +118,20 @@
   gap: 8px;
 }
 
-/* The count after a list's mono key ("WAITS ON · 2"). */
+/* The count after a list's name ("Waits on · 2"). */
 .panelCount {
-  font-weight: 400;
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 
 /* The panel's one-line summary above its lists: "Waits on 1 · Holds up 1
    · Finishing it would clear 1". */
 .panelSummary {
-  font-size: 13.5px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
 
 /* What a list leaves out because the graph does not draw it ("1 more
@@ -123,9 +139,9 @@
    lists: quiet notes, never a status. */
 .panelNote,
 .panelCaveat {
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh);
+  color: var(--text-3);
 }
 
 /* The highlight switch (Status / Risk / Critical path) after the level
@@ -138,7 +154,7 @@
 .neighbour {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -148,40 +164,45 @@
 }
 
 /* A panel value in its status tone (data-tone: danger red, warning amber,
-   info blue, muted grey; architecture §8.2), in the TEXT colour. */
+   info blue, muted grey; architecture §8.2), in the tone's text colour. */
 .toneText {
   color: var(--tone-ink);
 }
 
-/* Past the draw limits, where the canvas would be: the notice, then a
-   hairline bar (what the list is) over the narrower graphs' register. */
-.tooLarge > * + * {
-  margin-top: -1px;
+/* ---- too large to draw --------------------------------------------------- */
+
+/* Past the draw limits, where the canvas would be: the neutral notice,
+   then a heading row (what the list is) over the narrower graphs'
+   register panel. */
+.tooLarge {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .tooLargeBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  padding: 12px 18px;
-  border: 1px solid var(--border);
+  gap: 4px 16px;
+  min-height: 24px;
+  margin-bottom: -4px;
 }
 
 .tooLargeText {
   flex: 1 1 320px;
   min-width: 0;
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-size: var(--fs);
+  line-height: var(--lh);
 }
 
 .tooLargeTitle {
-  font-weight: 600;
-  color: var(--foreground);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .tooLargeNote {
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 /* Loading skeleton: header lines. */
@@ -199,16 +220,13 @@
   }
 
   .title {
-    font-size: 22px;
+    font-size: var(--fs-xl);
+    letter-spacing: var(--ls-heading);
   }
 
   .body {
-    margin-top: 20px;
+    margin-top: 16px;
     padding: 0 16px 48px;
-  }
-
-  .tooLargeBar {
-    padding: 12px 14px;
   }
 }
 

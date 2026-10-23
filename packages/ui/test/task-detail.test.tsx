@@ -79,6 +79,12 @@ function baseProps(extra: Partial<TaskDetailProps> = {}): TaskDetailProps {
         tone: 'warning',
         message: 'In Todo for 9 days.',
       },
+      {
+        id: 'overdue',
+        label: 'Overdue',
+        tone: 'danger',
+        message: 'Search v2 beta was due Oct 19.',
+      },
     ],
     properties: [
       { id: 'assignee', label: 'Assignee', value: 'Ana Moreno' },
@@ -138,9 +144,23 @@ describe('TaskDetail', () => {
     expect(key.textContent).toContain('opens in a new tab');
     expect(screen.getByText('Todo')).toBeTruthy();
 
-    // Alerts in order, with the follow-up as a link.
-    expect(screen.getByText('Blocked')).toBeTruthy();
-    expect(screen.getByText('Stalled')).toBeTruthy();
+    // Alerts by tone (an alert without one is AlertStrip's default,
+    // warning), with the follow-up as a link. Only the most severe one is
+    // a tinted box; the rest are rows of one neutral list, in host order.
+    const strip = (label: string) =>
+      screen.getByText(label).closest('[data-tone]');
+    const alertTone = (label: string) =>
+      strip(label)?.getAttribute('data-tone');
+    expect(alertTone('Blocked')).toBe('warning');
+    expect(alertTone('Stalled')).toBe('warning');
+    expect(alertTone('Overdue')).toBe('danger');
+    const overdue = strip('Overdue');
+    const blocked = strip('Blocked');
+    const stalled = strip('Stalled');
+    expect(overdue?.parentElement?.firstElementChild).toBe(overdue ?? null);
+    expect(blocked?.parentElement).toBe(stalled?.parentElement ?? null);
+    expect(blocked?.parentElement).not.toBe(overdue?.parentElement ?? null);
+    expect(blocked?.nextElementSibling).toBe(stalled ?? null);
     expect(
       screen.getByRole('link', { name: 'Graph' }).getAttribute('href')
     ).toBe('/graph?focus=ENG-24');
@@ -561,15 +581,22 @@ describe('TaskActivityList', () => {
 });
 
 describe('TaskPropertyValue', () => {
-  test('prints the value with a note under it', () => {
+  test('prints the value with a note under it, both toned', () => {
     render(
-      <TaskPropertyValue tone="warning" note="Next milestone, due Oct 26">
+      <TaskPropertyValue
+        tone="warning"
+        note="Next milestone, due Oct 26"
+        noteTone="danger"
+      >
         Unassigned
       </TaskPropertyValue>
     );
     expect(screen.getByText('Unassigned').getAttribute('data-tone')).toBe(
       'warning'
     );
+    expect(
+      screen.getByText('Next milestone, due Oct 26').getAttribute('data-tone')
+    ).toBe('danger');
     // The note is a sentence from the host: it reads in its own direction.
     expect(
       screen.getByText('Next milestone, due Oct 26').getAttribute('dir')

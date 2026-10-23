@@ -43,7 +43,7 @@ function isPriority(value: string | null): value is `${TaskPriority}` {
 }
 
 /** The workflow state, drawn with the state glyph. Required: no none
-    option. Mono by default, for the task view's status line. */
+    option. A bordered pill by default, for the task view's status line. */
 export function StatePicker({
   states,
   value,
@@ -71,9 +71,9 @@ export function StatePicker({
   );
 }
 
-/** Who the task is assigned to: square initials, a "You" note on the
-    signed-in person, and "Unassigned" (in the amber warning hue: an open
-    issue nobody holds) as the none option and the empty face. */
+/** Who the task is assigned to: round avatars, a "You" note on the
+    signed-in person, and "Unassigned" (a dashed empty avatar, amber: an
+    open task needs a person) as the none option and the empty face. */
 export function AssigneePicker({
   people,
   value,
@@ -83,6 +83,7 @@ export function AssigneePicker({
   onChange,
   label = 'Assignee',
   noneLabel = 'Unassigned',
+  noneMark = { kind: 'avatar', name: '' },
   placeholder = 'Unassigned',
   placeholderTone = 'warning',
   searchPlaceholder = 'Assign to…',
@@ -114,6 +115,7 @@ export function AssigneePicker({
       {...rest}
       label={label}
       noneLabel={noneLabel}
+      noneMark={noneMark}
       placeholder={placeholder}
       placeholderTone={placeholderTone}
       searchPlaceholder={searchPlaceholder}
@@ -159,7 +161,8 @@ export function PriorityPicker({
 
 /**
  * The task's labels, several at a time: grouped under their label group,
- * each with its colour as a small square, and a group marked singleSelect
+ * each with its colour as a small square (the chosen ones are neutral
+ * label chips carrying the same square), and a group marked singleSelect
  * keeps one label (picking another replaces it, as in Linear).
  */
 export function LabelPicker({
@@ -212,7 +215,7 @@ export function LabelPicker({
   );
 }
 
-/** Maps projects and milestones onto options (status square, note). */
+/** Maps projects and milestones onto options (status mark, note). */
 function planOptions(choices: readonly PlanChoice[]): PickerOption[] {
   return choices.map((choice) => ({
     value: choice.id,

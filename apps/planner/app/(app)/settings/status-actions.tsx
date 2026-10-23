@@ -1,7 +1,6 @@
 'use client';
 
 import {
-  BlockBar,
   Button,
   Chip,
   EmptyState,
@@ -30,7 +29,8 @@ const PREVIEW_NOTE = 'The preview records and sends nothing.';
 /* Settings → Status, for everyone signed in: "Resync now" (POST
    /api/sync, then the page re-reads the sync time) and "Preview today's
    digests" (POST /api/warnings/preview: built, never recorded or sent),
-   rendered inline below as one block per recipient. Failures are
+   rendered inline below: a heading and summary, then per recipient a
+   small heading over a register of what they would hear. Failures are
    toasted. Each button disables while it works, so keyboard focus first
    moves to the status line beside them (tabIndex=-1, a live region saying
    what is happening and how it went); a finished preview takes focus to
@@ -109,7 +109,7 @@ export default function StatusActions() {
       <div className={css.formBar}>
         <Button
           size="sm"
-          icon={<RefreshCw size={14} strokeWidth={1.5} />}
+          icon={<RefreshCw size={14} strokeWidth={1.8} />}
           disabled={syncing}
           onClick={() => void resync()}
         >
@@ -117,7 +117,7 @@ export default function StatusActions() {
         </Button>
         <Button
           size="sm"
-          icon={<Mail size={14} strokeWidth={1.5} />}
+          icon={<Mail size={14} strokeWidth={1.8} />}
           disabled={previewing}
           onClick={() => void previewDigests()}
         >
@@ -140,7 +140,9 @@ export default function StatusActions() {
 }
 
 // The preview takes focus on its heading when it arrives (rather than
-// being a live region that would read every digest aloud).
+// being a live region that would read every digest aloud). It sits inside
+// the Status section (its h2), so its title is an h3, as on main, and each
+// recipient under it an h4.
 function DigestPreviewBlock({
   preview,
   headingRef,
@@ -150,44 +152,41 @@ function DigestPreviewBlock({
 }) {
   return (
     <section className={css.preview} aria-labelledby="digest-preview-title">
-      <h3
-        id="digest-preview-title"
-        ref={headingRef}
-        tabIndex={-1}
-        className={css.previewTitle}
-      >
-        {preview.heading}
-      </h3>
-      <p className={css.previewSummary}>{preview.summary}</p>
+      <header className={css.previewHead}>
+        <h3
+          id="digest-preview-title"
+          ref={headingRef}
+          tabIndex={-1}
+          className={css.previewTitle}
+        >
+          {preview.heading}
+        </h3>
+        <p className={css.previewSummary}>{preview.summary}</p>
+      </header>
       {preview.digests.length === 0 ? (
-        <EmptyState>No digests today</EmptyState>
+        <EmptyState label="No digests today">
+          Nobody would hear from the planner if the daily run went now.
+        </EmptyState>
       ) : (
-        preview.digests.map((digest, index) => (
-          <DigestBlock
-            key={digest.recipientId}
-            digest={digest}
-            index={String(index + 1).padStart(2, '0')}
-          />
+        preview.digests.map((digest) => (
+          <DigestBlock key={digest.recipientId} digest={digest} />
         ))
       )}
     </section>
   );
 }
 
-function DigestBlock({
-  digest,
-  index,
-}: {
-  digest: DigestPreview;
-  index: string;
-}) {
+/* One recipient's digest: their name over a register of its items, each
+   item's kind as a tinted chip (red overdue, amber the rest). */
+function DigestBlock({ digest }: { digest: DigestPreview }) {
   return (
-    <div className={css.collapse}>
-      <BlockBar
-        index={index}
-        title={digest.recipient}
-        meta={`${digest.items.length} ${digest.items.length === 1 ? 'item' : 'items'} · ${digest.email ?? 'no email in Linear'}`}
-      />
+    <div className={css.digest}>
+      <div className={css.digestHead}>
+        <h4 className={css.digestTitle}>{digest.recipient}</h4>
+        <span className={css.digestMeta}>
+          {`${digest.items.length} ${digest.items.length === 1 ? 'item' : 'items'} · ${digest.email ?? 'no email in Linear'}`}
+        </span>
+      </div>
       {/* The subject (a milestone, or a project whose allocation stopped)
           leads each row: it is the card's title once the register
           stacks. */}

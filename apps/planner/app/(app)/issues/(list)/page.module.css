@@ -1,112 +1,78 @@
-/* Issues page furniture around the package components, in the idiom of
-   My week, Projects and the timeline: the page header (title, the "every
-   issue across" line, the receipts line in the same quiet sans), the
-   preset tabs (the NavTabs strip), the notices, the toolbar and chips bar
-   (each its own 1px frame, the chips collapsing into the toolbar), then
-   the grouped list as one table. The old list stays on screen at full
-   contrast, marked busy (aria-busy, the toolbar's 2px progress rule and a
+/* Issues page furniture around the package components, in Gr8r's Tasks
+   layout: the page header (title, the "every issue across" line, quiet
+   receipts), the preset tabs, the notices, the toolbar and chips bar
+   (each a row over a soft rule, spanning the content column), then the
+   grouped list as one panel. The old list stays on screen at full
+   contrast, marked busy (aria-busy, the toolbar's 2px progress line and a
    progress cursor) while the server answers a view change. Built only
-   from the shared tokens: hairlines, zero radius, no shadows. */
+   from the shared tokens. */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
 }
 
 .subtitle {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
 }
 
-/* The counts line: My week's, Projects' and the timeline's receipts
-   voice (quiet sans, muted). */
 .receipts {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: var(--lh);
+  color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
 
-/* The preset tabs scroll sideways rather than wrap on a narrow screen.
-   Focus rings sit inside each cell (NavTabs), so the clip cuts none. */
+/* The preset tabs scroll sideways rather than wrap on a narrow screen. */
 .tabs {
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 14px auto 0;
   padding: 0 48px;
   overflow-x: auto;
   scrollbar-width: none;
 }
 
-/* NavTabs wraps its strip; here it stays one row and the strip scrolls
-   instead. */
+/* NavTabs wraps its strip; here it stays one row (its rule spanning the
+   column) and the strip scrolls instead. */
 .tabs ul {
   flex-wrap: nowrap;
   width: max-content;
+  min-width: 100%;
 }
 
 .tabs::-webkit-scrollbar {
   display: none;
 }
 
-.notices {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-width: 1440px;
-  margin: 16px auto 0;
-  padding: 0 48px;
-}
-
-/* The toolbar and chips bar draw their own frames and inner gutter
-   (--view-toolbar-gutter, 18px by default). */
+/* The toolbar and chips bar sit in the content column, so their own
+   gutter is zero and their rules span the column. */
 .toolbarWrap {
+  --view-toolbar-gutter: 0;
+
   max-width: 1440px;
-  margin: 16px auto 0;
+  margin: 4px auto 0;
   padding: 0 48px;
 }
 
-/* The toolbar's trailing actions (Open as graph, Copy link): the
-   timeline toolbar's "Open as graph" voice, muted mono caps that flood
-   the accent on hover. */
-.endAction {
-  flex: none;
-  margin: 0 -6px;
-  padding: 5px 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--grey-2-ink);
-  white-space: nowrap;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.endAction + .endAction {
-  margin-left: 6px;
-}
-
-@media (hover: hover) and (width >= 901px) {
-  .endAction:hover {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
+.notices {
+  display: grid;
+  gap: 8px;
+  max-width: 1440px;
+  margin: 12px auto 8px;
+  padding: 0 48px;
 }
 
 /* The table's column header sticks under the shell's topbar. */
@@ -114,12 +80,12 @@
   --task-sticky-top: var(--nav-h, 0px);
 
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 16px auto 0;
   padding: 0 48px 72px;
 }
 
-/* Busy: no fade (a fade drops the accent and muted text under 4.5:1);
-   the toolbar's progress rule and aria-busy say it, the cursor too. */
+/* Busy: no fade (a fade drops the accent and quiet text under 4.5:1);
+   the toolbar's progress line and aria-busy say it, the cursor too. */
 .list[data-busy='true'] {
   cursor: progress;
 }
@@ -150,15 +116,17 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 14px;
-  min-height: 48px;
-  padding: 9px 18px;
-  border: 1px solid var(--border);
+  gap: 12px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--border);
 }
 
-/* The list's rows in the table's own 1px frame. */
+/* The list's rows in the table's own panel. */
 .skeletonList {
+  overflow: clip;
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 @media (width <= 768px) {
@@ -167,33 +135,25 @@
     padding: 0 16px;
   }
 
-  .title {
-    font-size: 22px;
-  }
-
   .tabs,
-  .notices,
-  .toolbarWrap {
+  .toolbarWrap,
+  .notices {
     padding: 0 16px;
   }
 
-  .tabs {
-    margin-top: 20px;
-  }
-
   .list {
-    margin-top: 20px;
     padding: 0 16px 56px;
-  }
-
-  .skeletonToolbar {
-    padding: 10px 14px;
   }
 }
 
-/* Phones: the toolbar's triggers drop their "Sort:" / "Group:" words, so
-   the controls row stays short. */
+/* Phones: the toolbar's triggers drop their "Sort:" / "Group:" words, as
+   Gr8r's do, so the controls row stays short. */
 @media (width <= 640px) {
+  .title {
+    font-size: var(--fs-xl);
+    letter-spacing: var(--ls-heading);
+  }
+
   .toolbarWrap :global([data-toolbar-word]) {
     display: none;
   }

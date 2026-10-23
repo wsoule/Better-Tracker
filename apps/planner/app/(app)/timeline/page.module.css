@@ -1,53 +1,57 @@
-/* Timeline page furniture around the package components: the header, the
-   banner stack, the chart's toolbar inputs, and the drawer's contents
-   (edit fields, issue list, waits-on list). Built only from the shared
-   tokens; the chart, notices, drawer and property list style themselves. */
+/* Timeline page furniture around the package components, in Gr8r Studio's
+   look: the page header, the banners (one panel), the chart's toolbar
+   inputs, and the drawer's contents (edit fields, rubric, issue list,
+   waits-on list). Built only from the shared tokens; the chart, notices,
+   drawer and property list style themselves. Colour by status comes from
+   the data-tone hook (tokens.css gives --tone, --tone-ink, --tone-soft,
+   --tone-line and --on-tone; docs/architecture.md §8.2 "Status colours"). */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
 }
 
+/* Gr8r's page title and the quiet line under it. */
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
 }
 
 .receipts {
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
 
 /* ---- banners ---------------------------------------------------------- */
 
-/* The page notices (not found, read only) and the banner block stack
-   with a small gap. */
+/* The page notices (not found, read only, write grant) and the banners
+   stack with a small gap. */
 .notices {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 20px auto 0;
   padding: 0 48px;
 }
 
-/* One block for every banner: a 1px hairline frame with the single 2px
-   rule down its left edge (2px is emphasis, spent once), and one 1px
-   ruled row per banner, about 40px tall. Every banner is a missing input
-   or a blocked project, a warning (docs/architecture.md §8.2), so the
-   rule is the amber MARK colour and each row's key takes its tone's text
-   colour from the data-tone hook. */
-.banners {
+/* The banners as one Gr8r panel (--border, --r-lg), a --divider row per
+   banner and no tint: the icon in the banner's hue, the lead-in in the
+   tone's ink, the sentence in --text-2. The tone comes from the adapter
+   (§8.2: warning for every banner) as data-tone, beside data-banner-id. */
+.bannerPanel {
+  overflow: hidden;
   border: 1px solid var(--border);
-  border-left: 2px solid var(--amber);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 .bannerRows {
@@ -56,25 +60,27 @@
 }
 
 .banner + .banner {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--divider);
 }
 
 .bannerHead {
   display: flex;
   align-items: center;
-  gap: 4px 16px;
-  min-height: 40px;
-  padding: 5px 8px 5px 16px;
+  gap: 4px 10px;
+  min-height: 38px;
+  padding: 4px 6px 4px 12px;
+}
+
+.bannerIcon {
+  flex: none;
+  color: var(--tone);
 }
 
 .bannerKey {
   flex: 0 0 auto;
-  min-width: 112px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  min-width: 84px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   color: var(--tone-ink);
   white-space: nowrap;
 }
@@ -82,9 +88,9 @@
 .bannerText {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 13.5px;
-  line-height: 1.45;
-  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
 }
 
 .bannerAction {
@@ -92,11 +98,14 @@
   margin-left: auto;
 }
 
+/* The expanded list, recessed under its row (a --sunken well with
+   --divider rows) and indented to the lead-in. */
 .bannerList {
   display: flex;
   flex-direction: column;
-  margin: 0 16px 8px;
-  border-top: 1px solid var(--hairline-faint);
+  margin: 0 8px 8px 37px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
 }
 
 .bannerList[hidden] {
@@ -107,30 +116,33 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 14px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--hairline-faint);
+  gap: 2px 12px;
+  padding: 7px 10px;
+}
+
+.bannerItem + .bannerItem {
+  border-top: 1px solid var(--divider);
 }
 
 .bannerLink {
-  font-weight: 500;
-  color: var(--foreground);
-  border-bottom: 1px solid var(--hairline-faint);
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur) ease;
 }
 
 .bannerDetail {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .bannerIssues {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 10px;
+  gap: 4px 8px;
 }
 
 /* "Plan in Issues": the unplanned row's way into the Issues page, an
@@ -139,20 +151,29 @@
   margin-left: auto;
 }
 
+/* Issue keys are ids: mono, quiet, underlined on hover like a title. */
 .issueKeyLink {
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--accent-ink);
-  border-bottom: 1px solid currentcolor;
+  font-size: var(--fs-2xs);
+  color: var(--text-2);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  transition:
+    color var(--dur) ease,
+    text-decoration-color var(--dur) ease;
+}
+
+.bannerLink:focus-visible {
+  text-decoration-color: var(--border-strong);
 }
 
 /* Narrow: the key and the Show button share the first line, the sentence
-   wraps under them. */
+   wraps under them, and the list starts at the row's left edge. */
 @media (width <= 768px) {
   .bannerHead {
     flex-wrap: wrap;
-    padding: 6px 6px 8px 12px;
+    padding: 6px 6px 8px 10px;
   }
 
   .bannerKey {
@@ -165,23 +186,26 @@
   }
 
   .bannerList {
-    margin: 0 12px 8px;
+    margin-left: 8px;
   }
 }
 
 @media (hover: hover) and (width >= 901px) {
-  .bannerLink:hover,
+  .bannerLink:hover {
+    text-decoration-color: var(--border-strong);
+  }
+
   .issueKeyLink:hover {
-    color: var(--accent-ink-hover);
-    border-bottom-color: currentcolor;
+    color: var(--text);
+    text-decoration-color: currentcolor;
   }
 }
 
-/* ---- chart + toolbar ---------------------------------------------------- */
+/* ---- chart + toolbar -------------------------------------------------- */
 
 .chartWrap {
   max-width: 1440px;
-  margin: 24px auto 0;
+  margin: 20px auto 0;
   padding: 0 48px 72px;
 }
 
@@ -189,116 +213,126 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.search {
+/* Gr8r's small search: a 13px magnifier in --text-4 inside a 26px field. */
+.searchWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
   width: 220px;
   max-width: 100%;
-  min-height: 28px;
-  padding: 4px 10px;
 }
 
-.select {
-  min-height: 28px;
-  padding: 4px 28px 4px 10px;
+.searchIcon {
+  position: absolute;
+  left: 9px;
+  color: var(--text-4);
+  pointer-events: none;
+}
+
+/* Squeezed (a 1366px window, a long initiative in the select), the
+   placeholder ends in an ellipsis instead of being cut mid-letter. The
+   field selectors here are scoped by their wrapper (0,2,0) so they beat the
+   global .input / .select (0,1,0) whatever order the production build
+   loads the stylesheets in. */
+.searchWrap > .search {
+  width: 100%;
+  min-height: var(--h-sm);
+  height: var(--h-sm);
+  padding: 0 10px 0 29px;
+  font-size: var(--fs-sm);
+  text-overflow: ellipsis;
+}
+
+.filters > .select {
+  min-height: var(--h-sm);
+  height: var(--h-sm);
   max-width: 100%;
+  padding: 0 28px 0 10px;
+  font-size: var(--fs-sm);
 }
 
 /* "Open as graph" after the filters: the same work as a dependency graph,
-   as a quiet mono link that floods the accent on hover like the chart's
-   group links. The negative margin lets the flood reach into the gaps
-   without widening the toolbar. */
+   as a quiet small Button (Gr8r's toolbar ghost). It never shrinks or
+   wraps its label. */
 .graphOpen {
   flex: none;
-  margin: 0 -6px;
-  padding: 5px 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--grey-2-ink);
-  white-space: nowrap;
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
 }
 
-@media (hover: hover) and (width >= 901px) {
-  .graphOpen:hover {
-    background: var(--accent);
-    color: var(--on-accent);
-  }
-}
-
-/* Desktop: the toolbar is one row from about 1083px of chart width (a
-   1431px window with the sidebar open, so 1440 keeps one row; 1366 before
-   "Open as graph" joined the filters): the search gives up width (220 →
-   80) before anything wraps, then grows back to 220 where there is room.
-   Narrower, the Show control wraps to a second row. */
+/* Desktop: the toolbar is one row from 1018px of chart width (a 1366px
+   window with the sidebar open, as before "Open as graph" joined the
+   filters): the search gives up width (220 → 80) before anything wraps,
+   then grows back where there is room. Narrower, the Show control wraps to
+   a second row. */
 @media (width >= 901px) {
   /* An explicit min-width: the search's 220px width would otherwise make
-     the min-content (and so the wrap point) 516px. It holds the search at
-     its 80px minimum (still wider than its "Search" placeholder), the gap,
-     the select at its 200px cap, the gap and "Open as graph" (about 91px),
-     so a long initiative name never pushes the select or the link over the
-     zoom control. */
+     the min-content (and so the wrap point) 540px. It holds the search at
+     its 80px minimum (its placeholder then ellipsized), the gap,
+     the select at its 188px cap, the gap and "Open as graph" (115px with
+     its icon), so a long initiative name never pushes the select or the
+     button over the zoom control. */
   .filters {
-    flex: 1 1 391px;
+    flex: 1 1 403px;
     flex-wrap: nowrap;
-    min-width: 391px;
-    max-width: 531px;
+    min-width: 403px;
+    max-width: 543px;
   }
 
-  .search {
+  .searchWrap {
     flex: 1 1 220px;
     min-width: 80px;
   }
 
   /* Sized by its longest option ("All initiatives" here), capped: a longer
      initiative name is cut with an ellipsis instead of widening the row. */
-  .select {
+  .filters > .select {
     flex: none;
-    max-width: 200px;
+    max-width: 188px;
     text-overflow: ellipsis;
   }
 }
 
-/* ---- drawer ------------------------------------------------------------- */
+/* ---- drawer ----------------------------------------------------------- */
 
 .drawerLoading {
   padding-top: 6px;
 }
 
 .alert {
-  margin-bottom: 18px;
+  margin-bottom: 16px;
 }
 
+/* Gr8r's drawer section heading: --fs semibold, a quiet count after it;
+   sections 26px apart. */
 .subhead {
   display: flex;
   align-items: baseline;
-  gap: 12px;
-  margin: 28px 0 10px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  gap: 8px;
+  margin: 26px 0 10px;
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+/* A heading inside a .subhead row whose meta is not part of its name. */
+.subheadTitle {
+  margin: 0;
+  font: inherit;
+  color: inherit;
 }
 
 .subheadMeta {
-  margin-left: auto;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  font-weight: var(--fw-regular);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 
 .para {
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--text-2);
 }
 
 .stack {
@@ -308,47 +342,19 @@
   min-width: 0;
 }
 
-/* The status's risk reasons and missing input (unassigned, stalled,
-   behind pace, "missing …"): warnings, in the amber text. */
-.reasons {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--amber-ink);
-}
-
+/* A help line under a value: quiet, or in its tone's ink (data-tone). */
 .note {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
 }
 
-/* Words that carry a status take their tone's text colour from the
-   data-tone hook (docs/architecture.md §8.2): an overdue date red, a
-   missing date, lead or "done means…" and a stopped allocation amber, an
-   over-long "done means…" (an error) red. The purple never means a
-   status. */
-.toneNote {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--tone-ink);
-}
-
+/* A value that is itself a status word ("No lead", "Not set",
+   "Unassigned", "Blocked by", an overdue date), in its tone's ink from the
+   data-tone hook. */
 .toned {
+  font-weight: var(--fw-medium);
   color: var(--tone-ink);
-}
-
-.toneMono {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--tone-ink);
-}
-
-.mono {
-  font-family: var(--font-mono);
-  font-size: 12px;
 }
 
 .progress {
@@ -359,10 +365,30 @@
   width: 100%;
 }
 
-/* Edit fields sit in the property list's value column. */
+/* The status's risk reasons and missing input (unassigned, stalled,
+   behind pace, "missing …") and the other toned notes (an overdue date
+   red, a missing date or lead and a stopped allocation amber, an
+   over-long "done means…" red): the note's size in the tone's ink, from
+   the data-tone hook. The purple never means a status. */
+.toneNote {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.45;
+  color: var(--tone-ink);
+}
+
+/* Edit fields sit in the property list's value column: Gr8r's form
+   fields (primitives.css: 30px at 13.5px, the --control-border edge at
+   3:1, the accent focus ring), each with a 30px Save button beside it, so
+   a field and its button share one height and one type size (the
+   toolbar's fields are the 26px / 12.5px ones). The field
+   selectors are scoped by their wrapper (0,2,0) so they beat the global
+   .input / .select / .textarea (0,1,0) whatever order the production
+   build loads the stylesheets in. */
 .field {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
   width: 100%;
   min-width: 0;
@@ -372,49 +398,69 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.dateInput,
-.weightInput {
-  min-height: 32px;
-  padding: 4px 8px;
+.field .dateInput,
+.field .weightInput {
+  min-height: var(--h-md);
+  height: var(--h-md);
+  padding: 0 8px;
+  font-variant-numeric: tabular-nums;
 }
 
-.weightInput {
+.field .weightInput {
   width: 96px;
 }
 
-.leadSelect {
-  min-height: 32px;
+.field .leadSelect {
   min-width: 0;
   width: 220px;
   max-width: 100%;
-  padding: 4px 28px 4px 8px;
+  min-height: var(--h-md);
+  height: var(--h-md);
+  padding: 0 28px 0 8px;
 }
 
 /* The lead select while the project has no lead (a missing input): the
-   amber rule and text. */
-.selectWarning {
+   warning edge and words. */
+.field .selectWarning {
   border-color: var(--amber);
-  color: var(--amber-ink);
+  color: var(--amber);
 }
 
-/* Grows with the text where the browser can (one line of up to 280
-   characters wraps to several on a phone), instead of scrolling inside
-   two rows. */
-.doneArea {
+/* "Done means…": grows with its text where the browser can (one line of
+   up to 280 characters wraps to several on a phone), instead of
+   scrolling inside two rows. */
+.field .doneArea {
   min-height: 60px;
+  padding: 6px 8px;
+  line-height: var(--lh);
   field-sizing: content;
 }
 
-/* Issues: a hairline register; each row opens the issue in Linear. */
+/* 16px type on touch screens (iOS zooms into smaller fields). */
+@media (width <= 640px), (pointer: coarse) {
+  .field .dateInput,
+  .field .weightInput,
+  .field .leadSelect,
+  .field .doneArea {
+    font-size: 16px;
+  }
+}
+
+/* Issues: one --r-lg panel, rows split by --divider; each row opens the
+   issue in this panel, its ↗ in Linear. */
 .issues {
+  overflow: hidden;
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .issues > li + li {
-  border-top: 1px solid var(--hairline-faint);
+  border-top: 1px solid var(--divider);
 }
 
 .issueItem {
@@ -423,101 +469,95 @@
 
 .issue {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 4px 12px;
-  padding: 9px 40px 9px 14px;
-  color: var(--foreground);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 2px 10px;
+  padding: 9px 40px 9px 12px;
+  color: var(--text);
+  transition: background-color var(--dur) ease;
+}
+
+/* The issues panel clips its corners (overflow: hidden), so a row's focus
+   ring is drawn inside the row. */
+.issue:focus-visible {
+  outline-offset: -2px;
 }
 
 .issueKey {
   grid-row: span 2;
   padding-top: 2px;
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
+  color: var(--text-3);
   white-space: nowrap;
 }
 
 .issueTitle {
-  font-size: 13.5px;
+  font-size: var(--fs);
   line-height: 1.4;
-  color: var(--ink-soft);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .issueMeta {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 14px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  gap: 2px 12px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .issueState {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  color: var(--text-2);
 }
 
 .issueClosed .issueTitle {
-  color: var(--muted);
+  color: var(--text-3);
 }
 
-/* The row's ↗ (the issue in Linear), a link of its own above the row's
-   right edge. */
+/* The row's ↗ (the issue in Linear): a 22px icon button of its own above
+   the row's right edge. */
 .issueOut {
   position: absolute;
   top: 7px;
-  right: 10px;
+  right: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  color: var(--muted);
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .issueOut:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
-  color: var(--accent-ink);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  color: var(--text);
 }
 
-/* Register-row hover: paper and ink swap locally. */
+/* Gr8r's row hover: the --surface-2 fill; the ↗ fills on its own. */
 @media (hover: hover) and (width >= 901px) {
   .issue:hover {
-    background: var(--foreground);
-    color: var(--background);
-  }
-
-  .issueItem:has(.issue:hover) .issueOut {
-    color: var(--background);
+    background: var(--surface-2);
   }
 
   .issueOut:hover {
-    color: var(--accent-ink);
-  }
-
-  .issue:hover .issueKey,
-  .issue:hover .issueTitle,
-  .issue:hover .issueMeta,
-  .issue:hover .toned {
-    color: var(--background);
+    background: var(--surface-3);
+    color: var(--text);
   }
 }
 
 .editNote {
   margin-top: 10px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
 }
 
 /* A Linear guest's one read-only notice, where the edit note would be. */
@@ -525,16 +565,19 @@
   margin-top: 10px;
 }
 
-/* The drawer's grant_write link: the accent marks the one action here. */
+/* The drawer's grant_write link: the one action here, an accent link. */
 .editLink {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--accent-ink);
-  border-bottom: 1px solid currentcolor;
+  text-decoration: underline;
+  text-decoration-color: var(--accent-line);
+  text-underline-offset: 3px;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .editLink:hover {
     color: var(--accent-ink-hover);
+    text-decoration-color: currentcolor;
   }
 }
 
@@ -545,24 +588,26 @@
 .waits {
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .waits > li + li {
-  border-top: 1px solid var(--hairline-faint);
+  border-top: 1px solid var(--divider);
 }
 
 .waitLink {
   display: block;
-  padding: 9px 14px;
-  font-size: 13.5px;
-  color: var(--ink-soft);
+  padding: 9px 12px;
+  font-size: var(--fs);
+  color: var(--text);
+  transition: background-color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .waitLink:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
   }
 }
 
@@ -578,7 +623,7 @@
   margin-top: 12px;
 }
 
-/* ---- loading ------------------------------------------------------------ */
+/* ---- loading ---------------------------------------------------------- */
 
 .skeletonHead {
   display: flex;
@@ -590,9 +635,8 @@
 .skeletonToolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  padding: 10px 18px;
-  border: 1px solid var(--border);
+  gap: 8px;
+  margin-bottom: 44px;
 }
 
 @media (width <= 768px) {
@@ -602,30 +646,42 @@
   }
 
   .title {
-    font-size: 22px;
+    font-size: 21px;
   }
 
   .notices {
-    margin-top: 20px;
+    margin-top: 16px;
     padding: 0 16px;
   }
 
   .chartWrap {
-    margin-top: 20px;
+    margin-top: 16px;
     padding: 0 16px 56px;
   }
 
-  .search {
-    width: 100%;
-  }
-
+  .searchWrap,
   .filters {
     width: 100%;
   }
 }
 
+/* Phones and touch screens keep 16px fields (iOS zooms into smaller ones),
+   over the toolbar's 12.5px. */
+@media (width <= 640px), (pointer: coarse) {
+  .searchWrap > .search,
+  .filters > .select {
+    height: auto;
+    min-height: var(--h-md);
+    font-size: 16px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .issue {
+  .issue,
+  .issueOut,
+  .waitLink,
+  .bannerLink,
+  .issueKeyLink {
     transition: none;
   }
 }

@@ -6,6 +6,7 @@ import {
   RegisterCell,
   RegisterRow,
 } from '@better-tracker/ui';
+import { History } from 'lucide-react';
 import type { Metadata } from 'next';
 
 import { buildRunsPage, type RunRowModel } from '../../../lib/adapters/runs';
@@ -15,6 +16,9 @@ import css from './page.module.css';
 import RunActions from './run-actions';
 
 export const metadata: Metadata = { title: 'Runs' };
+
+/** The empty state's 22px glyph (EmptyState's icon). */
+const EMPTY_ICON = { size: 22, strokeWidth: 1.8, 'aria-hidden': true } as const;
 
 /** How many runs the register lists (newest first). */
 const RUN_LIMIT = 50;
@@ -62,24 +66,22 @@ export default async function RunsPage() {
 
   return (
     <>
-      <header className={css.head}>
+      {/* The run controls sit top right in the header (Gr8r's header
+          actions), their note under the receipts. */}
+      <header className={`${css.head} ${css.headActions}`}>
         <h1 className={css.title}>Runs</h1>
         <p className={css.receipts}>{page.receipts}</p>
+        {actor.readOnly ? null : <RunActions liveRunsOn={page.liveRunsOn} />}
       </header>
       <div className={css.body}>
-        {actor.readOnly ? (
-          <ReadOnlyNotice />
-        ) : (
-          <RunActions liveRunsOn={page.liveRunsOn} />
-        )}
-        <section className={css.collapse} aria-label="Allocation runs">
+        {actor.readOnly ? <ReadOnlyNotice /> : null}
+        <section className={css.section} aria-label="Allocation runs">
           <BlockBar
-            index="01"
             title="Allocation runs"
             meta={`Times in ${loaded.settings.timezone}`}
           />
           {page.rows.length === 0 ? (
-            <EmptyState label="No runs">
+            <EmptyState label="No runs" icon={<History {...EMPTY_ICON} />}>
               No allocation runs yet. Runs appear here after the scheduled daily
               run, or when someone starts one with Preview (dry run).
             </EmptyState>
@@ -116,11 +118,10 @@ function Count({
   return (
     <RegisterCell
       label={label}
-      variant="mono"
       align="end"
       tone={value === null ? 'muted' : value > 0 ? tone : 'default'}
     >
-      {value ?? '—'}
+      <span className={css.count}>{value ?? '—'}</span>
     </RegisterCell>
   );
 }
@@ -147,7 +148,7 @@ function RunRow({ row }: { row: RunRowModel }) {
       <Count label="Failed" value={counts?.failed ?? null} tone="danger" />
       <Count label="Blocked" value={counts?.blocked ?? null} tone="warning" />
       <Count label="Skipped" value={counts?.skipped ?? null} />
-      <RegisterCell label="Finished" variant="mono" sub={row.took ?? undefined}>
+      <RegisterCell label="Finished" sub={row.took ?? undefined}>
         {row.finished}
       </RegisterCell>
     </RegisterRow>

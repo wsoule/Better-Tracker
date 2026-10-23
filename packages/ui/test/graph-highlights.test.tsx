@@ -102,7 +102,7 @@ const CHAIN: GraphNodeData[] = [
     key: 'ENG-12',
     label: 'Dual-write payments',
     tone: 'warning',
-    tags: ['UNASSIGNED', 'OVERDUE'],
+    tags: ['Unassigned', 'Overdue'],
     readiness: READY,
   },
   {
@@ -277,7 +277,7 @@ describe('DependencyGraph: highlight modes', () => {
       id: 'd',
       label: 'Late one',
       tone: 'danger',
-      tags: ['OVERDUE'],
+      tags: ['Overdue'],
       readiness: blockedBy(1),
     },
   ];
@@ -365,19 +365,43 @@ describe('DependencyGraph: highlight modes', () => {
     }
   });
 
-  test('OVERDUE is a red chip wherever the Risk flood is off', () => {
+  test('Overdue is a red dot pill in every highlight', () => {
     const overdue = (mode: GraphHighlight) => {
       const { container, unmount } = renderMode(mode);
       const tag = [...nodeEl(container, 'd').querySelectorAll('span')].find(
-        (el) => el.textContent === 'OVERDUE'
+        (el) => el.textContent === 'Overdue'
       );
-      const tone = tag?.getAttribute('data-tone') ?? null;
+      const look = [
+        tag?.getAttribute('data-tone') ?? null,
+        tag?.hasAttribute('data-filled') ?? null,
+      ];
       unmount();
-      return tone;
+      return look;
     };
-    expect(overdue('risk')).toBeNull();
-    expect(overdue('status')).toBe('danger');
-    expect(overdue('critical')).toBe('danger');
+    // Under Risk the box's red tint says it too; the chip is the same.
+    expect(overdue('risk')).toEqual(['danger', false]);
+    expect(overdue('status')).toEqual(['danger', false]);
+    expect(overdue('critical')).toEqual(['danger', false]);
+  });
+
+  test('the readiness chip is a Chip: a dot pill when ready, tinted when blocked', () => {
+    const chipOf = (mode: GraphHighlight, id: string) => {
+      const { container, unmount } = renderMode(mode);
+      const chip = nodeEl(container, id).querySelector(
+        '[data-readiness-chip] > [data-tone]'
+      );
+      const look = [
+        chip?.getAttribute('data-tone') ?? null,
+        chip?.hasAttribute('data-filled') ?? null,
+      ];
+      unmount();
+      return look;
+    };
+    expect(chipOf('status', 'a')).toEqual(['success', false]);
+    expect(chipOf('status', 'd')).toEqual(['warning', true]);
+    // Elsewhere the word stays, on the neutral badge.
+    expect(chipOf('risk', 'd')).toEqual(['default', false]);
+    expect(chipOf('critical', 'a')).toEqual(['default', false]);
   });
 
   test('switching the highlight never moves a box', () => {
@@ -850,7 +874,7 @@ describe('DependencyGraph highlight styles (dependency-graph.module.css)', () =>
       'stroke-dasharray: 0.1 4'
     );
     expect(rule(sheet, '.edgeCycle .edgeLine')).toContain(
-      'stroke-dasharray: 5 3'
+      'stroke-dasharray: 6 3.5'
     );
   });
 
@@ -863,15 +887,19 @@ describe('DependencyGraph highlight styles (dependency-graph.module.css)', () =>
         sheet,
         ":where(.graph:is([data-highlight='status'], [data-highlight='critical'])) .edgeRisk"
       )
-    ).toContain('color: var(--foreground)');
+    ).toContain('color: var(--text-2)');
+    // The risk chain's extra weight is Risk's alone.
+    expect(sheet).toContain(
+      ":where(.graph[data-highlight='risk']) .edgeRisk .edgeLine {"
+    );
   });
 
   test('a dimmed or outside ready box keeps its green edge', () => {
     expect(rule(sheet, '.toneEdge')).toBe('border-color: var(--tone);');
     // The two rules that would repaint a box's border leave the ready
-    // edge (and a status rule) alone.
-    expect(rule(sheet, '.external:not(.toned, .toneEdge)')).toBe(
-      'border-color: var(--muted);'
+    // edge (and a status edge, and the overdue tint's edge) alone.
+    expect(rule(sheet, '.external:not(.toned, .toneEdge, .overdueNode)')).toBe(
+      'border-color: var(--control-border);'
     );
     expect(rule(sheet, '.external')).toBe('border-style: dashed;');
     expect(
@@ -879,70 +907,82 @@ describe('DependencyGraph highlight styles (dependency-graph.module.css)', () =>
         sheet,
         '.node.dim:not(.toned, .toneEdge, .external, .overdueNode, .selected)'
       )
-    ).toContain('border-color: var(--hairline-faint)');
+    ).toBe('border-color: var(--divider);');
   });
 
-  test('receding keeps every word legible: no opacity, the dim text grey', () => {
+  test('receding keeps every word legible: no opacity, --text-3 words', () => {
     expect(sheet).not.toMatch(/\.dim[^{]*\{[^}]*opacity/);
-    expect(
-      rule(
-        sheet,
-        '.node.dim:not(.overdueNode) > .text > :is(.label, .sublabel)'
-      )
-    ).toBe('color: var(--grey-2-ink);');
+    expect(sheet).not.toMatch(/opacity/);
+    expect(rule(sheet, '.node.dim > .text > :is(.label, .sublabel)')).toBe(
+      'color: var(--text-3);'
+    );
     // The box itself swaps no inherited colour or token while it recedes
-    // (only its own rule): a swap there restyles every element inside
+    // (only its own edge): a swap there restyles every element inside
     // every box on each hover (architecture §8.4 "Hover cost").
-    expect(
-      rule(
-        sheet,
-        '.node.dim:not(.toned, .toneEdge, .external, .overdueNode, .selected)'
-      )
-    ).toBe('border-color: var(--hairline-faint);');
-    expect(sheet).not.toMatch(/\.node\.dim:not\(\.overdueNode\) \{/);
+    expect(sheet).not.toMatch(/\.node\.dim(:not\([^)]*\))? \{[^}]*--[\w-]+:/);
     expect(
       rule(
         sheet,
         ".edge.dim:is(.edgeDefault, .edgeCross), :where(.graph:not([data-highlight='risk'])) .edge.dim.edgeRisk"
       )
-    ).toContain('color: var(--grey-2-ink)');
+    ).toContain('color: var(--text-3)');
   });
 
-  test('the paths: an accent ring and line upstream, ink downstream and on the chain', () => {
+  test('the paths: an accent ring and line upstream, --text downstream and on the chain', () => {
     const rings = rule(
       sheet,
-      '.node.lit:not(:focus-visible), .node.down:not(:focus-visible), .node.chain:not(:focus-visible)'
+      '.node.lit:not(:focus-visible), .node.down:not(:focus-visible), .node.chain:not(:focus-visible), .node.active:not(.selected, :focus-visible)'
     );
-    expect(rings).toContain('outline: 2px solid var(--ink)');
-    expect(rule(sheet, '.node.lit:not(:focus-visible)')).toBe(
-      'outline-color: var(--accent);'
-    );
+    expect(rings).toContain('outline: 2px solid var(--text)');
+    expect(rings).toContain('outline-offset: 0');
+    expect(
+      rule(
+        sheet,
+        '.node.lit:not(:focus-visible), .node.active:not(.selected, :focus-visible)'
+      )
+    ).toBe('outline-color: var(--accent);');
     expect(
       rule(
         sheet,
         ".edge.lit:is(.edgeDefault, .edgeCross), :where(.graph:not([data-highlight='risk'])) .edge.lit.edgeRisk"
       )
     ).toContain('color: var(--accent)');
+    expect(
+      rule(
+        sheet,
+        ".edge.down:is(.edgeDefault, .edgeCross), :where(.graph:not([data-highlight='risk'])) .edge.down.edgeRisk"
+      )
+    ).toBe('color: var(--text);');
     expect(rule(sheet, '.edge.chain .edgeLine')).toBe('stroke-width: 2.5;');
+    expect(
+      rule(sheet, '.edge.chain:is(.edgeDefault, .edgeCross, .edgeRisk)')
+    ).toBe('color: var(--text);');
   });
 
-  test('the pill and the step badge, square and flat', () => {
+  test('the pill is a green dot pill, the step a --text disc', () => {
     const next = rule(sheet, '.next');
-    expect(next).toContain('border: 1px solid var(--green)');
-    expect(next).toContain('color: var(--green-ink)');
+    expect(next).toContain('border: 1px solid var(--border-strong)');
+    expect(next).toContain('border-radius: var(--r-chip)');
+    expect(next).toContain('background: var(--surface)');
+    expect(next).toContain('color: var(--text)');
+    expect(rule(sheet, '.next::before')).toContain('background: var(--green)');
     const step = rule(sheet, '.step');
-    expect(step).toContain('background: var(--ink)');
-    expect(step).toContain('color: var(--paper)');
-    // This look: no radius, no shadows, no mixed tints anywhere.
-    expect(sheet).not.toMatch(/radius|box-shadow|color-mix/);
+    expect(step).toContain('background: var(--text)');
+    expect(step).toContain('color: var(--text-inv)');
+    expect(step).toContain('border-radius: var(--r-full)');
+    // Shadows only on what floats: the critical path's step control.
+    expect(sheet.match(/box-shadow: [^;]*/g)).toEqual([
+      'box-shadow: var(--shadow-pop)',
+    ]);
+    expect(rule(sheet, '.steps')).toContain('box-shadow: var(--shadow-pop)');
   });
 
   test('the accent never marks a status', () => {
     for (const selector of [
       '.toneEdge',
-      '.tagToned',
-      '.tagToned.readyChip::before',
+      '.toned',
       '.next',
+      '.next::before',
       ":where(.graph[data-highlight='status']) .edgeResolved",
     ]) {
       expect([selector, rule(sheet, selector).includes('accent')]).toEqual([
@@ -966,42 +1006,68 @@ describe('DependencyGraph highlight styles (dependency-graph.module.css)', () =>
     expect(step).toContain('forced-color-adjust: none');
     expect(step).toContain('background: CanvasText');
     expect(rule(sheet, '.next', forced)).toBe('border: 1px solid CanvasText;');
+    expect(rule(sheet, '.next::before', forced)).toContain(
+      'background: CanvasText'
+    );
+    expect(rule(sheet, '.focus::after', forced)).toBe(
+      'border-color: Highlight;'
+    );
   });
 
-  test('the box being read is flooded in the accent on every input', () => {
-    const flood = rule(sheet, '.node.pointed:not(.selected)');
-    expect(flood).toContain('background: var(--accent)');
-    expect(flood).toContain('color: var(--on-accent)');
-    expect(flood).toContain('--foreground: var(--on-accent)');
+  test('the box being read is the accent tint under its ring on every input', () => {
+    const read = rule(sheet, '.node.pointed:not(.selected, .overdueNode)');
+    expect(read).toBe(
+      'background: linear-gradient(var(--accent-soft), var(--accent-soft)) var(--surface);'
+    );
+    // Never the accent flood, never a token swap.
+    expect(sheet).not.toContain('background: var(--accent);');
+    expect(sheet).not.toContain('--text: var(--on-accent)');
     // Not only inside the hover media query: a touch pin and keyboard
     // focus get it too.
-    const hoverAt = sheet.indexOf('@media (hover: hover)');
-    expect(sheet.indexOf('.node.pointed:not(.selected) {')).toBeGreaterThan(
-      sheet.indexOf('}', sheet.indexOf('}', hoverAt) + 1)
+    const hoverAt = sheet.indexOf(
+      '@media (hover: hover) and (width >= 901px) { .node'
     );
-    const forced = sheet.slice(sheet.indexOf('@media (forced-colors: active)'));
+    expect(
+      sheet.indexOf('.node.pointed:not(.selected, .overdueNode) {')
+    ).toBeLessThan(hoverAt);
+    const forcedSheet = sheet.slice(forced);
     expect(
       rule(
-        forced,
+        forcedSheet,
         '.node.pointed:not(:focus-visible), .node.selected:not(:focus-visible, .lit, .down, .chain)'
       )
     ).toBe('outline: 4px double CanvasText; outline-offset: 2px;');
   });
 
-  test('receding never animates a colour: only the flood and the rings fade', () => {
-    expect(rule(sheet, '.edge')).toBe('color: var(--foreground);');
+  test('a selection is the accent tint inside a 2px accent edge', () => {
+    const selected = rule(sheet, '.node.selected');
+    expect(selected).toContain('border: 2px solid var(--accent)');
+    expect(selected).toContain('padding: 9px 11px');
+    expect(selected).toContain('var(--accent-soft)');
+  });
+
+  test('a chain’s focus is an accent ring standing off the box', () => {
+    const focus = rule(sheet, '.focus::after');
+    expect(focus).toContain('inset: -6px');
+    expect(focus).toContain('border: 2px solid var(--accent)');
+    // A cycle's outline moves out past it.
+    expect(rule(sheet, '.focus.cycle::before')).toContain('inset: -10px');
+  });
+
+  test('receding never animates a colour: only the fill and the rings fade', () => {
+    expect(rule(sheet, '.edge')).toBe('color: var(--text-2);');
     const node = rule(sheet, '.node');
     expect(node).toContain(
-      'transition: background-color 0.2s ease, outline-color 0.15s ease;'
+      'transition: background-color var(--dur) var(--ease), outline-color var(--dur) var(--ease);'
     );
   });
 
-  test('reduced motion stills the rings, the pill and the flood', () => {
+  test('reduced motion stills the rings, the pill and the fills', () => {
     const reduced = sheet.slice(
       sheet.indexOf('@media (prefers-reduced-motion: reduce)')
     );
     expect(reduced).toContain(
-      '.zoomButton, .node, .node.pointed:not(.selected), .node:not(.selected):hover, .next, .step { transition: none; }'
+      '.zoomButton, .node, .next, .step { transition: none; }'
     );
   });
 });
@@ -1064,19 +1130,22 @@ describe('GraphLegend: the highlight marks', () => {
     expect(rule(sheet, '.nodeReady')).toBe('border-color: var(--green);');
     expect(rule(sheet, '.nodeBlocked')).toBe('border: 2px solid var(--amber);');
     expect(rule(sheet, '.nodeStuck')).toBe('border: 2px solid var(--red);');
+    expect(rule(sheet, '.nodeAccent')).toBe('border: 2px solid var(--accent);');
+    // No legend swatch keeps a 1.5px edge (Chrome draws it at 1px).
+    expect(sheet).not.toMatch(/border: 1\.5px/);
     expect(rule(sheet, '.edgeUnblocked')).toBe('color: var(--green);');
     expect(
       rule(sheet, '.edgeResolved .edgeLine, .edgeUnblocked .edgeLine')
     ).toContain('stroke-dasharray: 0.1 4');
     expect(rule(sheet, '.edgeChain .edgeLine')).toBe('stroke-width: 2.5;');
     // Only what the box waits on is ringed in the accent; the chain
-    // through it is the critical path's own ink ring (as the canvas draws
-    // it), and the box being read is the accent flood.
+    // through it is the critical path's own --text ring (as the canvas
+    // draws it), and the box being read the accent tint under its ring.
     expect(rule(sheet, '.pathUp')).toBe('outline-color: var(--accent);');
     expect(sheet).not.toContain('.pathUp, .pathChain');
-    expect(rule(sheet, '.pathActive')).toBe(
-      'border-color: var(--accent); background: var(--accent);'
-    );
+    const active = rule(sheet, '.pathActive');
+    expect(active).toContain('var(--accent-soft)');
+    expect(active).toContain('outline: 2px solid var(--accent)');
     const forced = sheet.slice(sheet.indexOf('@media (forced-colors: active)'));
     expect(rule(forced, '.edge')).toBe('color: CanvasText;');
     expect(rule(forced, '.nodeChain, .pathChain')).toBe(
@@ -1085,6 +1154,7 @@ describe('GraphLegend: the highlight marks', () => {
     expect(rule(forced, '.pathActive')).toContain(
       'outline: 4px double CanvasText'
     );
-    expect(sheet).not.toMatch(/radius|box-shadow|color-mix/);
+    // A key, not a floating thing: no shadows.
+    expect(sheet).not.toMatch(/box-shadow/);
   });
 });

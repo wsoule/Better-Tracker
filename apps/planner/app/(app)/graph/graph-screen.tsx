@@ -88,15 +88,16 @@ function initialBare(server: GraphHighlight): GraphHighlight {
   return highlightFromCookies(document.cookie) ?? pickedInThisTab ?? server;
 }
 
-/* The graph's client island: the page header (trail, h1, receipts,
-   notices), level tabs (route links) and the highlight switch (Status /
-   Risk / Critical path) in the graph's toolbar, or the tabs alone in the
-   block bar when nothing is drawn, the pan/zoom DependencyGraph laid out
-   by the server (every item of the scope, in labelled frames by parent; a
-   chain's issue ruled as its focus) with its readout line, the
-   highlight's legend under it, Copy Mermaid in the highlight, the
-   too-large state, and
-   the slide-over for the selected node. An initiative, project or
+/* The graph's client island, in Gr8r's look (§8.4 Graph): the page
+   header (trail, h1, receipts, notices), the section title right over the
+   graph panel, level tabs (route links) and the highlight switch (Status
+   / Risk / Critical path) in the panel's toolbar, or the tabs alone in the
+   section title row when nothing is drawn, the pan/zoom DependencyGraph
+   laid out by the server (every item of the scope, in labelled frames by
+   parent; a chain's issue ringed as its focus) with its readout row, the
+   highlight's legend key rows under it, Copy Mermaid in the highlight,
+   the too-large state, and the slide-over for the selected node. Blocks
+   stand 12px apart. An initiative, project or
    milestone node shows what it is, its drill-down links, where it stands,
    what it waits on and what it holds up (the same paths the graph
    lights); an issue node opens the issue itself (§8.5, ?issue=<key>,
@@ -230,6 +231,7 @@ export default function GraphScreen({
         items={model.tabs.map((tab) =>
           tab.href === undefined ? tab : { ...tab, href: carry(tab.href) }
         )}
+        className={drawn ? css.toolbarTabs : undefined}
       />
     ) : null;
   // Only a drawing has something to highlight: the switch is left out of
@@ -289,41 +291,43 @@ export default function GraphScreen({
       </header>
       <div className={css.body}>
         <section className={css.collapse} aria-label={model.heading}>
-          {/* DependencyGraph renders only its empty message without nodes
-            (no toolbar), so the level tabs move to the block bar then:
-            they are the way to another level exactly when this one shows
-            nothing. */}
-          <BlockBar index="01" title={model.blockTitle} meta={model.meta}>
-            {drawn ? null : tabs}
-          </BlockBar>
-          {model.tooLarge !== null ? (
-            <TooLargeBlock tooLarge={model.tooLarge} carry={carry} />
-          ) : (
-            <DependencyGraph
-              nodes={model.nodes}
-              edges={model.edges}
-              clusters={model.clusters}
-              layout={model.layout ?? undefined}
-              selectedId={issue.requested === null ? selectedId : issueNodeId}
-              focusId={model.focusId}
-              focusLabel="the issue this chain is about"
-              coveredRight={arrivalPanel ? SLIDE_OVER_WIDTH : undefined}
-              onSelect={select}
-              ariaSummary={model.ariaSummary}
-              emptyMessage={model.emptyMessage}
-              toolbar={
-                drawn ? (
-                  <>
-                    {tabs}
-                    {switcher}
-                  </>
-                ) : null
-              }
-              highlight={highlight}
-              readout={model.readouts[highlight]}
-              pathWords={model.pathWords}
-            />
-          )}
+          {/* DependencyGraph renders only its empty state without nodes
+            (no toolbar), so the level tabs move to the section title row
+            then: they are the way to another level exactly when this one
+            shows nothing. The title sits right over its panel. */}
+          <div>
+            <BlockBar title={model.blockTitle} meta={model.meta}>
+              {drawn ? null : tabs}
+            </BlockBar>
+            {model.tooLarge !== null ? (
+              <TooLargeBlock tooLarge={model.tooLarge} carry={carry} />
+            ) : (
+              <DependencyGraph
+                nodes={model.nodes}
+                edges={model.edges}
+                clusters={model.clusters}
+                layout={model.layout ?? undefined}
+                selectedId={issue.requested === null ? selectedId : issueNodeId}
+                focusId={model.focusId}
+                focusLabel="the issue this chain is about"
+                coveredRight={arrivalPanel ? SLIDE_OVER_WIDTH : undefined}
+                onSelect={select}
+                ariaSummary={model.ariaSummary}
+                emptyMessage={model.emptyMessage}
+                toolbar={
+                  drawn ? (
+                    <>
+                      {tabs}
+                      {switcher}
+                    </>
+                  ) : null
+                }
+                highlight={highlight}
+                readout={model.readouts[highlight]}
+                pathWords={model.pathWords}
+              />
+            )}
+          </div>
           {drawn ? (
             // The key under the drawing, as under a figure, so the first
             // screen is the drawing, on a phone too (2026-10-23 review: above
@@ -385,12 +389,12 @@ export default function GraphScreen({
   );
 }
 
-/* Past the draw limits: one hairline notice saying how many boxes and
+/* Past the draw limits: one neutral notice saying how many boxes and
    arrows the graph would need and that it draws at most 700 and 1,000 (a
-   size limit, not a risk, so no status hue), then the narrower graphs to
-   open instead (each row a route link), or, inside a milestone or a
-   chain, the most connected issues, each opening its own chain. It stands
-   where the canvas would. */
+   size limit, not a risk, so no status tone), then a heading row and the
+   narrower graphs to open instead (a register panel, each row a route
+   link), or, inside a milestone or a chain, the most connected issues,
+   each opening its own chain. It stands where the canvas would. */
 function TooLargeBlock({
   tooLarge,
   carry,
@@ -486,7 +490,8 @@ function NeighbourRows({
   /** A quiet line under the list: what the graph does not draw. */
   note: string | null;
   chipOf: (node: GraphNodeData) => RowChip | null;
-  /** The row's 2px rule, in the highlight's own tone for the box. */
+  /** The row's tone (data only: Gr8r's rows carry no rule), in the
+      highlight's own tone for the box. */
   toneOf: (node: GraphNodeData) => GraphNodeData['tone'];
   onSelect: (id: string) => void;
 }) {
@@ -554,8 +559,8 @@ function unitCount(model: GraphPageModel, n: number): string {
   return `${n} ${n === 1 ? one : other}`;
 }
 
-/** The node's tone on the canvas in this highlight, for a row's rule: a
-    faint (muted) box and a ready (green edge) one stay plain rows. */
+/** The node's tone on the canvas in this highlight, for a row's tone: a
+    quiet (muted) box and a ready (green edge) one stay plain rows. */
 function shownRowTone(
   node: GraphNodeData,
   highlight: GraphHighlight
@@ -651,7 +656,7 @@ function PanelBody({
           ...detail.properties.map((property) => ({
             label: property.label,
             // A status tone colours the value's text through the data-tone
-            // hook (--tone-ink); default stays ink.
+            // hook (--tone-ink); default stays --text.
             value:
               property.tone === undefined || property.tone === 'default' ? (
                 property.value
@@ -675,7 +680,7 @@ function PanelBody({
             size="sm"
             iconAfter={
               link.external ? (
-                <ExternalLink size={14} strokeWidth={1.5} />
+                <ExternalLink size={14} strokeWidth={1.8} />
               ) : undefined
             }
           >

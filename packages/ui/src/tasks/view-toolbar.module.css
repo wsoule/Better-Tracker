@@ -1,23 +1,19 @@
-/* The list toolbar, in the timeline chart toolbar's idiom: a strip in a
-   1px ink frame holding the search field (the .input primitive's 36px
-   box, as the timeline and projects toolbars draw it: mono, a 1px ink
-   box, here with a leading glass), then the host's
-   Filter / Sort / Group triggers (bare mono actions) and, at the right
-   edge, its trailing actions. The padding inside the frame is
-   --view-toolbar-gutter (18px, the block chrome's). While busy, a 2px
-   accent rule runs along the bottom edge. */
+/* Gr8r's list toolbar (.toolbar): one 44px row with a soft rule under it,
+   a 26px search field with a leading icon (a --control-border edge, 3:1), then the host's ghost triggers
+   and, at the right edge, its trailing actions. The horizontal padding is
+   the page gutter; a host that places the bar inside a padded column sets
+   --view-toolbar-gutter (0 there). While busy, a 2px accent rule runs
+   along the bottom edge. */
 
 .bar {
   position: relative;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 14px;
-  min-height: 48px;
-  padding: 9px var(--view-toolbar-gutter, 18px);
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  gap: 6px 8px;
+  min-height: 44px;
+  padding: 8px var(--view-toolbar-gutter, var(--gutter));
+  border-bottom: 1px solid var(--border);
 }
 
 .search {
@@ -31,70 +27,47 @@
 .searchIcon {
   position: absolute;
   left: 9px;
-  color: var(--muted);
+  color: var(--text-4);
   pointer-events: none;
 }
 
 .input {
   width: 100%;
-  min-height: 36px;
-  padding: 8px 10px 8px 28px;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 400;
-  /* A placeholder longer than the field ends in "…", not mid-word. */
-  text-overflow: ellipsis;
+  height: var(--h-sm);
+  padding: 0 8px 0 28px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  transition:
+    border-color var(--dur) ease,
+    box-shadow var(--dur) ease;
 }
 
 .input::placeholder {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: var(--text-3);
 }
 
+/* The browser's own clear button stays (a quick way out of a search).
+   Focus is the fields' ring (primitives.css): an accent border, a 1px
+   accent shadow and a soft halo, over a transparent outline so forced
+   colours still draw one. */
 .input:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -1px;
-}
-
-/* The native clear button stays (a quick way out of a search), drawn as
-   the .input primitive draws it: a 10px ink cross, not the browser's blue
-   glyph. */
-.input::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 10px;
-  height: 10px;
-  margin-left: 8px;
-  background:
-    linear-gradient(
-      45deg,
-      transparent 44%,
-      currentcolor 44%,
-      currentcolor 56%,
-      transparent 56%
-    ),
-    linear-gradient(
-      -45deg,
-      transparent 44%,
-      currentcolor 44%,
-      currentcolor 56%,
-      transparent 56%
-    );
-  cursor: pointer;
+  border-color: var(--accent);
+  outline: 2px solid transparent;
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 4px var(--accent-soft);
 }
 
 .controls {
   display: flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 4px 10px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -102,35 +75,32 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 4px 10px;
+  gap: 4px;
   margin-left: auto;
 }
 
-/* The count of set filters on the Filter trigger: a small square of the
-   accent fill (the selected-filter count, not a status). */
+/* The count of set filters on the Filter trigger: an accent pill. */
 .badge {
   display: inline-grid;
   place-items: center;
   min-width: 16px;
   height: 16px;
-  padding: 0 4px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
   background: var(--accent);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
   line-height: 1;
   color: var(--on-accent);
   font-variant-numeric: tabular-nums;
 }
 
-/* Loading: an accent segment sliding along the bottom edge, over the
-   frame's own rule. */
+/* Loading: an accent segment sliding along the bottom edge. */
 .progress {
   position: absolute;
-  right: -1px;
+  right: 0;
   bottom: -1px;
-  left: -1px;
+  left: 0;
   height: 2px;
   overflow: hidden;
   pointer-events: none;
@@ -144,7 +114,7 @@
   left: 0;
   width: 30%;
   background: var(--accent);
-  animation: slide 1.1s var(--ease-out-quint) infinite;
+  animation: slide 1.1s var(--ease) infinite;
 }
 
 @keyframes slide {
@@ -157,14 +127,15 @@
   }
 }
 
+@media (hover: hover) and (width >= 901px) {
+  .input:hover:not(:focus-visible) {
+    border-color: var(--text-3);
+  }
+}
+
 /* Phone: the search takes the first row; the controls keep one line and
    scroll sideways under it (no scrollbar drawn, no page scroll). */
 @media (width <= 640px) {
-  .bar {
-    padding-right: var(--view-toolbar-gutter, 14px);
-    padding-left: var(--view-toolbar-gutter, 14px);
-  }
-
   .search {
     flex: 1 1 100%;
   }
@@ -189,13 +160,19 @@
 /* 16px keeps iOS from zooming into the field. */
 @media (width <= 640px), (pointer: coarse) {
   .input {
+    height: var(--h-md);
     font-size: 16px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .input {
+    transition: none;
+  }
+
   .progress::after {
     width: 100%;
+    opacity: 0.6;
     animation: none;
   }
 }

@@ -96,7 +96,16 @@ describe('DeadlineList', () => {
     );
     expect(view.getByRole('heading', { name: /Overdue.*1/ })).toBeTruthy();
     expect(view.getByRole('heading', { name: /This week.*6/ })).toBeTruthy();
+    // An empty group keeps its heading and says so (Gr8r's panel prints a
+    // faint "Nothing due" under it).
+    expect(view.getByRole('heading', { name: /Today.*0/ })).toBeTruthy();
     expect(view.getByText('Nothing due')).toBeTruthy();
+    // Each group's label carries its tone (danger Overdue), so the label
+    // takes the colour; the dates stay quiet.
+    const tones = [
+      ...view.container.querySelectorAll('[data-deadline-group] [data-tone]'),
+    ].map((label) => label.getAttribute('data-tone'));
+    expect(tones).toEqual(['danger', 'default', 'default']);
     const link = view.getByRole('link', { name: /Milestone m0/ });
     expect(link.getAttribute('href')).toBe('/timeline?milestone=m0');
     expect(link.hasAttribute('data-host-link')).toBe(true);
@@ -105,6 +114,20 @@ describe('DeadlineList', () => {
     expect(
       view.getAllByRole('img', { name: 'On track' }).length
     ).toBeGreaterThan(0);
+  });
+
+  test('with every group empty, each group still stands and says so', () => {
+    const view = render(
+      <DeadlineList
+        groups={[
+          { id: 'over', label: 'Overdue', tone: 'danger', items: [] },
+          { id: 'today', label: 'Today', items: [] },
+        ]}
+      />
+    );
+    expect(view.getAllByRole('heading')).toHaveLength(2);
+    expect(view.getAllByRole('region')).toHaveLength(2);
+    expect(view.getAllByText('Nothing due')).toHaveLength(2);
   });
 
   test('"+N more" reveals the rest and moves focus to the first new item', () => {

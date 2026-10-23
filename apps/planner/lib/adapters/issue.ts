@@ -69,7 +69,7 @@ export interface IssueFact {
   /** A sentence under the value. */
   note?: string;
   noteTone?: UiTone;
-  /** Mono voice (durations). */
+  /** Tabular figures (durations, estimates, dates). */
   mono?: boolean;
   /** A leading glyph: the priority bars or a milestone status mark. */
   glyph?:
@@ -147,7 +147,7 @@ export interface IssueTaskModel {
   closed: boolean;
   /** In an inactive project (§2.8): drawn quietly. */
   quiet: boolean;
-  /** PROJECT / MILESTONE / KEY, linking to the timeline. */
+  /** Project / milestone / key, linking to the timeline. */
   crumbs: ShellCrumb[];
   /** Its blocking chain as a graph (issueChainHref), shown beside
       "Blocked by" (or "Blocks" when nothing blocks it) for everyone,
@@ -749,7 +749,7 @@ function dueDateFact(
   if (due === null) return { text: 'No due date', tone: 'muted' };
   const left = diffDays(due, today);
   // §8.2 "due date": overdue danger, due today or tomorrow warning; later
-  // dates and quiet issues stay ink. The note under the date repeats it.
+  // dates and quiet issues stay neutral. The note under the date repeats it.
   const tone: UiTone = !loud
     ? 'default'
     : left < 0

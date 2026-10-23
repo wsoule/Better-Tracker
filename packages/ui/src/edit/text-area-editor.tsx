@@ -36,7 +36,7 @@ type Refocus = 'edit' | 'input' | null;
  * and a save clears it. In the editor ⌘/Ctrl+Enter saves. Esc cancels an
  * unchanged edit; with changes the first Esc only warns and the second
  * discards, so a drawer around the editor never closes on a draft. A
- * character count appears near `maxLength`, in the red error hue past it.
+ * character count appears near `maxLength`, in red past it.
  *
  * Saving follows the family's contract: Save shows "Saving" and locks the
  * text; on rejection the draft stays in the editor with the error under it.
@@ -248,6 +248,7 @@ export function TextAreaEditor({
       ref={rootRef}
       className={cx(styles.root, className)}
       data-text-editor={compose ? 'compose' : 'edit'}
+      data-invalid={over || control.error !== null ? 'true' : undefined}
     >
       <textarea
         ref={inputRef}

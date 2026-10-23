@@ -53,7 +53,9 @@ describe('landing', () => {
 
   // Owner decision 2026-10-22: no PM role, so the demo picker lists
   // people plainly, by name, with no badge or role column.
-  test('demo people: by name, with a first-name action and no role', () => {
+  // The page names each person's button "Sign in as <full name>"
+  // (its visible label), so the rows carry no words of their own.
+  test('demo people: by name, with no role', () => {
     const rows = demoUserRows([
       user('u-cy', 'Cy Diaz'),
       user('u-ben', 'Ben Carter'),
@@ -64,7 +66,6 @@ describe('landing', () => {
       id: 'u-ben',
       name: 'Ben Carter',
       email: 'u-ben@example.com',
-      action: 'Sign in as Ben',
       label: null,
     });
   });
@@ -103,14 +104,16 @@ describe('landing', () => {
     expect(firstParam(undefined)).toBeUndefined();
   });
 
+  // The keys are stable ids (the page picks each card's icon by them),
+  // never shown, so they are slugs rather than display numbers.
   test('lists the design goals in order, each with a key', () => {
     expect(LANDING_FEATURES.map((f) => f.key)).toEqual([
-      '01',
-      '02',
-      '03',
-      '04',
-      '05',
-      '06',
+      'my-week',
+      'timeline',
+      'dependencies',
+      'allocation',
+      'warnings',
+      'rubric',
     ]);
   });
 });

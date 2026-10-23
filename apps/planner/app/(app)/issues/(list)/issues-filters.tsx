@@ -57,7 +57,7 @@ export function FacetIcon({
   facet: IssueListFacet;
   size?: number;
 }): ReactNode {
-  const props = { size, strokeWidth: 1.5, 'aria-hidden': true } as const;
+  const props = { size, strokeWidth: 1.8, 'aria-hidden': true } as const;
   switch (facet) {
     case 'initiativeIds':
       return <Target {...props} />;
@@ -118,12 +118,12 @@ export function FilterMenu({
       trigger={
         add ? (
           <>
-            <Plus size={12} strokeWidth={1.5} aria-hidden="true" />
+            <Plus size={12} strokeWidth={1.8} aria-hidden="true" />
             Filter
           </>
         ) : (
           <>
-            <ListFilter size={ICON_SIZE} strokeWidth={1.5} aria-hidden="true" />
+            <ListFilter size={ICON_SIZE} strokeWidth={1.8} aria-hidden="true" />
             Filter
             {badge > 0 ? <ToolbarBadge count={badge} /> : null}
           </>
@@ -165,7 +165,7 @@ export function SortMenu({
       resolveToggle={oneChoicePerPart}
       trigger={
         <>
-          <ArrowUpDown size={ICON_SIZE} strokeWidth={1.5} aria-hidden="true" />
+          <ArrowUpDown size={ICON_SIZE} strokeWidth={1.8} aria-hidden="true" />
           <span data-toolbar-word="">Sort:</span> {label}
         </>
       }
@@ -199,7 +199,7 @@ export function GroupMenu({
       resolveToggle={oneChoicePerPart}
       trigger={
         <>
-          <Rows3 size={ICON_SIZE} strokeWidth={1.5} aria-hidden="true" />
+          <Rows3 size={ICON_SIZE} strokeWidth={1.8} aria-hidden="true" />
           <span data-toolbar-word="">Group:</span> {label}
         </>
       }

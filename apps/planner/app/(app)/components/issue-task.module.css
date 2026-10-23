@@ -1,7 +1,7 @@
 /* The issue view's host additions around TaskDetail: the read-only
    notice under the properties, the "Blocked by" heading's Graph link
-   beside its "+ Add" picker, and the quiet sentence about relations the
-   planner cannot show. */
+   beside its "+ Add" picker, the quiet sentence about relations the
+   planner cannot show, and the read-only labels as Gr8r's label chips. */
 
 .notice {
   margin-top: 12px;
@@ -9,15 +9,47 @@
 
 .note {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
+.labels {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Gr8r's .lbl: a neutral bordered chip, Linear's colour only in the
+   small square (the same chip LabelPicker draws for the editable value). */
+.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 0 7px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.label [data-mark='swatch'] {
+  width: 6px;
+  height: 6px;
+}
+
+/* The Graph button and the "+ Add" picker: two ghost buttons side by
+   side, like the projects register's end-cell links. */
 .sectionMeta {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: flex-end;
-  gap: 6px 14px;
+  gap: 2px;
 }

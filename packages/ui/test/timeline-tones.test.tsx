@@ -16,13 +16,17 @@ import {
 } from '../src/timeline/tones';
 
 // Status colours on the timeline (owner decision 2026-10-22,
-// docs/architecture.md §8.2 "Status colours"): bars, diamonds, the legend,
-// the milestones row, connectors, the lane sublabel and the phone cards
-// draw status with the status hues (red overdue, amber at risk and a
-// missing input, green on track and done, grey inactive), keeping every
-// shape; the purple accent stays for today, selection, focus and hover
-// only. CSS modules resolve to empty objects under Bun, so the colours are
-// checked in the stylesheets and the components through their data-tone.
+// docs/architecture.md §8.2 "Status colours"), rendered the Gr8r way
+// (owner decision 2026-10-23): bars are tinted with their status hue and
+// outlined in the full hue (red overdue, amber at risk, green on track,
+// the neutral --text-2 for complete, grey inactive), a missing input is a
+// dashed --text-3 outline, the due-date and Milestones-row diamonds take
+// StatusMark's shapes (overdue solid, at risk half filled, on track
+// hollow, complete solid neutral with a tick, missing dotted, inactive a
+// grey outline), and the legend is StatusMark itself. The purple accent
+// stays for today, selection, focus and the drag grip only. CSS modules
+// resolve to empty objects under Bun, so the colours are checked in the
+// stylesheets and the components through their data-tone.
 
 afterEach(cleanup);
 
@@ -35,69 +39,93 @@ function css(file: string): string {
     .replace(/\s+/g, ' ');
 }
 
-/** The declarations of the first rule whose selector is exactly `selector`. */
+/** The declarations of the first rule whose selector is exactly
+    `selector` (the whole selector list, not a part of a longer one). */
 function rule(sheet: string, selector: string): string {
-  const at = sheet.indexOf(`${selector} {`);
-  expect([selector, at >= 0]).toEqual([selector, true]);
-  const open = sheet.indexOf('{', at);
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = new RegExp(`(?:^|[{}]) ?${escaped} \\{`).exec(sheet);
+  expect([selector, match !== null]).toEqual([selector, true]);
+  const open = sheet.indexOf('{', (match?.index ?? 0) + 1);
   return sheet.slice(open + 1, sheet.indexOf('}', open)).trim();
 }
 
 describe('bars and diamonds (timeline-bar.module.css)', () => {
   const sheet = css('timeline/timeline-bar.module.css');
 
-  test('each status keeps its shape and takes its hue', () => {
-    expect(rule(sheet, '.on_track')).toBe('border-color: var(--green);');
-    expect(rule(sheet, '.at_risk')).toContain('border: 2px solid var(--amber)');
-    expect(rule(sheet, '.at_risk .progress')).toContain(
-      'color: var(--amber-ink)'
+  test('a bar is its hue at 16% over the surface, edged in the full hue', () => {
+    const bar = rule(sheet, '.bar');
+    expect(bar).toContain('--c: var(--gray)');
+    expect(bar).toContain('border: 1px solid var(--c)');
+    expect(bar).toContain(
+      'background: color-mix(in srgb, var(--c) 16%, var(--surface))'
     );
-    expect(rule(sheet, '.overdue')).toContain('background: var(--red)');
-    expect(rule(sheet, '.overdue')).toContain('color: var(--on-red)');
-    // Done stays the ink fill: a green fill has the red one's lightness,
-    // so without red-green vision the two would be the same filled bar.
-    expect(rule(sheet, '.done')).toContain('background: var(--foreground)');
-    expect(rule(sheet, '.done')).toContain('color: var(--background)');
-    // Missing input: still the hatch with a grey rule.
-    expect(rule(sheet, '.missing')).toContain('border-color: var(--muted)');
-    expect(rule(sheet, '.missing')).toContain('repeating-linear-gradient');
-    // An inactive lane: the inactive mark grey, no hue in its words.
-    expect(rule(sheet, '.muted')).toContain('border-color: var(--grey)');
-    expect(
-      rule(sheet, '.muted .progress, .muted .tag, .muted .missingLine')
-    ).toBe('color: var(--grey-2-ink);');
+    expect(bar).toContain('border-radius: var(--r-sm)');
+    expect(bar).toContain('color: var(--text)');
   });
 
-  test('words on a filled bar take the fill’s own text token', () => {
-    expect(
-      rule(sheet, '.overdue .progress, .overdue .cue, .overdue .missingLine')
-    ).toBe('color: var(--on-red);');
-    expect(rule(sheet, '.done .progress, .done .cue')).toBe(
-      'color: var(--muted-inverse);'
-    );
+  test('each status takes its hue; complete stays neutral, never green', () => {
+    expect(rule(sheet, '.on_track')).toBe('--c: var(--green);');
+    expect(rule(sheet, '.at_risk')).toBe('--c: var(--amber);');
+    expect(rule(sheet, '.overdue')).toBe('--c: var(--red);');
+    // Done is the neutral grey: a green bar has the red one's lightness,
+    // so without red-green vision the two would read the same.
+    const done = rule(sheet, '.done');
+    expect(done).toContain('--c: var(--text-2)');
+    expect(done).toContain('10%');
+    expect(rule(sheet, '.done .label')).toBe('color: var(--text-2);');
+    // Missing input: a dashed --text-3 outline on the plain surface.
+    const missing = rule(sheet, '.missing');
+    expect(missing).toContain('border: 1px dashed var(--text-3)');
+    expect(missing).toContain('background: var(--surface)');
+    // An inactive lane: the inactive mark grey, a lighter 8% fill, no hue
+    // in its words.
+    const muted = rule(sheet, '.muted');
+    expect(muted).toContain('--c: var(--gray)');
+    expect(muted).toContain('8%');
+    expect(rule(sheet, '.muted .missingLine')).toBe('color: var(--text-3);');
+  });
+
+  test('opacity never carries the status, and no bar is a flood', () => {
+    // Gr8r fades a done bar to 60%; a faded label falls under 4.5:1, so
+    // the bar steps back by colour instead.
+    for (const selector of ['.bar', '.content', '.done', '.label']) {
+      expect([selector, rule(sheet, selector)]).not.toEqual([
+        selector,
+        expect.stringContaining('opacity'),
+      ]);
+    }
+    expect(sheet).not.toContain('.done .content { opacity');
+    expect(sheet).not.toContain('repeating-linear-gradient');
   });
 
   test('the missing input is named in the warning text', () => {
-    expect(rule(sheet, '.missingLine')).toContain('color: var(--amber-ink)');
-    // On the hatch it takes the darker amber step (tokens.css).
-    expect(rule(sheet, '.missing .missingLine')).toBe(
-      'color: var(--amber-ink-strong);'
-    );
+    expect(rule(sheet, '.missingLine')).toContain('color: var(--amber)');
+    expect(rule(sheet, '.progress')).toBe('color: var(--text-2);');
   });
 
-  test('the due-date diamond repeats the bar’s mark', () => {
-    expect(rule(sheet, '.d_done')).toContain('background: var(--foreground)');
-    expect(rule(sheet, '.d_on_track')).toContain('border-color: var(--green)');
-    expect(rule(sheet, '.d_at_risk')).toBe('border: 2px solid var(--amber);');
-    expect(rule(sheet, '.d_overdue')).toContain('background: var(--red)');
-    expect(rule(sheet, '.d_muted')).toBe('border-color: var(--grey);');
+  test('the due-date diamond repeats StatusMark’s shapes', () => {
+    const diamond = rule(sheet, '.diamond');
+    expect(diamond).toContain('border: 2px solid var(--c)');
+    expect(diamond).toContain('background: var(--c)');
+    expect(diamond).toContain('transform: rotate(45deg)');
+    expect(rule(sheet, '.d_done')).toBe('--c: var(--text);');
+    expect(rule(sheet, '.d_done::after')).toContain(
+      'border: solid var(--hollow)'
+    );
+    expect(rule(sheet, '.d_on_track')).toContain('--c: var(--green)');
+    expect(rule(sheet, '.d_overdue')).toBe('--c: var(--red);');
+    expect(rule(sheet, '.d_at_risk')).toContain('--c: var(--amber)');
+    expect(rule(sheet, '.d_at_risk')).toContain(
+      'linear-gradient(135deg, var(--hollow) 50%, var(--c) 50%)'
+    );
+    expect(rule(sheet, '.d_missing')).toContain('border-style: dotted');
+    expect(rule(sheet, '.d_muted')).toContain('--c: var(--gray)');
   });
 
   test('no status rule uses the purple accent', () => {
     for (const selector of [
       '.on_track',
       '.at_risk',
-      '.at_risk .progress',
       '.overdue',
       '.done',
       '.missing',
@@ -117,55 +145,66 @@ describe('bars and diamonds (timeline-bar.module.css)', () => {
     }
   });
 
-  test('forced colours keep the filled bars and diamonds filled', () => {
-    const at = sheet.indexOf('@media (forced-colors: active)');
+  test('the open bar takes the accent ring; forced colours keep shapes', () => {
+    expect(rule(sheet, '.selected')).toContain('border-color: var(--accent)');
+    const at = sheet.indexOf('@media (forced-colors: active) { .diamond');
     expect(at).toBeGreaterThanOrEqual(0);
-    const block = sheet.slice(at);
-    expect(block).toContain('.overdue, .done { forced-color-adjust: none;');
-    expect(block).toContain('background: CanvasText');
-    expect(block).toContain('.d_overdue, .d_done {');
+    expect(sheet.slice(at)).toContain('--c: CanvasText; --hollow: Canvas;');
+    expect(sheet).toContain(
+      '@media (forced-colors: active) { .selected { outline: 2px solid Highlight;'
+    );
   });
 });
 
 describe('chart furniture (timeline-chart.module.css)', () => {
   const sheet = css('timeline/timeline-chart.module.css');
 
-  test('the legend swatches are the bars in miniature', () => {
-    expect(rule(sheet, '.s_on_track')).toBe('border-color: var(--green);');
-    expect(rule(sheet, '.s_overdue')).toContain('background: var(--red)');
-    expect(rule(sheet, '.s_at_risk')).toBe('border: 2px solid var(--amber);');
-    expect(rule(sheet, '.s_done')).toBe('background: var(--foreground);');
-    expect(rule(sheet, '.s_missing')).toContain('repeating-linear-gradient');
-  });
-
-  test('the milestones row marks take the same hues', () => {
-    expect(rule(sheet, '.m_on_track')).toBe('border-color: var(--green);');
-    expect(rule(sheet, '.m_done')).toBe('background: var(--foreground);');
-    expect(rule(sheet, '.m_at_risk')).toBe('border: 2px solid var(--amber);');
-    expect(rule(sheet, '.m_overdue')).toContain('background: var(--red)');
-    expect(rule(sheet, '.m_muted')).toBe('border-color: var(--grey);');
-  });
-
-  test('risk chains are amber, NO LEAD and "No date" use the tone hook', () => {
-    // The 1px connector takes the amber TEXT colour: it crosses the
-    // weekend columns, where the MARK colour is under 3:1.
-    expect(rule(sheet, '.edgeRisk path')).toBe('stroke: var(--amber-ink);');
-    expect(rule(sheet, '.edgeSelected.edgeRisk path')).toBe(
-      'stroke: var(--amber-ink);'
+  test('the chart is one Gr8r panel', () => {
+    const scroller = rule(sheet, '.scroller');
+    expect(scroller).toContain('border: 1px solid var(--border)');
+    expect(scroller).toContain('border-radius: var(--r-lg)');
+    expect(scroller).toContain('background: var(--surface)');
+    expect(rule(sheet, '.groupRow .laneCell')).toContain(
+      'background: var(--sunken)'
     );
+  });
+
+  test('the milestones row marks take the diamonds’ hues and shapes', () => {
+    expect(rule(sheet, '.m_on_track')).toContain('--c: var(--green)');
+    expect(rule(sheet, '.m_done')).toBe('--c: var(--text);');
+    expect(rule(sheet, '.m_at_risk')).toContain(
+      'linear-gradient(135deg, var(--hollow) 50%, var(--c) 50%)'
+    );
+    expect(rule(sheet, '.m_overdue')).toBe('--c: var(--red);');
+    expect(rule(sheet, '.m_missing')).toContain('border-style: dotted');
+    expect(rule(sheet, '.m_muted')).toContain('--c: var(--gray)');
+  });
+
+  test('risk chains are amber, "No lead" and "No date" use the tone hook', () => {
+    expect(rule(sheet, '.edgeRisk path')).toBe('stroke: var(--amber);');
+    expect(rule(sheet, '.edgeSelected.edgeRisk path')).toBe(
+      'stroke: var(--amber);'
+    );
+    expect(rule(sheet, '.edge path')).toContain('stroke: var(--text-3)');
     expect(rule(sheet, '.laneSubToned')).toContain('color: var(--tone-ink)');
     expect(rule(sheet, '.chipNoteToned')).toBe('color: var(--tone-ink);');
+    // An undated chip is the dashed "missing" edge.
+    expect(rule(sheet, '.chip')).toContain('border: 1px dashed var(--text-3)');
   });
 
   test('a save error is red', () => {
-    expect(rule(sheet, '.liveError .liveKey')).toBe('color: var(--red-ink);');
+    expect(rule(sheet, '.liveError .liveKey')).toBe('color: var(--red);');
   });
 
   test('today stays the purple accent', () => {
     const scale = css('timeline/timeline-scale.module.css');
-    expect(rule(scale, '.todayRule')).toContain('background: var(--accent)');
     expect(rule(scale, '.todayLine')).toContain('background: var(--accent)');
-    expect(rule(scale, '.todayFlag')).toContain('background: var(--accent)');
+    expect(rule(scale, '.todayLine')).toContain('width: 2px');
+    expect(rule(scale, '.todayLine')).not.toContain('opacity');
+    // Today's number and the "Today" word: the accent ink at 600, no fill.
+    expect(rule(scale, '.todayTick')).toContain('color: var(--accent-ink)');
+    expect(rule(scale, '.todayFlag')).toContain('color: var(--accent-ink)');
+    expect(rule(scale, '.todayFlag')).toContain('background: var(--surface)');
   });
 });
 
@@ -174,8 +213,17 @@ describe('phone cards (timeline-cards.module.css)', () => {
 
   test('status words take their tone’s text colour', () => {
     expect(rule(sheet, '.cardSubToned')).toContain('color: var(--tone-ink)');
-    expect(rule(sheet, '.rowMetaToned')).toContain('color: var(--tone-ink)');
-    expect(rule(sheet, '.rowDueToned')).toBe('color: var(--tone-ink);');
+    expect(rule(sheet, '.rowMetaToned .rowStatus')).toContain(
+      'color: var(--tone-ink)'
+    );
+    expect(rule(sheet, '.rowDueToned')).toContain('color: var(--tone-ink)');
+  });
+
+  test('a card is a Gr8r panel and the open row has the accent bar', () => {
+    expect(rule(sheet, '.card')).toContain('border-radius: var(--r-lg)');
+    expect(rule(sheet, '.rowSelected, .rowSelected:hover')).toContain(
+      'box-shadow: inset 2px 0 0 var(--accent)'
+    );
   });
 });
 
@@ -284,7 +332,7 @@ function renderChart(overrides: Partial<TimelineChartProps> = {}) {
 }
 
 describe('the chart emits its tones', () => {
-  test('NO LEAD is a warning on an active lane and quiet on an inactive one', () => {
+  test('"No lead" is a warning on an active lane and quiet on an inactive one', () => {
     const { container } = renderChart();
     const live = container.querySelector(
       '[role="group"][data-lane-id="p-live"]'
@@ -337,7 +385,7 @@ describe('the chart emits its tones', () => {
     expect(paused?.querySelector('header [data-tone]')).toBeNull();
   });
 
-  test('the legend shows the five status swatches in order', () => {
+  test('the legend shows the five status marks in order', () => {
     const { container } = renderChart();
     expect(
       [

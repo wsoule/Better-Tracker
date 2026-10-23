@@ -6,7 +6,7 @@
 
 import type { ReadOnlyReason } from '@better-tracker/engine';
 
-/** The notice's mono key. */
+/** The notice's lead-in word. */
 export const READ_ONLY_LABEL = 'Read only';
 
 /** The notice's sentence, the same everywhere. */

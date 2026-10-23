@@ -2,12 +2,13 @@ import { cx } from './class-names';
 import styles from './task-glyphs.module.css';
 import type { TaskPriority, TaskStateKind } from './types';
 
-/* Issue-state glyphs in the Gr8r/Linear shapes, drawn as hairlines:
-   circles for issues so they never read as the square milestone status
-   marks. Todo is ink; in progress (started) takes the blue status hue and
-   done (completed) the green one; triage, backlog and canceled step back
-   to grey. Decorative only (aria-hidden): the state's name is always
-   printed beside the glyph, in ink. */
+/* Issue-state glyphs in the Gr8r/Linear shapes, each in its workflow
+   colour (--st-*, docs/architecture.md §8.2): triage, backlog and canceled
+   grey (dashed for triage and backlog, struck for canceled), todo the
+   neutral ring, in progress the blue half disc, done the green disc with a
+   tick. Circles for issues so they never read as the milestone status
+   diamonds. Decorative only (aria-hidden): the state's name is always
+   printed beside the glyph, in neutral text. */
 export function StateGlyph({
   kind,
   size = 14,
@@ -33,6 +34,8 @@ export function StateGlyph({
             className={styles.check}
             fill="none"
             strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
         </>
       ) : (
@@ -42,8 +45,10 @@ export function StateGlyph({
           r="5.5"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.25"
-          strokeDasharray={kind === 'triage' ? '2 1.6' : undefined}
+          strokeWidth="1.5"
+          strokeDasharray={
+            kind === 'triage' || kind === 'backlog' ? '1.9 2.1' : undefined
+          }
         />
       )}
       {kind === 'started' ? (
@@ -56,7 +61,7 @@ export function StateGlyph({
           x2="10.8"
           y2="3.2"
           stroke="currentColor"
-          strokeWidth="1.25"
+          strokeWidth="1.5"
         />
       ) : null}
     </svg>
@@ -67,9 +72,10 @@ export function StateGlyph({
 const LIT: Record<TaskPriority, number> = { 0: 0, 1: 4, 2: 3, 3: 2, 4: 1 };
 const BAR_HEIGHTS = [4, 6.5, 9, 11.5];
 
-/* Priority as a four-step bar glyph: ink bars for the level, ghost bars for
-   the rest, all four in the red status hue for urgent (the one that needs
-   action). Decorative only: the priority label is printed beside it. */
+/* Priority in Gr8r's shapes: urgent is a red rounded square with a "!",
+   no priority three short dashes, and high / medium / low lit bars in the
+   secondary ink over ghost bars. Only urgent is coloured. Decorative only:
+   the priority label is printed beside it. */
 export function PriorityGlyph({
   priority,
   size = 14,
@@ -88,16 +94,43 @@ export function PriorityGlyph({
       focusable="false"
       data-priority={priority}
     >
-      {BAR_HEIGHTS.map((h, i) => (
-        <rect
-          key={h}
-          x={1 + i * 3.25}
-          y={12.5 - h}
-          width="2.25"
-          height={h}
-          className={i < lit ? styles.lit : styles.ghost}
-        />
-      ))}
+      {priority === 1 ? (
+        <>
+          <rect x="1" y="1" width="12" height="12" rx="3" fill="currentColor" />
+          <path
+            d="M7 3.8v4.1"
+            className={styles.bang}
+            fill="none"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+          />
+          <circle cx="7" cy="10.2" r="0.95" className={styles.bangDot} />
+        </>
+      ) : priority === 0 ? (
+        [2.5, 6, 9.5].map((x) => (
+          <rect
+            key={x}
+            x={x - 1.25}
+            y="6.25"
+            width="2.5"
+            height="1.5"
+            rx="0.75"
+            className={styles.none}
+          />
+        ))
+      ) : (
+        BAR_HEIGHTS.map((h, i) => (
+          <rect
+            key={h}
+            x={1 + i * 3.25}
+            y={12.5 - h}
+            width="2.25"
+            height={h}
+            rx="0.75"
+            className={i < lit ? styles.lit : styles.ghost}
+          />
+        ))
+      )}
     </svg>
   );
 }

@@ -9,6 +9,15 @@ import {
   type TaskStateKind,
   type UiStatus,
 } from '@better-tracker/ui';
+import {
+  Folder,
+  Hourglass,
+  Milestone,
+  SignalHigh,
+  Timer,
+  User,
+} from 'lucide-react';
+import type { ReactNode } from 'react';
 
 // Fixture props for /ui-gallery/task: tasks from the demo workspace
 // ("Northwind Labs") on Wednesday, October 21, 2026, as the planner would
@@ -51,7 +60,7 @@ interface PropertySpec {
   state: StateSpec;
   /** How long it has sat in its state ("9 days"). */
   inState: string;
-  /** The planner flagged it as stalled: the duration is amber (warning). */
+  /** The planner flagged it as stalled: the duration is the warning tone. */
   stalled?: boolean;
   assignee: string | null;
   /** Why it is this person's (the planner's allocation), or what is missing. */
@@ -67,6 +76,17 @@ interface PropertySpec {
   priority: TaskPriority;
   estimate?: string;
 }
+
+/* The label icons the planner's issue view uses (Gr8r's .kv). */
+const ICON = { size: 14, strokeWidth: 1.8, 'aria-hidden': true } as const;
+const PROPERTY_ICONS: Record<string, ReactNode> = {
+  assignee: <User {...ICON} />,
+  milestone: <Milestone {...ICON} />,
+  'in-state': <Hourglass {...ICON} />,
+  project: <Folder {...ICON} />,
+  priority: <SignalHigh {...ICON} />,
+  estimate: <Timer {...ICON} />,
+};
 
 /* The planner's property sheet for an issue: what Linear shows (assignee,
    priority, estimate) plus what it does not — why the planner gave it to
@@ -135,7 +155,7 @@ function properties(spec: PropertySpec): PropertyListItem[] {
       label: 'Priority',
       value: (
         <TaskPropertyValue>
-          <PriorityGlyph priority={spec.priority} size={13} />
+          <PriorityGlyph priority={spec.priority} size={14} />
           {PRIORITY_LABEL[spec.priority]}
         </TaskPropertyValue>
       ),
@@ -148,7 +168,10 @@ function properties(spec: PropertySpec): PropertyListItem[] {
       value: <TaskPropertyValue mono>{spec.estimate}</TaskPropertyValue>,
     });
   }
-  return items;
+  return items.map((item) => ({
+    ...item,
+    icon: item.id === undefined ? undefined : PROPERTY_ICONS[item.id],
+  }));
 }
 
 function relation(

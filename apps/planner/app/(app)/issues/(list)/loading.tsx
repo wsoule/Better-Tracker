@@ -2,9 +2,9 @@ import { Skeleton, SkeletonRows } from '@better-tracker/ui';
 
 import css from './page.module.css';
 
-/* The Issues page while the engine loads: hatched skeletons in the
-   page's real layout (header, preset tabs, the framed toolbar, the
-   grouped list). It sits in the (list) route group, so /issues/[id] never
+/* The Issues page while the engine loads: shimmer skeletons in the
+   page's real layout (header, preset tabs, the toolbar row, the grouped
+   list's panel). It sits in the (list) route group, so /issues/[id] never
    shows it. */
 export default function IssuesLoading() {
   return (
@@ -23,7 +23,7 @@ export default function IssuesLoading() {
       </div>
       <div className={css.toolbarWrap} aria-hidden="true">
         <div className={css.skeletonToolbar}>
-          <Skeleton width={220} height={36} />
+          <Skeleton width={220} height={26} />
           <Skeleton width={300} height={20} />
         </div>
       </div>

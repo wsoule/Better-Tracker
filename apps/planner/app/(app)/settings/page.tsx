@@ -1,6 +1,5 @@
 import { fixtureDatasetFromEnv } from '@better-tracker/engine';
 import {
-  BlockBar,
   Chip,
   EmptyState,
   NavTabs,
@@ -8,6 +7,16 @@ import {
   RegisterCell,
   RegisterRow,
 } from '@better-tracker/ui';
+import {
+  Activity,
+  Bell,
+  CalendarClock,
+  Eye,
+  History,
+  Inbox,
+  ScrollText,
+  ToggleLeft,
+} from 'lucide-react';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
@@ -32,10 +41,13 @@ import {
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import ReadOnlyNotice from '../components/read-only-notice';
+import CurrentIntoView from './current-into-view';
 import ModesForm from './modes-form';
 import css from './page.module.css';
 import { ReadOnlySettings, ReadOnlyWatchers } from './read-only-sections';
 import ScheduleForm from './schedule-form';
+import { scheduleRowGroup } from './schedule-groups';
+import { SettingBlock, SettingRow, SettingValue } from './setting-rows';
 import StatusActions from './status-actions';
 import WatchersForm from './watchers-form';
 
@@ -51,15 +63,19 @@ const AUDIT_READ_LIMIT = 500;
 type Loaded = Awaited<ReturnType<InstalledContext['engine']['load']>>;
 
 /* /settings (architecture §8.4 "Settings", Gr8r's settings layout): a
-   section sub-nav beside the section's registers, ?section= choosing
-   Modes (default), Watchers (the old ?section=people still opens it),
-   Schedule, Status, Notifications or Audit. Every section is editable by
-   everyone signed in (owner decision 2026-10-22: no roles), each form
-   saving only its own fields through PATCH /api/settings, which (with the
-   engine) validates them again and writes an audit entry. A Linear guest
-   reads every section but changes none (owner decision 2026-10-22,
-   "Guests limited to read only"): plain values, no Save, no Resync or
-   Preview, and one read-only notice above the section. */
+   220px section sub-nav column (a raised pill marks the current one, a
+   16px icon on each; the page's h1 "Settings" heads it) beside the
+   section: its name with a chip (what its saves do, or what it lists) and
+   its one-line lead, then Gr8r setting rows (or, for the logs, a
+   register). ?section= chooses Modes (default), Watchers (the old
+   ?section=people still opens it), Schedule, Status, Notifications or
+   Audit. Every section is editable by everyone signed in (owner decision
+   2026-10-22: no roles), each form saving only its own fields through
+   PATCH /api/settings, which (with the engine) validates them again and
+   writes an audit entry. A Linear guest reads every section but changes
+   none (owner decision 2026-10-22, "Guests limited to read only"): plain
+   values, no Save, no Resync or Preview, and one read-only notice above
+   the section. */
 export default async function SettingsPage({
   searchParams,
 }: {
@@ -72,51 +88,81 @@ export default async function SettingsPage({
   const section = parseSettingsSection(params);
   const loaded = await orSetup(engine.load(workspaceId, actor));
   const readOnly = actor.readOnly;
+  const meta = readOnly
+    ? READ_ONLY_SECTION_META[section.id]
+    : SECTION_META[section.id];
 
   return (
     <>
-      <header className={css.head}>
-        <h1 className={css.title}>Settings</h1>
-        <p className={css.receipts}>
-          {readOnly
-            ? 'How this workspace allocates and warns, and who changed what.'
-            : 'How this workspace allocates and warns. Each section saves on its own, and every change is in the audit log.'}
-        </p>
-      </header>
-      <div className={css.layout}>
-        <NavTabs
-          label="Settings sections"
-          orientation="vertical"
-          items={sectionTabs(section.id)}
-          className={css.subnav}
-        />
-        <div className={css.content}>
-          <section className={css.collapse} aria-label={section.label}>
-            <BlockBar
-              index={sectionIndex(section.id)}
-              title={section.label}
-              meta={
-                readOnly
-                  ? READ_ONLY_SECTION_META[section.id]
-                  : SECTION_META[section.id]
-              }
+      <div className={css.set}>
+        <div className={css.setNav}>
+          <h1 className={`eyebrow ${css.navHead}`}>Settings</h1>
+          <CurrentIntoView className={css.navStick}>
+            <NavTabs
+              label="Settings sections"
+              orientation="vertical"
+              items={sectionTabs(section.id).map((tab) => ({
+                ...tab,
+                icon: SECTION_ICONS[tab.id as SettingsSectionId],
+              }))}
             />
-            <p className={css.sectionText}>{section.description}</p>
-            {readOnly && EDITABLE_SECTIONS.has(section.id) ? (
-              <div className={css.readOnlyNotice}>
-                <ReadOnlyNotice />
-              </div>
-            ) : null}
-            {await renderSection(section.id, context, loaded)}
-          </section>
+          </CurrentIntoView>
         </div>
+        <section
+          className={css.setIn}
+          aria-label={section.label}
+          data-wide={WIDE_SECTIONS.has(section.id) ? 'true' : undefined}
+        >
+          <header className={css.head}>
+            <div className={css.titleRow}>
+              <h2 className={css.title}>{section.label}</h2>
+              <Chip tone="muted">{meta}</Chip>
+            </div>
+            <p className={css.lead}>{section.description}</p>
+          </header>
+          {readOnly && EDITABLE_SECTIONS.has(section.id) ? (
+            <div className={css.readOnlyNotice}>
+              <ReadOnlyNotice />
+            </div>
+          ) : null}
+          {await renderSection(section.id, context, loaded)}
+          <p className={css.pageNote}>
+            {readOnly
+              ? 'How this workspace allocates and warns, and who changed what.'
+              : 'How this workspace allocates and warns. Each section saves on its own, and every change is in the audit log.'}
+          </p>
+        </section>
       </div>
       <PageCrumb label={section.label} />
     </>
   );
 }
 
-/* The block bar's meta: what a section's saves do, or what it lists.
+/* Gr8r's settings sub-nav has a 16px icon on every item (decorative: the
+   label names it). */
+const NAV_ICON = { size: 16, strokeWidth: 1.8, 'aria-hidden': true } as const;
+const SECTION_ICONS: Record<SettingsSectionId, ReactNode> = {
+  modes: <ToggleLeft {...NAV_ICON} />,
+  watchers: <Eye {...NAV_ICON} />,
+  schedule: <CalendarClock {...NAV_ICON} />,
+  status: <Activity {...NAV_ICON} />,
+  notifications: <Bell {...NAV_ICON} />,
+  audit: <ScrollText {...NAV_ICON} />,
+};
+
+/* The empty states' 22px glyph (EmptyState's icon). */
+const EMPTY_ICON = { size: 22, strokeWidth: 1.8, 'aria-hidden': true } as const;
+
+/* Sections whose registers need more than Gr8r's settings column: the
+   logs (four or five columns) and Status, whose digest preview is a
+   register per recipient. */
+const WIDE_SECTIONS: ReadonlySet<SettingsSectionId> = new Set([
+  'status',
+  'notifications',
+  'audit',
+]);
+
+/* The chip beside a section's name: what its saves do, or what it lists.
    Every section is editable by everyone signed in; none names a role. */
 const SECTION_META: Record<SettingsSectionId, string> = {
   modes: 'Audited',
@@ -144,18 +190,6 @@ const EDITABLE_SECTIONS: ReadonlySet<SettingsSectionId> = new Set([
   'schedule',
   'status',
 ]);
-
-function sectionIndex(id: SettingsSectionId): string {
-  const order: SettingsSectionId[] = [
-    'modes',
-    'watchers',
-    'schedule',
-    'status',
-    'notifications',
-    'audit',
-  ];
-  return String(order.indexOf(id) + 1).padStart(2, '0');
-}
 
 async function renderSection(
   id: SettingsSectionId,
@@ -203,6 +237,7 @@ async function renderSection(
           <ReadOnlySettings
             label="Schedule"
             rows={scheduleReadOnlyRows(settings)}
+            groupOf={scheduleRowGroup}
           />
         );
       }
@@ -218,27 +253,19 @@ async function renderSection(
       });
       return (
         <>
-          <Register
-            label="Status"
-            columns="200px minmax(0, 1fr)"
-            stackWithin={700}
-            stackedColumns="minmax(0, 1fr)"
-          >
+          <SettingBlock>
             {rows.map((row) => (
-              <RegisterRow key={row.id}>
-                <RegisterCell variant="mono" tone="muted">
-                  {row.label}
-                </RegisterCell>
-                <RegisterCell
-                  tone={row.tone}
-                  sub={row.sub}
-                  toneSub={row.toneDetail === true}
-                >
-                  {row.value}
-                </RegisterCell>
-              </RegisterRow>
+              <SettingRow
+                key={row.id}
+                title={row.label}
+                help={row.sub}
+                helpTone={row.toneDetail === true ? row.tone : undefined}
+                control={
+                  <SettingValue tone={row.tone}>{row.value}</SettingValue>
+                }
+              />
             ))}
-          </Register>
+          </SettingBlock>
           {/* Resync and the digest preview are for members only. */}
           {readOnly ? null : <StatusActions />}
         </>
@@ -251,7 +278,7 @@ async function renderSection(
       const rows = notificationRows(records, snapshot.users);
       if (rows.length === 0) {
         return (
-          <EmptyState label="No digests">
+          <EmptyState label="No digests" icon={<Inbox {...EMPTY_ICON} />}>
             No digests recorded yet. The daily run records at most one per
             person per day; Status → Preview today’s digests shows what it would
             send now.
@@ -309,7 +336,7 @@ async function renderSection(
       const rows = foldAuditEntries(entries, snapshot, timeZone, LIST_LIMIT);
       if (rows.length === 0) {
         return (
-          <EmptyState label="No edits">
+          <EmptyState label="No edits" icon={<History {...EMPTY_ICON} />}>
             No edits yet. Re-dated milestones, leads, weights, “done means…”,
             issue edits and settings changes appear here, with who made them.
           </EmptyState>

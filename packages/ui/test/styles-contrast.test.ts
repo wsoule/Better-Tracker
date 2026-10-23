@@ -1,407 +1,577 @@
 import { describe, expect, test } from 'bun:test';
-import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-// Text contrast of the colour tokens (WCAG AA: 4.5:1 for small text, and
-// the mono labels are 9.5–10.5px; 3:1 for marks, outlines and bars),
-// computed from tokens.css itself, and a guard that every hover flood swaps
-// the text tokens with the paper/ink.
+import {
+  contrast,
+  cssRule,
+  darkTokens,
+  hex,
+  lightTokens,
+  luminance,
+  over,
+  readCss,
+  retiredNamesIn,
+  sourceFiles,
+  srcDir,
+  THEMES,
+  tintShare,
+  tokensCss,
+} from './contrast-helpers';
 
-const srcDir = path.join(import.meta.dir, '..', 'src');
-const tokensCss = readFileSync(
-  path.join(srcDir, 'styles', 'tokens.css'),
-  'utf8'
-).replace(/\/\*[\s\S]*?\*\//g, '');
+// Contrast of the Gr8r tokens (WCAG AA: 4.5:1 for text, the smallest of
+// which is 11px; 3:1 for marks, control edges, focus and selection),
+// computed from tokens.css itself in both themes: every text token on
+// every surface it can sit on, every tone's text on its own soft tint, the
+// text that sits on a fill, and every mark on every surface. Plus the
+// data-tone hook's mapping (docs/architecture.md §8.2 "Status colours"),
+// the soft dark floor, and the guards for the sheets not yet restyled.
+// The issue list's and the graph's own checks live in tasks-contrast and
+// graph-contrast.
 
-/** The `--name: #hex` declarations of the rule whose selector starts so. */
-function tokenBlock(selectorStart: string): Map<string, string> {
-  const at = tokensCss.indexOf(selectorStart);
-  expect(at).toBeGreaterThanOrEqual(0);
-  const open = tokensCss.indexOf('{', at);
-  const body = tokensCss.slice(open + 1, tokensCss.indexOf('}', open));
-  const out = new Map<string, string>();
-  for (const match of body.matchAll(/(--[\w-]+):\s*(#[0-9a-f]{3,6})\s*;/gi)) {
-    out.set(match[1] ?? '', (match[2] ?? '').toLowerCase());
-  }
-  return out;
+// Everything text can sit on, back to front.
+const SURFACES = [
+  '--bg',
+  '--bg-side',
+  '--surface',
+  '--surface-2',
+  '--surface-3',
+  '--sunken',
+];
+// Text tokens: three text steps (--text-4 is for glyphs, never words), the
+// accent's text step and the status hues, which are text-safe.
+const TEXT = [
+  '--text',
+  '--text-2',
+  '--text-3',
+  '--accent-ink',
+  '--accent-ink-hover',
+  '--red',
+  '--amber',
+  '--green',
+  '--blue',
+];
+// Each tone's text on its own soft tint (a chip, a notice, an alert, a
+// selected row), over the surfaces a tinted thing sits on.
+const TINTS: [text: string, tint: string][] = [
+  ['--accent-ink', '--accent-soft'],
+  ['--red', '--red-soft'],
+  ['--amber', '--amber-soft'],
+  ['--green', '--green-soft'],
+  ['--blue', '--blue-soft'],
+];
+const TINT_BASES = ['--surface', '--surface-2', '--bg-side'];
+
+/** "a on b: ratio" for every pair below `min`, so a failure names it. */
+function below(
+  min: number,
+  tokens: Map<string, string>,
+  pairs: [fg: string, bg: string][]
+): string[] {
+  return pairs
+    .map(([fg, bg]) => ({
+      label: `${fg} on ${bg}`,
+      ratio: contrast(hex(tokens, fg), hex(tokens, bg)),
+    }))
+    .filter(({ ratio }) => !(ratio >= min))
+    .map(({ label, ratio }) => `${label}: ${ratio.toFixed(2)}`);
 }
-
-function luminance(hex: string): number {
-  const full =
-    hex.length === 4
-      ? `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`
-      : hex;
-  const [r, g, b] = [1, 3, 5].map((i) => {
-    const c = Number.parseInt(full.slice(i, i + 2), 16) / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
-}
-
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return ((hi ?? 0) + 0.05) / ((lo ?? 0) + 0.05);
-}
-
-const light = tokenBlock(':root:where(:not([data-bt-ui-scoped]))');
-const dark = {
-  ...Object.fromEntries(light),
-  ...Object.fromEntries(tokenBlock("html[data-theme='dark']")),
-};
-const lightTokens = Object.fromEntries(light);
-
-/** The `--name: rgba(r, g, b, a)` declaration in the block that starts so. */
-function rgbaToken(
-  selectorStart: string,
-  name: string
-): [number, number, number, number] {
-  const at = tokensCss.indexOf(selectorStart);
-  const open = tokensCss.indexOf('{', at);
-  const body = tokensCss.slice(open + 1, tokensCss.indexOf('}', open));
-  const match = new RegExp(
-    `${name}:\\s*rgba\\(\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),\\s*([\\d.]+)\\s*\\)`
-  ).exec(body);
-  expect(match).not.toBeNull();
-  const [r, g, b, alpha] = (match ?? []).slice(1).map(Number);
-  return [r ?? 0, g ?? 0, b ?? 0, alpha ?? 0];
-}
-
-/** An rgba wash composited over a solid hex, as a hex. */
-function over(base: string, [r, g, b, alpha]: readonly number[]): string {
-  return `#${[r, g, b]
-    .map((channel, i) => {
-      const under = Number.parseInt(base.slice(1 + i * 2, 3 + i * 2), 16);
-      const mixed = Math.round(
-        under * (1 - (alpha ?? 0)) + (channel ?? 0) * (alpha ?? 0)
-      );
-      return mixed.toString(16).padStart(2, '0');
-    })
-    .join('')}`;
-}
-
-/** The --tint hover wash over the paper, per theme. */
-const tint = {
-  light: over(
-    lightTokens['--paper'] ?? '',
-    rgbaToken(':root:where(:not([data-bt-ui-scoped]))', '--tint')
-  ),
-  dark: over(
-    dark['--paper'] ?? '',
-    rgbaToken("html[data-theme='dark']", '--tint')
-  ),
-};
-
-/** The chrome's hatch line (the sidebar, block titlebars) over the paper,
-    per theme: darker than the tint in light (#f0f0f0), and the sidebar's
-    status marks sit on it. */
-const hatch = {
-  light: over(
-    lightTokens['--paper'] ?? '',
-    rgbaToken(':root:where(:not([data-bt-ui-scoped]))', '--hatch')
-  ),
-  dark: over(
-    dark['--paper'] ?? '',
-    rgbaToken("html[data-theme='dark']", '--hatch')
-  ),
-};
 
 describe('text tokens meet 4.5:1 in both themes', () => {
-  for (const [theme, t] of [
-    ['light', lightTokens],
-    ['dark', dark],
-  ] as const) {
-    test(theme, () => {
-      const paper = t['--paper'] ?? '';
-      const ink = t['--ink'] ?? '';
-      // Accent text on the paper, hovered, and on an ink hover flood.
-      expect(contrast(t['--accent-ink'] ?? '', paper)).toBeGreaterThanOrEqual(
-        4.5
+  for (const [theme, tokens] of THEMES) {
+    test(`${theme}: every text token on every surface`, () => {
+      const pairs = TEXT.flatMap((text) =>
+        SURFACES.map((surface): [string, string] => [text, surface])
       );
-      expect(
-        contrast(t['--accent-ink-hover'] ?? '', paper)
-      ).toBeGreaterThanOrEqual(4.5);
-      expect(
-        contrast(t['--accent-ink-inverse'] ?? '', ink)
-      ).toBeGreaterThanOrEqual(4.5);
-      // Dim grey text, and the muted inverse it becomes on a flood.
-      expect(contrast(t['--grey-2-ink'] ?? '', paper)).toBeGreaterThanOrEqual(
-        4.5
-      );
-      expect(contrast(t['--muted-inverse'] ?? '', ink)).toBeGreaterThanOrEqual(
-        4.5
-      );
+      expect(below(4.5, tokens, pairs)).toEqual([]);
     });
-  }
 
-  test('the fill accent is one purple in both themes', () => {
-    expect(lightTokens['--accent']).toBe('#9747ff');
-    expect(dark['--accent']).toBe('#9747ff');
-  });
-});
-
-// The issue list's surfaces in the current look, read from the
-// stylesheets so a change there is checked: the bulk bar is paper in a 1px
-// ink frame (no inverted fill, no dimmed actions); its picker actions are
-// the paper's ink, flooding the accent on hover and the ink while open; a
-// selected row carries the 2px accent rule and a drop target the 2px
-// accent frame, over the paper and over a row's ink hover flood.
-function ruleBody(file: string, selector: RegExp): string {
-  const css = readFileSync(path.join(srcDir, file), 'utf8');
-  const match = selector.exec(css);
-  expect({ file, found: match !== null }).toEqual({ file, found: true });
-  return match?.[1] ?? '';
-}
-
-describe('the issue list keeps its text readable', () => {
-  const bar = ruleBody('tasks/bulk-bar.module.css', /\n\.bar \{([^}]*)\}/);
-  const trigger = ruleBody(
-    'edit/picker-popover.module.css',
-    /\n\.bar \{([^}]*)\}/
-  );
-  const selectedRule = ruleBody(
-    'tasks/task-group-table.module.css',
-    /\n\.row\[data-selected='true'\]::before \{([^}]*)\}/
-  );
-  const dropFrame = ruleBody(
-    'tasks/task-group-table.module.css',
-    /\n\.group\[data-drop='ok'\]::after \{([^}]*)\}/
-  );
-
-  test('the bar and its actions draw from the paper tokens, at full strength', () => {
-    expect(bar).toContain('background: var(--background);');
-    expect(bar).toContain('color: var(--foreground);');
-    expect(bar).toContain('border: 1px solid var(--border);');
-    expect(trigger).toContain('color: var(--foreground);');
-    for (const body of [bar, trigger]) {
-      expect(body).not.toMatch(/opacity|box-shadow|border-radius/);
-    }
-    expect(selectedRule).toContain('border-left: 2px solid var(--accent);');
-    expect(dropFrame).toContain('border: 2px solid var(--accent);');
-  });
-
-  for (const [theme, t] of [
-    ['light', lightTokens],
-    ['dark', dark],
-  ] as const) {
-    test(`${theme}: the bulk bar's text on its paper, hovered and open`, () => {
-      const paper = t['--paper'] ?? '';
-      const ink = t['--ink'] ?? '';
+    test(`${theme}: each tone's text on its own soft tint`, () => {
       const failing: string[] = [];
-      for (const [name, text, ground] of [
-        ['count and actions', ink, paper],
-        ['note and message', t['--ink-soft'] ?? '', paper],
-        ['the clear button', t['--muted'] ?? '', paper],
-        ['a hovered action', t['--on-accent'] ?? '', t['--accent'] ?? ''],
-        ['an open action', paper, ink],
-      ] as const) {
-        const ratio = contrast(text, ground);
-        if (ratio < 4.5) failing.push(`${name}: ${ratio}`);
+      for (const [text, tint] of TINTS) {
+        const share = tintShare(lightTokens, tint);
+        const hue = tint === '--accent-soft' ? '--accent' : text;
+        for (const base of TINT_BASES) {
+          const ground = over(hex(tokens, hue), hex(tokens, base), share);
+          const ratio = contrast(hex(tokens, text), ground);
+          if (ratio < 4.5) failing.push(`${text} on ${tint}/${base}: ${ratio}`);
+        }
       }
       expect(failing).toEqual([]);
     });
 
-    test(`${theme}: the selected-row rule and the drop frame read on the paper and the flood`, () => {
-      const accent = t['--accent'] ?? '';
+    // An alert's follow-up is an accent link on the alert's tint, and a
+    // notice's sentence is --text on it.
+    test(`${theme}: the accent link and the body text on every status tint`, () => {
       const failing: string[] = [];
-      for (const [ground, color] of [
-        ['paper', t['--paper'] ?? ''],
-        ['ink flood', t['--ink'] ?? ''],
-      ] as const) {
-        const ratio = contrast(accent, color);
-        if (ratio < 3) failing.push(`accent on ${ground}: ${ratio}`);
+      for (const [hue, tint] of TINTS.slice(1)) {
+        const share = tintShare(lightTokens, tint);
+        const ground = over(hex(tokens, hue), hex(tokens, '--surface'), share);
+        for (const text of ['--accent-ink', '--text', '--text-2']) {
+          const ratio = contrast(hex(tokens, text), ground);
+          if (ratio < 4.5) failing.push(`${text} on ${tint}: ${ratio}`);
+        }
       }
       expect(failing).toEqual([]);
     });
-  }
-});
 
-// The status hues (owner decision 2026-10-22, architecture §8.2): each has a
-// MARK colour (--<hue>), a TEXT colour (--<hue>-ink), the text colour for an
-// ink hover flood (--<hue>-ink-inverse) and the text ON its fill (--on-<hue>).
-const TEXT_HUES = ['red', 'amber', 'green', 'blue'] as const;
-const MARK_HUES = [...TEXT_HUES, 'grey'] as const;
-
-describe('status hues meet WCAG in both themes', () => {
-  /** "name a:b x.xx" for every pair below `min`, so a failure names it. */
-  function below(
-    min: number,
-    pairs: [string, string, string, string][]
-  ): string[] {
-    return pairs
-      .map(([fgName, fg, bgName, bg]) => ({
-        label: `${fgName} on ${bgName}`,
-        ratio: contrast(fg, bg),
-      }))
-      .filter(({ ratio }) => !(ratio >= min))
-      .map(({ label, ratio }) => `${label} ${ratio.toFixed(2)}`);
-  }
-
-  for (const [theme, t] of [
-    ['light', lightTokens],
-    ['dark', dark],
-  ] as const) {
-    const paper = t['--paper'] ?? '';
-    const ink = t['--ink'] ?? '';
-    const wash = tint[theme];
-    const line = hatch[theme];
-    const token = (name: string): string => t[name] ?? '(missing)';
-
-    test(`${theme}: status text is 4.5:1 on the paper and the tint`, () => {
-      const pairs = TEXT_HUES.flatMap(
-        (hue): [string, string, string, string][] => [
-          [`--${hue}-ink`, token(`--${hue}-ink`), 'paper', paper],
-          [`--${hue}-ink`, token(`--${hue}-ink`), 'tint', wash],
-        ]
-      );
-      expect(below(4.5, pairs)).toEqual([]);
-    });
-
-    test(`${theme}: status text on an ink flood is 4.5:1`, () => {
-      const pairs = TEXT_HUES.map((hue): [string, string, string, string] => [
-        `--${hue}-ink-inverse`,
-        token(`--${hue}-ink-inverse`),
-        'ink',
-        ink,
-      ]);
-      expect(below(4.5, pairs)).toEqual([]);
-    });
-
-    test(`${theme}: status marks are 3:1 on the paper, the tint, the hatch and a flood`, () => {
-      if (theme === 'light') expect(line).toBe('#f0f0f0');
-      const pairs = MARK_HUES.flatMap(
-        (hue): [string, string, string, string][] => [
-          [`--${hue}`, token(`--${hue}`), 'paper', paper],
-          [`--${hue}`, token(`--${hue}`), 'tint', wash],
-          [`--${hue}`, token(`--${hue}`), 'hatch', line],
-          [`--${hue}`, token(`--${hue}`), 'ink', ink],
-        ]
-      );
-      expect(below(3, pairs)).toEqual([]);
-    });
-
-    // An accent (purple) flood turns every mark white (--on-accent), so
-    // the mark needs --on-accent at 3:1 on the purple.
-    test(`${theme}: a mark on the accent flood is 3:1`, () => {
+    test(`${theme}: text on fills`, () => {
       expect(
-        below(3, [
-          ['--on-accent', token('--on-accent'), '--accent', token('--accent')],
+        below(4.5, tokens, [
+          ['--on-accent', '--accent'],
+          ['--on-red', '--red'],
+          ['--on-amber', '--amber'],
+          ['--on-green', '--green'],
+          ['--on-blue', '--blue'],
+          ['--on-danger', '--red'],
+          ['--text-inv', '--text'],
         ])
       ).toEqual([]);
     });
 
-    test(`${theme}: text on a status fill is 4.5:1`, () => {
-      const pairs = TEXT_HUES.map((hue): [string, string, string, string] => [
-        `--on-${hue}`,
-        token(`--on-${hue}`),
-        `--${hue}`,
-        token(`--${hue}`),
-      ]);
-      expect(below(4.5, pairs)).toEqual([]);
+    // A toast, a tooltip and the bulk bar are inverted (--text fill): the
+    // accent and the status hues on them use their -ink-inverse step.
+    test(`${theme}: the accent and the hues on an inverted fill`, () => {
+      expect(
+        below(4.5, tokens, [
+          ['--accent-ink-inverse', '--text'],
+          ['--red-ink-inverse', '--text'],
+          ['--amber-ink-inverse', '--text'],
+          ['--green-ink-inverse', '--text'],
+          ['--blue-ink-inverse', '--text'],
+        ])
+      ).toEqual([]);
     });
   }
 
-  // A hatched (missing-input) timeline bar names what is missing in amber
-  // text on its hatch, whose darkest line is --hairline-faint over the
-  // paper (#d9d9d9 light, #444444 dark): --amber-ink-strong is the amber
-  // step that reads there.
-  test('the strong amber text is 4.5:1 on the hatch and its wash', () => {
-    const hatchLight = over(
-      lightTokens['--paper'] ?? '',
-      rgbaToken(':root:where(:not([data-bt-ui-scoped]))', '--hairline-faint')
+  test('the fill accent is one purple in both themes', () => {
+    expect(hex(lightTokens, '--accent')).toBe('#9747ff');
+    expect(hex(darkTokens, '--accent')).toBe('#9747ff');
+  });
+});
+
+// Non-text contrast (WCAG 1.4.11, 3:1): what tells a control, its state
+// or a meaningful mark from what is around it. The soft lines (--border,
+// --border-strong, --divider) are decoration and are not checked; these
+// are the edges and marks a person must be able to see.
+const NON_TEXT: [mark: string, why: string][] = [
+  // the edge of a field, a checkbox, the switch's off track
+  ['--control-border', 'control boundary'],
+  // the focus ring, the active-option bar, the selected segment's ring,
+  // a checked box, the on switch, the today line
+  ['--accent', 'focus ring and selection'],
+  // the current nav item's icon
+  ['--accent-ink', 'current nav icon'],
+  // StatusMark's diamonds and the toned dots: the status hues, the
+  // inactive grey, the open and done marks
+  ['--red', 'status mark'],
+  ['--amber', 'status mark'],
+  ['--green', 'status mark'],
+  ['--blue', 'status dot'],
+  ['--gray', 'inactive mark'],
+  ['--text-2', 'open mark'],
+  ['--text-3', 'missing mark'],
+  // StateGlyph's workflow colours (the state name sits beside them, but
+  // the glyph's shape and hue are what a scanning eye reads)
+  ['--st-triage', 'state glyph'],
+  ['--st-backlog', 'state glyph'],
+  ['--st-todo', 'state glyph'],
+  ['--st-progress', 'state glyph'],
+  ['--st-done', 'state glyph'],
+  ['--st-canceled', 'state glyph'],
+];
+
+describe('non-text marks meet 3:1 in both themes', () => {
+  for (const [theme, tokens] of THEMES) {
+    test(`${theme}: control edges, focus and status marks on every surface`, () => {
+      const pairs = NON_TEXT.flatMap(([mark]) =>
+        SURFACES.map((surface): [string, string] => [mark, surface])
+      );
+      expect(below(3, tokens, pairs)).toEqual([]);
+    });
+
+    test(`${theme}: the accent on its own soft tint (a selected row's bar)`, () => {
+      const share = tintShare(lightTokens, '--accent-soft');
+      const failing: string[] = [];
+      for (const base of TINT_BASES) {
+        const ground = over(hex(tokens, '--accent'), hex(tokens, base), share);
+        const ratio = contrast(hex(tokens, '--accent'), ground);
+        if (ratio < 3)
+          failing.push(`--accent on --accent-soft/${base}: ${ratio}`);
+      }
+      expect(failing).toEqual([]);
+    });
+
+    test(`${theme}: the switch knob on its track, off and on`, () => {
+      // The knob is --on-accent; off it sits on --control-border, on it
+      // sits on --accent. A mark on the accent fill (a checked box's
+      // tick) is the same pair.
+      expect(
+        below(3, tokens, [
+          ['--on-accent', '--control-border'],
+          ['--on-accent', '--accent'],
+        ])
+      ).toEqual([]);
+    });
+
+    // A done mark is a solid neutral diamond, an overdue one a solid red
+    // diamond: they must differ in lightness, not only in hue, for
+    // someone without red-green vision or in greyscale. A green fill would
+    // not (it is as light as the red one), which is why done is not green.
+    test(`${theme}: done and overdue differ in lightness; green and red would not`, () => {
+      const done = contrast(hex(tokens, '--text'), hex(tokens, '--red'));
+      const green = contrast(hex(tokens, '--green'), hex(tokens, '--red'));
+      expect(done).toBeGreaterThan(2);
+      expect(green).toBeLessThan(1.5);
+    });
+  }
+
+  test('fields use the control edge, not the soft line', () => {
+    expect(readCss('styles/primitives.css')).toContain(
+      'border: 1px solid var(--control-border);'
     );
-    const hatchDark = over(
-      dark['--paper'] ?? '',
-      rgbaToken("html[data-theme='dark']", '--hairline-faint')
+  });
+});
+
+// The keyboard focus ring (--focus-ring: the accent in light, its lighter
+// step in dark) must read 3:1 wherever focus can land: every surface,
+// every status tint over the surfaces a tinted thing sits on (an alert's
+// "Graph" link, a warning notice's button, a toned chip's ×), a selected
+// row's accent tint, and a toned timeline bar (16% of its hue over the
+// surface, the due-date handles). An inverted fill (a toast, the bulk bar)
+// uses --focus-ring-inverse on --text.
+describe('the focus ring meets 3:1 wherever focus lands, in both themes', () => {
+  const BAR_FILL = 0.16;
+  for (const [theme, tokens] of THEMES) {
+    test(`${theme}: on every surface, status tint and toned bar`, () => {
+      const ring = hex(tokens, '--focus-ring');
+      const failing: string[] = [];
+      for (const surface of SURFACES) {
+        const ratio = contrast(ring, hex(tokens, surface));
+        if (ratio < 3) failing.push(`on ${surface}: ${ratio.toFixed(2)}`);
+      }
+      for (const [text, tint] of TINTS) {
+        const share = tintShare(lightTokens, tint);
+        const hue = tint === '--accent-soft' ? '--accent' : text;
+        for (const base of TINT_BASES) {
+          const ground = over(hex(tokens, hue), hex(tokens, base), share);
+          const ratio = contrast(ring, ground);
+          if (ratio < 3)
+            failing.push(`on ${tint}/${base}: ${ratio.toFixed(2)}`);
+        }
+      }
+      for (const hue of ['--red', '--amber', '--green', '--blue', '--gray']) {
+        const ground = over(
+          hex(tokens, hue),
+          hex(tokens, '--surface'),
+          BAR_FILL
+        );
+        const ratio = contrast(ring, ground);
+        if (ratio < 3) failing.push(`on a ${hue} bar: ${ratio.toFixed(2)}`);
+      }
+      expect(failing).toEqual([]);
+    });
+
+    test(`${theme}: the inverse ring on an inverted fill`, () => {
+      expect(below(3, tokens, [['--focus-ring-inverse', '--text']])).toEqual(
+        []
+      );
+    });
+  }
+
+  test('light keeps the fill purple; dark takes its lighter step', () => {
+    expect(hex(lightTokens, '--focus-ring')).toBe('#9747ff');
+    expect(hex(darkTokens, '--focus-ring')).toBe(
+      hex(darkTokens, '--accent-ink')
     );
-    expect(hatchLight).toBe('#d9d9d9');
-    const pairs: [string, number][] = [
-      [
-        'light on the hatch',
-        contrast(lightTokens['--amber-ink-strong'] ?? '', hatchLight),
-      ],
-      [
-        'light on the paper',
-        contrast(
-          lightTokens['--amber-ink-strong'] ?? '',
-          lightTokens['--paper'] ?? ''
-        ),
-      ],
-      [
-        'dark on the hatch',
-        contrast(dark['--amber-ink-strong'] ?? '', hatchDark),
-      ],
-    ];
-    expect(
-      pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([label]) => label)
-    ).toEqual([]);
   });
 
-  // The on-track mark is only a 1px hollow edge (StatusMark, the timeline
-  // bar's outline), so 3:1 is not enough for it to read on the black
-  // paper: --green holds 4.5:1 on the paper in both themes (dark steps it
-  // to #1c9444, 4.90:1, where the light #16853c is 4.07:1).
-  test('the 1px on-track edge is 4.5:1 on the paper in both themes', () => {
-    const pairs: [string, number][] = [
-      [
-        'light',
-        contrast(lightTokens['--green'] ?? '', lightTokens['--paper'] ?? ''),
-      ],
-      ['dark', contrast(dark['--green'] ?? '', dark['--paper'] ?? '')],
-    ];
+  test('the global ring and every component focus ring use the token', () => {
     expect(
-      pairs.filter(([, ratio]) => !(ratio >= 4.5)).map(([label]) => label)
-    ).toEqual([]);
+      cssRule(
+        'styles/tokens.css',
+        ':where(html:not([data-bt-ui-scoped]), [data-bt-ui]) :focus-visible'
+      )
+    ).toContain('outline: 2px solid var(--focus-ring);');
+    // A focus rule (its selector holds :focus-visible or :focus-within,
+    // not inside :not()) never draws its ring in the bare accent.
+    const offenders: string[] = [];
+    for (const file of sourceFiles(srcDir).filter((f) => f.endsWith('.css'))) {
+      const sheet = readCss(path.relative(srcDir, file)).replace(/\s+/g, ' ');
+      for (const match of sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+        const selector = (match[1] ?? '').replace(/:not\([^)]*\)/g, '');
+        const body = match[2] ?? '';
+        if (!/:focus-(visible|within)/.test(selector)) continue;
+        if (
+          /outline(-color)?:[^;]*var\(--accent\)/.test(body) ||
+          /border:[^;]*var\(--accent\)/.test(body)
+        ) {
+          offenders.push(`${path.relative(srcDir, file)}: ${selector.trim()}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+    // The inverted fills hand their controls the inverse ring.
+    for (const [file, selector] of [
+      ['shell/toast.module.css', '.toast'],
+      ['tasks/bulk-bar.module.css', '.bar'],
+      ['tasks/chip.module.css', '.inverse'],
+    ] as const) {
+      expect([file, cssRule(file, selector)]).toEqual([
+        file,
+        expect.stringContaining('--focus-ring: var(--focus-ring-inverse);'),
+      ]);
+    }
   });
+});
 
+describe('status hues', () => {
   test('no status hue is the purple accent', () => {
-    for (const t of [lightTokens, dark]) {
-      const purples = [t['--accent'], t['--accent-ink'], t['--accent-hover']];
-      for (const hue of MARK_HUES) {
-        expect(purples).not.toContain(t[`--${hue}`]);
+    for (const [, tokens] of THEMES) {
+      const purples = ['--accent', '--accent-ink', '--accent-ink-hover'].map(
+        (name) => hex(tokens, name)
+      );
+      for (const hue of ['--red', '--amber', '--green', '--blue', '--gray']) {
+        expect([hue, purples.includes(hex(tokens, hue))]).toEqual([hue, false]);
       }
-      for (const hue of TEXT_HUES) {
-        expect(purples).not.toContain(t[`--${hue}-ink`]);
-      }
+    }
+  });
+
+  // The on-track mark is only a thin outline (StatusMark, a bar's edge),
+  // so its green holds 4.5:1, not just 3:1, on every surface.
+  test('the on-track green holds 4.5:1 on every surface in both themes', () => {
+    for (const [, tokens] of THEMES) {
+      expect(
+        below(
+          4.5,
+          tokens,
+          SURFACES.map((surface): [string, string] => ['--green', surface])
+        )
+      ).toEqual([]);
+    }
+  });
+
+  // A missing-input timeline bar is a dashed outline on the surface with
+  // its "Missing: …" line in amber (the old hatch is retired): amber text
+  // reads on the surface, under the hover fill and on a weekend column.
+  test('the missing line is 4.5:1 on the surface, the hover fill and the sunken band', () => {
+    for (const [, tokens] of THEMES) {
+      expect(
+        below(4.5, tokens, [
+          ['--amber', '--surface'],
+          ['--amber', '--surface-2'],
+          ['--amber', '--sunken'],
+        ])
+      ).toEqual([]);
     }
   });
 });
 
 describe('the data-tone hook', () => {
-  // The tones and the tokens each one maps to (tokens.css, TONE HOOK).
-  const HOOK: Record<string, [string, string]> = {
-    muted: ['--grey', '--muted'],
-    accent: ['--accent', '--accent-ink'],
-    danger: ['--red', '--red-ink'],
-    warning: ['--amber', '--amber-ink'],
-    success: ['--green', '--green-ink'],
-    info: ['--blue', '--blue-ink'],
+  // The tones and the tokens each one maps to (tokens.css, TONE HOOK;
+  // docs/architecture.md §8.2): [--tone, --tone-ink, --tone-soft,
+  // --tone-line, --on-tone].
+  const HOOK: Record<string, [string, string, string, string, string]> = {
+    muted: [
+      'var(--gray)',
+      'var(--text-3)',
+      'var(--surface-2)',
+      'var(--border)',
+      'var(--surface)',
+    ],
+    accent: [
+      'var(--accent)',
+      'var(--accent-ink)',
+      'var(--accent-soft)',
+      'var(--accent-line)',
+      'var(--on-accent)',
+    ],
+    danger: [
+      'var(--red)',
+      'var(--red-ink)',
+      'var(--red-soft)',
+      'var(--red-line)',
+      'var(--on-red)',
+    ],
+    warning: [
+      'var(--amber)',
+      'var(--amber-ink)',
+      'var(--amber-soft)',
+      'var(--amber-line)',
+      'var(--on-amber)',
+    ],
+    success: [
+      'var(--green)',
+      'var(--green-ink)',
+      'var(--green-soft)',
+      'var(--green-line)',
+      'var(--on-green)',
+    ],
+    info: [
+      'var(--blue)',
+      'var(--blue-ink)',
+      'var(--blue-soft)',
+      'var(--blue-line)',
+      'var(--on-blue)',
+    ],
   };
+  const NAMES = [
+    '--tone',
+    '--tone-ink',
+    '--tone-soft',
+    '--tone-line',
+    '--on-tone',
+  ];
+  const flat = tokensCss.replace(/\s+/g, ' ');
 
-  test('every tone defines --tone, --tone-ink and --on-tone', () => {
-    const flat = tokensCss.replace(/\s+/g, ' ');
-    for (const [tone, [mark, text]] of Object.entries(HOOK)) {
+  test('every tone defines its five variables from its hue', () => {
+    for (const [tone, values] of Object.entries(HOOK)) {
       const head = `:where([data-tone='${tone}']) {`;
       const at = flat.indexOf(head);
       expect([tone, at >= 0]).toEqual([tone, true]);
       const body = flat.slice(at + head.length, flat.indexOf('}', at));
-      expect(body).toContain(`--tone: var(${mark});`);
-      expect(body).toContain(`--tone-ink: var(${text});`);
-      expect(body).toContain('--on-tone:');
+      NAMES.forEach((name, i) => {
+        expect([tone, body]).toEqual([
+          tone,
+          expect.stringContaining(`${name}: ${values[i]};`),
+        ]);
+      });
     }
-    // A bare data-tone (default) leaves the surrounding ink alone.
+  });
+
+  test('a bare data-tone (default) leaves the surrounding text alone', () => {
     expect(flat).toContain(
-      ':where([data-tone]) { --tone: var(--foreground); --tone-ink: currentcolor;'
+      ':where([data-tone]) { --tone: var(--text-2); --tone-ink: currentcolor;'
     );
+  });
+
+  // The -ink names the hook reads are the hues themselves (text-safe in
+  // Gr8r); an unmigrated hover flood may still swap them for its inverse.
+  test('each status text name resolves to its hue in both themes', () => {
+    for (const [, tokens] of THEMES) {
+      for (const hue of ['red', 'amber', 'green', 'blue']) {
+        expect(hex(tokens, `--${hue}-ink`)).toBe(hex(tokens, `--${hue}`));
+      }
+    }
+  });
+});
+
+describe('dark mode is a soft dark', () => {
+  // Owner 2026-10-23: the old near-black was "too dark". Gr8r's warm dark
+  // (#1a1a19 page, #1d1d1c surface) is the floor: no surface is darker
+  // than #1a1a19, and the main column is not darker than #1d1d1c.
+  test('no dark surface is darker than #1a1a19', () => {
+    const floor = luminance('#1a1a19');
+    const darker = SURFACES.filter(
+      (name) => luminance(hex(darkTokens, name)) < floor
+    );
+    expect(darker).toEqual([]);
+    expect(luminance(hex(darkTokens, '--surface'))).toBeGreaterThanOrEqual(
+      luminance('#1d1d1c')
+    );
+  });
+
+  test('the two dark blocks are a redefinition, not the light values', () => {
+    for (const name of SURFACES) {
+      expect([name, hex(darkTokens, name) !== hex(lightTokens, name)]).toEqual([
+        name,
+        true,
+      ]);
+    }
+  });
+});
+
+// The old Analytics names stay as deprecated aliases while the screens
+// migrate (docs/architecture.md §8.2 maps each one): they must resolve to
+// a Gr8r token in both themes, so an unmigrated sheet stays readable.
+describe('the migration aliases', () => {
+  const ALIASES: [old: string, gr8r: string][] = [
+    ['--paper', '--surface'],
+    ['--background', '--surface'],
+    ['--ink', '--text'],
+    ['--foreground', '--text'],
+    ['--ink-soft', '--text'],
+    ['--muted', '--text-2'],
+    ['--grey', '--gray'],
+    ['--grey-2', '--text-4'],
+    ['--grey-2-ink', '--text-3'],
+    ['--grey-3', '--border-strong'],
+    ['--grey-4', '--surface-3'],
+    ['--tint', '--surface-2'],
+    ['--hairline-faint', '--divider'],
+    ['--amber-ink-strong', '--amber'],
+  ];
+
+  test('each points at its Gr8r token in both themes', () => {
+    for (const [, tokens] of THEMES) {
+      for (const [old, gr8r] of ALIASES) {
+        expect([old, hex(tokens, old)]).toEqual([old, hex(tokens, gr8r)]);
+      }
+    }
+    expect(lightTokens.get('--hatch')).toBe('transparent');
+  });
+
+  // The foundation's own sheets and components (tokens.css declares the
+  // aliases, so it is the one exception) read none of them. Each lane adds
+  // the same check for its files as it migrates (contract §12).
+  test('the foundation files read no retired name', () => {
+    const atoms = [
+      'chip',
+      'notice',
+      'button',
+      'progress-rule',
+      'register',
+      'stats-strip',
+      'checklist',
+      'task-glyphs',
+    ];
+    const files = [
+      ...sourceFiles(path.join(srcDir, 'components')),
+      ...sourceFiles(path.join(srcDir, 'shell')),
+      path.join(srcDir, 'styles', 'primitives.css'),
+      ...atoms.flatMap((atom) => [
+        path.join(srcDir, 'tasks', `${atom}.tsx`),
+        path.join(srcDir, 'tasks', `${atom}.module.css`),
+      ]),
+    ];
+    expect(retiredNamesIn(files)).toEqual([]);
+  });
+
+  // Every lane has migrated, so the guard now covers the whole package:
+  // tokens.css (which declares the aliases) is the one file that may name
+  // them. They stay declared only for branches written before the
+  // restyle; one merged in fails here until its sheets are restyled.
+  test('no file under src reads a retired name', () => {
+    const files = sourceFiles(srcDir).filter(
+      (file) => path.basename(file) !== 'tokens.css'
+    );
+    expect(files.length).toBeGreaterThan(100);
+    expect(retiredNamesIn(files)).toEqual([]);
+  });
+});
+
+// The global ring's 4px corners carry no specificity (:focus-visible inside
+// :where), so a class that sets its own radius (a pill, a 6px button, a
+// graph box) keeps it when focused; the outline itself keeps the
+// pseudo-class's weight, so a module cannot drop the ring by accident.
+describe('the global focus ring', () => {
+  const scope = ':where(html:not([data-bt-ui-scoped]), [data-bt-ui])';
+
+  test('draws the 2px focus-ring outline with no radius of its own', () => {
+    const ring = cssRule('styles/tokens.css', `${scope} :focus-visible`);
+    expect(ring).toContain('outline: 2px solid var(--focus-ring)');
+    expect(ring).not.toContain('border-radius');
+  });
+
+  test('rounds only elements without a radius', () => {
+    expect(
+      cssRule('styles/tokens.css', `${scope} :where(:focus-visible)`)
+    ).toBe('border-radius: var(--r-xs);');
   });
 });
 
 /** Every CSS file under src. */
-function cssFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return cssFiles(full);
-    return entry.name.endsWith('.css') ? [full] : [];
-  });
+function cssFiles(): string[] {
+  return sourceFiles(srcDir).filter((file) => file.endsWith('.css'));
 }
 
 /**
@@ -415,21 +585,46 @@ function cssRules(css: string): [string, string][] {
   ]);
 }
 
-describe('coloured floods swap the status mark hues', () => {
-  // A block that fills with a colour and retints the ink for its contents
-  // (`--foreground: var(--on-accent)` on the purple hover flood or the
-  // accent chip, `var(--on-red)` on the graph's overdue box) must turn the
-  // status MARK hues to that ink too: a red, amber, green or grey mark is
-  // under 3:1 on the purple or the red, and the mark's shape stays to say
-  // the status. The swap may sit in the block itself or in a rule that
-  // extends its selector (`.accent .mark`); the graph's node glyph reads
-  // its hues through --glyph-<hue> (and its grey through those same
-  // variables, so --glyph-ink stands in for grey there).
+// Guards for the sheets not yet restyled: the Gr8r look has no floods, so
+// a migrated sheet passes these trivially; a sheet that still floods a
+// block to ink or to a colour must keep its text and marks readable there
+// until its lane removes the flood (contract §2).
+describe('a remaining flood keeps its contents readable', () => {
+  test('a block that floods with ink also swaps accent, status and dim text', () => {
+    const missing: string[] = [];
+    for (const file of cssFiles()) {
+      const css = readCss(path.relative(srcDir, file));
+      for (const match of css.matchAll(/\{([^{}]*)\}/g)) {
+        const body = match[1] ?? '';
+        if (!/--background:\s*var\(--ink\)/.test(body)) continue;
+        for (const name of [
+          '--accent-ink',
+          '--accent-ink-hover',
+          '--grey-2-ink',
+          '--red-ink',
+          '--amber-ink',
+          '--green-ink',
+          '--blue-ink',
+        ]) {
+          if (!new RegExp(`${name}:`).test(body)) {
+            missing.push(`${path.relative(srcDir, file)}: ${name}`);
+          }
+        }
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  // A block that fills with a colour and retints its ink for its contents
+  // (`--foreground: var(--on-accent)`) must turn the status mark hues to
+  // that ink too: a red, amber, green or grey mark is under 3:1 on the
+  // purple or the red. The swap may sit in the block itself or in a rule
+  // that extends its selector; the graph's node glyph reads its hues
+  // through --glyph-<hue> (and its grey through --glyph-ink).
   test('every on-colour flood swaps --red, --amber, --green and --grey', () => {
     const missing: string[] = [];
-    for (const file of cssFiles(srcDir)) {
-      const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-      const rules = cssRules(css);
+    for (const file of cssFiles()) {
+      const rules = cssRules(readCss(path.relative(srcDir, file)));
       for (const [selector, body] of rules) {
         if (!/--foreground:\s*var\(--on-[\w-]+\)/.test(body)) continue;
         const group = rules
@@ -453,191 +648,25 @@ describe('coloured floods swap the status mark hues', () => {
     expect(missing).toEqual([]);
   });
 
-  test('the sidebar item hover turns the marks white', () => {
-    const css = readFileSync(
-      path.join(srcDir, 'shell', 'app-shell.module.css'),
-      'utf8'
-    ).replace(/\/\*[\s\S]*?\*\//g, '');
-    const body = cssRules(css).find(
-      ([selector]) => selector === ".item:not([aria-current='page']):hover"
-    )?.[1];
-    expect(body).toBeDefined();
-    for (const hue of ['red', 'amber', 'green', 'grey']) {
-      expect([hue, body ?? '']).toEqual([
-        hue,
-        expect.stringContaining(`--${hue}: var(--on-accent);`),
-      ]);
+  // The sidebar no longer floods: a hovered item takes the --surface-3
+  // fill and its project marks keep their own hue, which holds 3:1 there
+  // and on the sidebar grey in both themes.
+  test('the sidebar item hover is a soft fill and its marks keep their hue', () => {
+    const body = cssRule(
+      'shell/app-shell.module.css',
+      ".brandLink:hover, .item:not([aria-current='page']):hover, .iconButton:hover, .tools button:hover"
+    );
+    expect(body).toContain('background: var(--surface-3);');
+    expect(body).not.toMatch(/--(red|amber|green|gray|grey):/);
+    for (const [, tokens] of THEMES) {
+      expect(
+        below(3, tokens, [
+          ['--red', '--surface-3'],
+          ['--amber', '--surface-3'],
+          ['--red', '--bg-side'],
+          ['--amber', '--bg-side'],
+        ])
+      ).toEqual([]);
     }
   });
-});
-
-describe('hover floods swap the text tokens', () => {
-  test('a block that floods with ink also swaps accent, status and dim text', () => {
-    const missing: string[] = [];
-    for (const file of cssFiles(srcDir)) {
-      const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-      for (const match of css.matchAll(/\{([^{}]*)\}/g)) {
-        const body = match[1] ?? '';
-        if (!/--background:\s*var\(--ink\)/.test(body)) continue;
-        for (const name of [
-          '--accent-ink',
-          '--accent-ink-hover',
-          '--grey-2-ink',
-          '--red-ink',
-          '--amber-ink',
-          '--green-ink',
-          '--blue-ink',
-        ]) {
-          if (!new RegExp(`${name}:`).test(body)) {
-            missing.push(`${path.relative(srcDir, file)}: ${name}`);
-          }
-        }
-      }
-    }
-    expect(missing).toEqual([]);
-  });
-});
-
-// The dependency graph's highlights (architecture §8.4 Graph): every line,
-// ring and mark is 3:1 on the paper canvas and every word 4.5:1, in both
-// themes, read from the tokens the graph's stylesheet actually uses.
-// Measured: ink 21.00 / 16.37, the dim grey 5.10 / 5.93, green 4.71 /
-// 4.90, amber 3.56 / 5.23, red 4.83 / 4.15, accent 4.51 / 4.25; the
-// accent and ink rings 4.66 / 3.85 apart; the "Ready next" word 5.42 /
-// 8.86 (9.71 / 4.63 on a selected box's ink), the step digits 21.00 /
-// 16.37, receding words 5.10 / 5.93 (8.33 / 5.98 on a selected box).
-describe('graph marks meet WCAG in both themes', () => {
-  const graphCss = readFileSync(
-    path.join(srcDir, 'graph', 'dependency-graph.module.css'),
-    'utf8'
-  )
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\s+/g, ' ');
-
-  /** The declarations of the first rule whose selector is exactly `selector`. */
-  function graphRule(selector: string): string {
-    const at = graphCss.indexOf(`${selector} {`);
-    expect([selector, at >= 0]).toEqual([selector, true]);
-    const open = graphCss.indexOf('{', at);
-    return graphCss.slice(open + 1, graphCss.indexOf('}', open));
-  }
-
-  test('each job uses the token measured below', () => {
-    const uses: [string, string][] = [
-      ['.edge', 'color: var(--foreground)'],
-      ['.edgeResolved', 'color: var(--grey-2-ink)'],
-      [":where(.graph[data-highlight='status']) .edgeResolved", 'var(--green)'],
-      [
-        ".edge.dim:is(.edgeDefault, .edgeCross), :where(.graph:not([data-highlight='risk'])) .edge.dim.edgeRisk",
-        'color: var(--grey-2-ink)',
-      ],
-      [
-        ".edge.lit:is(.edgeDefault, .edgeCross), :where(.graph:not([data-highlight='risk'])) .edge.lit.edgeRisk",
-        'color: var(--accent)',
-      ],
-      [
-        '.node.lit:not(:focus-visible), .node.down:not(:focus-visible), .node.chain:not(:focus-visible)',
-        'outline: 2px solid var(--ink)',
-      ],
-      ['.node.lit:not(:focus-visible)', 'outline-color: var(--accent)'],
-      [
-        '.node.dim:not(.overdueNode) > .text > :is(.label, .sublabel)',
-        'color: var(--grey-2-ink)',
-      ],
-      // The box being read: the accent flood, its words in --on-accent.
-      ['.node.pointed:not(.selected)', 'background: var(--accent)'],
-      ['.node.pointed:not(.selected)', 'color: var(--on-accent)'],
-      ['.toneEdge', 'border-color: var(--tone)'],
-      ['.tagToned', 'color: var(--tone-ink)'],
-      ['.next', 'color: var(--green-ink)'],
-      ['.next', 'border: 1px solid var(--green)'],
-      ['.next', 'background: var(--background)'],
-      ['.step', 'background: var(--ink)'],
-      ['.step', 'color: var(--paper)'],
-      ['.readout', 'color: var(--muted)'],
-      // Cluster frames (every item, owner decision 2026-10-23) and their
-      // titles, each title on a paper patch.
-      ['.cluster', 'border: 1px solid var(--grey-2)'],
-      ['.clusterMuted', 'border-color: var(--grey)'],
-      ['.clusterTitle', 'color: var(--muted)'],
-      ['.clusterTitle', 'background: var(--background)'],
-      ['.clusterTitleTop', 'color: var(--foreground)'],
-      ['.clusterTitleMuted', 'color: var(--grey-2-ink)'],
-    ];
-    expect(
-      uses
-        .filter(([selector, use]) => !graphRule(selector).includes(use))
-        .map(([selector, use]) => `${selector}: ${use}`)
-    ).toEqual([]);
-  });
-
-  for (const [theme, t] of [
-    ['light', lightTokens],
-    ['dark', dark],
-  ] as const) {
-    const token = (name: string): string => t[name] ?? '(missing)';
-    const paper = token('--paper');
-    const ink = token('--ink');
-
-    test(`${theme}: lines, rings and box edges are 3:1 on the canvas`, () => {
-      const pairs = [
-        // Blocking lines, the downstream and critical rings and lines.
-        '--ink',
-        // Receding lines, unblocked dots outside Status.
-        '--grey-2-ink',
-        // The ready edge, unblocked dots under Status, the pill's rule.
-        '--green',
-        // Blocked and stuck rules, risk chains, cycles.
-        '--amber',
-        '--red',
-        // The upstream ring and lines.
-        '--accent',
-      ].map((name) => ({ name, ratio: contrast(token(name), paper) }));
-      expect(
-        pairs.filter(({ ratio }) => !(ratio >= 3)).map(({ name }) => name)
-      ).toEqual([]);
-    });
-
-    test(`${theme}: cluster frames are 3:1, a muted one on its hatch too`, () => {
-      const line = theme === 'light' ? hatch.light : hatch.dark;
-      expect(contrast(token('--grey-2'), paper)).toBeGreaterThanOrEqual(3);
-      expect(contrast(token('--grey'), paper)).toBeGreaterThanOrEqual(3);
-      expect(contrast(token('--grey'), line)).toBeGreaterThanOrEqual(3);
-    });
-
-    test(`${theme}: the upstream and downstream rings are 3:1 apart`, () => {
-      expect(contrast(token('--accent'), ink)).toBeGreaterThanOrEqual(3);
-    });
-
-    test(`${theme}: the graph's words are 4.5:1`, () => {
-      const pairs: [string, string, string][] = [
-        // "Ready next" on its paper, and on a selected box's ink fill
-        // (which swaps --green-ink to its inverse and --background to ink).
-        ['pill', token('--green-ink'), paper],
-        ['pill on a selected box', token('--green-ink-inverse'), ink],
-        // Step digits on the ink badge.
-        ['step', paper, ink],
-        // Receding words, and on a selected box.
-        ['receding', token('--grey-2-ink'), paper],
-        ['receding on a selected box', token('--muted-inverse'), ink],
-        // The readout line and its hint.
-        ['readout', token('--muted'), paper],
-        ['readout hint', token('--grey-2-ink'), paper],
-        // Readiness chips under Status.
-        ['ready chip', token('--green-ink'), paper],
-        ['blocked chip', token('--amber-ink'), paper],
-        ['stuck chip', token('--red-ink'), paper],
-        // Cluster titles on their paper patch: top-level, nested, muted.
-        // --foreground is the ink.
-        ['top cluster title', ink, paper],
-        ['nested cluster title', token('--muted'), paper],
-        ['muted cluster title', token('--grey-2-ink'), paper],
-      ];
-      expect(
-        pairs
-          .filter(([, fg, bg]) => !(contrast(fg, bg) >= 4.5))
-          .map(([label, fg, bg]) => `${label} ${contrast(fg, bg).toFixed(2)}`)
-      ).toEqual([]);
-    });
-  }
 });

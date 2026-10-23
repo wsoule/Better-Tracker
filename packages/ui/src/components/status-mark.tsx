@@ -3,17 +3,17 @@ import type { ReactNode } from 'react';
 import type { UiStatus } from '../types';
 import styles from './status-mark.module.css';
 
-/* The competitors-site Mark idiom applied to status: the shape says the
-   status (filled, hollow, 2px outline, hatched) and the status hue says it
-   again (docs/architecture.md §8.2): overdue a filled red square, at risk
-   a 2px amber outline, on track a hollow green square, done a filled ink
-   square (ink, not green, so done and overdue never look alike without
-   red-green vision), a missing input hatched grey, and open (no status
-   claim of its own) the plain hollow ink square. The colour is never the only
-   cue: the shapes differ and the label is always available to assistive
-   tech. `muted` draws any status as a hollow grey square (an inactive
-   project's milestone, which is never loud), like the timeline's inactive
-   lanes. The purple accent is never a status. */
+/* A milestone's status as a 12px diamond (the milestone symbol of the
+   timeline) in the status hues (docs/architecture.md §8.2): overdue =
+   solid red, at risk = amber with the bottom half filled, on track = green
+   outline, complete = solid neutral (--text) with a tick knocked out (never
+   green: done and overdue must differ in lightness, not only in hue),
+   missing input = dotted grey outline, open (no status claim of its own) =
+   neutral outline. Issue states are circles (StateGlyph), so the two never
+   look alike; the shape differs per status, so colour is never the only
+   cue, and the label is always available to assistive tech. `muted` draws
+   any status as a grey outline diamond (an inactive project's milestone,
+   which is never loud). The purple accent is never a status. */
 export interface StatusMarkProps {
   status: UiStatus;
   /** Human wording, e.g. "At risk". */

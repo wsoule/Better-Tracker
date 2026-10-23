@@ -5,10 +5,11 @@ import { useState } from 'react';
 import styles from './switch.module.css';
 import type { SwitchProps } from './types';
 
-/* The Matrix switch idiom: a 13px square glyph that fills accent when on,
-   beside a mono label (and an optional sans note). The whole line is the
-   control, role=switch with aria-checked, so Space/Enter and click toggle
-   it natively; hover and focus turn the label to the accent. */
+/* Gr8r's toggle: a 30×18 track that turns the accent when on, its knob
+   sliding across, beside a label (and an optional quiet note). The whole
+   line is the control, role=switch with aria-checked, so Space/Enter and
+   click toggle it natively. Its name is the visible label unless the host
+   passes aria-label / aria-labelledby (a row that names the setting). */
 export function Switch({
   checked,
   defaultChecked = false,
@@ -17,6 +18,8 @@ export function Switch({
   note,
   disabled,
   id,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledBy,
 }: SwitchProps) {
   const [inner, setInner] = useState(defaultChecked);
   const on = checked ?? inner;
@@ -33,6 +36,8 @@ export function Switch({
       role="switch"
       id={id}
       aria-checked={on}
+      aria-label={ariaLabel}
+      aria-labelledby={ariaLabelledBy}
       disabled={disabled}
       className={styles.switch}
       onClick={toggle}

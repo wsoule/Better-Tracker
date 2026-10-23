@@ -5,13 +5,13 @@ import { useEffect, useRef, useState } from 'react';
 import styles from './checkbox.module.css';
 import type { CheckboxProps } from './types';
 
-/* A checkbox in the Mark idiom: the native input (kept for forms, focus
-   and assistive tech, visually hidden) drives a 13px square glyph that
-   fills accent with a drawn check when on, beside a mono label. The whole
-   line is the <label>, so clicking the text toggles it. Use it for set
-   membership ("who are the watchers"); Switch is for a mode that is on or
-   off. `indeterminate` draws the mixed state (a group of rows partly
-   selected): the accent square with a dash. The native property is set
+/* Gr8r's checkbox: the native input (kept for forms, focus and assistive
+   tech, visually hidden) drives a 15px rounded box that fills the accent
+   with a drawn tick when on, beside its label. The whole line is the
+   <label>, so clicking the text toggles it. Use it for set membership
+   ("who are the watchers"); Switch is for a mode that is on or off.
+   `indeterminate` draws the mixed state (a group of rows partly
+   selected): the accent box with a dash. The native property is set
    after each render, since a click clears it, and aria-checked="mixed"
    says so before hydration. */
 export function Checkbox({

@@ -1,6 +1,7 @@
+import { ArrowUpRight } from 'lucide-react';
 import type { ReactNode } from 'react';
 
-import { initials } from '../edit/shared';
+import { InitialsAvatar } from '../components/initials-avatar';
 import { Link } from '../lib/link';
 import { SkeletonText } from '../shell/skeleton';
 import { cx } from '../tasks/class-names';
@@ -8,8 +9,9 @@ import { DEFAULT_TASK_LABELS, isExternalHref } from './shared';
 import styles from './task-comment-list.module.css';
 import type { TaskComment, TaskCommentListProps } from './types';
 
-/* One comment: square initials, the author and date in the mono voice
-   (with a link to the comment in the tracker), then the text as typed. */
+/* One comment, as Gr8r's: a round avatar, the author (semibold) and the
+   date in the meta voice (with a link to the comment in the tracker), then
+   the text as typed. */
 function CommentItem({
   comment,
   openLabel,
@@ -32,16 +34,13 @@ function CommentItem({
       )}
       data-tone={comment.tone ?? 'default'}
     >
-      <span className={styles.avatar} aria-hidden="true">
-        {initials(comment.author)}
+      <span className={styles.avatar}>
+        <InitialsAvatar name={comment.author} size="md" />
       </span>
       <div className={styles.main}>
         <p className={styles.head}>
           <span className={styles.author} dir="auto">
             {comment.author}
-          </span>
-          <span className={styles.dot} aria-hidden="true">
-            ·
           </span>
           <span className="srOnly">, </span>
           <time className={styles.at} dateTime={comment.dateTime}>
@@ -54,7 +53,7 @@ function CommentItem({
               target={external ? '_blank' : undefined}
               rel={external ? 'noreferrer' : undefined}
             >
-              <span aria-hidden="true">↗</span>
+              <ArrowUpRight size={12} strokeWidth={1.8} aria-hidden="true" />
               <span className="srOnly">
                 {openLabel}
                 {external ? ` (${newTabLabel})` : null}
@@ -75,13 +74,13 @@ function CommentItem({
 }
 
 /**
- * The task's comments as a ledger: oldest first, each with square
- * initials (ink, never a hashed colour), author, date, and the text as
- * typed (line breaks kept, nothing parsed, each line in its own direction)
- * or the host's own rendering in `content`. Bots and integrations
- * (tone="muted") go quiet. Loading shows hatched lines, an error one line
- * with an optional Retry. Not a client module: with plain data it renders
- * in a server component.
+ * The task's comments, Gr8r's way: oldest first, each with a round pastel
+ * avatar (its hue picked from the author's name), author, date, and the
+ * text as typed (line breaks kept, nothing parsed, each line in its own
+ * direction) or the host's own rendering in `content`. Bots and
+ * integrations (tone="muted") go quiet. Loading shows skeleton lines, an
+ * error one line with an optional Retry. Not a client module: with plain
+ * data it renders in a server component.
  */
 export function TaskCommentList({
   items,

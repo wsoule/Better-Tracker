@@ -597,7 +597,7 @@ describe('DependencyGraph: a host layout and a focus node', () => {
     );
   });
 
-  test('the focus mark is a 2px rule in the local ink, inside the box', () => {
+  test('the focus mark is a 2px accent ring standing 3px off the box', () => {
     const css = readFileSync(
       path.join(
         import.meta.dir,
@@ -609,13 +609,14 @@ describe('DependencyGraph: a host layout and a focus node', () => {
       'utf8'
     );
     const rule = /\.focus::after \{([^}]*)\}/.exec(css)?.[1] ?? '';
-    expect(rule).toContain('inset: 2px;');
-    expect(rule).toContain('border: 2px solid var(--foreground);');
-    expect(rule).not.toContain('radius');
+    // Outside the 2px path ring that hugs the box, with a gap between.
+    expect(rule).toContain('inset: -6px;');
+    expect(rule).toContain('border: 2px solid var(--accent);');
+    expect(rule).toContain('border-radius: calc(var(--r-sm) + 5px);');
     expect(rule).not.toContain('shadow');
   });
 
-  test('an overdue box outside the scope keeps its dashes on the flood', () => {
+  test('an overdue box outside the scope keeps its red dashes on its tint', () => {
     const css = readFileSync(
       path.join(
         import.meta.dir,
@@ -626,11 +627,14 @@ describe('DependencyGraph: a host layout and a focus node', () => {
       ),
       'utf8'
     );
-    // The flood sets a red border, which would hide red dashes.
-    const rule = /\.node\.overdueNode\.external \{([^}]*)\}/.exec(css)?.[1];
-    expect(rule).toContain('border-color: var(--on-red);');
-    expect(css.indexOf('.node.overdueNode.external')).toBeGreaterThan(
-      css.indexOf('.node.overdueNode {')
+    // The neutral dashed edge of an outside box leaves the overdue tint's
+    // red edge alone, so the red dashes show on the tint.
+    expect(css).toContain('.external:not(.toned, .toneEdge, .overdueNode) {');
+    const tint = /\.node\.overdueNode \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(tint).toContain('border-color: var(--red);');
+    expect(tint).not.toContain('border-style');
+    expect(/\.external \{([^}]*)\}/.exec(css)?.[1]).toContain(
+      'border-style: dashed;'
     );
   });
 

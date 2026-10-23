@@ -161,7 +161,6 @@ export default function TasksGallery({
         <main className="page">
           <div className="block">
             <BlockBar
-              index="00"
               title="UI gallery · tasks"
               meta={
                 <span className={css.barMeta}>
@@ -172,7 +171,7 @@ export default function TasksGallery({
                 </span>
               }
             />
-            <div className={css.collapse}>
+            <div className={css.stack}>
               <Notice
                 tone="default"
                 label="Router"
@@ -205,12 +204,8 @@ export default function TasksGallery({
 
           {/* ---- My week ------------------------------------------------ */}
           <section className="block" aria-labelledby="week-title">
-            <BlockBar
-              index="01"
-              title="My week"
-              meta="Wed 21 Oct 2026 · synced 08:02"
-            />
-            <div className={css.collapse}>
+            <BlockBar title="My week" meta="Wed 21 Oct 2026 · synced 08:02" />
+            <div className={css.stack}>
               <header className={css.hero}>
                 <h1 id="week-title" className={css.greeting}>
                   Good morning, Pat
@@ -238,20 +233,12 @@ export default function TasksGallery({
                 />
               </div>
               <aside className={css.side} aria-label="Deadlines and attention">
-                <div className={css.collapse}>
-                  <BlockBar
-                    index="02"
-                    title="Upcoming deadlines"
-                    meta="7 days"
-                  />
+                <div className={css.stack}>
+                  <BlockBar title="Upcoming deadlines" meta="7 days" />
                   <DeadlineList groups={DEADLINES} />
                 </div>
-                <div className={css.collapse}>
-                  <BlockBar
-                    index="03"
-                    title="Needs attention"
-                    meta="Projects you lead"
-                  />
+                <div className={css.stack}>
+                  <BlockBar title="Needs attention" meta="Projects you lead" />
                   <Register
                     columns="minmax(0, 1fr) auto"
                     label="Projects that need attention"
@@ -265,8 +252,10 @@ export default function TasksGallery({
                       <RegisterCell variant="name" sub="Next: Search relevance">
                         Delta
                       </RegisterCell>
-                      <RegisterCell variant="mono" tone="warning" align="end">
-                        Blocked: no lead
+                      <RegisterCell align="end">
+                        <Chip tone="warning" filled>
+                          Blocked: no lead
+                        </Chip>
                       </RegisterCell>
                     </RegisterRow>
                     <RegisterRow
@@ -280,8 +269,10 @@ export default function TasksGallery({
                       >
                         Atlas migration
                       </RegisterCell>
-                      <RegisterCell variant="mono" tone="warning" align="end">
-                        2 unassigned
+                      <RegisterCell align="end">
+                        <Chip tone="warning" filled>
+                          2 unassigned
+                        </Chip>
                       </RegisterCell>
                     </RegisterRow>
                   </Register>
@@ -293,11 +284,10 @@ export default function TasksGallery({
           {/* ---- Issue list --------------------------------------------- */}
           <section className="block" aria-labelledby="issues-title">
             <BlockBar
-              index="04"
               title="Issue list"
               meta="Selection, drag, cell pickers, menus, chips, bulk bar"
             />
-            <div className={css.collapse}>
+            <div className={css.stack}>
               <header className={css.hero}>
                 <h2 id="issues-title" className={css.greeting}>
                   Issues
@@ -305,7 +295,8 @@ export default function TasksGallery({
                 <p className={css.receipts}>
                   Every issue across 3 projects. Select rows (shift-click, x,
                   Shift+↓, ⌘A), drag one onto another group, or pick from a
-                  cell; the rows are hatched while the pretend change is sent.
+                  cell; a row takes the hover fill while the pretend change is
+                  sent.
                 </p>
               </header>
             </div>
@@ -314,12 +305,8 @@ export default function TasksGallery({
 
           {/* ---- Projects ----------------------------------------------- */}
           <section className="block" aria-label="Projects">
-            <BlockBar
-              index="05"
-              title="Projects"
-              meta="5 active · 1 inactive"
-            />
-            <div className={css.collapse}>
+            <BlockBar title="Projects" meta="5 active · 1 inactive" />
+            <div className={css.stack}>
               <div className={css.toolbar}>
                 <input
                   className={`input ${css.search}`}
@@ -418,12 +405,13 @@ export default function TasksGallery({
                     >
                       {p.lead ?? 'No lead'}
                     </RegisterCell>
-                    <RegisterCell
-                      label="Allocation"
-                      variant="mono"
-                      tone={p.allocationTone}
-                    >
-                      {p.allocation}
+                    <RegisterCell label="Allocation">
+                      <Chip
+                        tone={p.allocationTone}
+                        filled={p.allocationTone === 'warning'}
+                      >
+                        {p.allocation}
+                      </Chip>
                     </RegisterCell>
                     <RegisterCell align="end">
                       <GalleryAccentLink href={`/graph?project=${p.id}`}>
@@ -438,8 +426,8 @@ export default function TasksGallery({
 
           {/* ---- Runs + Settings ----------------------------------------- */}
           <div className={`block ${css.pair}`}>
-            <section aria-label="Runs" className={css.collapse}>
-              <BlockBar index="06" title="Runs" meta="Allocation log" />
+            <section aria-label="Runs" className={css.stack}>
+              <BlockBar title="Runs" meta="Allocation log" />
               <Register
                 label="Allocation runs"
                 stackedColumns="repeat(3, minmax(0, 1fr))"
@@ -505,8 +493,8 @@ export default function TasksGallery({
                 ))}
               </Register>
             </section>
-            <section aria-label="Settings" className={css.collapse}>
-              <BlockBar index="07" title="Settings · modes" meta="Audited" />
+            <section aria-label="Settings" className={css.stack}>
+              <BlockBar title="Settings · modes" meta="Audited" />
               <Register
                 label="Modes"
                 columns="minmax(0, 1fr) auto"
@@ -577,11 +565,7 @@ export default function TasksGallery({
 
           {/* ---- Primitives --------------------------------------------- */}
           <section className="block" aria-label="Primitives">
-            <BlockBar
-              index="08"
-              title="Primitives"
-              meta="Tasks family sampler"
-            />
+            <BlockBar title="Primitives" meta="Tasks family sampler" />
             <div className={css.specimens}>
               <Specimen title="Button">
                 <div className={css.line}>

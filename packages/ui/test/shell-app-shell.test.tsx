@@ -48,11 +48,18 @@ const PROPS: AppShellProps = {
           status: 'overdue',
           statusLabel: 'Overdue',
         },
+        {
+          id: 'beacon',
+          label: 'Beacon search',
+          href: '/timeline?project=beacon',
+          status: 'on_track',
+          statusLabel: 'On track',
+        },
       ],
     },
   ],
   settings: { href: '/settings' },
-  user: { name: 'Pat Lee', badge: 'DEMO' },
+  user: { name: 'Pat Lee', badge: 'Guest' },
   signOut: { action: '/api/auth/logout', method: 'post' },
   crumbs: [
     { label: 'Timeline', href: '/timeline' },
@@ -99,14 +106,74 @@ describe('AppShell', () => {
     const current = nav.querySelector('[aria-current="page"]');
     expect(current?.textContent).toContain('My week');
     expect(current?.textContent).toContain('4 issues this week');
-    expect(
-      screen.getByRole('link', { name: /Overdue.*Atlas migration/ })
-    ).toBeTruthy();
+    // Project rows are quiet (a grey folder tile): the status mark shows
+    // only when the milestone needs attention, but every row's status is
+    // in its name, one explicit name with the visible name first, so no
+    // stray space or missing comma depends on a hidden span.
+    const atlas = screen.getByRole('link', {
+      name: 'Atlas migration, Overdue',
+    });
+    expect(atlas.getAttribute('aria-label')).toBe('Atlas migration, Overdue');
+    const mark = atlas.querySelector('[role="img"]');
+    expect(mark?.getAttribute('data-status')).toBe('overdue');
+    // The mark is decoration beside the name, not read a second time.
+    expect(mark?.closest('[aria-hidden="true"]')).not.toBeNull();
+    const beacon = screen.getByRole('link', {
+      name: 'Beacon search, On track',
+    });
+    expect(beacon.querySelector('[role="img"]')).toBeNull();
+    expect(beacon.querySelector('.srOnly')).toBeNull();
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(crumbs.querySelector('[aria-current="page"]')?.textContent).toBe(
       'Atlas migration'
     );
     expect(screen.getByRole('main').textContent).toBe('Body');
+  });
+
+  test('Gr8r chrome: brand row, toned count badges, "/" crumbs, no marks', () => {
+    const { container } = render(
+      <AppShell
+        {...PROPS}
+        nav={[
+          ...PROPS.nav,
+          {
+            id: 'projects',
+            label: 'Projects',
+            href: '/projects',
+            icon: CalendarCheck,
+            count: 2,
+            countLabel: '2 projects blocked',
+            countTone: 'warning',
+          },
+        ]}
+      />
+    );
+    // The brand link keeps its name (main's "<app> <workspace>") when the
+    // rail hides the words.
+    expect(
+      screen.getByRole('link', { name: 'Milestone Planner Acme' })
+    ).toBeTruthy();
+    // A plain count is a quiet number; a toned one is a badge in its tone.
+    const nav = screen.getByRole('navigation', { name: 'Primary' });
+    const week = screen.getByRole('link', { name: /My week/ });
+    expect(week.querySelector('[data-tone]')).toBeNull();
+    const projects = screen.getByRole('link', { name: /2 projects blocked/ });
+    expect(
+      projects.querySelector('[data-tone]')?.getAttribute('data-tone')
+    ).toBe('warning');
+    expect(nav.textContent).not.toMatch(/[A-Z]{4,}/);
+    const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
+    expect(crumbs.textContent).toBe('Timeline/Atlas migration');
+    // The badge is sentence case, as given.
+    expect(screen.getByText('Guest')).toBeTruthy();
+    // No decorative registration marks (childless hidden spans) are left
+    // in the sidebar.
+    const sidebar = screen.getByRole('complementary', { name: 'Sidebar' });
+    const marks = [
+      ...sidebar.querySelectorAll('span[aria-hidden="true"]'),
+    ].filter((span) => span.childNodes.length === 0);
+    expect(marks).toHaveLength(0);
+    expect(container.querySelector('main')).toBeTruthy();
   });
 
   test('sign out is a real form post', () => {

@@ -66,27 +66,28 @@ export function installationFacts(
 
 /** What installing does, in order (shown before the install button). */
 export const INSTALL_STEPS: readonly {
+  /** A stable id, never shown (the steps are numbered by their order). */
   key: string;
   title: string;
   body: string;
 }[] = [
   {
-    key: '01',
+    key: 'admin-approves',
     title: 'Admin approves',
     body: 'A Linear workspace admin approves the app once, for the whole workspace. Anyone else can sign in, but only an admin can install.',
   },
   {
-    key: '02',
+    key: 'pick-teams',
     title: 'Pick teams',
     body: 'Linear asks which teams the app may see. The planner sees only those teams’ issues, projects and milestones; everything else stays invisible to it.',
   },
   {
-    key: '03',
+    key: 'app-user',
     title: 'Its own user',
     body: 'The app gets its own Linear user. Allocation comments come from that user; the date, lead and issue edits people make are made as each of them.',
   },
   {
-    key: '04',
+    key: 'first-sync',
     title: 'First sync',
     body: 'The first full sync starts right after the install, and the timeline opens. Unless the deployment already names watchers, the installer becomes the first one: warned about every at-risk milestone, which anyone can change in Settings.',
   },

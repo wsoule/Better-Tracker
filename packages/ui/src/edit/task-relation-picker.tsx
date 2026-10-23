@@ -3,6 +3,7 @@
 import { Plus } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 
+import { cx } from '../tasks/class-names';
 import { PickerPopover } from './picker-popover';
 import styles from './picker-popover.module.css';
 import { saveErrorMessage, useLatest } from './save-state';
@@ -130,7 +131,7 @@ export function TaskRelationPicker({
 
   const face = trigger ?? (
     <span className={styles.face}>
-      <Plus size={12} strokeWidth={1.75} aria-hidden="true" />
+      <Plus size={14} strokeWidth={1.8} aria-hidden="true" />
       Add
     </span>
   );
@@ -163,7 +164,8 @@ export function TaskRelationPicker({
       disabled={disabled}
       formatError={formatError}
       labels={labelOverrides}
-      className={className}
+      // Its hints are issue keys, printed in the mono id voice.
+      className={cx(styles.keyHints, className)}
       value={null}
       action
       onChange={(id) => {

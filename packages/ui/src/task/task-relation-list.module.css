@@ -1,23 +1,24 @@
-/* Related tasks as a small register: one 1px ink frame, faint hairlines
-   between rows, and the register hover that swaps paper and ink locally
-   (gated off touch).
+/* Related tasks as Gr8r's drawer sub-rows: flat rows with no rules, each a
+   6px-radius hover fill (gated off touch), the state glyph, the mono key
+   and the title on the first line, the facts under the title in the meta
+   voice, and a small ghost remove button at the right.
 
    The list owns the columns (glyph, key, title, and the remove button
    when a row has one); items and rows take them through subgrid, so the
    key column is as wide as the longest key ("PLATFORM-10417" beside
    "ENG-24") and every title starts at the same x. The glyph track is
-   max-content, not 13px: a subgrid hands the row's padding to its edge
+   max-content, not 14px: a subgrid hands the row's padding to its edge
    items as margin, and a fixed track would push the glyph into the key. */
 
 .list {
   display: grid;
-  grid-template-columns: max-content minmax(60px, max-content) minmax(0, 1fr);
-  column-gap: 10px;
-  border: 1px solid var(--border);
+  grid-template-columns: max-content minmax(52px, max-content) minmax(0, 1fr);
+  gap: 2px 10px;
+  margin: 0 -8px;
 }
 
 .removable {
-  grid-template-columns: max-content minmax(60px, max-content) minmax(
+  grid-template-columns: max-content minmax(52px, max-content) minmax(
       0,
       1fr
     ) auto;
@@ -27,28 +28,25 @@
   display: grid;
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
-}
-
-.item + .item {
-  border-top: 1px solid var(--hairline-faint);
+  align-items: center;
+  border-radius: var(--r-sm);
+  transition: background-color var(--dur) ease;
 }
 
 /* The fallback track list is for engines without subgrid. */
 .row {
   display: grid;
   grid-column: 1 / -1;
-  grid-template-columns: 13px minmax(60px, max-content) minmax(0, 1fr);
+  grid-template-columns: 14px minmax(52px, max-content) minmax(0, 1fr);
   grid-template-columns: subgrid;
-  gap: 4px 10px;
+  gap: 1px 10px;
   align-items: baseline;
   width: 100%;
-  padding: 10px 14px;
+  min-height: 36px;
+  padding: 7px 8px;
+  border-radius: var(--r-sm);
   text-align: left;
-  background: var(--background);
-  color: var(--foreground);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  color: var(--text);
 }
 
 /* Pinned to the title's first line (13.5px x 1.4), not the row's centre,
@@ -56,22 +54,22 @@
 .glyph {
   display: inline-flex;
   align-self: start;
-  margin-top: 3px;
+  margin-top: 2px;
 }
 
 .key {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
   white-space: nowrap;
 }
 
 .title {
-  font-size: 13.5px;
-  font-weight: 400;
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
   line-height: 1.4;
-  color: var(--ink-soft);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
@@ -80,15 +78,12 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px 12px;
+  gap: 4px 8px;
   min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
   line-height: 1.5;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 /* State, assignee and context run as one line of text so they wrap like
@@ -99,7 +94,7 @@
 }
 
 .dot {
-  color: var(--grey-2);
+  color: var(--text-4);
 }
 
 .state {
@@ -107,23 +102,21 @@
 }
 
 /* An open relation nobody holds: "Unassigned" in the amber warning hue
-   (architecture §8.2). */
+   (docs/architecture.md §8.2). */
 .unassigned {
-  color: var(--amber-ink);
+  font-weight: var(--fw-medium);
+  color: var(--amber);
 }
 
 /* A blocker that has landed no longer holds anything back. */
 .resolved .title {
-  color: var(--muted);
+  color: var(--text-3);
   text-decoration: line-through;
   text-decoration-thickness: 1px;
+  text-decoration-color: var(--text-4);
 }
 
-.resolved .glyph {
-  color: var(--muted);
-}
-
-/* The unlink button: its own cell at the row's right, ruled off. */
+/* The unlink button: a 26px ghost icon button in the row's last column. */
 .removable .row {
   grid-column: 1 / 4;
 }
@@ -132,23 +125,24 @@
   grid-column: 4;
   display: grid;
   place-items: center;
-  width: 40px;
-  align-self: stretch;
-  border-left: 1px solid var(--hairline-faint);
-  background: var(--background);
-  color: var(--muted);
-  transition: color 0.15s ease;
-}
-
-.remove:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-  color: var(--accent-ink);
+  width: var(--h-sm);
+  height: var(--h-sm);
+  margin-right: 5px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
+  .item:hover {
+    background: var(--surface-2);
+  }
+
   .remove:not([aria-disabled='true']):hover {
-    color: var(--accent-ink);
+    background: var(--surface-3);
+    color: var(--text);
   }
 }
 
@@ -167,79 +161,60 @@
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 10px;
-  padding: 0 14px 10px;
-  background: var(--background);
-  font-size: 12.5px;
+  gap: 4px 8px;
+  padding: 0 8px 8px 32px;
+  font-size: var(--fs-sm);
   line-height: 1.45;
-  color: var(--ink-soft);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .removeErrorKey {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--red-ink); /* failed: the red status hue */
+  font-weight: var(--fw-semibold);
+  color: var(--red);
 }
 
 .empty {
-  font-size: 13.5px;
+  font-size: var(--fs);
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--text-3);
+}
+
+.interactive {
+  cursor: pointer;
 }
 
 .interactive:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
+  border-radius: var(--r-sm);
 }
 
-.interactive:focus-visible,
 .interactive:active {
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --accent-ink: var(--accent-ink-inverse);
-  --accent-ink-hover: var(--accent-ink-inverse);
-  --red-ink: var(--red-ink-inverse);
-  --amber-ink: var(--amber-ink-inverse);
-  --green-ink: var(--green-ink-inverse);
-  --blue-ink: var(--blue-ink-inverse);
-  --grey-2-ink: var(--muted-inverse);
-  --muted: var(--muted-inverse);
-  --ink-soft: var(--ink-soft-inverse);
-  --grey-3: var(--hairline-inverse);
-  --border: var(--paper);
+  background: var(--surface-3);
 }
 
 @media (hover: hover) and (width >= 901px) {
-  .interactive:hover {
-    --background: var(--ink);
-    --foreground: var(--paper);
-    --accent-ink: var(--accent-ink-inverse);
-    --accent-ink-hover: var(--accent-ink-inverse);
-    --red-ink: var(--red-ink-inverse);
-    --amber-ink: var(--amber-ink-inverse);
-    --green-ink: var(--green-ink-inverse);
-    --blue-ink: var(--blue-ink-inverse);
-    --grey-2-ink: var(--muted-inverse);
-    --muted: var(--muted-inverse);
-    --ink-soft: var(--ink-soft-inverse);
-    --grey-3: var(--hairline-inverse);
-    --border: var(--paper);
+  .interactive:hover .title {
+    text-decoration: underline;
+    text-decoration-color: var(--border-strong);
+    text-underline-offset: 3px;
+  }
+
+  .resolved .interactive:hover .title {
+    text-decoration: line-through;
   }
 }
 
 @media (width <= 640px) {
   .list {
-    grid-template-columns: max-content minmax(52px, max-content) minmax(0, 1fr);
+    grid-template-columns: max-content minmax(48px, max-content) minmax(0, 1fr);
     column-gap: 8px;
   }
 
   .removable {
-    grid-template-columns: max-content minmax(52px, max-content) minmax(
+    grid-template-columns: max-content minmax(48px, max-content) minmax(
         0,
         1fr
       ) auto;
@@ -247,16 +222,19 @@
 
   .row {
     column-gap: 8px;
-    padding: 10px 12px;
+    padding: 9px 8px;
   }
 
+  /* A touch target worth the name. */
   .remove {
-    width: 44px;
+    width: 40px;
+    height: 40px;
+    margin-right: 0;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .row,
+  .item,
   .remove {
     transition: none;
   }

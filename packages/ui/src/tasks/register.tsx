@@ -18,14 +18,15 @@ const WITHIN_CLASS: Record<700 | 900 | 1000, string | undefined> = {
   1000: styles.within1000,
 };
 
-/* The Roster register as a layout: a list of hairline rows sharing one
-   grid template (and an optional mono header row), collapsed on -1px
-   margins. Used for Projects, Runs and Settings. Below `stackBelow` (a
-   viewport width) or `stackWithin` (the register's own width, through a
-   container query) the rows become cards (subject cell on top, the rest
-   on `stackedColumns`) and each cell shows its own micro-label,
-   which the header otherwise carries (the labels stay readable to
-   assistive tech either way, because the header itself is decorative). */
+/* Gr8r's panel table as a layout: one rounded panel of rows sharing one
+   grid template (and an optional header row), split by soft dividers.
+   Used for Projects, Runs, Settings, the landing page, the graph's lists
+   and My week's "Needs attention". Below `stackBelow` (a viewport width)
+   or `stackWithin` (the register's own width, through a container query)
+   the rows become cards (subject cell on top, the rest on
+   `stackedColumns`) and each cell shows its own label, which the header
+   otherwise carries (the labels stay readable to assistive tech either
+   way, because the header itself is decorative). */
 export function Register({
   columns,
   header,
@@ -86,10 +87,10 @@ export function Register({
 /* One register row. With href (or onActivate) the whole row is the target:
    a stretched link/button covers it, is reachable by Tab, and draws the
    focus ring around the row; links inside cells sit above it. Hover and
-   focus flood the row to ink by swapping paper and ink tokens locally. A
-   tone other than default and muted draws the 2px left rule in the tone's
-   MARK colour (data-tone: warning blocked, danger overdue or failed, accent
-   something new); muted steps the row back to grey. */
+   focus take the hover fill, a selected row the accent tint with a 2px
+   accent bar. The row's tone is data only (data-tone): a row that needs
+   action says so with a tinted chip or a toned cell, never a rule (Gr8r);
+   muted steps the row's subject back. */
 export function RegisterRow({
   href,
   external = false,
@@ -108,7 +109,6 @@ export function RegisterRow({
     <li
       className={cx(
         styles.row,
-        tone !== 'default' && tone !== 'muted' ? styles.rowRule : undefined,
         tone === 'muted' ? styles.rowMuted : undefined,
         selected ? styles.selected : undefined,
         linked ? styles.linked : undefined
@@ -142,16 +142,18 @@ const VARIANT_CLASS: Record<
   string | undefined
 > = {
   name: styles.variantName,
-  value: styles.variantValue,
+  // The body voice is the cell's own: no class of its own.
+  value: undefined,
   mono: styles.variantMono,
 };
 
-/* A register cell: an optional mono micro-label over a value, in one of
-   three voices: name (sans 15/600, the row's subject), value (body copy)
-   or mono (machine furniture: states, counts, dates). A tone other than
-   default and muted colours the value in the tone's TEXT colour
-   (data-tone), and the sub line too only when `toneSub` asks (a reason
-   line that is the point); muted greys the value. */
+/* A register cell: an optional label over a value, in one of three
+   voices: name (the row's subject, medium weight), value (body copy) or
+   mono (short facts: states, counts, dates, in tabular figures; the name
+   is historical, the face is Geist). A tone other than default and muted
+   colours the value in the tone's text colour (data-tone), and the sub
+   line too only when `toneSub` asks (a reason line that is the point);
+   muted greys the value. */
 export function RegisterCell({
   label,
   variant = 'value',

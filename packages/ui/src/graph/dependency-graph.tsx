@@ -1,6 +1,13 @@
 'use client';
 
-import { ChevronLeft, ChevronRight, Maximize, Minus, Plus } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Maximize,
+  Minus,
+  Network,
+  Plus,
+} from 'lucide-react';
 import {
   type CSSProperties,
   Fragment,
@@ -18,7 +25,10 @@ import {
 } from 'react';
 
 import { Link } from '../lib/link';
+import { Chip } from '../tasks/chip';
 import { cx } from '../tasks/class-names';
+import { EmptyState } from '../tasks/notice';
+import type { ChipTone } from '../tasks/types';
 import styles from './dependency-graph.module.css';
 import { CLUSTER_METRICS, edgeKey, layoutGraph } from './layout';
 import {
@@ -180,6 +190,42 @@ const EDGE_CLASS: Record<GraphEdgeKind, string | undefined> = {
   cross: styles.edgeCross,
   resolved: styles.edgeResolved,
 };
+
+/** How a tag word is drawn: a Chip's tone, and whether a status tone is
+    the tinted badge (filled) rather than the dot pill. */
+interface TagChip {
+  tone: ChipTone;
+  filled: boolean;
+}
+
+/**
+ * The tag words with a tone of their own (§8.2 "Status colours"): the
+ * stronger claims tinted (Unassigned amber; a cycle red), the lighter ones
+ * a dot pill (Overdue red, its box tinted under Risk; No lead amber), a
+ * paused box's Inactive quiet text. Any other word is a neutral chip.
+ * layout.ts keeps the dot's room for the dot pills (DOT_TAGS).
+ */
+const TAG_CHIP: Readonly<Record<string, TagChip>> = {
+  Unassigned: { tone: 'warning', filled: true },
+  Overdue: { tone: 'danger', filled: false },
+  Cycle: { tone: 'danger', filled: true },
+  'On a cycle': { tone: 'danger', filled: true },
+  'Cycle inside': { tone: 'danger', filled: true },
+  'No lead': { tone: 'warning', filled: false },
+  Inactive: { tone: 'muted', filled: false },
+};
+
+const NEUTRAL_CHIP: TagChip = { tone: 'default', filled: false };
+
+/**
+ * The readiness chip's look: under Status the node's readiness tone (a
+ * ready or clear node a green dot pill, a blocked or stuck one tinted, a
+ * paused one quiet), elsewhere the neutral badge that keeps its word.
+ */
+function readinessChip(tone: GraphNodeTone | undefined): TagChip {
+  if (tone === undefined || tone === 'default') return NEUTRAL_CHIP;
+  return { tone, filled: tone === 'warning' || tone === 'danger' };
+}
 
 /** A node or edge while paths are shown: the node being read, what it
     waits on (lit), what it holds up (down), on the critical path shown
@@ -432,26 +478,30 @@ function neighbour(
 }
 
 /**
- * A dependency graph drawn as a technical figure: hairline boxes with mono
- * labels, blockers on the left (or top), 1px edges with small arrowheads,
- * dashes for project crossings, dots for what no longer blocks. The
- * `highlight` picks the emphasis: `risk` (default) the status hues for
- * risk (amber chains, dashed red cycles, a red flood for overdue, a 2px
- * rule in the node's tone); `status` each node's readiness (a 1px green
- * edge when ready, the 2px amber rule when blocked, red when stuck) and
+ * A dependency graph in Gr8r's look: rounded cards on a recessed canvas
+ * (a status diamond, a medium title, a quiet line with the key in mono,
+ * sentence-case Chips), blockers on the left (or top), thin curved
+ * connectors with small arrowheads, dashes for crossings, dots for what no
+ * longer blocks, soft rounded frames around the boxes that share a parent.
+ * The `highlight` picks the emphasis: `risk` (default) the status hues for
+ * risk (amber chains, dashed red cycles, a red tint for overdue, a 1.5px
+ * edge in the node's tone); `status` each node's readiness (a 1px green
+ * edge when ready, the 1.5px amber edge when blocked, red when stuck) and
  * green dots for unblocked edges; `critical` the numbered critical path
  * with the rest receding. The purple accent is never a status here: it is
- * the hover flood, the keyboard focus and the upstream path.
+ * the selection, the keyboard focus, the box being read and the upstream
+ * path.
  *
  * - Hover, focus, a touch tap or a selection on a node lights both paths:
  *   what it transitively waits on (accent rings and lines) and what waits
- *   on it (ink rings and lines), with a square tag on what finishing it alone
- *   would unblock; the rest dims, its words and status marks still
- *   legible. Under `critical` it lights the longest chain through it. The
- *   readout line under the drawing says the same in words.
- * - Under `critical` a step control over the frame's bottom-left corner
+ *   on it (--text rings and lines), with a green "Ready next" pill on what
+ *   finishing it alone would unblock; the rest recedes, its words and
+ *   status marks still legible. Under `critical` it lights the longest
+ *   chain through it. The readout line under the drawing says the same in
+ *   words.
+ * - Under `critical` a step control over the canvas's bottom-left corner
  *   (and ] / [) walks the path shown at rest step by step, centring each;
- *   entering `critical` scrolls the frame to step 1 unless a step shows.
+ *   entering `critical` scrolls the canvas to step 1 unless a step shows.
  * - On a touch screen the first tap on a node traces it (a pin) and a
  *   second tap opens it; a tap on the background or Escape drops the pin.
  *   Mouse, pen, keyboard and assistive-tech activation open at once.
@@ -459,16 +509,17 @@ function neighbour(
  *   tabindex: the last node focused, else the selected one, else the
  *   first). Enter selects (onSelect); arrows move between neighbouring
  *   boxes, Home/End to the first/last.
- * - The frame is a hairline box that scrolls inside itself: drag the
- *   background to pan, ctrl/cmd + wheel or the −/+/FIT buttons (or the
- *   - + 0 keys) to zoom. A plain wheel scrolls as usual and the page never
- *   loses its scroll.
+ * - The panel's canvas scrolls inside itself: drag the background to pan,
+ *   ctrl/cmd + wheel or the − / + / Fit buttons (or the - + 0 keys) to
+ *   zoom. A plain wheel scrolls as usual and the page never loses its
+ *   scroll.
  * - Screen readers get the summary sentence on the drawing and a hidden
  *   table of every edge.
- * - `focusId` marks the node the graph is about with an inner ink rule
- *   (it lights nothing); the first paint scrolls the frame so that node,
- *   else the selected one, sits in the middle (of the part a host's open
- *   right-hand panel leaves uncovered, `coveredRight`).
+ * - `focusId` marks the node the graph is about with an accent ring that
+ *   stands off its box (it lights nothing); the first paint scrolls the
+ *   canvas so that node, else the selected one, sits in the middle (of
+ *   the part a host's open right-hand panel leaves uncovered,
+ *   `coveredRight`).
  * - `layout` takes a layout the host already computed (e.g. on the
  *   server), so the client never runs dagre.
  */
@@ -562,9 +613,9 @@ export function DependencyGraph({
       : (nameChain.steps.get(walkId) ?? null);
   const walkedId = walkStep === null ? null : walkId;
   // The node the reader is on right now (pointer, keyboard focus, touch
-  // pin, a walked step): drawn with the accent flood on every input,
-  // unlike a selection or a chain's focus, which light their paths at
-  // rest.
+  // pin, a walked step): drawn with the hover fill and the accent ring on
+  // every input, unlike a selection or a chain's focus, which light their
+  // paths at rest.
   const pointedId =
     [hoverId, focusedId, pinnedId, walkedId].find((id) => drawn(id) !== null) ??
     null;
@@ -1123,11 +1174,15 @@ export function DependencyGraph({
     [layout.edges, byId]
   );
 
+  // Gr8r's centred empty state: the Graph nav item's icon over the honest
+  // copy, where the panel would be.
   if (nodes.length === 0) {
     return (
-      <p className={cx('empty', styles.emptyState, className)}>
-        {emptyMessage}
-      </p>
+      <div className={cx(styles.emptyState, className)}>
+        <EmptyState icon={<Network size={22} strokeWidth={1.8} />}>
+          {emptyMessage}
+        </EmptyState>
+      </div>
     );
   }
 
@@ -1149,7 +1204,7 @@ export function DependencyGraph({
         : readoutLine.parts;
   const linkNodes = nodes.some((n) => n.href !== undefined && n.href !== '');
 
-  // Critical path: the step control over the frame's bottom-left corner,
+  // Critical path: the step control over the canvas's bottom-left corner,
   // to walk the path shown at rest from step to step ([ and ] do the
   // same). A big graph spreads its path over the whole canvas, where Fit
   // cannot show it and no step may be in view.
@@ -1172,7 +1227,7 @@ export function DependencyGraph({
             aria-keyshortcuts="["
             title="Previous step ([)"
           >
-            <ChevronLeft size={14} strokeWidth={1.5} aria-hidden="true" />
+            <ChevronLeft size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
           <output className={styles.zoomValue} aria-live="polite">
             {walkStep === null
@@ -1188,17 +1243,17 @@ export function DependencyGraph({
             aria-keyshortcuts="]"
             title={walkStep === null ? 'Go to step 1 (])' : 'Next step (])'}
           >
-            <ChevronRight size={14} strokeWidth={1.5} aria-hidden="true" />
+            <ChevronRight size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
         </div>
       </div>
     ) : null;
 
   /**
-   * A frame: a cluster's hairline box (hatched when muted, dashed when
-   * external; its title is drawn above the arrows by renderClusterTitle),
-   * or a hatched group box with its title on the rule. Decorative: each
-   * node's name says which frames it sits in.
+   * A frame: a cluster's soft rounded outline (dashed grey when muted,
+   * dashed when external; its title is drawn above the arrows by
+   * renderClusterTitle), or a group outline with its title on the edge.
+   * Decorative: each node's name says which frames it sits in.
    */
   const renderGroup = (group: LaidOutGroup): ReactNode => {
     const position = {
@@ -1238,10 +1293,10 @@ export function DependencyGraph({
   };
 
   /**
-   * A cluster's mono caps title inside its frame's top-left corner, on a
-   * paper patch drawn above the arrows, so an arrow running into a box
-   * near the top of a frame passes behind the title instead of through
-   * its letters. Decorative, like the frame.
+   * A cluster's sentence-case title inside its frame's top-left corner, on
+   * a patch of the canvas drawn above the arrows, so an arrow running into
+   * a box near the top of a frame passes behind the title instead of
+   * through its letters. Decorative, like the frame.
    */
   const renderClusterTitle = (group: LaidOutGroup): ReactNode =>
     group.kind !== 'cluster' ? null : (
@@ -1292,6 +1347,7 @@ export function DependencyGraph({
             y={edge.label.y + 0.5}
             width={edge.label.width - 1}
             height={edge.label.height - 1}
+            rx={4}
           />
           <text
             x={edge.label.x + edge.label.width / 2}
@@ -1338,7 +1394,7 @@ export function DependencyGraph({
             aria-keyshortcuts="-"
             title="Zoom out (-)"
           >
-            <Minus size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Minus size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
           <output className={styles.zoomValue} aria-live="polite">
             <span className="srOnly">Zoom </span>
@@ -1353,7 +1409,7 @@ export function DependencyGraph({
             aria-keyshortcuts="+"
             title="Zoom in (+)"
           >
-            <Plus size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Plus size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -1363,7 +1419,7 @@ export function DependencyGraph({
             aria-keyshortcuts="0"
             title="Fit (0)"
           >
-            <Maximize size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Maximize size={14} strokeWidth={1.8} aria-hidden="true" />
             <span aria-hidden="true">Fit</span>
           </button>
         </div>
@@ -1420,19 +1476,19 @@ export function DependencyGraph({
               const node = byId.get(box.id);
               if (node === undefined) return null;
               const tags = node.tags ?? [];
-              // The red overdue flood is a Risk tint; elsewhere the
-              // OVERDUE chip carries the red on its own.
-              const flood = tags.includes('OVERDUE') && highlight === 'risk';
-              const inCycle = tags.includes('CYCLE');
+              // The red tint of an overdue box is Risk's; elsewhere the
+              // Overdue chip carries the red on its own.
+              const flood = tags.includes('Overdue') && highlight === 'risk';
+              const inCycle = tags.includes('Cycle');
               const selected = box.id === selectedId;
               const focus = box.id === focusId;
               const state = nodeState(box.id);
               const readiness = node.readiness;
               const drawnTone = shownTone(node, highlight);
-              // A status tone (or a host's accent) draws the 2px rule in
+              // A status tone (or a host's accent) draws the 1.5px edge in
               // its hue through the data-tone hook (tokens.css); a ready
               // node under Status only a 1px edge in the green; muted
-              // keeps its own faint look.
+              // keeps its own quiet look.
               const tone =
                 drawnTone === 'default' || drawnTone === 'muted'
                   ? undefined
@@ -1458,8 +1514,9 @@ export function DependencyGraph({
                 pointed && styles.pointed
               );
               // The readiness chip leads the chips in every highlight (the
-              // layout never moves); only Status tones it. A node with no
-              // dependencies gets none: its name and the readout say it.
+              // layout never moves); only Status tones it (its slot carries
+              // the tone as data-tone too). A node with no dependencies
+              // gets none: its name and the readout say it.
               const chipWord =
                 readiness?.state === 'independent'
                   ? ''
@@ -1470,12 +1527,19 @@ export function DependencyGraph({
                 readiness.tone !== 'default'
                   ? readiness.tone
                   : undefined;
+              const chipLook = readinessChip(chipTone);
               const position: CSSProperties = {
                 left: box.x,
                 top: box.y,
                 width: box.width,
                 height: box.height,
               };
+              // An issue's key leads its sublabel ("ENG-12 · Ana"): drawn in
+              // Geist Mono, the one mono voice; the line's text is unchanged.
+              const keyed =
+                node.key !== undefined &&
+                node.key !== '' &&
+                box.sublabelLine.startsWith(`${node.key} `);
               const nameStep = nameChain?.steps.get(box.id);
               const name = nodeName(
                 node,
@@ -1504,38 +1568,39 @@ export function DependencyGraph({
                     </span>
                     {box.sublabelLine !== '' ? (
                       <span className={styles.sublabel}>
-                        {box.sublabelLine}
+                        {keyed ? (
+                          <>
+                            <span className={styles.key}>{node.key}</span>
+                            {box.sublabelLine.slice(node.key?.length ?? 0)}
+                          </>
+                        ) : (
+                          box.sublabelLine
+                        )}
                       </span>
                     ) : null}
                     {chipWord !== '' || tags.length > 0 ? (
                       <span className={styles.tags}>
                         {chipWord !== '' ? (
                           <span
-                            className={cx(
-                              styles.tag,
-                              readiness?.state === 'ready' && styles.readyChip,
-                              chipTone !== undefined && styles.tagToned
-                            )}
+                            className={styles.chipSlot}
                             data-tone={chipTone}
                             data-readiness-chip=""
                           >
-                            {chipWord}
+                            <Chip tone={chipLook.tone} filled={chipLook.filled}>
+                              {chipWord}
+                            </Chip>
                           </span>
                         ) : null}
                         {tags.map((tag) => {
-                          const red = tag === 'OVERDUE' && !flood;
+                          const look = TAG_CHIP[tag] ?? NEUTRAL_CHIP;
                           return (
-                            <span
+                            <Chip
                               key={tag}
-                              className={cx(
-                                styles.tag,
-                                tag === 'UNASSIGNED' && styles.tagWarning,
-                                red && styles.tagToned
-                              )}
-                              data-tone={red ? 'danger' : undefined}
+                              tone={look.tone}
+                              filled={look.filled}
                             >
                               {tag}
-                            </span>
+                            </Chip>
                           );
                         })}
                       </span>

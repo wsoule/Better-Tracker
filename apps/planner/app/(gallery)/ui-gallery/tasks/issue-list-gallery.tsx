@@ -70,7 +70,7 @@ function Glyph({ children }: { children: ReactNode }) {
       viewBox="0 0 14 14"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth="1.8"
       strokeLinecap="round"
       aria-hidden="true"
       focusable="false"
@@ -79,6 +79,24 @@ function Glyph({ children }: { children: ReactNode }) {
     </svg>
   );
 }
+
+/* Open as graph: three linked boxes. */
+const GraphIcon = () => (
+  <Glyph>
+    <rect x="5" y="1.5" width="4" height="3" rx="0.8" />
+    <rect x="1.5" y="9.5" width="4" height="3" rx="0.8" />
+    <rect x="8.5" y="9.5" width="4" height="3" rx="0.8" />
+    <path d="M7 4.5v2.5M3.5 9.5V7h7v2.5" />
+  </Glyph>
+);
+
+/* Copy link: two chain links. */
+const LinkIcon = () => (
+  <Glyph>
+    <path d="M6 8a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 8 2.5l-.7.7" />
+    <path d="M8 6a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 6 11.5l.7-.7" />
+  </Glyph>
+);
 
 const MoreIcon = () => (
   <Glyph>
@@ -438,7 +456,7 @@ export function IssueListGallery({
     later(() => setBusy(false), 700);
   }
 
-  /** Sends `change` for `ids` the way the page does: the rows show hatched
+  /** Sends `change` for `ids` the way the page does: the rows show pending
       with a note at once, stay where they are, then land where the "server" puts
       them, with a result line that can undo it. */
   function send(ids: readonly string[], change: Change) {
@@ -940,18 +958,24 @@ export function IssueListGallery({
           }
           end={
             <>
-              {/* As on the page: the timeline toolbar's quiet "Open as
-                  graph" voice, no icons. */}
-              <a href="/graph?project=p-garnet" className={css.endAction}>
+              {/* As on the page: Gr8r's ghost toolbar buttons with a
+                  leading icon. */}
+              <Button
+                variant="quiet"
+                size="sm"
+                href="/graph?project=p-garnet"
+                icon={<GraphIcon />}
+              >
                 Open as graph
-              </a>
-              <button
-                type="button"
-                className={css.endAction}
+              </Button>
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={() => record('Link copied')}
+                icon={<LinkIcon />}
               >
                 Copy link
-              </button>
+              </Button>
             </>
           }
         />

@@ -44,7 +44,8 @@ describe('fitSublabel', () => {
   });
 
   test('a tail too long to leave room is left to the box', () => {
-    const tail = 'a very long tail that fills the line';
+    // Wide enough in Geist that not even "Pro… · " fits before it.
+    const tail = 'a very long tail that fills the whole line of the box';
     expect(fitSublabel('Project', tail)).toBe(`Project · ${tail}`);
   });
 

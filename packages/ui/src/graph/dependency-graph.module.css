@@ -1,13 +1,28 @@
-/* The dependency graph as a technical figure (architecture §8.4 Graph):
-   a toolbar strip and a hairline frame that scrolls inside itself, both
-   collapsing into whatever sits above with -1px. Box metrics (padding,
-   font sizes, line heights) mirror GRAPH_METRICS in layout.ts: the layout
-   sizes every box from these numbers, so change them together. */
+/* The dependency graph in Gr8r's look (architecture §8.4 Graph): one
+   --r-lg panel holding a flat toolbar, a recessed canvas (--sunken,
+   Gr8r's board well) that scrolls inside itself, and the readout line as
+   its last row. Boxes are Gr8r cards on the canvas, frames soft rounded
+   outlines, edges thin curved connectors. Box metrics (padding, font
+   sizes, line heights) mirror GRAPH_METRICS in layout.ts, and the frame
+   titles CLUSTER_METRICS: the layout sizes every box and frame from these
+   numbers, so change them together.
+
+   Colour (§8.2 "Status colours"): status in the semantic tones through
+   data-tone (danger red, warning amber, success green, info blue; muted
+   quiet), never the accent; the accent is the selection, the paths being
+   read, keyboard focus and a chain's focus ring. Every mark, edge, ring
+   and frame clears 3:1 on the canvas in both themes and every word 4.5:1
+   (test/graph-contrast.test.ts), and none relies on colour alone:
+   cycles, crossings and outside boxes are dashed, unblocked edges dotted,
+   rings and edges differ in weight, and every flag is a word. */
 
 .graph {
   min-width: 0;
   max-width: 100%;
-  margin-top: -1px;
+  overflow: clip;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 /* ---- toolbar ------------------------------------------------------------ */
@@ -16,11 +31,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  min-height: 48px;
-  padding: 8px 8px 8px 18px;
-  border: 1px solid var(--border);
-  background: var(--background);
+  gap: 6px 16px;
+  min-height: 44px;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .toolbarStart {
@@ -33,16 +47,16 @@
 
 .hint {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
   white-space: nowrap;
 }
 
+/* Gr8r's ghost icon buttons around a quiet percentage. */
 .zoom {
   display: flex;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
 }
 
@@ -55,67 +69,53 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 30px;
-  min-width: 30px;
-  margin-left: -1px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  gap: 5px;
+  height: var(--h-sm);
+  min-width: var(--h-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
 
 .zoomButton {
-  padding: 0 7px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-family: inherit;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.zoomButton:first-child {
-  margin-left: 0;
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .zoomButton:disabled {
-  color: var(--grey-3);
+  color: var(--text-4);
   cursor: not-allowed;
 }
 
-/* The buttons overlap by 1px, so a later sibling would paint over the
-   focus ring's far edge; lift the focused one above its neighbours. */
-.zoomButton:focus-visible {
-  position: relative;
-  z-index: 1;
-}
-
 .zoomValue {
-  min-width: 54px;
-  padding: 0 8px;
-  letter-spacing: 0.06em;
+  min-width: 44px;
 }
 
 .fitButton {
-  padding: 0 10px 0 9px;
+  padding: 0 8px 0 6px;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .zoomButton:not(:disabled):hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
-/* ---- the frame ---------------------------------------------------------- */
+/* ---- the canvas --------------------------------------------------------- */
 
-/* Critical path's step control: the zoom group's look (hairline cells,
-   mono caps, the accent on hover) over the frame's bottom-left corner,
-   clear of the horizontal scrollbar. Its anchor is a 0px-tall box right
-   under the frame, so it moves nothing around it. */
+/* Critical path's step control: a small floating bar (the zoom group's
+   ghost buttons around the step count) over the canvas's bottom-left
+   corner, clear of the horizontal scrollbar. It floats over the drawing,
+   so it takes the floating shadow. Its anchor is a 0px-tall box right
+   under the canvas, so it moves nothing around it. */
 .stepsAnchor {
   position: relative;
   height: 0;
@@ -124,29 +124,36 @@
 .steps {
   position: absolute;
   bottom: 14px;
-  left: 8px;
+  left: 12px;
   z-index: 3;
   display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
 }
 
 .steps .zoomValue {
-  min-width: 112px;
+  min-width: 96px;
+  padding: 0 4px;
+  color: var(--text);
 }
 
 /* Fixed footprint from the layout's height at 100% (plus room for a thin
    scrollbar), capped by the viewport: zooming changes what is inside the
-   frame, never the page around it. */
+   canvas, never the page around it. */
 .viewport {
   position: relative;
   display: grid;
   height: clamp(220px, calc(var(--graph-h) + 12px), min(70vh, 720px));
-  margin-top: -1px;
   overflow: auto;
-  border: 1px solid var(--border);
-  background: var(--background);
+  background: var(--sunken);
   cursor: grab;
   scrollbar-width: thin;
-  scrollbar-color: var(--grey-3) transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 .viewport[data-panning] {
@@ -154,7 +161,7 @@
   user-select: none;
 }
 
-/* A grid item with auto margins: centred while smaller than the frame,
+/* A grid item with auto margins: centred while smaller than the canvas,
    scrollable from its true edge once larger. */
 .canvas {
   position: relative;
@@ -172,52 +179,44 @@
 
 .group {
   position: absolute;
-  border: 1px solid var(--hairline-faint);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
+  border: 1px solid var(--control-border);
+  border-radius: var(--r-lg);
   pointer-events: none;
 }
 
-/* The title sits on the frame's top rule like a drawing's sheet label. */
+/* The title interrupts the frame's top edge, on a patch of the canvas. */
 .groupTitle {
   position: absolute;
   top: 0;
   left: 10px;
   max-width: calc(100% - 20px);
-  padding: 2px 6px;
+  padding: 0 6px;
   overflow: hidden;
   transform: translateY(-50%);
-  border: 1px solid var(--hairline-faint);
-  background: var(--background);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 12px;
-  letter-spacing: 0.14em;
+  background: var(--sunken);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  line-height: 16px;
   text-overflow: ellipsis;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
 /* ---- clusters (labelled frames by parent) --------------------------------- */
 
 /* A frame around the boxes that share a parent (a milestone, a project, an
-   initiative): a 1px hairline in the dim furniture grey (3.23:1 on the
-   light paper, 5.93:1 on the dark one), square, no shadow, under the
-   arrows and boxes. Its mono caps title sits inside the top-left corner
-   (placed from CLUSTER_METRICS in layout.ts: 9px on a 12px line, 8px
-   down, 10px in) on a paper patch above the arrows, so a line passes
-   behind it. A top-level frame titles in ink, a nested one in the
-   secondary grey. */
+   initiative): a 1px --control-border edge (3:1 on the canvas: the frame
+   is the only cue that groups) with --r-lg corners, no fill or shadow,
+   under the arrows and boxes. Its sentence-case title sits inside the
+   top-left corner (placed from CLUSTER_METRICS in layout.ts: 12px
+   semibold on a 16px line, 8px down, 10px in) on a patch of the canvas
+   drawn above the arrows, so a line passes behind it. A top-level frame
+   titles in --text-2, a nested one in --text-3. Never a status hue: the
+   frame only groups, the boxes say where they stand. */
 .cluster {
   position: absolute;
-  border: 1px solid var(--grey-2);
+  border: 1px solid var(--control-border);
+  border-radius: var(--r-lg);
   pointer-events: none;
 }
 
@@ -226,44 +225,33 @@
   padding: 0 3px;
   margin-left: -3px;
   overflow: hidden;
-  background: var(--background);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 12px;
-  letter-spacing: 0.1em;
+  border-radius: var(--r-xs);
+  background: var(--sunken);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  line-height: 16px;
   text-overflow: ellipsis;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
 .clusterTitleTop {
-  color: var(--foreground);
+  color: var(--text-2);
 }
 
-/* Inactive work (a paused project): the blueprint hatch, the hatch the
-   base already uses for what is unavailable, its rule in the inactive
-   mark grey (3:1 even on a hatch line: 3.11:1 light, 3.12:1 dark, where
-   --grey-2 would give 2.84:1 in light) and a dim title (on its paper
-   patch, never on the hatch: 5.10:1 light, 5.93:1 dark). The boxes
-   inside keep their own paper and their muted look. */
+/* Inactive work (a paused project): dashed in the inactive grey (3:1 on
+   the canvas), its title quiet. The boxes inside keep their own quiet
+   look. */
 .clusterMuted {
-  border-color: var(--grey);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
+  border-style: dashed;
+  border-color: var(--gray);
 }
 
 .clusterTitleMuted {
-  color: var(--grey-2-ink);
+  color: var(--text-3);
 }
 
-/* Outside the scope: dashed, like an external box. */
+/* Outside the scope: dashed, like an outside box. */
 .clusterExternal {
   border-style: dashed;
 }
@@ -278,17 +266,18 @@
   pointer-events: none;
 }
 
-/* No colour transition on edges: a path read on a big graph dims every
-   other edge at once, and animating that restyles the whole drawing for
-   several frames (architecture §8.4 Graph, "Hover cost"). */
+/* Gr8r's connectors: a thin --text-2 curve. No colour transition on
+   edges: a path read on a big graph recolours every other edge at once,
+   and animating that restyles the whole drawing for several frames
+   (architecture §8.4 Graph, "Hover cost"). */
 .edge {
-  color: var(--foreground);
+  color: var(--text-2);
 }
 
 .edgeLine {
   fill: none;
   stroke: currentcolor;
-  stroke-width: 1;
+  stroke-width: 1.25;
 }
 
 .edgeArrow {
@@ -296,24 +285,29 @@
   stroke: none;
 }
 
-/* The status hues (architecture §8.2): a risk chain in amber (warning),
-   a cycle in red (danger), both MARK tokens (3:1 on the paper and the
-   hatch). --edge-ink is the TEXT token of the same hue, for the weight
-   count's digits (4.5:1). */
+/* The status hues (architecture §8.2): a risk chain in amber (warning), a
+   cycle in red (danger); both are text-safe, so the weight count's digits
+   use them too (--edge-ink). Under Risk a risk chain is also heavier, so
+   weight, not only hue, tells it from an ordinary edge. */
 .edgeRisk {
-  --edge-ink: var(--amber-ink);
+  --edge-ink: var(--amber);
 
   color: var(--amber);
 }
 
+:where(.graph[data-highlight='risk']) .edgeRisk .edgeLine {
+  stroke-width: 2;
+}
+
 .edgeCycle {
-  --edge-ink: var(--red-ink);
+  --edge-ink: var(--red);
 
   color: var(--red);
 }
 
+/* Long dashes for a cycle, short ones for a crossing. */
 .edgeCycle .edgeLine {
-  stroke-dasharray: 5 3;
+  stroke-dasharray: 6 3.5;
 }
 
 .edgeCross .edgeLine {
@@ -321,10 +315,9 @@
 }
 
 /* No longer blocking (one end is done): 2px round dots, never a line, in
-   the dim text grey so the antialiased dots still clear 3:1 on the paper
-   (5.10:1 light, 5.93:1 dark). */
+   --text-3 so the antialiased dots still clear 3:1 on the canvas. */
 .edgeResolved {
-  color: var(--grey-2-ink);
+  color: var(--text-3);
 }
 
 .edgeResolved .edgeLine {
@@ -333,17 +326,19 @@
   stroke-dasharray: 0.1 4;
 }
 
+/* The count of relations on an edge: a small surface pill outlined in the
+   edge's colour, its figure in the edge's text-safe hue. */
 .weight rect {
-  fill: var(--background);
+  fill: var(--surface);
   stroke: currentcolor;
   stroke-width: 1;
 }
 
 .weight text {
   fill: var(--edge-ink, currentcolor);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 
@@ -354,7 +349,7 @@
    own rule weighs (they win by order), and the forced-colours block below
    still overrides every edge colour. */
 :where(.graph[data-highlight='status']) .edgeResolved {
-  --edge-ink: var(--green-ink);
+  --edge-ink: var(--green);
 
   color: var(--green);
 }
@@ -363,7 +358,7 @@
   .edgeRisk {
   --edge-ink: currentcolor;
 
-  color: var(--foreground);
+  color: var(--text-2);
 }
 
 /* Under Status and Critical path, an edge that crosses a boundary
@@ -379,10 +374,15 @@
 /* 2px is emphasis: spent on the paths being read (drawn again in the
    overlay, above the rest). What the node waits on runs in the accent (a
    selection-derived highlight, never a status); a cycle keeps its red and,
-   under Risk, a risk chain its amber. What it holds up runs in ink. */
+   under Risk, a risk chain its amber (heavier still). What it holds up
+   runs in --text. */
 .edge.lit .edgeLine,
 .edge.down .edgeLine {
   stroke-width: 2;
+}
+
+:where(.graph[data-highlight='risk']) .edge.lit.edgeRisk .edgeLine {
+  stroke-width: 2.75;
 }
 
 .edge.lit:is(.edgeDefault, .edgeCross),
@@ -392,28 +392,37 @@
   color: var(--accent);
 }
 
-/* The critical path: 2.5px ink, keeping its dashes; a cycle keeps its red. */
+.edge.down:is(.edgeDefault, .edgeCross),
+:where(.graph:not([data-highlight='risk'])) .edge.down.edgeRisk {
+  color: var(--text);
+}
+
+/* The critical path: 2.5px --text, keeping its dashes; a cycle keeps its
+   red. */
 .edge.chain .edgeLine {
   stroke-width: 2.5;
 }
 
-.edge.chain:is(.edgeDefault, .edgeCross) {
-  color: var(--foreground);
+.edge.chain:is(.edgeDefault, .edgeCross, .edgeRisk) {
+  color: var(--text);
 }
 
-/* Receding: a plain line steps down to the dim text grey (still 5.10:1
-   light, 5.93:1 dark, so it reads); a risk chain (under Risk), a cycle and
+/* Receding: a plain line steps down to --text-3 (still 3:1 and more on
+   the canvas, so it reads); a risk chain (under Risk), a cycle and
    unblocked dots keep their look, facts that stay true while another path
    is read. */
 .edge.dim:is(.edgeDefault, .edgeCross),
 :where(.graph:not([data-highlight='risk'])) .edge.dim.edgeRisk {
   --edge-ink: currentcolor;
 
-  color: var(--grey-2-ink);
+  color: var(--text-3);
 }
 
 /* ---- nodes -------------------------------------------------------------- */
 
+/* Gr8r's card: --surface, a soft --border, --r-sm, 10px by 12px. The
+   card's own edge is decoration (its words name it); everything that
+   carries a meaning (a tone edge, dashes, rings, marks) clears 3:1. */
 .node {
   position: absolute;
   display: flex;
@@ -421,27 +430,29 @@
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
 
-  /* Only the flood and the rings fade: text and rule colours change at
-     once, so dimming every other box while a path is read (one class per
-     box) never animates hundreds of boxes; the hover rule below fades its
-     own box's words and rule in with the flood. */
+  /* Only the fill and the rings fade: text and edge colours change at
+     once, so receding every other box while a path is read (one class per
+     box) never animates hundreds of boxes. */
   transition:
-    background-color 0.2s ease,
-    outline-color 0.15s ease;
+    background-color var(--dur) var(--ease),
+    outline-color var(--dur) var(--ease);
 
-  /* The status mark's hues (.glyph below; --glyph-ink is done's ink
-     fill). A faint box turns them grey and a flood (overdue, hover) turns
-     them to the flood's own ink, so a mark never sinks into the colour
-     behind it. */
-  --glyph-ink: var(--foreground);
+  /* The status diamond's hues (.glyph below). A quiet box turns them to
+     the inactive grey, shape kept; done keeps its neutral --text. */
+  --glyph-ink: var(--text);
   --glyph-green: var(--green);
   --glyph-amber: var(--amber);
   --glyph-red: var(--red);
+  --glyph-open: var(--text-2);
+  --glyph-quiet: var(--text-3);
 }
 
 div.node {
@@ -459,47 +470,84 @@ div.node {
   height: 100%;
 }
 
-/* Status in the Mark idiom (see components/status-mark), drawn here at
-   11px so it can follow a node's local token swap: the shape says the
-   status and the status hue says it again (§8.2): done a filled ink
-   square (ink, not green, so it never reads as the red fill without
-   red-green vision), on track a hollow green one, at risk a 2px amber
-   outline, overdue a filled red square, a missing input hatched grey. */
+/* The status diamond (StatusMark's family, drawn here at 12px so a quiet
+   box can turn its hues grey without losing its shape): the shape says the
+   status and the hue says it again (§8.2): done a solid --text diamond
+   with a tick knocked out (never green, so it never reads as the red one
+   without red-green vision), on track an open green one, at risk amber
+   with its lower half filled, overdue a solid red one, a missing input a
+   dotted --text-3 outline, open (an issue, whose status is its
+   milestone's) a --text-2 outline. `::before` is the diamond: a square
+   whose corners touch the 12px box, turned 45°, with a 2px edge (Chrome
+   snaps a thinner rotated edge down to 1px, under 3:1). */
 .glyph {
-  flex: 0 0 11px;
-  width: 11px;
-  height: 11px;
-  margin-top: 2.5px;
-  border: 1px solid var(--border);
+  position: relative;
+  flex: 0 0 12px;
+  width: 12px;
+  height: 12px;
+  margin-top: 3px;
+  color: var(--glyph-quiet);
+}
+
+.glyph::before {
+  content: '';
+  position: absolute;
+  inset: 14.6%;
+  border: 2px solid currentcolor;
+  border-radius: 2px;
+  transform: rotate(45deg);
 }
 
 .done {
-  border-color: var(--glyph-ink);
-  background: var(--glyph-ink);
+  color: var(--glyph-ink);
+}
+
+.done::before {
+  background: currentcolor;
+}
+
+.done::after {
+  content: '';
+  position: absolute;
+  top: 45%;
+  left: 50%;
+  width: 22%;
+  height: 42%;
+  border: solid var(--surface);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 .on_track {
-  border-color: var(--glyph-green);
+  color: var(--glyph-green);
 }
 
 .at_risk {
-  border: 2px solid var(--glyph-amber);
+  color: var(--glyph-amber);
+}
+
+.at_risk::before {
+  background: linear-gradient(135deg, transparent 50%, currentcolor 50%);
 }
 
 .overdue {
-  border-color: var(--glyph-red);
-  background: var(--glyph-red);
+  color: var(--glyph-red);
+}
+
+.overdue::before {
+  background: currentcolor;
 }
 
 .missing {
-  border-color: var(--muted);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--muted) 0,
-    var(--muted) 1px,
-    transparent 1px,
-    transparent 3px
-  );
+  color: var(--glyph-quiet);
+}
+
+.missing::before {
+  border-style: dotted;
+}
+
+.open {
+  color: var(--glyph-open);
 }
 
 .text {
@@ -512,10 +560,9 @@ div.node {
 .label {
   display: flex;
   flex-direction: column;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 16px;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  line-height: 18px;
 }
 
 .line,
@@ -526,76 +573,50 @@ div.node {
 }
 
 .sublabel {
-  margin-top: 3px;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  line-height: 13px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
 }
 
+/* An issue key leading the sublabel: the one mono voice. */
+.key {
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+/* The chips: the Chip atom, sentence case, 4px apart, 8px under the
+   text (GRAPH_METRICS tagGap, tagsGap). */
 .tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 7px;
+  margin-top: 8px;
 }
 
-.tag {
-  padding: 0 5px;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 13px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-/* UNASSIGNED: the amber status hue (warning), filled as the chip was. */
-.tagWarning {
-  border-color: var(--amber);
-  background: var(--amber);
-  color: var(--on-amber);
-}
-
-/* A chip in a status tone (data-tone): the readiness chip under Status,
-   OVERDUE wherever the red flood is off. The outline in the hue's MARK,
-   the word in its TEXT colour, as the Chip atom draws a status. */
-.tagToned {
-  border-color: var(--tone);
-  color: var(--tone-ink);
-}
-
-/* "Ready" leads with a small square, so a ready chip differs from a
-   blocked one in shape, not only in hue. */
-.readyChip {
+/* The readiness chip's slot (data-readiness-chip, and data-tone under
+   Status): it holds one Chip and adds nothing to it. */
+.chipSlot {
   display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  max-width: 100%;
 }
 
-.readyChip::before {
-  content: '';
-  flex: 0 0 5px;
-  width: 5px;
-  height: 5px;
-  background: currentcolor;
+/* A tinted Chip (data-filled: its soft tint is see-through) on a tinted
+   box (the overdue red, the selection's or the box being read's accent)
+   is laid over the card's own surface, so its words keep 4.5:1 there as
+   on any card (test/graph-contrast.test.ts). */
+:is(.overdueNode, .selected, .pointed) > .text > .tags [data-filled] {
+  background: linear-gradient(var(--tone-soft), var(--tone-soft)) var(--surface);
 }
 
-.tagToned.readyChip::before {
-  background: var(--tone);
-}
-
-/* ---- node marks ----------------------------------------------------------- */
+/* ---- node tones --------------------------------------------------------- */
 
 /* A status tone (data-tone, tokens.css): warning amber for needs action
-   (unassigned, at risk, blocked), danger red for overdue or stuck; a
-   host's accent stays purple. 2px, so padding gives the extra pixel back
-   and the content never moves. */
+   (unassigned, at risk, blocked), danger red for stuck, a host's accent
+   purple. A 2px edge (Chrome draws a 1.5px border at 1px, which would
+   match ready's), so padding gives the extra pixel back and the content
+   never moves. */
 .toned {
   padding: 9px 11px;
   border: 2px solid var(--tone);
@@ -603,192 +624,174 @@ div.node {
 
 /* Ready under the Status highlight: the box's own 1px edge in the green,
    nothing more. Most boxes are ready, and a 1px edge against a blocked
-   box's 2px rule tells the two apart without their hues. */
+   box's 2px one, with the chip's words, tells the two apart without
+   their hues. */
 .toneEdge {
   border-color: var(--tone);
 }
 
-/* Closed or inactive work steps back: faint rule, muted text, and its
-   status mark in the inactive grey (shape kept, never loud). */
+/* Closed or inactive work is quiet: its words step to --text-3 and its
+   status diamond turns to the inactive grey (shape kept, never loud). Done
+   keeps its solid --text diamond: done's one shape. */
 .toneMuted {
-  --glyph-ink: var(--grey);
-  --glyph-green: var(--grey);
-  --glyph-amber: var(--grey);
-  --glyph-red: var(--grey);
-
-  border-color: var(--grey-3);
-  color: var(--muted);
+  --glyph-green: var(--gray);
+  --glyph-amber: var(--gray);
+  --glyph-red: var(--gray);
+  --glyph-open: var(--gray);
+  --glyph-quiet: var(--gray);
 }
 
-/* Done keeps its filled ink square in a faint box (a graph of every issue
-   draws the done ones faint): the square is done's one shape, and the
-   ink follows the box's own ink, so a hover or selection flood still
-   turns it to the flood's ink. */
-.toneMuted > .done {
-  --glyph-ink: var(--foreground);
+.toneMuted > .text > .label {
+  color: var(--text-3);
 }
 
-/* Outside the scope: present for context, drawn in a lighter hand. A
-   status rule or the ready edge keeps its hue in the dashes: it is the
-   box's state, and the edge is a ready box's only shape. */
+/* Outside the scope: present for context, its edge dashed. A status edge
+   keeps its hue in the dashes: it is the box's state, and the edge is a
+   ready box's only shape. */
 .external {
   border-style: dashed;
 }
 
-.external:not(.toned, .toneEdge) {
-  border-color: var(--muted);
+.external:not(.toned, .toneEdge, .overdueNode) {
+  border-color: var(--control-border);
 }
 
-/* Overdue floods the box with the red status hue (danger). The tokens
-   swap locally so the glyph, sublabel and chips inside follow without
-   per-element rules; the status marks inside turn to the flood's ink. */
+/* Overdue under the Risk highlight: Gr8r's tint, never a flood. The red's
+   soft tint over the card inside a 1px red edge; the words, the diamond
+   and the chips keep their own colours on it (4.5:1, test). */
 .node.overdueNode {
-  --foreground: var(--on-red);
-  --border: var(--on-red);
-  --muted: var(--on-red);
-
+  padding: 10px 12px;
+  border-width: 1px;
   border-color: var(--red);
-  background: var(--red);
-  color: var(--on-red);
+  background: linear-gradient(var(--red-soft), var(--red-soft)) var(--surface);
 }
 
-.node.overdueNode:not(.selected) {
-  --glyph-ink: var(--on-red);
-  --glyph-green: var(--on-red);
-  --glyph-amber: var(--on-red);
-  --glyph-red: var(--on-red);
-}
-
-/* On the red flood the UNASSIGNED chip inverts, as it always did on a
-   flood: a paper chip with the red as its text (4.6:1 or more in both
-   themes), so two warm hues never sit on each other. Its word still
-   says it. */
-.node.overdueNode:not(.selected) .tagWarning {
-  border-color: var(--on-red);
-  background: var(--on-red);
-  color: var(--red);
-}
-
-/* An overdue box outside the scope keeps its dashes: drawn in the paper
-   colour on the flood, where a red dash would vanish. */
-.node.overdueNode.external {
-  border-color: var(--on-red);
-}
-
-/* In a cycle: a dashed red outline (danger) drawn just outside the box,
-   so it survives the focus ring and the hover flood. */
+/* In a cycle: a 2px dashed red outline (danger; a 1.5px one is drawn at
+   1px) standing off the box, past the path rings (0-2px out) and the
+   focus ring (1-3px out), so it survives both. */
 .cycle::before {
   content: '';
   position: absolute;
-  inset: -5px;
-  border: 1px dashed var(--red);
+  inset: -6px;
+  border: 2px dashed var(--red);
+  border-radius: calc(var(--r-sm) + 5px);
   pointer-events: none;
 }
 
-/* The node the graph is about (focusId): a 2px ink rule drawn 2px inside
-   the box, a drawing's double frame. It reads apart from a status tone's
-   rule and the lit chain's 2px border, sits inside the cycle outline and the
-   focus ring, and follows the local --foreground swaps (selected, overdue,
-   hover), so it never disappears into a flood. */
+/* The node the graph is about (focusId): a 2px accent ring standing 3px
+   off the box, apart from the path rings that hug it and lighting
+   nothing. Keyboard focus (the global ring, 1px out) fits in the gap, so
+   focusing it still shows. A cycle's outline moves out past it. */
 .focus::after {
   content: '';
   position: absolute;
-  inset: 2px;
-  border: 2px solid var(--foreground);
+  inset: -6px;
+  border: 2px solid var(--accent);
+  border-radius: calc(var(--r-sm) + 5px);
   pointer-events: none;
 }
 
-/* Selected: the tab strip's ink fill, by swapping paper and ink locally. */
+.focus.cycle::before {
+  inset: -10px;
+  border-radius: calc(var(--r-sm) + 9px);
+}
+
+/* Selected: Gr8r's selected row, a soft accent fill inside a 2px accent
+   edge (the fill alone is under 3:1; the edge is the mark). Padding gives
+   the extra pixel back. A tone edge gives way to it while it is selected;
+   the chips still say the tone. */
 .node.selected {
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --accent-ink: var(--accent-ink-inverse);
-  --accent-ink-hover: var(--accent-ink-inverse);
-  --red-ink: var(--red-ink-inverse);
-  --amber-ink: var(--amber-ink-inverse);
-  --green-ink: var(--green-ink-inverse);
-  --blue-ink: var(--blue-ink-inverse);
-  --grey-2-ink: var(--muted-inverse);
-  --border: var(--paper);
-  --muted: var(--muted-inverse);
-
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-}
-
-/* On the ink fill the status marks and the UNASSIGNED chip keep their
-   hues (MARK tokens are 3:1 on the ink): the overdue flood's swap to its
-   own ink is scoped to an unselected box above. */
-
-/* The node being read: a 2px rule, flooded in the accent while the
-   reader is on it (.pointed below); a selection or a chain's focus that
-   lights its paths at rest keeps its own look. */
-.node.active {
   padding: 9px 11px;
-  border-width: 2px;
+  border: 2px solid var(--accent);
+  background: linear-gradient(var(--accent-soft), var(--accent-soft))
+    var(--surface);
 }
 
-/* Its paths: a 2px ring hugging the box outside its border, so the box's
-   own rule (its status) still shows. What it waits on in the accent (a
-   selection-derived highlight), what it holds up and the critical path in
-   ink: 4.66:1 apart in light, 3.85:1 in dark, and apart in place too
-   (blockers sit before what waits). The keyboard focus ring wins on the
-   focused box. */
+/* ---- paths ----------------------------------------------------------------
+   The box being read (pointed at, focused, tapped or walked to), what it
+   waits on and what it holds up. Rings are outlines hugging the box
+   outside its edge, so the box's own edge (its status) still shows, and
+   forced colours keep them. The keyboard focus ring wins on the focused
+   box. */
+
+/* What it waits on, and the box being read: the accent (a
+   selection-derived highlight). What it holds up and the critical path:
+   --text, apart from the accent in lightness too, and apart in place
+   (blockers sit before what waits). A selected box keeps its own edge. */
 .node.lit:not(:focus-visible),
 .node.down:not(:focus-visible),
-.node.chain:not(:focus-visible) {
-  outline: 2px solid var(--ink);
+.node.chain:not(:focus-visible),
+.node.active:not(.selected, :focus-visible) {
+  outline: 2px solid var(--text);
   outline-offset: 0;
 }
 
-.node.lit:not(:focus-visible) {
+.node.lit:not(:focus-visible),
+.node.active:not(.selected, :focus-visible) {
   outline-color: var(--accent);
 }
 
-/* Receding while another node's paths are lit: the words step down to the
-   dim text grey (5.10:1 light, 5.93:1 dark, so they still read) and a
-   plain box's hairline goes faint. A status rule, the ready edge, the
-   dashes of an outside box, the chips and the status marks keep their
-   colours: they are facts, true while another path is read. The colour
-   is set on the words themselves, never swapped as an inherited colour
-   or token on the box: a swap there restyles every element inside every
-   box, which at the draw limits cost a quarter of a second a hover
-   (architecture §8.4 Graph, "Hover cost"). */
-.node.dim:not(.overdueNode) > .text > :is(.label, .sublabel) {
-  color: var(--grey-2-ink);
+/* The box being read on any input: the soft accent tint under its accent
+   ring (Gr8r's selection tint, the selection-derived highlight, never a
+   flood), so the subject of the paths is never just one more ring. A
+   tinted overdue box keeps its red tint, a selected one its own look. */
+.node.pointed:not(.selected, .overdueNode) {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft))
+    var(--surface);
+}
+
+/* Receding while another node's paths are lit: the words step down to
+   --text-3 (still 4.5:1, so they read) and a plain box's edge goes to the
+   divider. A tone edge, the dashes of an outside box, the chips and the
+   status marks keep their colours: they are facts, true while another
+   path is read. The colour is set on the words themselves, never swapped
+   as an inherited colour or token on the box: a swap there restyles every
+   element inside every box, which at the draw limits cost a quarter of a
+   second a hover (architecture §8.4 Graph, "Hover cost"). */
+.node.dim > .text > :is(.label, .sublabel) {
+  color: var(--text-3);
 }
 
 .node.dim:not(.toned, .toneEdge, .external, .overdueNode, .selected) {
-  border-color: var(--hairline-faint);
+  border-color: var(--divider);
 }
 
 /* "Ready next": what finishing the node being read alone would unblock.
-   A square mono tag riding the box's top rule, in the success green (it
-   will be ready). Its own paper behind it, so the rule never strikes
-   through the word. */
+   A green dot pill (Chip's status pill) riding the box's top edge, on its
+   own surface, so the edge never strikes through the word. */
 .next {
   position: absolute;
-  top: -8px;
+  top: -10px;
   right: 8px;
   z-index: 1;
-  padding: 0 5px;
-  border: 1px solid var(--green);
-  background: var(--background);
-  color: var(--green-ink);
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 13px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 16px;
   white-space: nowrap;
   pointer-events: none;
 }
 
-/* A box's step on the critical path: an ink square on the box's top-left
-   corner, cut out of the rule by a paper border; members of one cycle
-   share the number. */
+.next::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+/* A box's step on the critical path: a 16px --text disc with --text-inv
+   digits on the box's top-left corner, cut out of the edge by a surface
+   ring; members of one cycle share the number. */
 .step {
   position: absolute;
   top: -9px;
@@ -797,129 +800,39 @@ div.node {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 3px;
-  border: 2px solid var(--paper);
-  background: var(--ink);
-  color: var(--paper);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
+  border: 2px solid var(--surface);
+  border-radius: var(--r-full);
+  background: var(--text);
+  color: var(--text-inv);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
   line-height: 1;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
 
+/* Gr8r's hover: the --surface-2 fill, nothing else moves. A tinted
+   overdue box keeps its tint, and a selected one its own fill. */
 @media (hover: hover) and (width >= 901px) {
-  .node:not(.selected):hover {
-    --foreground: var(--on-accent);
-    --border: var(--on-accent);
-    --muted: var(--on-accent);
-    --glyph-ink: var(--on-accent);
-    --glyph-green: var(--on-accent);
-    --glyph-amber: var(--on-accent);
-    --glyph-red: var(--on-accent);
-
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
-    transition:
-      background-color 0.2s ease,
-      color 0.2s ease,
-      border-color 0.2s ease,
-      outline-color 0.15s ease;
-  }
-
-  .node.overdueNode:not(.selected):hover {
-    border-color: var(--accent-hover);
-    background: var(--accent-hover);
-  }
-
-  .node:not(.selected):hover .tagWarning {
-    border-color: var(--on-accent);
-    background: var(--on-accent);
-    color: var(--accent);
-  }
-
-  /* A toned chip turns to the flood's ink, its word still saying it. */
-  .node:not(.selected):hover .tagToned {
-    border-color: var(--on-accent);
-    color: var(--on-accent);
-  }
-
-  .node:not(.selected):hover .tagToned.readyChip::before {
-    background: var(--on-accent);
+  .node:not(.selected, .overdueNode):hover {
+    background: var(--surface-2);
   }
 }
 
-/* The node being read: the reader points at it, focuses it or tapped it
-   (a touch pin). The accent flood, a selection-derived highlight, on every
-   input, so the subject of the paths is never just one more 2px ring (the
-   rings mark what it waits on and holds up). A pointer's :hover above
-   floods at once; this class follows hover, keyboard focus and the pin. The
-   words fade in with the flood. Not on the selected box: its ink fill is
-   its own mark. */
-.node.pointed:not(.selected) {
-  --foreground: var(--on-accent);
-  --border: var(--on-accent);
-  --muted: var(--on-accent);
-  --glyph-ink: var(--on-accent);
-  --glyph-green: var(--on-accent);
-  --glyph-amber: var(--on-accent);
-  --glyph-red: var(--on-accent);
-
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease,
-    outline-color 0.15s ease;
-}
-
-.node.overdueNode.pointed:not(.selected) {
-  border-color: var(--accent-hover);
-  background: var(--accent-hover);
-}
-
-.node.pointed:not(.selected) .tagWarning {
-  border-color: var(--on-accent);
-  background: var(--on-accent);
-  color: var(--accent);
-}
-
-.node.pointed:not(.selected) .tagToned {
-  border-color: var(--on-accent);
-  color: var(--on-accent);
-}
-
-.node.pointed:not(.selected) .tagToned.readyChip::before {
-  background: var(--on-accent);
-}
-
-/* Forced colours drop backgrounds: the filled marks keep a fill in the
-   system's text colour so done and overdue still read as filled (as
-   StatusMark does), and the missing mark keeps its hatching. */
+/* Forced colours drop backgrounds: the diamonds keep their shapes in the
+   system text colour (as StatusMark does), the rings take Highlight and
+   CanvasText, and the selection and the box being read a double rule. */
 @media (forced-colors: active) {
-  .done,
-  .overdue {
+  .glyph {
     forced-color-adjust: none;
-    border-color: CanvasText;
-    background: CanvasText;
+    color: CanvasText;
   }
 
-  .missing {
-    forced-color-adjust: none;
-    border-color: CanvasText;
-    background-image: repeating-linear-gradient(
-      45deg,
-      CanvasText 0,
-      CanvasText 1px,
-      transparent 1px,
-      transparent 3px
-    );
+  .done::after {
+    border-color: Canvas;
   }
 
   /* Paths without hue: every line in the text colour (its dashes and dots
@@ -954,18 +867,27 @@ div.node {
     color: GrayText;
   }
 
-  /* The node being read, and the selected node (whose ink fill is
-     dropped): a double rule just outside the box, apart from the solid
-     Highlight ring of what it waits on and the dashed one of what it
-     holds up. The keyboard focus ring wins on the focused box. */
+  /* The node being read, and the selected node (whose fill is dropped): a
+     double rule just outside the box, apart from the solid Highlight ring
+     of what it waits on and the dashed one of what it holds up. The
+     keyboard focus ring wins on the focused box. */
   .node.pointed:not(:focus-visible),
   .node.selected:not(:focus-visible, .lit, .down, .chain) {
     outline: 4px double CanvasText;
     outline-offset: 2px;
   }
 
-  /* Frames keep their shape: solid, dashed outside the scope; a muted
-     frame's rule and title in GrayText (the hatch is dropped). */
+  /* The chain's focus ring and a cycle's outline keep their shapes. */
+  .focus::after {
+    border-color: Highlight;
+  }
+
+  .cycle::before {
+    border-color: CanvasText;
+  }
+
+  /* Frames keep their shape: solid, dashed outside the scope or paused; a
+     paused frame's edge and title in GrayText. */
   .cluster {
     border-color: CanvasText;
   }
@@ -993,42 +915,43 @@ div.node {
   .next {
     border: 1px solid CanvasText;
   }
+
+  .next::before {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
 }
 
 /* ---- readout ------------------------------------------------------------ */
 
-/* One line under the frame, collapsing into it with -1px: the node being
-   read and its paths in words, else the host's summary and how to trace a
-   node. It wraps to more lines on a phone. */
+/* The panel's last row, under the canvas: the node being read and its
+   paths in words, else the host's summary and how to trace a node. It
+   wraps to more lines on a phone. */
 .readout {
   min-height: 40px;
-  margin-top: -1px;
-  padding: 11px 18px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 400;
-  line-height: 1.45;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh);
 }
 
 .readoutSubject {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
+  color: var(--text);
+  font-weight: var(--fw-semibold);
 }
 
 .readoutSep {
-  color: var(--grey-2);
+  color: var(--text-3);
 }
 
 .readoutIdle {
-  color: var(--foreground);
+  color: var(--text);
 }
 
 .readoutHint {
-  color: var(--grey-2-ink);
+  color: var(--text-3);
 }
 
 /* The hint names the gesture the device has: point and focus where
@@ -1049,20 +972,26 @@ div.node {
 
 /* ---- empty -------------------------------------------------------------- */
 
+/* Gr8r's centred empty state (EmptyState) where the panel would be. */
 .emptyState {
-  margin-top: -1px;
+  margin: 0;
 }
 
 /* ---- phone -------------------------------------------------------------- */
 
 @media (width <= 900px) {
   .toolbar {
-    padding: 8px 8px 8px 14px;
+    padding: 6px 6px 6px 10px;
   }
 
-  /* Touch pans natively; the pointer hint would be wrong here. */
+  /* Touch pans natively; the pointer hint would be wrong here, and the
+     zoom group keeps to the right without it. */
   .hint {
     display: none;
+  }
+
+  .hint + .zoom {
+    margin-left: auto;
   }
 
   .viewport {
@@ -1071,15 +1000,13 @@ div.node {
   }
 
   .readout {
-    padding: 10px 14px;
+    padding: 10px 12px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .zoomButton,
   .node,
-  .node.pointed:not(.selected),
-  .node:not(.selected):hover,
   .next,
   .step {
     transition: none;

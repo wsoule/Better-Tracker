@@ -1,134 +1,113 @@
-/* The timeline chart: Gr8r's Gantt (sticky lane column, two-row header,
-   milestones row, bars, connectors) drawn as one Matrix-style drawing:
-   hairline boxes collapsed on -1px margins, mono micro-labels, the status
-   hues (docs/architecture.md §8.2 "Status colours") for status and risk,
-   and the purple accent only for today, selection, focus and hover. The
-   lane column width arrives as
-   --timeline-lane-width (set on .root from LANE_WIDTH in layout.ts); the
-   header height comes inline from HEADER_HEIGHT. Stacking inside the body:
-   grid 0, connectors 1, bars 2, diamonds/handles 3, tips 4, lane column 5,
-   header 6, corner 7. */
+/* The timeline chart, Gr8r Studio's Gantt: a flat toolbar, a quiet legend
+   line, then one --r-lg panel holding the sticky lane column, the two-row
+   header, the "Milestones" row, sunken initiative rows, the lanes split by
+   --divider rules, the bars and the connectors. The lane column width
+   arrives as --timeline-lane-width (set on .root from LANE_WIDTH in
+   layout.ts); the header height comes inline from HEADER_HEIGHT. Stacking
+   inside the body: the grid's bands and rules first (no z-index), the
+   today line and connectors 1, bars 2, diamonds/handles 3, tips 4, lane
+   column 5, header 6, corner 7. */
 
 .root {
   min-width: 0;
 }
 
-/* ---- toolbar -------------------------------------------------------- */
+/* ---- toolbar ---------------------------------------------------------- */
 
+/* Gr8r's view toolbar: no box, small controls on one line. */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
-  padding: 10px 18px;
-  border: 1px solid var(--border);
+  gap: 8px 12px;
 }
 
 .controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 18px;
+  gap: 8px 12px;
 }
 
 .toolbarEnd {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
+  gap: 8px 12px;
   margin-left: auto;
 }
 
-/* ---- legend + live line --------------------------------------------- */
+/* ---- legend + live line ----------------------------------------------- */
 
 .legendRow {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 28px;
-  min-height: 40px;
-  margin-top: -1px;
-  padding: 9px 18px;
-  border: 1px solid var(--border);
+  gap: 6px 24px;
+  min-height: 36px;
+  padding: 6px 0;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 22px;
+  gap: 6px 16px;
 }
 
 .legendItem {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .legendLabel {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
 }
 
-/* Mini bars, one per status, drawn like the real thing (the same shapes
-   and status hues as timeline-bar.module.css). */
-.swatch {
-  display: block;
-  width: 22px;
-  height: 12px;
-  border: 1px solid var(--border);
-  background: var(--background);
+/* The status marks themselves (StatusMark), hidden from AT: the label
+   beside each says it. */
+.legendMark {
+  display: inline-flex;
 }
 
-.s_on_track {
-  border-color: var(--green);
-}
-
-.s_overdue {
-  border-color: var(--red);
-  background: var(--red);
-}
-
-.s_at_risk {
-  border: 2px solid var(--amber);
-}
-
-/* Done is the ink fill, as on the bars (never green: a green fill reads
-   as the red one without red-green vision). */
-.s_done {
-  background: var(--foreground);
-}
-
-.s_missing {
-  border-color: var(--muted);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--muted) 0,
-    var(--muted) 1px,
-    transparent 1px,
-    transparent 4px
-  );
-}
-
+/* The due date: a short bar with the diamond at its end, in greys (the
+   diamond's shape and hue follow the status, as the marks beside it say). */
 .legendDiamond {
+  position: relative;
   display: block;
-  width: 9px;
-  height: 9px;
-  margin: 0 2px;
-  border: 1px solid var(--border);
-  transform: rotate(45deg);
+  width: 18px;
+  height: 8px;
+  margin-right: 4px;
+  border: 1px solid var(--text-3);
+  border-radius: 2px;
+}
+
+/* The bar's due-date diamond in small: a 2px edge like the bar's own
+   (Chrome draws a 1.5px border at 1px, thinner than the marks beside
+   it), one pixel larger so its hollow still shows; centred where the
+   7px one was. */
+.legendDiamond::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -4.5px;
+  width: 8px;
+  height: 8px;
+  border: 2px solid var(--text-3);
+  border-radius: 2px;
+  background: var(--surface);
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .live {
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: 6px;
   margin-left: auto;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.4;
-  color: var(--ink-soft);
+  color: var(--text-2);
 }
 
 /* An empty live line is collapsed out of the row, never display: none: a
@@ -146,34 +125,27 @@
 
 .liveKey {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
-/* "Not saved" is an error: the red text hue (the purple never means a
-   status). */
 .liveError .liveKey {
-  color: var(--red-ink);
+  color: var(--red);
 }
 
-.empty {
-  margin-top: -1px;
-}
-
-/* ---- the drawing ---------------------------------------------------- */
+/* ---- the drawing ------------------------------------------------------ */
 
 /* One scroll container for both axes: header (top) and lane column (left)
-   stick inside it, so nothing needs scroll syncing. */
+   stick inside it, so nothing needs scroll syncing. A panel: the 1px
+   --border edge and the 10px radius, which also clips the sticky header
+   and lane column at the corners. */
 .scroller {
   position: relative;
-  margin-top: -1px;
   overflow: auto;
   max-height: var(--timeline-max-height, calc(100vh - 220px));
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
   overscroll-behavior-x: contain;
   /* Revealed under a sticky host topbar (--nav-h), not behind it. */
   scroll-margin-top: calc(var(--nav-h, 0px) + 12px);
@@ -190,38 +162,28 @@
   top: 0;
   display: flex;
   border-bottom: 1px solid var(--border);
-  background: var(--background);
+  background: var(--surface);
 }
 
+/* Gr8r's left header: one quiet column name at the bottom. */
 .corner {
   position: sticky;
   z-index: 7;
   left: 0;
   display: flex;
   flex: none;
-  flex-direction: column;
-  justify-content: flex-end;
-  gap: 4px;
+  align-items: flex-end;
+  gap: 6px;
   width: var(--timeline-lane-width, 264px);
-  padding: 0 16px 9px;
+  padding: 0 14px 8px 16px;
   border-right: 1px solid var(--border);
-  background: var(--background);
+  background: var(--surface);
 }
 
 .cornerLabel {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
-.cornerSub {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--grey-2-ink);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-3);
 }
 
 .body {
@@ -241,59 +203,55 @@
   flex: none;
   align-items: center;
   width: var(--timeline-lane-width, 264px);
-  padding: 0 16px;
+  padding: 0 14px 0 16px;
   border-right: 1px solid var(--border);
-  border-bottom: 1px solid var(--hairline-faint);
-  background: var(--background);
+  border-bottom: 1px solid var(--divider);
+  background: var(--surface);
 }
 
 .track {
   position: relative;
   flex: 1 1 auto;
-  border-bottom: 1px solid var(--hairline-faint);
+  border-bottom: 1px solid var(--divider);
 }
 
-/* ---- milestones summary row ----------------------------------------- */
+/* ---- milestones summary row ------------------------------------------- */
 
-/* A chrome zone (hatched like a titlebar): the at-a-glance diamonds. */
+/* Gr8r's "Milestones" row: the diamonds at the due dates on the plain
+   surface (as in Gr8r's timeline, so it does not merge with the sunken
+   initiative row under it), ruled off from the lanes by a --border line. */
 .summaryRow .laneCell,
 .summaryRow .track {
   border-bottom-color: var(--border);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
 }
 
 .summaryCell {
-  gap: 10px;
+  gap: 8px;
 }
 
+/* An outline diamond, like Gr8r's row icon, with StatusMark's 2px edge
+   (a rotated mark's edge is never 1.5px: Chrome draws it at 1px). */
 .summaryGlyph {
+  flex: none;
   width: 9px;
   height: 9px;
   margin: 0 2px;
-  border: 1px solid var(--border);
-  background: var(--foreground);
+  border: 2px solid var(--text-3);
+  border-radius: 2px;
   transform: rotate(45deg);
 }
 
 .summaryLabel {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .summaryCount {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 
 .point {
@@ -302,74 +260,113 @@
   top: 50%;
   display: flex;
   align-items: center;
-  gap: 9px;
-  height: 20px;
-  margin: -10px 0 0 -6px;
+  gap: 8px;
+  height: 18px;
+  margin: -9px 0 0 -6px;
   cursor: pointer;
 }
 
+/* Gr8r's milestone: a 10px square, 2px radius, turned 45°, in the most
+   urgent status hue of the milestones due that day, shaped like the bars'
+   due-date diamonds (timeline-bar.module.css) so the status is never the
+   hue alone: overdue solid, at risk the lower half filled, on track
+   hollow, complete solid with a tick, missing dotted, inactive a grey
+   outline. --hollow is the open interior (Canvas in forced colours). */
 .pointMark {
+  --c: var(--gray);
+  --hollow: var(--surface);
+
+  position: relative;
   flex: none;
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  transform: rotate(45deg) scale(0.83);
+  width: 10px;
+  height: 10px;
+  margin: 0 1px;
+  border: 2px solid var(--c);
+  border-radius: 2px;
+  background: var(--c);
+  /* Turned, not scaled, with a 2px edge: a scaled or 1.5px edge falls to
+     a device pixel or less and its dashes and outline wash out (under
+     3:1). */
+  transform: rotate(45deg);
   transition:
-    background-color 0.15s ease,
-    border-color 0.15s ease;
+    background-color var(--dur) ease,
+    box-shadow var(--dur) ease;
 }
 
-/* The summary marks take the bars' shapes and status hues. */
-.m_on_track {
-  border-color: var(--green);
-}
-
+/* Complete takes StatusMark's neutral --text (never green next to red). */
 .m_done {
-  background: var(--foreground);
-}
-
-.m_at_risk {
-  border: 2px solid var(--amber);
+  --c: var(--text);
 }
 
 .m_overdue {
-  border-color: var(--red);
-  background: var(--red);
+  --c: var(--red);
+}
+
+.m_on_track {
+  --c: var(--green);
+
+  background: var(--hollow);
+}
+
+.m_at_risk {
+  --c: var(--amber);
+
+  background: linear-gradient(135deg, var(--hollow) 50%, var(--c) 50%);
+}
+
+/* The tick: the element is already turned 45°, so the L reads as a
+   check without a turn of its own. */
+.m_done::after {
+  content: '';
+  position: absolute;
+  top: 46%;
+  left: 54%;
+  width: 2.5px;
+  height: 4.5px;
+  border: solid var(--hollow);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(-50%, -50%);
 }
 
 .m_missing {
-  border-color: var(--muted);
-  background-image: repeating-linear-gradient(
-    -45deg,
-    var(--muted) 0,
-    var(--muted) 1px,
-    transparent 1px,
-    transparent 3px
-  );
+  --c: var(--text-3);
+
+  /* Dotted at 2px: a 2px dash is 6px long and closes up on a 10px side,
+     which would read as the inactive outline. */
+  border-style: dotted;
+  background: var(--hollow);
 }
 
-/* Only inactive (muted) lanes are due that day: the inactive grey, never
-   loud. */
+/* Only inactive (muted) lanes are due that day: greys, never loud. */
 .m_muted {
-  border-color: var(--grey);
+  --c: var(--gray);
+
+  background: var(--hollow);
+}
+
+/* Forced colours drop backgrounds: keep the shapes in system colours. */
+@media (forced-colors: active) {
+  .pointMark {
+    --c: CanvasText;
+    --hollow: Canvas;
+
+    forced-color-adjust: none;
+  }
 }
 
 .pointLabel {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text);
   white-space: nowrap;
-  transition: color 0.15s ease;
+  transition: color var(--dur) ease;
 }
 
 .pointMuted .pointLabel {
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 @media (hover: hover) and (width >= 901px) {
@@ -382,241 +379,229 @@
   }
 
   .point:hover .pointMark {
-    border-color: var(--accent);
+    box-shadow:
+      0 0 0 1.5px var(--surface),
+      0 0 0 3px var(--accent-line);
   }
 }
 
-/* ---- initiative rows ------------------------------------------------ */
+/* ---- initiative rows -------------------------------------------------- */
 
-/* Ink above and below; the row overlaps the previous row's bottom line by
-   1px (layout.ts subtracts it) so the drawing never doubles a line. */
-.groupRow {
-  margin-top: -1px;
-}
-
-.groupRow .laneCell,
-.groupRow .track {
-  border-top: 1px solid var(--border);
-  border-bottom-color: var(--border);
+/* Gr8r's group row: a sunken band, its name semibold with a quiet count.
+   The track's band is translucent so the weekend bands show through (the
+   today line runs over it, timeline-scale.module.css). */
+.groupRow .laneCell {
+  border-bottom-color: var(--divider);
+  background: var(--sunken);
 }
 
 .groupRow .track {
-  background: var(--tint);
+  background: color-mix(in srgb, var(--sunken) 70%, transparent);
 }
 
 .groupCell {
-  gap: 12px;
-  background: var(--background);
-  background-image: linear-gradient(var(--tint), var(--tint));
+  gap: 8px;
 }
 
 .groupLabel {
+  min-width: 0;
   overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
-  text-transform: uppercase;
   white-space: nowrap;
-}
-
-/* The count with the group's link under it, right-aligned in one column
-   as wide as the longer of the two, so the label keeps the width it had
-   before the link (the 36px row holds both lines). */
-.groupMeta {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-  margin-left: auto;
+  color: var(--text);
 }
 
 .groupCount {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  line-height: 12px;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  flex: none;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
 }
 
-/* The group's quiet link (TimelineGroup.link, e.g. "Graph"): mono in the
-   dim text grey. Its padding is the hover flood's area; the negative
-   margins keep the text on the count's right edge and the row's height. */
+/* The group's quiet link (TimelineGroup.link, e.g. "Graph"), pushed to
+   the cell's right edge: a ghost button's look (--text-2; on the sunken
+   band the hover fill is --surface-3). The negative right margin lets the
+   fill reach into the cell's padding. */
 .groupLink {
-  margin: -2px -6px;
-  padding: 2px 6px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--grey-2-ink);
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: var(--h-xs);
+  margin: 0 -6px 0 auto;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
   white-space: nowrap;
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .groupLink:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-3);
+    color: var(--text);
   }
 }
 
-/* ---- lanes ---------------------------------------------------------- */
+/* ---- lanes ------------------------------------------------------------ */
 
 .laneText {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   min-width: 0;
 }
 
 .laneName {
   overflow: hidden;
-  font-family: var(--font-sans);
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: color 0.15s ease;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur) ease;
 }
 
+/* Gr8r's title hover: an underline in --border-strong, never a colour
+   change. */
 a.laneName:focus-visible {
-  color: var(--accent-ink);
+  text-decoration-color: var(--border-strong);
 }
 
 @media (hover: hover) and (width >= 901px) {
   a.laneName:hover {
-    color: var(--accent-ink);
+    text-decoration-color: var(--border-strong);
   }
 }
 
 .laneSubLine {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px 10px;
+  gap: 2px 8px;
+  min-width: 0;
 }
 
 .laneSub,
 .laneEdges {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  line-height: 1.3;
   white-space: nowrap;
+  color: var(--text-3);
 }
 
-.laneSub {
-  color: var(--muted);
-}
-
-/* A sublabel that asks for action (NO LEAD, a deactivated lead) in its
-   tone's text colour, from the data-tone hook (amber for warning). */
+/* A sublabel that asks for action ("No lead", a deactivated lead) in its
+   tone's ink, from the data-tone hook (warning: amber, §8.2). */
 .laneSubToned {
+  font-weight: var(--fw-medium);
   color: var(--tone-ink);
-  font-weight: 700;
-}
-
-.laneEdges {
-  color: var(--grey-2-ink);
 }
 
 .laneMuted .laneName {
-  color: var(--muted);
+  color: var(--text-3);
 }
 
-/* The lane named in ?project=: a 2px accent rule (emphasis, spent once)
-   down the label cell's left edge and a tint along its track. */
+/* The lane named in ?project=: Gr8r's selected-row tint along the whole
+   lane (the label cell stays opaque over the bars it covers). */
 .laneFocus .laneCell {
-  background-image: linear-gradient(var(--accent), var(--accent));
-  background-repeat: no-repeat;
-  background-size: 2px 100%;
-}
-
-.laneFocus .laneName {
-  color: var(--accent-ink);
+  background:
+    linear-gradient(var(--accent-soft), var(--accent-soft)), var(--surface);
 }
 
 .laneFocus .track {
-  background: var(--tint);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
-/* ---- undated chips -------------------------------------------------- */
+/* ---- undated chips ---------------------------------------------------- */
 
 .undated {
   position: absolute;
   z-index: 2;
-  top: 15px;
+  top: 12px;
   display: flex;
-  gap: 8px;
+  gap: 6px;
 }
 
+/* No target date: a dashed 24px pill on the surface (the "missing" look:
+   a --text-3 edge, 5.6:1, like a missing bar's), its status mark, the name
+   and an amber "No date" (a missing input). */
 .chip {
   scroll-margin: 60px 24px 12px calc(var(--timeline-lane-width, 264px) + 24px);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 22px;
+  gap: 6px;
+  height: 24px;
   padding: 0 8px;
-  border: 1px dashed var(--muted);
-  background-color: var(--background);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 5px
-  );
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  border: 1px dashed var(--text-3);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
+    border-color var(--dur) ease,
+    box-shadow var(--dur) ease;
 }
 
+.chipMark {
+  display: inline-flex;
+  flex: none;
+}
+
+.chipLabel {
+  min-width: 0;
+}
+
+/* "No date": quiet on an inactive lane; otherwise a missing input, so the
+   warning ink from the data-tone hook (.chipNoteToned). */
 .chipNote {
-  font-weight: 500;
-  color: var(--muted);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
 }
 
-/* "No date" on an active lane's chip: the target date is a missing input,
-   so it takes the warning (amber) text from the data-tone hook. */
 .chipNoteToned {
   color: var(--tone-ink);
 }
 
 .chipSelected {
-  outline: 1px solid var(--accent);
-  outline-offset: 3px;
+  border-style: solid;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Forced colours drop the selection ring's shadow: an outline instead. */
+@media (forced-colors: active) {
+  .chipSelected {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
 }
 
 @media (hover: hover) and (width >= 901px) {
   .chip:hover {
-    border: 1px solid var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
+    border-color: var(--text-2);
   }
 
-  .chip:hover .chipNote {
-    color: var(--on-accent);
+  .chipSelected:hover {
+    border-color: var(--accent);
   }
 }
 
-/* ---- dependency connectors ------------------------------------------ */
+/* ---- dependency connectors -------------------------------------------- */
 
+/* Gr8r's dependency curves: 1.3px in --text-3 with round caps. An edge on
+   a risk chain takes the warning hue (a status, so never the accent); the
+   open milestone's edges darken to --text. */
 .connectors {
   position: absolute;
   z-index: 1;
@@ -628,41 +613,37 @@ a.laneName:focus-visible {
 
 .edge path {
   fill: none;
-  stroke: var(--muted);
-  stroke-width: 1;
-  stroke-linecap: square;
+  stroke: var(--text-3);
+  stroke-width: 1.3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
+/* The arrowhead chevron keeps a sharp tip where it meets the bar. */
 .edge .edgeHead {
-  stroke-linecap: butt;
   stroke-linejoin: miter;
 }
 
-/* On a risk chain (the blocker is unassigned or overdue, or waits on
-   one): the warning hue. A 1px connector crosses the weekend columns and
-   group bands (#e5e5e5, #d9d9d9 in the light theme), where the amber MARK
-   colour falls under 3:1, so it takes the amber TEXT colour (3.96:1 or
-   more on those greys, 10:1 on the dark paper). */
 .edgeRisk path {
-  stroke: var(--amber-ink);
+  stroke: var(--amber);
 }
 
 /* The waiting milestone is due before its blocker: a scheduling conflict,
-   dashed so it reads without a new hue. */
+   dashed as Gr8r dashes a backwards dependency. */
 .edgeConflict path:first-child {
   stroke-dasharray: 3 3;
 }
 
 .edgeSelected path {
-  stroke: var(--foreground);
-  stroke-width: 1.5;
+  stroke: var(--text);
+  stroke-width: 1.6;
 }
 
 .edgeSelected.edgeRisk path {
-  stroke: var(--amber-ink);
+  stroke: var(--amber);
 }
 
-/* ---- phone ---------------------------------------------------------- */
+/* ---- phone ------------------------------------------------------------ */
 
 @media (width <= 900px) {
   .scroller,
@@ -672,14 +653,14 @@ a.laneName:focus-visible {
   }
 
   /* With no host slots the toolbar holds only the (hidden) chart
-     controls: no empty bordered strip above the cards. */
+     controls: no empty strip above the cards. */
   .toolbar:has(> .controls:only-child) {
     display: none;
   }
 
-  /* Nothing to say and no legend at this width: no empty bordered row.
-     Collapsed like .live:empty above (not display: none) so the live
-     regions inside stay ready to speak. */
+  /* Nothing to say and no legend at this width: no empty row. Collapsed
+     like .live:empty above (not display: none) so the live regions inside
+     stay ready to speak. */
   .legendRow:has(.live:empty + .live:empty) {
     position: absolute;
     width: 1px;
@@ -689,12 +670,6 @@ a.laneName:focus-visible {
     padding: 0;
     overflow: hidden;
     clip-path: inset(50%);
-    border: 0;
-  }
-
-  .toolbar,
-  .legendRow {
-    padding: 10px 14px;
   }
 
   .toolbarEnd {
@@ -703,44 +678,6 @@ a.laneName:focus-visible {
 
   .live {
     margin-left: 0;
-  }
-}
-
-/* Forced colours drop backgrounds: the filled legend swatches and summary
-   marks keep a fill in the system's text colour (as StatusMark does), and
-   the missing ones keep their hatching. */
-@media (forced-colors: active) {
-  .s_overdue,
-  .s_done,
-  .m_overdue,
-  .m_done {
-    forced-color-adjust: none;
-    border-color: CanvasText;
-    background: CanvasText;
-  }
-
-  .s_missing {
-    forced-color-adjust: none;
-    border-color: CanvasText;
-    background-image: repeating-linear-gradient(
-      45deg,
-      CanvasText 0,
-      CanvasText 1px,
-      transparent 1px,
-      transparent 4px
-    );
-  }
-
-  .m_missing {
-    forced-color-adjust: none;
-    border-color: CanvasText;
-    background-image: repeating-linear-gradient(
-      -45deg,
-      CanvasText 0,
-      CanvasText 1px,
-      transparent 1px,
-      transparent 3px
-    );
   }
 }
 

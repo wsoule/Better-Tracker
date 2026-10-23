@@ -1,5 +1,6 @@
-/* Gallery-only composition for /ui-gallery/graph: page furniture and the
-   selection panel's lists, built from the same tokens as the package. */
+/* Gallery-only composition for /ui-gallery/graph, in Gr8r's look: page
+   furniture and the selection panel's lists, built from the same tokens as
+   the package. */
 
 .page {
   padding-bottom: 96px;
@@ -9,6 +10,14 @@
   display: inline-flex;
   align-items: center;
   gap: 16px;
+}
+
+/* A section's blocks (the title over the graph panel, the legend's key
+   rows, Copy Mermaid) 12px apart, as on /graph. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .panel {
@@ -29,88 +38,77 @@
   gap: 8px;
 }
 
+/* Gr8r's drawer section head: body size, semibold. */
 .panelKey {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  color: var(--text);
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
 }
 
 .panelEmpty {
-  padding: 12px 14px;
-  border: 1px solid var(--hairline-faint);
-  color: var(--grey-2-ink);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+/* One list panel: rows split by --divider, never ruled against the edge. */
+.nodeList {
+  overflow: clip;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 .nodeList > li + li {
-  margin-top: -1px;
+  border-top: 1px solid var(--divider);
 }
 
-/* Register rows: hover swaps paper and ink locally, like the roster. */
+/* A row: the status diamond, the name, the quiet context; hover is the
+   --surface-2 fill. */
 .nodeRow {
   display: grid;
-  grid-template-columns: 13px minmax(0, 1fr) auto;
+  grid-template-columns: 12px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 10px;
   width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  min-height: var(--row-h);
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
   text-align: left;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.nodeRow:focus-visible {
+  outline-offset: -2px;
 }
 
 .nodeRowName {
   overflow: hidden;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--fs);
+  font-weight: var(--fw-soft);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .nodeRowSub {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .nodeRow:hover {
-    --background: var(--ink);
-    --foreground: var(--paper);
-    --accent-ink: var(--accent-ink-inverse);
-    --accent-ink-hover: var(--accent-ink-inverse);
-    --red-ink: var(--red-ink-inverse);
-    --amber-ink: var(--amber-ink-inverse);
-    --green-ink: var(--green-ink-inverse);
-    --blue-ink: var(--blue-ink-inverse);
-    --grey-2-ink: var(--muted-inverse);
-    --border: var(--paper);
-    --muted: var(--muted-inverse);
-
-    border-color: var(--ink);
+    background: var(--surface-2);
   }
 }
 
 @media (width <= 768px) {
   .nodeRow {
-    grid-template-columns: 13px minmax(0, 1fr);
-    row-gap: 4px;
+    grid-template-columns: 12px minmax(0, 1fr);
+    row-gap: 2px;
   }
 
   .nodeRowSub {

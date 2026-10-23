@@ -26,10 +26,11 @@ export function isCrumbList(
 }
 
 /**
- * The header's mono trail ("BEACON SEARCH / SEARCH V2 BETA / ENG-24"):
- * crumbs become a labelled nav with links through the host's <Link>, the
- * last one marked as the current page; a ready node renders as given; with
- * neither, the task key stands alone. One line: when it runs out of room
+ * The header's trail ("Beacon search / Search v2 beta / ENG-24"): crumbs
+ * become a labelled nav with links through the host's <Link>, the last one
+ * marked as the current page (in the mono id voice when it is the task's
+ * key); a ready node renders as given; with neither, the task key stands
+ * alone. One line: when it runs out of room
  * only the earlier crumbs shrink (and step aside below 260px), so the
  * last one, usually the key, stays readable.
  */
@@ -43,7 +44,7 @@ export function TaskCrumbs({
     breadcrumb === null ||
     (Array.isArray(breadcrumb) && breadcrumb.length === 0)
   ) {
-    return <span className={styles.trail}>{taskKey}</span>;
+    return <span className={cx(styles.trail, styles.key)}>{taskKey}</span>;
   }
   if (!isCrumbList(breadcrumb)) {
     return <span className={styles.trail}>{breadcrumb as ReactNode}</span>;
@@ -71,7 +72,8 @@ export function TaskCrumbs({
               <span
                 className={cx(
                   styles.label,
-                  i === last ? styles.current : undefined
+                  i === last ? styles.current : undefined,
+                  i === last && crumb.label === taskKey ? styles.key : undefined
                 )}
                 aria-current={i === last ? 'page' : undefined}
                 title={crumb.label}

@@ -7,9 +7,8 @@ import { publishBulkBarHeight } from './bulk-bar-height';
 import styles from './bulk-bar.module.css';
 import type { BulkBarProps } from './types';
 
-/* The bulk bar (Gr8r's .bulkbar in task-list.js, drawn like the toasts:
-   paper in a 1px ink frame): a toolbar that rises at the bottom centre
-   while rows are selected. "{n} selected", the host's action triggers
+/* Gr8r's bulk bar (.bulkbar in task-list.js): an inverted toolbar that
+   springs up at the bottom centre while rows are selected. "{n} selected", the host's action triggers
    (pickers with appearance 'bar'), then ✕.
 
    - The count is announced through a polite live region that stays
@@ -238,7 +237,7 @@ export function BulkBar({
           title={clearLabel}
           onClick={onClear}
         >
-          <X size={14} strokeWidth={1.5} aria-hidden="true" />
+          <X size={14} strokeWidth={1.8} aria-hidden="true" />
         </button>
       </div>
     </>

@@ -75,7 +75,7 @@ export interface ProjectNextMilestone {
   done: number;
   total: number;
   /** The progress fill (progressTone): danger overdue, warning behind
-      pace, success complete, muted in an inactive project, default (ink)
+      pace, success complete, muted in an inactive project, default (the accent fill)
       otherwise. */
   progressTone: ProgressTone;
   /** An inactive project's milestone: the mark is drawn in greys. */
@@ -85,18 +85,22 @@ export interface ProjectNextMilestone {
 export interface ProjectAllocationCell {
   /** The chip: "Allocating 2", "Blocked", "Nothing to do"… */
   label: string;
-  /** Mono line under it: why it is blocked (blockedReasonLine), e.g.
+  /** The line under it: why it is blocked (blockedReasonLine), e.g.
       "Project has no lead" or "Next milestone is missing: done means…". */
   detail?: string;
   /** Chip tone (architecture §8.2 "allocation"): info = allocating,
       default = nothing to do, warning = blocked, muted = nothing applies
       (no open milestone, inactive, not evaluated). */
   tone: 'default' | 'muted' | 'info' | 'warning';
-  /** BLOCKED keeps the filled chip it had before the status hues (an
-      amber slab); the other cells stay outlined. */
+  /** Blocked is the tinted amber chip (Chip `filled`); Allocating is the
+      blue dot pill, the muted cells plain quiet text. */
   filled?: true;
+  /** Drawn as plain words, not a chip: Nothing to do, which Gr8r prints
+      as quiet meta (the approved Projects shot). Its tone stays default
+      (neutral), never the inactive grey. */
+  plain?: true;
   /** The `detail` line takes the chip's tone too (RegisterCell
-      `toneSub`): set for BLOCKED, whose reason is the point of the cell
+      `toneSub`): set for Blocked, whose reason is the point of the cell
       and reads in amber as on the timeline's Blocked banner. A line under
       any other value stays muted. */
   toneDetail?: true;
@@ -107,10 +111,12 @@ export interface ProjectRowModel {
   name: string;
   initiative: string;
   linearStatus: string;
-  /** The Linear status chip (LINEAR_STATUS_TONE): muted backlog, planned
-      and canceled, info started, warning paused, success completed;
+  /** The Linear status chip (LINEAR_STATUS_TONE): default (the neutral
+      badge) backlog and planned, muted canceled, info started, warning
+      paused, success completed;
       always muted for an inactive project, whose row carries no status
-      colour (§2.8). */
+      colour (§2.8): there the register draws it as the grey-dot pill
+      (Chip `dot`), so the column stays a column of status pills. */
   linearStatusTone: ChipTone;
   /** Allocation and warnings apply to this project. */
   active: boolean;
@@ -118,8 +124,9 @@ export interface ProjectRowModel {
   /** null renders "No lead" in the warning tone. */
   lead: string | null;
   allocation: ProjectAllocationCell;
-  /** The register row's tone: warning (the 2px amber rule) when allocation
-      is blocked, muted for an inactive project. */
+  /** The register row's tone, data only (Gr8r draws no row rule: the
+      Blocked chip says it): warning when allocation is blocked, muted for
+      an inactive project (its subject steps back). */
   rowTone: 'default' | 'warning' | 'muted';
   /** The filters (other than "all") this row matches. */
   tags: ProjectFilterId[];
@@ -153,7 +160,7 @@ export interface ProjectsPageModel {
 /**
  * The status mark of a timeline bar, through the planner's one mapping
  * (assessmentMark): a bar carries the same status and rubric as the
- * assessment it came from, so on-track-but-invalid reads as hatched.
+ * assessment it came from, so on-track-but-invalid reads as missing.
  */
 export function barMark(bar: TimelineBar): {
   status: UiStatus;
@@ -174,7 +181,7 @@ export type ProgressTone =
  * The progress fill when the progress itself is a status (architecture
  * §8.2 "progress"): muted in an inactive project, success once complete,
  * danger when overdue, warning when there is more work left than time
- * left (behind pace); otherwise default (the ink fill). The one definition
+ * left (behind pace); otherwise default (the accent fill). The one definition
  * for every screen (the register, My week).
  */
 export function progressTone(
@@ -207,7 +214,7 @@ export function dueTone(
 
 /** Linear's project status type as a chip tone (architecture §8.2), for an
     active project; an inactive one's chip is muted whatever its status
-    (see toRow). Backlog and planned stay the ink chip: grey means inactive,
+    (see toRow). Backlog and planned stay the neutral badge: grey means inactive,
     and an active project that has not started yet is not inactive. */
 const LINEAR_STATUS_TONE: Record<ProjectStatusType, ChipTone> = {
   backlog: 'default',
@@ -227,7 +234,7 @@ export function allocationCell(
     case 'allocate':
       return { label: `Allocating ${plan.actions.length}`, tone: 'info' };
     case 'blocked':
-      // A short chip; the reason goes on the mono line under it, worded as
+      // A short chip; the reason goes on the line under it, worded as
       // on the timeline's Blocked banner and My week's "Needs attention".
       return plan.blockReason === null
         ? { label: 'Blocked', tone: 'warning', filled: true }
@@ -239,7 +246,7 @@ export function allocationCell(
             toneDetail: true,
           };
     case 'nothing_to_do':
-      return { label: 'Nothing to do', tone: 'default' };
+      return { label: 'Nothing to do', tone: 'default', plain: true };
     case 'no_open_milestone':
       return { label: 'No open milestone', tone: 'muted' };
     case 'inactive':

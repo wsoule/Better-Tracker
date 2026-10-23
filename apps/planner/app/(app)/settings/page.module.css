@@ -1,113 +1,185 @@
-/* /settings page furniture around the package components: the header,
-   Gr8r's two-column settings layout (section sub-nav beside the content),
-   the section forms' fields and save bar, and the inline digest preview.
-   Built only from the shared tokens. */
+/* /settings in Gr8r's settings layout (pages/settings.css), shared by the
+   page, its section forms and its loading state: a 220px sub-nav column
+   (headed by the page's h1, "Settings", as an eyebrow) with a --border
+   rule beside the section; the section's title, chip and lead;
+   setting rows (.srow: name and help on the left, the control on the
+   right, --divider rules) grouped under small headings (.sblock); the
+   Watchers member list; the save bar; the inline digest preview. Built
+   only from the shared tokens. */
+
+/* The two columns fill the space under the topbar (and the demo strip,
+   when the shell shows one: --shell-banner-h), so the nav's rule runs to
+   the bottom of the window as Gr8r's does, with no overflow. */
+.set {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: calc(
+    100dvh - var(--shell-topbar-h, var(--topbar-h)) - var(--shell-banner-h, 0px)
+  );
+}
+
+.setNav {
+  padding: 20px 10px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* The sub-nav (inside CurrentIntoView's wrapper) stays in view while a
+   long section scrolls. */
+.navStick {
+  position: sticky;
+  top: calc(var(--shell-topbar-h, var(--topbar-h)) + 12px);
+}
+
+.navHead {
+  padding: 0 8px 6px;
+}
+
+.setIn {
+  width: 100%;
+  min-width: 0;
+  max-width: 800px;
+  padding: 32px 40px 80px;
+}
+
+/* Logs and the digest preview need more than Gr8r's settings column. */
+.setIn[data-wide='true'] {
+  max-width: 1040px;
+}
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-width: 1440px;
-  margin: 28px auto 0;
-  padding: 0 48px;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: -0.015em;
+  line-height: 1.3;
+  color: var(--text);
 }
 
-.receipts {
-  max-width: 96ch;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+.lead {
+  max-width: 72ch;
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
 }
 
-/* The sub-nav stays in view while a long section scrolls. */
-.layout {
-  display: grid;
-  grid-template-columns: 200px minmax(0, 1fr);
-  align-items: start;
-  gap: 32px;
-  max-width: 1440px;
-  margin: 24px auto 0;
-  padding: 0 48px 72px;
+/* A Linear guest's read-only notice, between the lead and the rows. */
+.readOnlyNotice {
+  margin-top: 16px;
 }
 
-.subnav {
-  position: sticky;
-  top: calc(var(--nav-h, 46px) + 16px);
-}
-
-.content {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-  max-width: 1000px;
-}
-
-.collapse > * + * {
-  margin-top: -1px;
-}
-
-/* A Linear guest's read-only notice: its own strip between the section's
-   sentence and its (plain-text) registers. */
-.collapse > .readOnlyNotice {
-  margin: 12px 0;
-}
-
-.sectionText {
-  padding: 14px 18px;
-  border: 1px solid var(--border);
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: var(--ink-soft);
-}
-
+/* A section form, or a guest's rows: blocks, notes and the save bar. */
 .form {
   display: flex;
   flex-direction: column;
 }
 
-.form > * + * {
-  margin-top: -1px;
+.form > :global(.notice) {
+  margin-top: 16px;
 }
 
-.formBar {
-  display: flex;
-  flex-wrap: wrap;
+/* ---- setting rows ------------------------------------------------------ */
+
+.sblock {
+  margin-top: 20px;
+}
+
+.sblock + .sblock {
+  margin-top: 28px;
+}
+
+.sblockTitle {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.srow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px 12px;
-  padding: 12px 18px;
-  border: 1px solid var(--border);
+  gap: 8px 24px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--divider);
 }
 
-.formStatus,
-.formStatusDirty {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+.srowText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
-.formStatusDirty {
-  color: var(--accent-ink);
+.srowTitle {
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  line-height: 1.4;
+  color: var(--text);
 }
 
-.formHint {
-  padding: 12px 18px;
-  border: 1px solid var(--border);
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--muted);
+.srowHelp {
+  max-width: 64ch;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
 }
+
+/* A help line that is the reason for the row's tone (a failed sync's
+   error) takes the tone's text colour too. */
+.srowHelp[data-tone] {
+  color: var(--tone-ink);
+}
+
+.srowControl {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* A value as text (a guest's settings, the Status rows), coloured by its
+   tone: green working, amber not yet, red revoked or failed. */
+.srowValue {
+  max-width: 320px;
+  font-size: var(--fs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+  color: var(--tone-ink, var(--text));
+}
+
+.srowValue[data-tone='default'] {
+  color: var(--text);
+}
+
+.srowValue[data-tone='muted'] {
+  color: var(--text-3);
+}
+
+.srowValue:is(
+  [data-tone='success'],
+  [data-tone='warning'],
+  [data-tone='danger'],
+  [data-tone='info']
+) {
+  font-weight: var(--fw-medium);
+}
+
+/* ---- fields -------------------------------------------------------------- */
 
 .field {
   display: inline-flex;
@@ -129,41 +201,141 @@
 }
 
 .numberInput {
-  width: 84px;
+  width: 76px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .unit {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+  min-width: 28px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
 }
 
-/* A field the form or the server refused keeps a 2px rule in the red
-   status hue after focus leaves it, beside its error line (2px is
-   emphasis; an error is danger, architecture §8.2). */
-.textInput[aria-invalid='true'],
-.numberInput[aria-invalid='true'] {
-  border: 2px solid var(--red);
-  padding: 7px 9px;
-}
+/* A field the form or the server refused: the global .input's error
+   field (primitives.css: a red edge thickened by a 1px red shadow, a soft
+   red halo on focus), beside its red error line. */
 
 .fieldError {
   max-width: 260px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-xs);
   line-height: 1.4;
   text-align: right;
-  color: var(--red-ink);
+  color: var(--red);
 }
 
 .statusList {
   display: grid;
   grid-template-columns: repeat(2, max-content);
-  gap: 2px 16px;
+  gap: 6px 18px;
+}
+
+/* ---- the save bar and notes -------------------------------------------- */
+
+.formBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 20px;
+}
+
+.formStatus {
+  margin-left: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.formStatus[data-state='dirty'] {
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
+}
+
+.formStatus[data-state='failed'] {
+  font-weight: var(--fw-medium);
+  color: var(--red);
+}
+
+.formHint {
+  margin-top: 12px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+/* The page's own line on what Settings is, as a quiet foot under the
+   section. */
+.pageNote {
+  max-width: 72ch;
+  margin-top: 32px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+/* ---- Watchers: Gr8r's member list ---------------------------------------- */
+
+.people {
+  margin-top: 20px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 9px 14px;
+}
+
+.person + .person {
+  border-top: 1px solid var(--divider);
+}
+
+.personText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.personName {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.personMeta {
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.person[data-inactive='true'] .personName {
+  color: var(--text-3);
+}
+
+.personControl {
+  flex: none;
+}
+
+/* ---- logs ---------------------------------------------------------------- */
+
+/* The registers sit under the title and lead. */
+.setIn > :global(div[data-stack]),
+.setIn > :global(.empty) {
+  margin-top: 20px;
 }
 
 .changes {
@@ -177,32 +349,71 @@
   overflow-wrap: anywhere;
 }
 
+/* ---- Status: actions and the digest preview ---------------------------- */
+
 .preview {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 24px;
+  gap: 20px;
+  margin-top: 32px;
 }
 
-.form > .preview {
-  margin-top: 24px;
+.previewHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
 
 .previewTitle {
-  font-family: var(--font-sans);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-section);
+  color: var(--text);
 }
 
 .previewSummary {
   max-width: 80ch;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--text-2);
 }
 
-/* Loading skeleton: header lines. */
+.digest {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.digestHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.digestTitle {
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.digestMeta {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- loading -------------------------------------------------------------- */
+
+.skeletonNav {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 2px 8px;
+}
+
 .skeletonHead {
   display: flex;
   flex-direction: column;
@@ -210,36 +421,65 @@
   width: min(520px, 100%);
 }
 
+.skeletonRows {
+  margin-top: 24px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- narrow --------------------------------------------------------------- */
+
+/* Below 900px the nav is a strip above the section (Gr8r's phone
+   settings), with a --border rule under it. */
 @media (width <= 900px) {
-  .layout {
+  .set {
     grid-template-columns: minmax(0, 1fr);
-    gap: 20px;
+    min-height: 0;
   }
 
-  .subnav {
+  .setNav {
+    padding: 10px 40px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .navStick {
     position: static;
+  }
+
+  .navHead {
+    padding: 0 0 6px;
+  }
+
+  .setIn {
+    padding: 24px 48px 56px;
   }
 }
 
+/* The page's phone edge (as .block): 16px. */
 @media (width <= 768px) {
-  .head {
-    margin-top: 20px;
-    padding: 0 16px;
+  .setNav {
+    padding: 10px 8px;
   }
 
-  .title {
-    font-size: 22px;
+  .setIn {
+    padding: 24px 16px 56px;
+  }
+}
+
+/* On a phone a row's control drops under its name and help. */
+@media (width <= 640px) {
+  .srow {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
   }
 
-  .layout {
-    margin-top: 20px;
-    padding: 0 16px 48px;
+  .srowControl {
+    justify-content: flex-start;
   }
 
-  .sectionText,
-  .formBar,
-  .formHint {
-    padding: 12px 14px;
+  .srowValue {
+    max-width: none;
+    text-align: left;
   }
 
   .field {
@@ -248,5 +488,13 @@
 
   .fieldError {
     text-align: left;
+  }
+
+  .textInput {
+    width: 100%;
+  }
+
+  .person {
+    padding: 9px 12px;
   }
 }

@@ -345,6 +345,10 @@ describe('buildWeekPage header and stats', () => {
       "At risk in Chloe's projects",
     ]);
     expect(other.emptyMessage).toBe('Nothing assigned to Chloe Diaz is open.');
+    expect([other.issuesTitle, other.issuesMeta]).toEqual([
+      "Chloe Diaz's issues",
+      '5 open',
+    ]);
     const chip = other.sections[0]?.groups[0]?.rows[1]?.chips?.[0]?.label;
     expect(chip).toBe(
       'New — given to Chloe because they lead Atlas billing migration'
@@ -387,6 +391,10 @@ describe('buildWeekPage header and stats', () => {
       'Wednesday, October 21 · Nothing due this week'
     );
     expect(quiet.sections).toEqual([]);
+    expect([quiet.issuesTitle, quiet.issuesMeta]).toEqual([
+      'Your issues',
+      '0 open',
+    ]);
     expect(quiet.emptyMessage).toBe(
       "Nothing assigned to you is open. Work in your projects' next milestones lands here when the daily run assigns it."
     );

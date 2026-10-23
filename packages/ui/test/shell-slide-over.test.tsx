@@ -6,6 +6,8 @@ import {
   screen,
 } from '@testing-library/react';
 import { afterEach, describe, expect, jest, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { useState } from 'react';
 
 import AlertStrip from '../src/shell/alert-strip';
@@ -178,5 +180,48 @@ describe('SlideOver', () => {
     });
     expect(screen.getByRole('dialog', { name: 'Schema cutover' })).toBeTruthy();
     expect(document.activeElement).toBe(pageRow);
+  });
+});
+
+// On a phone the header's worded actions ("Open in Linear ↗", "Copy
+// link") show their icons only, so the crumb is not cut short; the words
+// are hidden visually, never removed, so every action keeps its name.
+describe('SlideOver header actions on a phone', () => {
+  const sheet = readFileSync(
+    path.join(import.meta.dir, '..', 'src', 'shell', 'slide-over.module.css'),
+    'utf8'
+  )
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\s+/g, ' ');
+
+  test('a worded action with an icon hides its words visually at 640px', () => {
+    const phone = sheet.slice(sheet.indexOf('@media (width <= 640px)'));
+    const rule =
+      /\.actions :is\(a, button\):has\(> \[aria-hidden='true'\]\) > span:not\(\[aria-hidden='true'\]\) \{([^}]*)\}/.exec(
+        phone
+      );
+    expect(rule).not.toBeNull();
+    expect(rule?.[1]).toContain('clip-path: inset(50%)');
+    expect(rule?.[1]).not.toContain('display: none');
+  });
+
+  test('the words stay in the button name', () => {
+    render(
+      <SlideOver
+        open
+        onClose={() => {}}
+        title="M3 cutover"
+        breadcrumb="Atlas / M3"
+        actions={
+          <button type="button">
+            <span aria-hidden="true">↗</span>
+            <span>Open in Linear</span>
+          </button>
+        }
+      >
+        <p>Body</p>
+      </SlideOver>
+    );
+    expect(screen.getByRole('button', { name: 'Open in Linear' })).toBeTruthy();
   });
 });

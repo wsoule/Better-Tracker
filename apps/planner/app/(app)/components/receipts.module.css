@@ -1,51 +1,87 @@
-/* Receipts rows: key in the accent, title in the machine voice, body in
-   the reading voice; 1px hairlines collapsed with -1px margins. */
+/* Receipts in Gr8r's forms. Cards: the option card of Gr8r's onboarding
+   (1px --border, 10px radius, 14px padding, a quiet icon over a medium
+   title and a secondary sentence), in a responsive grid. Steps: one
+   panel with --divider rows, each led by a round number badge. */
 
-.list {
-  margin-top: -1px;
-}
-
-.row {
+.cards {
   display: grid;
-  grid-template-columns: 48px 180px minmax(0, 1fr);
-  align-items: baseline;
-  gap: 0 18px;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  margin-top: -1px;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: 10px;
 }
 
-.key {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--accent-ink);
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+.icon {
+  display: inline-flex;
+  margin-bottom: 4px;
+  color: var(--text-2);
+}
+
+.icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .title {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
+  color: var(--text);
 }
 
 .body {
-  max-width: 78ch;
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
 }
 
-@media (width <= 768px) {
-  .row {
-    grid-template-columns: 36px minmax(0, 1fr);
-    gap: 6px 12px;
-    padding: 14px;
-  }
+.steps {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
 
-  .body {
-    grid-column: 2;
-  }
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+}
+
+.step + .step {
+  border-top: 1px solid var(--divider);
+}
+
+.number {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.stepText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-top: 1px;
+}
+
+.stepText .body {
+  max-width: 72ch;
 }

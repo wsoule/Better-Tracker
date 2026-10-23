@@ -41,9 +41,9 @@ import type {
 
 // The command palette (Ctrl/⌘ K), its "?" shortcuts sheet, and the global
 // two-key shortcuts registered from palette items (G then W → My week).
-// Gr8r's palette model — sections, ↑/↓, ↵, Tab between sections, Esc — in
-// the Analytics skin: a 1px ink frame with a 2px accent top rule over a
-// scrim derived from --ink, ink fill for the active row.
+// Gr8r's palette — sections, ↑/↓, ↵, Tab between sections, Esc — and its
+// look: a rounded white card with the pop shadow over the --overlay scrim,
+// a soft --surface-2 highlight for the active row.
 
 /** How long the second key of a sequence may lag the first (Gr8r: 1.2s). */
 const SEQUENCE_MS = 1200;
@@ -322,7 +322,7 @@ export function CommandPalette({
           <Search
             className={styles.searchIcon}
             size={16}
-            strokeWidth={1.5}
+            strokeWidth={1.8}
             aria-hidden="true"
           />
           <input
@@ -350,7 +350,8 @@ export function CommandPalette({
           <button
             type="button"
             className={styles.escButton}
-            aria-label="Close command palette"
+            // The visible "Esc" leads the name (WCAG 2.5.3, label in name).
+            aria-label="Esc, close command palette"
             onClick={onClose}
           >
             <Kbd>Esc</Kbd>
@@ -457,7 +458,11 @@ export function CommandPalette({
               </div>
               {[46, 62].map((width) => (
                 <div key={width} className={styles.skeletonRow}>
-                  <Skeleton width={13} height={13} />
+                  <Skeleton
+                    width={13}
+                    height={13}
+                    className={styles.skeletonMark}
+                  />
                   <Skeleton width={`${width}%`} height={9} />
                   <Skeleton
                     width={52}

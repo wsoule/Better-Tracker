@@ -8,9 +8,9 @@ import {
   EstimatePicker,
   InlineTextField,
   LabelPicker,
-  Link,
   MilestonePicker,
   Notice,
+  PickerMarkView,
   PriorityGlyph,
   PriorityPicker,
   ProjectPicker,
@@ -27,11 +27,25 @@ import {
   TextAreaEditor,
   useToast,
 } from '@better-tracker/ui';
-import { ArrowUpRight, Link2, Maximize2 } from 'lucide-react';
+import {
+  ArrowUpRight,
+  Calendar,
+  Folder,
+  Hourglass,
+  Link2,
+  Maximize2,
+  Milestone,
+  Network,
+  SignalHigh,
+  Tag,
+  Timer,
+  User,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { type ReactNode, useCallback, useMemo } from 'react';
 
 import type {
+  IssueEditModel,
   IssueFact,
   IssueRelationModel,
   IssueSearchHit,
@@ -176,8 +190,90 @@ function searchResults(body: unknown): TaskSearchResult[] {
   }));
 }
 
-/** A read-only property value, as the adapter worded it. */
-function FactValue({ fact }: { fact: IssueFact }): ReactNode {
+/* The property sheet's label icons (Gr8r's .kv: 14px, drawn in the icon
+   text step by the property list), one per property id. */
+const ICON = { size: 14, strokeWidth: 1.8, 'aria-hidden': true } as const;
+const PROPERTY_ICONS: Record<string, ReactNode> = {
+  assignee: <User {...ICON} />,
+  priority: <SignalHigh {...ICON} />,
+  labels: <Tag {...ICON} />,
+  estimate: <Timer {...ICON} />,
+  due: <Calendar {...ICON} />,
+  project: <Folder {...ICON} />,
+  milestone: <Milestone {...ICON} />,
+  'in-state': <Hourglass {...ICON} />,
+};
+
+/** A read-only label as its chip shows it: the name and Linear's colour. */
+interface FactLabel {
+  name: string;
+  color?: string;
+}
+
+/** Read-only labels as Gr8r's label chips: a neutral chip with a small
+    square in Linear's colour (PickerMarkView paints hex values only) and
+    the name, the same chip LabelPicker draws. Keyed by position: two
+    label groups may share a name. */
+function LabelChips({ labels }: { labels: readonly FactLabel[] }): ReactNode {
+  return (
+    <span className={css.labels}>
+      {labels.map((label, i) => (
+        <span key={`${i}-${label.name}`} className={css.label}>
+          <PickerMarkView mark={{ kind: 'swatch', color: label.color ?? '' }} />
+          <span dir="auto">{label.name}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** The issue's labels as chips, from the live label ids and the team's
+    label choices (colours); null when Linear could not be read or a label
+    is not among the choices, so the fact's own words stand. */
+function factLabels(edit: IssueEditModel): FactLabel[] | null {
+  const ids = edit.values.live?.labelIds;
+  if (ids === undefined || ids.length === 0) return null;
+  const byId = new Map(edit.labels.map((label) => [label.id, label]));
+  const labels: FactLabel[] = [];
+  for (const id of ids) {
+    const label = byId.get(id);
+    if (label === undefined) return null;
+    labels.push({ name: label.name, color: label.color });
+  }
+  return labels;
+}
+
+/** Whose round avatar leads the read-only assignee: the person's name
+    (from the people list, else the fact's words without "(you)"), or ''
+    for nobody (the dashed empty circle). */
+function assigneeAvatar(edit: IssueEditModel, fact: IssueFact): string {
+  const id = edit.values.assigneeId;
+  if (id === null) return '';
+  const person = edit.people.find((choice) => choice.id === id);
+  return person?.name ?? fact.text.replace(/ \(you\)$/, '');
+}
+
+/**
+ * A read-only property value, as the adapter worded it. `avatar` leads it
+ * with the person's round avatar (a blank name: the dashed nobody circle);
+ * `labels` draws label chips in place of the comma-separated names.
+ */
+function FactValue({
+  fact,
+  avatar,
+  labels,
+}: {
+  fact: IssueFact;
+  avatar?: string;
+  labels?: readonly FactLabel[] | null;
+}): ReactNode {
+  if (labels !== undefined && labels !== null && labels.length > 0) {
+    return (
+      <TaskPropertyValue note={fact.note} noteTone={fact.noteTone}>
+        <LabelChips labels={labels} />
+      </TaskPropertyValue>
+    );
+  }
   return (
     <TaskPropertyValue
       tone={fact.tone}
@@ -185,8 +281,11 @@ function FactValue({ fact }: { fact: IssueFact }): ReactNode {
       noteTone={fact.noteTone}
       mono={fact.mono}
     >
+      {avatar !== undefined ? (
+        <PickerMarkView mark={{ kind: 'avatar', name: avatar }} />
+      ) : null}
       {fact.glyph?.kind === 'priority' ? (
-        <PriorityGlyph priority={fact.glyph.priority} size={13} />
+        <PriorityGlyph priority={fact.glyph.priority} size={14} />
       ) : null}
       {fact.glyph?.kind === 'status' ? (
         <StatusMark
@@ -254,14 +353,14 @@ export function IssueHeaderActions({
         href={model.linearUrl}
         external
         title={`Open ${model.key} in Linear`}
-        iconAfter={<ArrowUpRight size={14} strokeWidth={1.5} />}
+        iconAfter={<ArrowUpRight size={14} strokeWidth={1.8} />}
       >
         Linear
       </Button>
       <Button
         size="sm"
         variant="quiet"
-        icon={<Link2 size={14} strokeWidth={1.5} />}
+        icon={<Link2 size={14} strokeWidth={1.8} />}
         title={`Copy a link to ${model.key}`}
         aria-label={compact ? `Copy a link to ${model.key}` : undefined}
         onClick={() => void copy()}
@@ -275,7 +374,7 @@ export function IssueHeaderActions({
           href={model.pagePath}
           title={`Open ${model.key} as a page`}
           aria-label={`Open ${model.key} as a page`}
-          icon={<Maximize2 size={14} strokeWidth={1.5} />}
+          icon={<Maximize2 size={14} strokeWidth={1.8} />}
         />
       ) : null}
     </>
@@ -373,7 +472,7 @@ export function useIssueTaskProps(
           label: 'Labels',
           value:
             live === null ? (
-              <FactValue fact={facts.labels} />
+              <FactValue fact={facts.labels} labels={factLabels(edit)} />
             ) : (
               <LabelPicker
                 labelOptions={edit.labels}
@@ -460,19 +559,52 @@ export function useIssueTaskProps(
         },
       ]
     : [
-        { id: 'assignee', label: 'Assignee', fact: facts.assignee },
-        { id: 'priority', label: 'Priority', fact: facts.priority },
-        { id: 'labels', label: 'Labels', fact: facts.labels },
-        { id: 'estimate', label: 'Estimate', fact: facts.estimate },
-        { id: 'due', label: 'Due date', fact: facts.dueDate },
-        { id: 'project', label: 'Project', fact: facts.project },
-        { id: 'milestone', label: 'Milestone', fact: facts.milestone },
-        { id: 'in-state', label: 'Time in state', fact: facts.inState },
-      ].map(({ id, label, fact }) => ({
-        id,
-        label,
-        value: <FactValue fact={fact} />,
-      }));
+        {
+          id: 'assignee',
+          label: 'Assignee',
+          value: (
+            <FactValue
+              fact={facts.assignee}
+              avatar={assigneeAvatar(edit, facts.assignee)}
+            />
+          ),
+        },
+        {
+          id: 'priority',
+          label: 'Priority',
+          value: <FactValue fact={facts.priority} />,
+        },
+        {
+          id: 'labels',
+          label: 'Labels',
+          value: <FactValue fact={facts.labels} labels={factLabels(edit)} />,
+        },
+        {
+          id: 'estimate',
+          label: 'Estimate',
+          value: <FactValue fact={facts.estimate} />,
+        },
+        {
+          id: 'due',
+          label: 'Due date',
+          value: <FactValue fact={facts.dueDate} />,
+        },
+        {
+          id: 'project',
+          label: 'Project',
+          value: <FactValue fact={facts.project} />,
+        },
+        {
+          id: 'milestone',
+          label: 'Milestone',
+          value: <FactValue fact={facts.milestone} />,
+        },
+        {
+          id: 'in-state',
+          label: 'Time in state',
+          value: <FactValue fact={facts.inState} />,
+        },
+      ];
 
   const exclude = (rows: readonly IssueRelationModel[]): string[] => [
     model.issueId,
@@ -523,7 +655,10 @@ export function useIssueTaskProps(
         ) : undefined,
     },
     alerts: model.alerts,
-    properties,
+    properties: properties.map((item) => ({
+      ...item,
+      icon: item.id === undefined ? undefined : PROPERTY_ICONS[item.id],
+    })),
     rail,
     description:
       canEdit && live !== null
@@ -609,9 +744,10 @@ export function useIssueTaskProps(
 }
 
 /**
- * A relations heading's controls: the Graph link to the issue's blocking
- * chain whenever it has a relation (for everyone, guests too: the graph
- * only reads), then the "+ Add" picker for someone who may edit. The link
+ * A relations heading's controls: the Graph link (a quiet button, like the
+ * "+ Add" beside it) to the issue's blocking chain whenever it has a
+ * relation (for everyone, guests too: the graph only reads), then the
+ * "+ Add" picker for someone who may edit. The link
  * sits on "Blocked by", or on "Blocks" when nothing blocks the issue, so it
  * never stands over an empty "Nothing blocks this task." section.
  */
@@ -626,13 +762,15 @@ function relationMeta(
   }
   return (
     <span className={css.sectionMeta}>
-      <Link
+      <Button
         href={model.chainHref}
-        className="accentLink"
+        variant="quiet"
+        size="sm"
+        icon={<Network size={14} strokeWidth={1.8} />}
         aria-label={`Blocking chain of ${model.key} as a graph`}
       >
         Graph
-      </Link>
+      </Button>
       {picker}
     </span>
   );

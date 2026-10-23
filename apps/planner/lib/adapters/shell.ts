@@ -222,7 +222,8 @@ export function laneNextMilestone(lane: TimelineLane): TimelineBar | null {
 
 /**
  * The sidebar mark for a project: its next milestone's mark (rubric gaps
- * hatch an on-track one, via the status adapter). Without a next
+ * turn an on-track one into the dotted missing mark, via the status
+ * adapter). Without a next
  * milestone every milestone is complete, or there are none, which is a
  * missing input.
  */

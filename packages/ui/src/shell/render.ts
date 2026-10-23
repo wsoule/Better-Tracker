@@ -11,9 +11,10 @@ import type { ShellIcon, ShellIconProps } from './types';
 // module: server-rendered components (PropertyList, Kbd, skeletons) call
 // these during the server render.
 
+/* Gr8r's Lucide voice: 16px at a 1.8 stroke. */
 const ICON_PROPS: ShellIconProps = {
   size: 16,
-  strokeWidth: 1.5,
+  strokeWidth: 1.8,
   'aria-hidden': true,
 };
 

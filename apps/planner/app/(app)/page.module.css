@@ -1,53 +1,167 @@
-/* The landing page's sign-in block: headline, lead copy and one primary
-   action (or, in demo mode, the register of people below it). */
+/* The landing page ("/"), signed out: Gr8r's auth page (pages/auth.css).
+   A centred column on the page background: the sign-in card (any sign-in
+   error, the headline, one line under it, then the Linear button or the
+   demo people as full-width secondary buttons, then a quiet footnote),
+   and below it what the planner does as a grid of option cards. */
 
-.signIn {
-  border: 1px solid var(--border);
-  border-top: 0;
-  padding: 28px 18px 30px;
+.auth {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 48px;
+  padding: 5vh 16px 72px;
+}
+
+.demoNotice {
+  width: min(100%, 560px);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: min(100%, 400px);
+}
+
+/* In the narrow card a notice's lead-in sits above its sentence. */
+.card > :global(.notice) {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cardHead {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
+  color: var(--text);
 }
 
-.lead {
-  max-width: 64ch;
-  margin-top: 12px;
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--ink-soft);
+.sub {
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
+  text-wrap: pretty;
 }
 
-.actions {
-  margin-top: 20px;
+.foot {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+  text-align: center;
+  text-wrap: pretty;
 }
 
-.noticeActions {
+.people {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 8px;
 }
 
-/* A demo person's name with the GUEST chip beside it (a Linear guest,
-   read-only in the planner). */
-.personWithChip {
+/* A person: the global .button (Gr8r's secondary) stretched into a row.
+   Two classes so the row layout wins over .button's own. */
+.people .person {
+  justify-content: flex-start;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 7px 10px;
+  line-height: 1.3;
+  text-align: left;
+  white-space: normal;
+  cursor: pointer;
+}
+
+.personText {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.personName {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  color: var(--text);
 }
 
-@media (width <= 768px) {
-  .signIn {
-    padding: 22px 14px 24px;
-  }
+.personMeta {
+  overflow: hidden;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-  .title {
-    font-size: 22px;
+.chevron {
+  flex: none;
+  color: var(--text-4);
+  transition:
+    color var(--dur) ease,
+    transform var(--dur) ease;
+}
+
+.features {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(100%, 880px);
+}
+
+.featuresHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: center;
+}
+
+.featuresTitle {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-section);
+  color: var(--text);
+}
+
+.featuresSub {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .people .person:hover .chevron {
+    color: var(--text-2);
+  }
+}
+
+/* The nudge is motion: only where hover is real and motion is welcome. */
+@media (hover: hover) and (width >= 901px) and (prefers-reduced-motion: no-preference) {
+  .people .person:hover .chevron {
+    transform: translateX(2px);
+  }
+}
+
+@media (width <= 640px) {
+  .auth {
+    gap: 40px;
+    padding-top: 24px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chevron {
+    transition: none;
   }
 }

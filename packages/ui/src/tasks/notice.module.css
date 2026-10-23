@@ -1,25 +1,22 @@
-/* Layered on the global .notice / .empty primitives; only what the
-   components add lives here. */
+/* Layered on the global .notice / .empty primitives (Gr8r's alert and
+   empty state); only what the components add lives here. The tone fill
+   comes from data-tone (primitives.css). */
 
 /* Two classes so the quiet tone wins over the global .notice regardless of
-   stylesheet order. */
+   stylesheet order: a bordered neutral box. */
 :global(.notice).quiet {
   border: 1px solid var(--border);
-}
-
-/* A status notice: the same 2px frame in the status hue (a MARK colour,
-   3:1), and its key in the hue's TEXT colour (4.5:1). */
-:global(.notice).toned {
-  border-color: var(--tone);
-}
-
-.key.toneKey {
-  color: var(--tone-ink);
+  background: var(--surface);
 }
 
 .key {
   flex: none;
-  text-transform: uppercase;
+}
+
+/* The lead-in in the tone's text colour (4.5:1 on the tint). Two classes
+   so it wins over the global .key whatever the stylesheet order. */
+.key.toneKey {
+  color: var(--tone-ink);
 }
 
 .body {
@@ -33,29 +30,44 @@
   margin-left: auto;
 }
 
+/* Gr8r's .empty-state.sm: a centred column, gap 6px. */
 .empty {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   align-items: center;
-  gap: 12px 24px;
+  gap: 6px;
+}
+
+.emptyIcon {
+  display: grid;
+  place-items: center;
+  margin-bottom: 2px;
+  color: var(--text-4);
+}
+
+.emptyIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* The title (Gr8r: 14.5px semibold). Doubled so it wins over any global
+   text class whatever the stylesheet order. */
+.emptyKey.emptyKey {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-section);
+  line-height: 1.3;
+  color: var(--text);
 }
 
 .emptyText {
-  flex: 1 1 260px;
-}
-
-/* The key on its own line above the sentence. */
-.emptyKey {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--foreground);
+  max-width: 340px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
 }
 
 .emptyAction {
-  flex: none;
-  font-family: var(--font-body);
-  letter-spacing: normal;
-  text-transform: none;
+  margin-top: 6px;
 }
 
 @media (width <= 768px) {

@@ -1,63 +1,69 @@
+/* Gr8r's tab bar: tabs on a 1px --border rule, 12.5px medium --text-2,
+   the selected one in --text with a 2px --text underline. */
 .wrap {
-  margin-top: -1px;
-  margin-bottom: 64px;
+  margin-bottom: 48px;
 }
 
 .tablist {
   display: grid;
   grid-template-columns: repeat(var(--tab-count, 5), minmax(0, 1fr));
+  border-bottom: 1px solid var(--border);
 }
 
 .tab {
-  padding: 14px 18px;
-  border: 1px solid var(--border);
-  margin-left: -1px;
-  background: var(--background);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  position: relative;
+  min-height: var(--h-lg);
+  padding: 0 10px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
   text-align: left;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.tab:first-child {
-  margin-left: 0;
+  transition: color var(--dur) ease;
 }
 
 .tab[aria-selected='true'] {
-  background: var(--foreground);
-  color: var(--background);
+  color: var(--text);
+}
+
+.tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--text);
+}
+
+.tab:focus-visible {
+  outline-offset: -2px;
 }
 
 @media (hover: hover) {
   .tab[aria-selected='false']:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    color: var(--text);
   }
 }
 
 .panel {
-  margin-top: -1px;
+  padding-top: 16px;
 }
 
 @media (width <= 768px) {
   .wrap {
-    margin-bottom: 48px;
+    margin-bottom: 32px;
   }
   .tablist {
     grid-template-columns: repeat(min(var(--tab-count, 5), 3), minmax(0, 1fr));
   }
   .tab {
-    padding: 12px 10px;
-    font-size: 10px;
-    margin-top: -1px;
+    font-size: var(--fs-xs);
   }
-  /* Each wrapped row starts flush: its first tab owns its left line. */
-  .tab:nth-child(3n + 1) {
-    margin-left: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tab {
+    transition: none;
   }
 }

@@ -1,88 +1,105 @@
+/* The rubric checklist: one --r-lg panel, items split by --divider rules.
+   Met = a neutral (--text) disc with a tick knocked out in the surface,
+   like a complete milestone's mark: a met item is a settled fact, and a
+   column of green would drown the one item that needs action (and a green
+   fill reads as a red one without red-green vision). Missing = a dashed
+   amber ring and an amber "Missing" chip: the only hue in the list
+   (docs/architecture.md §8.2: met = default, missing = warning). */
 .list {
+  overflow: hidden;
   border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 .item {
   display: grid;
-  grid-template-columns: 13px minmax(0, 1fr) auto;
-  column-gap: 14px;
-  align-items: baseline;
-  padding: 11px 18px;
-  border-top: 1px solid var(--hairline-faint);
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
 }
 
-.item:first-child {
-  border-top: 0;
+.item + .item {
+  border-top: 1px solid var(--divider);
 }
 
 /* Pinned to the label's first line (13.5px x 1.4 leading), not centred on
    the item, so a long note never pulls the mark away from its label. */
 .mark {
-  width: 13px;
-  height: 13px;
-  margin-top: 3px;
-  border: 1px solid var(--border);
-  align-self: start;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
 }
 
-/* Met is the filled ink square, as before the status hues and like a
-   done milestone: a met item is a settled fact, and a column of green
-   squares would drown the one item that needs action. Missing is the only
-   hue: a hollow amber square (the MARK token, 3:1 on the paper and a
-   flood) beside the word "Missing" (a missing input is a warning). */
 .met .mark {
-  background: var(--foreground);
+  color: var(--text);
+  background: currentColor;
+}
+
+.met .mark::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 3.5px;
+  height: 6.5px;
+  border: solid var(--surface);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(-50%, -50%) rotate(45deg);
 }
 
 .missing .mark {
-  border-color: var(--amber);
+  color: var(--amber);
+  border-style: dashed;
 }
 
 .main {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
+  min-width: 0;
 }
 
 .label {
-  font-size: 13.5px;
-  font-weight: 400;
+  font-size: var(--fs);
   line-height: 1.4;
-  color: var(--ink-soft);
+  color: var(--text);
 }
 
 .note {
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
 }
 
 .state {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  min-height: 19px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
   white-space: nowrap;
 }
 
-.missing .state {
-  color: var(--amber-ink);
-}
-
-/* Forced colours drop backgrounds: a met mark keeps a fill. */
+/* Forced colours drop backgrounds: a met mark keeps its fill and its
+   knocked-out tick. */
 @media (forced-colors: active) {
-  .met .mark {
+  .mark {
     forced-color-adjust: none;
-    background: CanvasText;
-    border-color: CanvasText;
+    color: CanvasText;
+  }
+
+  .met .mark::after {
+    border-color: Canvas;
   }
 }
 
 @media (width <= 768px) {
   .item {
-    padding: 10px 14px;
-    column-gap: 12px;
+    padding: 10px;
   }
 }

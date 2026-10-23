@@ -58,7 +58,7 @@ describe('TaskGroupTable', () => {
 
   test('due dates take their tone; the urgent label is red', () => {
     expect(rule(sheet, '.toneText')).toBe('color: var(--tone-ink);');
-    expect(rule(sheet, '.urgentText')).toBe('color: var(--red-ink);');
+    expect(rule(sheet, '.urgentText')).toBe('color: var(--red);');
     expect(sheet).not.toContain('.accentText');
   });
 
@@ -165,25 +165,30 @@ describe('TaskActivityList', () => {
 describe('the rest of the task view and the editors', () => {
   test('an open relation nobody holds reads "Unassigned" in amber', () => {
     expect(rule(css('task/task-relation-list.module.css'), '.unassigned')).toBe(
-      'color: var(--amber-ink);'
+      'font-weight: var(--fw-medium); color: var(--amber);'
     );
   });
 
   test('a refused field and an over-long text are red', () => {
-    for (const file of [
-      'edit/date-field.module.css',
-      'edit/inline-text-field.module.css',
-      'edit/text-area-editor.module.css',
-    ]) {
-      expect([file, rule(css(file), ".input[aria-invalid='true']")]).toEqual([
+    // Gr8r's error field: a red edge thickened by a 1px red shadow (the
+    // comment box draws it on the box, data-invalid mirroring the
+    // textarea's aria-invalid), with a soft red halo on focus.
+    for (const [file, selector] of [
+      ['edit/date-field.module.css', ".input[aria-invalid='true']"],
+      ['edit/inline-text-field.module.css', ".input[aria-invalid='true']"],
+      ['edit/text-area-editor.module.css', ".root[data-invalid='true']"],
+    ] as const) {
+      expect([file, rule(css(file), selector)]).toEqual([
         file,
-        'border-color: var(--red);',
+        'border-color: var(--red); box-shadow: 0 0 0 1px var(--red);',
       ]);
     }
     const area = css('edit/text-area-editor.module.css');
     expect(rule(area, ".count[data-over='true']")).toBe(
-      'color: var(--red-ink);'
+      'color: var(--red); font-weight: var(--fw-medium);'
     );
-    expect(rule(area, '.armed')).toBe('color: var(--amber-ink);');
+    expect(rule(area, '.armed')).toBe(
+      'color: var(--amber); font-weight: var(--fw-medium);'
+    );
   });
 });

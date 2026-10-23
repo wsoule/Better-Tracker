@@ -374,8 +374,10 @@ describe('run detail', () => {
       gapLines: ['Missing a target date', 'Project has no lead'],
       milestone: 'Search beta',
     });
-    // A blocked project is a warning (architecture §8.2).
+    // A blocked project is a warning (architecture §8.2). Its heading
+    // carries the tinted Blocked chip, so the counts do not repeat it.
     expect(beacon?.tone).toBe('warning');
+    expect(beacon?.meta).toBe('');
     expect(atlas?.tone).toBe('default');
     expect(beacon?.href).toBe('/timeline?project=p-beacon');
   });

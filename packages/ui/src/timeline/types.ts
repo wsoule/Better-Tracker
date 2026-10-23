@@ -2,13 +2,14 @@ import type { ReactNode } from 'react';
 
 import type { UiStatus, UiTone } from '../types';
 
-// Prop vocabulary of the "timeline" family: the Gr8r Gantt drawn in the
-// Analytics Matrix style. Plain data + callbacks only, so the planner
+// Prop vocabulary of the "timeline" family: Gr8r Studio's Gantt (rounded
+// bars tinted by status, sunken weekends and group rows, the today line in
+// the accent). Plain data + callbacks only, so the planner
 // (Next) and Dispatch (Vite + Tauri) map their own models onto these shapes
 // in a thin adapter. Every date is a calendar day as 'YYYY-MM-DD' (no time,
 // no zone): the host decides what "today" is in its workspace timezone.
 
-/** Day columns (32px a day, weekends shaded) or week columns (11px a day). */
+/** Day columns (32px a day, weekends sunken) or week columns (11px a day). */
 export type TimelineZoom = 'weeks' | 'months';
 
 /** One dated milestone drawn as a bar from `start` to its due date `end`. */
@@ -24,20 +25,19 @@ export interface TimelineBar {
   status: UiStatus;
   /** Human wording of the status, e.g. "Overdue" (read out in the name). */
   statusLabel: string;
-  /** Mono progress note, e.g. "3/7". */
+  /** Progress receipt, e.g. "3/7" (tabular figures). */
   progressLabel?: string;
-  /** Mono tags, e.g. "NEXT" for the lane's next milestone, "↑2" for a
+  /** Small pills, e.g. "Next" for the lane's next milestone, "↑2" for a
    * weight override. */
   tags?: string[];
-  /** Missing rubric input, e.g. "MISSING: DONE MEANS": a line in the
-   * warning (amber) text inside the bar. The hatch comes from the
-   * 'missing' status. */
+  /** Missing rubric input, e.g. "Missing: done means…": a warning-tone
+   * line inside the bar. */
   missing?: string;
   /** Shows the right-edge handle that re-dates the milestone. */
   editable?: boolean;
 }
 
-/** A milestone with no target date: a hatched chip at the lane's end. */
+/** A milestone with no target date: a dashed chip at the lane's end. */
 export interface TimelineUndated {
   id: string;
   label: string;
@@ -48,14 +48,14 @@ export interface TimelineUndated {
 /** One project. */
 export interface TimelineLane {
   id: string;
-  /** Project name (sans 15px/600). */
+  /** Project name. */
   label: string;
   /** Renders the name through the host's <Link>. */
   href?: string;
-  /** Mono note under the name: the lead's name, or "NO LEAD". */
+  /** Quiet line under the name: the lead's name, or "No lead". */
   sublabel?: string;
   /** Colours the sublabel when it asks for action: 'warning' (amber) for
-   * NO LEAD or a deactivated lead (docs/architecture.md §8.2 "Status
+   * "No lead" or a deactivated lead (docs/architecture.md §8.2 "Status
    * colours"). default and muted leave it the quiet grey; an inactive
    * (muted) lane is never coloured. */
   sublabelTone?: UiTone;
@@ -67,7 +67,7 @@ export interface TimelineLane {
 
 /** A quiet link after a group's project count (host routes it through Link). */
 export interface TimelineGroupLink {
-  /** Mono wording, e.g. "Graph". */
+  /** Short sentence-case wording, e.g. "Graph". */
   label: string;
   href: string;
   /** Fuller accessible name when the label alone is ambiguous across
@@ -90,7 +90,7 @@ export interface TimelineDependency {
   from: string;
   to: string;
   /** The blocker is unassigned/overdue or waits on one: drawn in the
-   * warning (amber) hue. */
+   * warning hue. */
   onRiskChain: boolean;
 }
 
@@ -100,7 +100,7 @@ export interface TimelineLegendItem {
 }
 
 export interface TimelineChartProps {
-  /** The host's calendar today, 'YYYY-MM-DD'. Draws the TODAY rule. */
+  /** The host's calendar today, 'YYYY-MM-DD'. Draws the today line. */
   today: string;
   /** First and last day drawn, inclusive. */
   windowStart: string;
@@ -117,7 +117,7 @@ export interface TimelineChartProps {
   showDependencies?: boolean;
   defaultShowDependencies?: boolean;
   onShowDependenciesChange?: (show: boolean) => void;
-  /** The bar whose details are open (outlined, scrolled into view). */
+  /** The bar whose details are open (accent ring, scrolled into view). */
   selectedBarId?: string;
   /** A lane to bring into view and mark, e.g. from ?project=<id>. */
   focusLaneId?: string;
@@ -132,7 +132,7 @@ export interface TimelineChartProps {
   toolbarStart?: ReactNode;
   toolbarEnd?: ReactNode;
   /** Status legend under the toolbar; false hides it. Defaults to the five
-   * marks in English. */
+   * status marks in English. */
   legend?: TimelineLegendItem[] | false;
   /** Accessible name of the chart region. Defaults to "Timeline". */
   label?: string;

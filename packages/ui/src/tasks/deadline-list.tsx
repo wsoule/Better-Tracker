@@ -10,13 +10,15 @@ import type { DeadlineListProps } from './types';
 
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 
-/* Gr8r's "Upcoming deadlines" panel as a register: groups (Overdue / Today /
-   Tomorrow / This week) with a mono label (in its tone's text colour:
-   danger Overdue, warning Today and Tomorrow) and count, each item a linked
-   row (status mark, milestone, mono sublabel, due) that floods to ink on
-   hover. Long groups show `limit` items and a "+N more" disclosure; opening
-   it moves focus to the first revealed item so keyboard users land on the
-   new content. */
+/* Gr8r's "Upcoming deadlines" panel: groups (Overdue / Today / Tomorrow /
+   This week) with a semibold label (in its tone's text colour: danger
+   Overdue, warning Today and Tomorrow) and a count, each item a linked row
+   (status mark, milestone, a quiet line under it, due) that takes the
+   hover fill. Every group is always shown, so the four headings stay put:
+   an empty one says `emptyLabel` in a faint line under its label, as
+   Gr8r's panel does. Long groups show `limit` items and a "+N more"
+   disclosure; opening it moves focus to the first revealed item so
+   keyboard users land on the new content. */
 export function DeadlineList({
   groups,
   limit = 4,
@@ -92,11 +94,7 @@ export function DeadlineList({
             ) : (
               <ul id={listId} className={styles.items}>
                 {shown.map((item) => (
-                  <li
-                    key={item.id}
-                    className={styles.item}
-                    data-deadline-item=""
-                  >
+                  <li key={item.id} data-deadline-item="">
                     <Link href={item.href} className={styles.link}>
                       <StatusMark
                         status={item.status}

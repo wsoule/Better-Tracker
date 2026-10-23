@@ -80,8 +80,9 @@ const NODE_SWATCH: Partial<Record<GraphLegendMark, string | undefined>> = {
   'cluster-muted': styles.clusterMuted,
 };
 
-/** Swatches that carry a small mark of their own: the step number of a
-    box on the critical path, the "Ready next" tag riding a box. */
+/** Swatches that carry a small mark of their own: the step disc of a box
+    on the critical path, the "Ready next" pill riding a box (as its green
+    dot). */
 const BADGE: Partial<Record<GraphLegendMark, 'step' | 'next'>> = {
   'node-chain': 'step',
   'path-chain': 'step',
@@ -99,7 +100,8 @@ function rowOf(mark: GraphLegendMark): 'Nodes' | 'Edges' | 'Paths' {
 }
 
 /** The small drawing beside a legend label, in the graph's own marks.
-    `data-mark` names the mark for hosts' and tests' queries. */
+    `data-mark` names the mark for hosts' and tests' queries. Hidden from
+    assistive tech: the label beside it says what it means. */
 function Swatch({ mark }: { mark: GraphLegendMark }): ReactNode {
   if (mark === 'weight') {
     return (
@@ -118,7 +120,7 @@ function Swatch({ mark }: { mark: GraphLegendMark }): ReactNode {
         data-mark={mark}
         aria-hidden="true"
       >
-        <path className={styles.edgeLine} d="M0.5,5L22,5" />
+        <path className={styles.edgeLine} d="M1,5L22,5" />
         <path className={styles.edgeArrow} d="M28,5L22,2L22,8Z" />
       </svg>
     );
@@ -137,9 +139,10 @@ function Swatch({ mark }: { mark: GraphLegendMark }): ReactNode {
 }
 
 /**
- * The graph's key, in the Matrix legend idiom: one hairline strip, a mono
- * NODES / EDGES / PATHS key per row, then swatch + bold mono name + muted
- * note. Notes drop away on narrower screens; the names carry the meaning.
+ * The graph's key as Gr8r-style key rows: no box, a quiet row name (Nodes,
+ * Edges, Paths), then swatch + sentence-case name + quiet note per item,
+ * so the box looks, the edge kinds and what pointing at a box lights never
+ * mix. Notes drop away on narrower screens; the names carry the meaning.
  */
 export function GraphLegend({
   items = defaultGraphLegend,

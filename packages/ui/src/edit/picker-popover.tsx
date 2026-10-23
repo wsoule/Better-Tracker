@@ -789,7 +789,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
             <Search
               className={styles.searchIcon}
               size={14}
-              strokeWidth={1.5}
+              strokeWidth={1.8}
               aria-hidden="true"
             />
             <input

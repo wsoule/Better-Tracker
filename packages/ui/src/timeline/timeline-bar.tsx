@@ -10,6 +10,7 @@ import {
   useState,
 } from 'react';
 
+import StatusMark from '../components/status-mark';
 import { cx } from '../tasks/class-names';
 import {
   addDays,
@@ -203,6 +204,16 @@ function TimelineBarViewImpl({
 
   const status = geometry.laneMuted ? 'muted' : bar.status;
   const name = barAccessibleName(geometry, today, saving);
+  // Drawing only: the bar's accessible name already says the status.
+  const mark = (
+    <span className={styles.mark} aria-hidden="true">
+      <StatusMark
+        status={bar.status}
+        label={bar.statusLabel}
+        muted={geometry.laneMuted}
+      />
+    </span>
+  );
   const showTip = pending !== null || saving;
   const diamondX = Math.min(width, endX - left);
 
@@ -245,14 +256,18 @@ function TimelineBarViewImpl({
           ) : null
         ) : (
           // Sticky inside the bar: when the bar's start scrolls under the
-          // lane column, its label slides along so it stays readable.
+          // lane column, its label slides along so it stays readable. The
+          // status mark leads the name (inside the label, so a narrow bar
+          // never wraps the name away from it): the status by shape, not
+          // only by the bar's hue (WCAG 1.4.1).
           <span className={styles.content}>
             <span className={styles.label}>
               {geometry.clippedStart ? (
                 <span className={styles.cue} aria-hidden="true">
-                  ◂{' '}
+                  ◂
                 </span>
               ) : null}
+              {mark}
               {bar.label}
             </span>
             {bar.progressLabel !== undefined ? (
@@ -279,6 +294,7 @@ function TimelineBarViewImpl({
         <span
           className={cx(styles.diamond, styles[`d_${status}`])}
           style={{ left: diamondX }}
+          data-status={status}
           aria-hidden="true"
         />
       )}
@@ -289,7 +305,10 @@ function TimelineBarViewImpl({
           style={{ maxWidth: Math.max(0, geometry.roomAfter - 22) }}
           aria-hidden="true"
         >
-          {bar.label}
+          {/* A zero-length bar is its diamond alone, which already has
+              the status's shape: no second mark beside it. */}
+          {geometry.point ? null : mark}
+          <span className={styles.outsideLabel}>{bar.label}</span>
           {bar.progressLabel !== undefined ? (
             <span className={styles.outsideMeta}>{bar.progressLabel}</span>
           ) : null}
@@ -306,7 +325,7 @@ function TimelineBarViewImpl({
           role="slider"
           tabIndex={0}
           className={cx(styles.handle, saving ? styles.handleBusy : undefined)}
-          style={{ left: diamondX - 5 }}
+          style={{ left: diamondX - 6 }}
           aria-label={`Due date of ${bar.label}`}
           aria-orientation="horizontal"
           aria-valuemin={0}

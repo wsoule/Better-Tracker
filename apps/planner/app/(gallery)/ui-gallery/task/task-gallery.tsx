@@ -208,20 +208,19 @@ function GalleryBody({
   return (
     <main className="page">
       <div className="block">
-        <BlockBar index="00" title="Task detail" meta={themeToggle} />
+        <BlockBar title="Task detail" meta={themeToggle} />
         <p className={css.lede}>
           What opens when someone clicks a task: the issue&apos;s context that
           Linear does not show (its milestone and that milestone&apos;s status,
           what blocks it and what it blocks, why the planner gave it to this
           person, how long it has sat in its state). Every property value is a
-          node: read-only here, or the edit controls (block 04), which save
-          through the host with the signed-in person&apos;s own token.
+          node: read-only here, or the edit controls (below), which save through
+          the host with the signed-in person&apos;s own token.
         </p>
       </div>
 
       <section className="block" aria-labelledby="drawer-title">
         <div className="blockBar">
-          <span className="blockKey">01</span>
           <h2 id="drawer-title" className="blockTitle">
             Drawer · TaskSlideOver
           </h2>
@@ -258,7 +257,6 @@ function GalleryBody({
 
       <section className="block" aria-labelledby="page-title">
         <div className="blockBar">
-          <span className="blockKey">02</span>
           <h2 id="page-title" className="blockTitle">
             Page layout · TaskDetail layout=&quot;page&quot;
           </h2>
@@ -277,20 +275,16 @@ function GalleryBody({
 
       <section className="block" aria-labelledby="states-title">
         <div className="blockBar">
-          <span className="blockKey">03</span>
           <h2 id="states-title" className="blockTitle">
             States · drawer layout in a pane
           </h2>
         </div>
         <ul className={css.states}>
-          {STATES.map((state, i) => {
+          {STATES.map((state) => {
             const task = state.id === 'error' ? errorTask : state.task;
             return (
               <li key={state.id} className={css.state}>
-                <p className={css.stateLabel}>
-                  <span className="key">{String(i + 1).padStart(2, '0')}</span>
-                  {state.label}
-                </p>
+                <p className={css.stateLabel}>{state.label}</p>
                 <div className={css.pane}>
                   <TaskDetail
                     {...task}
@@ -307,7 +301,6 @@ function GalleryBody({
 
       <section className="block" aria-labelledby="editable-title">
         <div className="blockBar">
-          <span className="blockKey">04</span>
           <h2 id="editable-title" className="blockTitle">
             Editable task · the edit controls
           </h2>
@@ -324,7 +317,6 @@ function GalleryBody({
 
       <section className="block" aria-labelledby="controls-title">
         <div className="blockBar">
-          <span className="blockKey">05</span>
           <h2 id="controls-title" className="blockTitle">
             Edit controls · states
           </h2>

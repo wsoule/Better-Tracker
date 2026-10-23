@@ -6,9 +6,9 @@ import styles from './task-section.module.css';
 import type { TaskDetailSectionProps } from './types';
 
 /* A titled block of the task view (Description, Blocked by, Activity, or a
-   host's own section): a mono uppercase heading with an optional count and
-   a right-aligned note, over its content. Exported so a host's extra
-   sections read as part of the same sheet. */
+   host's own section): a sentence-case heading with an optional count and
+   a right-aligned note or control, over its content. Exported so a host's
+   extra sections read as part of the same sheet. */
 export function TaskDetailSection({
   title,
   headingLevel = 3,

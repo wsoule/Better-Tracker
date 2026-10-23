@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 // Fixture props for /ui-gallery/shell: a fictional workspace ("Northwind")
 // shaped like the planner's real shell. The gallery may import only from
 // @better-tracker/ui, so the nav glyphs are small inline SVGs drawn on the
-// lucide grid (16px, 1.5 stroke) instead of lucide components.
+// lucide grid (16px, 1.8 stroke, round caps) instead of lucide components.
 
 /** localStorage key for the collapsed rail (AppShell + pre-paint script). */
 export const SIDEBAR_STORAGE_KEY = 'milestone-planner-sidebar';
@@ -24,8 +24,9 @@ function Glyph({ children }: { children: ReactNode }) {
       viewBox="0 0 16 16"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="square"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
       aria-hidden="true"
     >
       {children}
@@ -36,7 +37,7 @@ function Glyph({ children }: { children: ReactNode }) {
 export const icons = {
   week: (
     <Glyph>
-      <rect x="2.5" y="3.5" width="11" height="10" />
+      <rect x="2.5" y="3.5" width="11" height="10" rx="1.5" />
       <path d="M2.5 6.5h11M5.5 2v3M10.5 2v3M5.5 10l1.75 1.5L10.5 8.75" />
     </Glyph>
   ),
@@ -53,9 +54,9 @@ export const icons = {
   ),
   graph: (
     <Glyph>
-      <rect x="1.75" y="2.75" width="3.5" height="3.5" />
-      <rect x="10.75" y="6.25" width="3.5" height="3.5" />
-      <rect x="1.75" y="9.75" width="3.5" height="3.5" />
+      <rect x="1.75" y="2.75" width="3.5" height="3.5" rx="0.75" />
+      <rect x="10.75" y="6.25" width="3.5" height="3.5" rx="0.75" />
+      <rect x="1.75" y="9.75" width="3.5" height="3.5" rx="0.75" />
       <path d="M5.25 4.5h2.5v6.75h-2.5M7.75 8h3" />
     </Glyph>
   ),
@@ -69,8 +70,8 @@ export const icons = {
   settings: (
     <Glyph>
       <path d="M2 5h2.5M7.5 5H14M2 11h6.5M11.5 11H14" />
-      <rect x="4.5" y="3.5" width="3" height="3" />
-      <rect x="8.5" y="9.5" width="3" height="3" />
+      <rect x="4.5" y="3.5" width="3" height="3" rx="0.75" />
+      <rect x="8.5" y="9.5" width="3" height="3" rx="0.75" />
     </Glyph>
   ),
   // Palette suggestions: a dry run (play), a resync (two arrows), the
@@ -134,6 +135,9 @@ export const nav: ShellNavItem[] = [
     label: 'Runs',
     href: '/runs',
     icon: icons.runs,
+    count: 1,
+    countLabel: '1 new run',
+    countTone: 'accent',
     shortcut: ['G', 'R'],
   },
 ];

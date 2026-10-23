@@ -1,12 +1,6 @@
 'use client';
 
-import {
-  Notice,
-  Register,
-  RegisterCell,
-  RegisterRow,
-  Switch,
-} from '@better-tracker/ui';
+import { Notice, Switch } from '@better-tracker/ui';
 import { type FormEvent, useState } from 'react';
 
 import {
@@ -18,11 +12,15 @@ import {
 } from '../../../lib/adapters/settings';
 import FormBar from './form-bar';
 import css from './page.module.css';
+import { SettingBlock, SettingRow } from './setting-rows';
 import { useSaveSettings } from './use-save-settings';
 
 /* Settings → Modes: the allocation (dry run / live) and warnings
-   (preview / live) switches, each with the plain consequence of its
-   current position, saved together. Anyone signed in may switch either
+   (preview / live) switches as two Gr8r setting rows, each with the plain
+   consequence of its current position, saved together; each switch is
+   named by its row ("Allocation live"), not just its visible "Live".
+   Turning either live shows an amber note on what the save will start.
+   Anyone signed in may switch either
    one (owner decision 2026-10-22: no roles), including allocation going
    live; the engine records the switch in the audit log. */
 export default function ModesForm({ initial }: { initial: ModesState }) {
@@ -54,22 +52,14 @@ export default function ModesForm({ initial }: { initial: ModesState }) {
 
   return (
     <form onSubmit={submit} className={css.form} aria-label="Modes">
-      <Register
-        label="Modes"
-        columns="minmax(0, 1fr) auto"
-        stackWithin={700}
-        stackedColumns="minmax(0, 1fr)"
-      >
-        <RegisterRow>
-          <RegisterCell
-            variant="name"
-            sub={MODE_CONSEQUENCE.allocation[state.allocationMode]}
-          >
-            Allocation
-          </RegisterCell>
-          <RegisterCell align="end">
+      <SettingBlock>
+        <SettingRow
+          title="Allocation"
+          help={MODE_CONSEQUENCE.allocation[state.allocationMode]}
+          control={
             <Switch
               label="Live"
+              aria-label="Allocation live"
               note={state.allocationMode === 'live' ? undefined : 'dry run'}
               checked={state.allocationMode === 'live'}
               disabled={saving}
@@ -80,18 +70,15 @@ export default function ModesForm({ initial }: { initial: ModesState }) {
                 }))
               }
             />
-          </RegisterCell>
-        </RegisterRow>
-        <RegisterRow>
-          <RegisterCell
-            variant="name"
-            sub={MODE_CONSEQUENCE.warnings[state.warningsMode]}
-          >
-            Warnings
-          </RegisterCell>
-          <RegisterCell align="end">
+          }
+        />
+        <SettingRow
+          title="Warnings"
+          help={MODE_CONSEQUENCE.warnings[state.warningsMode]}
+          control={
             <Switch
               label="Live"
+              aria-label="Warnings live"
               note={state.warningsMode === 'live' ? undefined : 'preview'}
               checked={state.warningsMode === 'live'}
               disabled={saving}
@@ -102,9 +89,9 @@ export default function ModesForm({ initial }: { initial: ModesState }) {
                 }))
               }
             />
-          </RegisterCell>
-        </RegisterRow>
-      </Register>
+          }
+        />
+      </SettingBlock>
       {allocationGoingLive ? (
         <Notice label="Live allocation" tone="warning">
           After saving, the next daily run and every Run now write to Linear:

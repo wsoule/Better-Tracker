@@ -196,6 +196,7 @@ describe('allocationCell', () => {
     expect(allocationCell(plan())).toEqual({
       label: 'Nothing to do',
       tone: 'default',
+      plain: true,
     });
     expect(allocationCell(plan({ outcome: 'no_open_milestone' }))).toEqual({
       label: 'No open milestone',

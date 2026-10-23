@@ -1,23 +1,25 @@
+/* Gr8r's badge: 20px, 5px radius, 12px medium, sentence case. The tone
+   comes from data-tone (tokens.css defines --tone, --tone-ink, --tone-soft,
+   --tone-line and --on-tone on it). */
 .chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   max-width: 100%;
-  padding: 3px 6px;
+  min-height: 20px;
+  padding: 1px 7px;
   border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  line-height: 1.2;
-  text-transform: uppercase;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 16px;
   vertical-align: middle;
 }
 
 /* A chip that outgrows its container wraps rather than truncating: the
-   long "NEW — GIVEN TO YOU BECAUSE…" chip is the reason, not decoration. */
+   long "New — given to you because…" chip is the reason, not decoration. */
 .text {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -28,98 +30,77 @@
   flex: none;
 }
 
-/* The mark is 13px elsewhere; inside a 9.5px chip it drops to 9px so the
-   chip keeps the Roster chip's height. */
+/* The status mark is 12px elsewhere; inside a chip it drops to 10px. */
 .mark :global(span[role='img']) {
-  width: 9px;
-  height: 9px;
-  flex-basis: 9px;
+  width: 10px;
+  height: 10px;
+  flex-basis: 10px;
 }
 
-.default {
-  border-color: var(--border);
-}
-
+/* Quieter neutral: inactive, nothing to do, not evaluated, skipped. Plain
+   quiet text, no box (Gr8r prints these as meta, not as a badge). */
 .muted {
-  border-color: var(--grey-3);
-  color: var(--muted);
+  padding-inline: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--text-3);
 }
 
-/* A status chip (danger, warning, success, info): the ink outline in the
-   status hue. Text and border both take the TEXT colour, so the chip reads
-   as one colour and both swap with the text tokens inside a hover flood. */
-.status {
-  border-color: var(--tone-ink);
+/* The accent (new, unread) and a filled status tone: Gr8r's tinted badge,
+   no border, the tone's text on its soft tint (4.5:1, checked by the
+   contrast test). */
+.accent,
+.tinted {
+  border-color: transparent;
+  background: var(--tone-soft);
   color: var(--tone-ink);
 }
 
-/* A filled status chip (the stronger claim: blocked, live, failed,
-   assigned, sent): a slab of the status MARK colour with the hue's own
-   text colour (white on red and blue, black on amber, white on green in
-   light and black in dark; 4.5:1 in both themes, styles-contrast.test.ts).
-   MARK colours are 3:1 on the paper and on a flood's ink, so the slab
-   keeps its edge in a flooded row and needs no swap there. */
-.statusFilled {
-  border-color: var(--tone);
+/* Gr8r's status pill (.pstatus): neutral and bordered on the surface, the
+   hue only in a 6px dot (or the leading status mark). */
+.pill {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: var(--tone);
-  color: var(--on-tone);
 }
 
-/* A status mark on the slab turns to the slab's text colour, as on the
-   accent fill below; its shape still says the status. */
-.statusFilled .mark {
-  --foreground: var(--on-tone);
-  --border: var(--on-tone);
-  --red: var(--on-tone);
-  --amber: var(--on-tone);
-  --green: var(--on-tone);
-  --grey: var(--on-tone);
-  --muted: var(--on-tone);
-}
-
-/* Filled tones redefine the ink tokens locally, so anything inside (the
-   status mark included) inverts from the token block, never by hand. */
-.accent {
-  --background: var(--accent);
-  --foreground: var(--on-accent);
-  --border: var(--on-accent);
-
-  border-color: var(--background);
-}
-
-/* On the accent fill the mark's status hues turn white, or a red, amber or
-   green mark would sink into the purple; the mark's shape still says the
-   status. Scoped to the mark so the chip's fill still resolves the real
-   accent. */
-.accent .mark {
-  --accent: var(--on-accent);
-  --red: var(--on-accent);
-  --amber: var(--on-accent);
-  --green: var(--on-accent);
-  --grey: var(--on-accent);
-  --muted: var(--on-accent);
-}
-
-/* Ink fill from the constants, edge from the SURROUNDING --border: at rest
-   that equals the fill (a solid slab), and inside a row that floods to ink
-   (register hover/focus/selected) it is the swapped paper, so the chip keeps
-   its box instead of vanishing ink-on-ink. Only the content redefines the
-   tokens, so a status mark inside still inverts. */
+/* The dark slab, kept for old callers (prefer a status tone). */
 .inverse {
-  background: var(--ink);
-  color: var(--paper);
+  --chip-fill: var(--text);
+  --focus-ring: var(--focus-ring-inverse);
+
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--text-inv);
 }
 
-.inverse .mark,
-.inverse .text {
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --accent-ink: var(--accent-ink-inverse);
-  --accent-ink-hover: var(--accent-ink-inverse);
-  --grey-2-ink: var(--muted-inverse);
-  --red-ink: var(--red-ink-inverse);
-  --amber-ink: var(--amber-ink-inverse);
-  --green-ink: var(--green-ink-inverse);
-  --blue-ink: var(--blue-ink-inverse);
-  --border: var(--paper);
+/* A status mark on the slab takes the inverted-fill steps: its hues the
+   -ink-inverse ones (4.5:1 on --text), its neutral done diamond the slab's
+   ink with the tick knocked out in the slab colour. */
+.inverse .mark {
+  --text: var(--text-inv);
+  --text-2: var(--text-inv);
+  --text-3: color-mix(in srgb, var(--text-inv) 72%, var(--chip-fill));
+  --surface: var(--chip-fill);
+  --red: var(--red-ink-inverse);
+  --amber: var(--amber-ink-inverse);
+  --green: var(--green-ink-inverse);
+  --gray: color-mix(in srgb, var(--text-inv) 62%, var(--chip-fill));
+}
+
+/* Forced colours drop backgrounds: the dot keeps a fill so the pill still
+   shows its mark (the words say the status). */
+@media (forced-colors: active) {
+  .dot {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
 }

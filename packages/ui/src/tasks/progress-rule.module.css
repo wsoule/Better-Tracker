@@ -1,56 +1,59 @@
 .wrap {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
   width: 100%;
 }
 
-/* The track is a 1px hairline in the ghost grey; the fill is drawn on top
-   of it 2px tall (the emphasis weight; nothing in the system is heavier),
-   centred, so the drawing reads as a rule with a filled run rather than a
-   progress pill. */
+/* Gr8r's progress bar: 4px, rounded, a --surface-3 track. The fill is the
+   accent (Gr8r's progress colour) unless a tone says the progress itself
+   is a status (docs/architecture.md §8.2): danger (overdue), warning
+   (behind pace), success (complete), muted (inactive). */
 .track {
   position: relative;
   flex: 1 1 auto;
   min-width: 40px;
-  height: 2px;
-  background: linear-gradient(var(--grey-4), var(--grey-4)) center / 100% 1px
-    no-repeat;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
 }
 
 .fill {
   position: absolute;
   inset: 0;
-  background: var(--foreground);
+  border-radius: inherit;
+  background: var(--accent);
   transform-origin: left center;
-  transition: transform 0.5s var(--ease-out-expo);
+  transition: transform 0.5s var(--ease);
 }
 
-/* Any tone but default (data-tone gives --tone and --tone-ink). */
+/* Any tone but default (data-tone gives --tone). */
 .toned .fill {
   background: var(--tone);
 }
 
+/* The count stays quiet whatever the tone (Gr8r tones only the fill):
+   the fill and the row's own date or chip already say the status, so one
+   fact is not coloured three times. */
 .label {
   flex: none;
   min-width: 4ch;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
   text-align: right;
-  color: var(--foreground);
-}
-
-.toned .label {
-  color: var(--tone-ink);
+  color: var(--text-3);
 }
 
 /* Forced colours drop backgrounds: the fill keeps the system's text
-   colour so the progress still shows. */
+   colour and the track an edge, so the progress still shows. */
 @media (forced-colors: active) {
+  .track {
+    border: 1px solid CanvasText;
+  }
+
   .fill,
   .toned .fill {
     forced-color-adjust: none;

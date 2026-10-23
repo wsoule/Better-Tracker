@@ -71,8 +71,6 @@ export interface DemoUserRow {
   id: string;
   name: string;
   email: string | null;
-  /** The button's words: "Sign in as Ana". */
-  action: string;
   /**
    * "Guest" for a Linear guest (Gus, in the demo), whom the planner shows
    * read-only (owner decision 2026-10-22, "Guests limited to read only");
@@ -97,21 +95,17 @@ export const DEMO_GUEST_NOTE = 'Guest in Linear · sees one team, read only';
  */
 export function demoUserRows(users: readonly User[]): DemoUserRow[] {
   return users
-    .map((user) => {
-      // First name from the full name: Linear's displayName is a handle.
-      const first = user.name.trim().split(/\s+/)[0] ?? user.name;
-      return {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        action: `Sign in as ${first}`,
-        label: user.guest === true ? DEMO_GUEST_LABEL : null,
-      };
-    })
+    .map((user) => ({
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      label: user.guest === true ? DEMO_GUEST_LABEL : null,
+    }))
     .sort((a, b) => a.name.localeCompare(b.name, 'en'));
 }
 
 export interface LandingFeature {
+  /** A stable id (the landing page picks each card's icon by it). */
   key: string;
   title: string;
   body: string;
@@ -120,32 +114,32 @@ export interface LandingFeature {
 /** What the planner does, in the design doc's goal order. */
 export const LANDING_FEATURES: readonly LandingFeature[] = [
   {
-    key: '01',
+    key: 'my-week',
     title: 'My week',
     body: 'Your open issues, grouped by milestone and sorted by due date with overdue first. An issue the planner gave you says why.',
   },
   {
-    key: '02',
+    key: 'timeline',
     title: 'Timeline',
     body: 'Every active project’s milestones on one date axis, with progress and risk. Anyone signed in drags a bar’s end to move that milestone’s target date in Linear, as themselves.',
   },
   {
-    key: '03',
+    key: 'dependencies',
     title: 'Dependencies',
     body: 'Which issues and milestones block which, across projects, with chains that end in an unassigned or overdue issue marked.',
   },
   {
-    key: '04',
+    key: 'allocation',
     title: 'Allocation',
     body: 'Unassigned issues in a project’s next milestone go to the project lead, with a Linear comment saying why; ones still in Backlog move to Todo. Triage issues are never handed out, later milestones wait their turn, and a dry run comes first.',
   },
   {
-    key: '05',
+    key: 'warnings',
     title: 'Warnings',
     body: 'When a milestone due within a week is at risk, the project lead and the watchers hear about it once, in a daily Slack digest. Overdue milestones keep coming back until they are closed or re-dated.',
   },
   {
-    key: '06',
+    key: 'rubric',
     title: 'Rubric',
     body: 'A milestone counts when it has a target date, a “done means…” line, a project lead and at least one issue. Whatever is missing is shown, and a next milestone with a gap stops allocation for its project.',
   },

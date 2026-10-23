@@ -10,6 +10,13 @@ export {
   type BlockBarProps,
 } from './components/block-bar';
 export {
+  AVATAR_HUES,
+  type AvatarHue,
+  avatarHue,
+  InitialsAvatar,
+  type InitialsAvatarProps,
+} from './components/initials-avatar';
+export {
   default as StatusMark,
   type StatusMarkProps,
 } from './components/status-mark';

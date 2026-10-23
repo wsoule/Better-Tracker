@@ -1,11 +1,17 @@
-/* The property picker. The trigger reads as the value it holds (a hairline
-   frame appears on hover, the accent ring on focus); in a list cell it
-   takes the cell's own voice, and on the bulk bar it is a mono action that
-   floods the accent on hover. The popover is a square panel with a 1px ink
-   frame and the overlays' 2px accent rule on top, a mono search row (none
-   for a short menu), and a listbox whose active row is an ink fill (the
-   selected-tab idiom, as in the command palette). No radius, no shadow.
-   On phones it is a full-width bottom sheet over an ink scrim. */
+/* The property picker in Gr8r's idiom. The trigger reads as the value it
+   holds and takes Gr8r's pill (.pillbtn: a --surface-2 fill, 6px radius)
+   on hover and while open, the accent ring on focus. The pill is drawn by
+   a pseudo-element a few pixels outside the button (the outsets in
+   picker-popover.tsx), so the value's text sits exactly where a plain
+   value's would and the row keeps its height; the popover lines up with
+   the pill. The status line's trigger (mono, the old name) is a bordered
+   pill, an "+ Add" (quiet) a ghost button, a list cell's (cell) the pill
+   in the cell's own voice, and the bulk bar's (bar) a ghost button in
+   --text-inv. The popover is Gr8r's .pop: a white 10px-radius card on
+   --shadow-pop with 4px of padding, a search row on top, 30px rows that
+   fill --surface-2 with a 2px accent bar when active, eyebrow group titles
+   and an accent check. On phones it is a bottom sheet over the --overlay
+   scrim. */
 
 .root {
   display: inline-flex;
@@ -24,53 +30,80 @@
   max-width: 100%;
 }
 
+/* isolation: the pill below sits behind the face (z-index -1) yet above
+   whatever the trigger is drawn on (a row's hover fill or tint). */
 .trigger {
   position: relative;
+  isolation: isolate;
   display: inline-flex;
   align-items: center;
   min-width: 0;
   max-width: 100%;
   border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: inherit;
   text-align: start;
   cursor: pointer;
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
-/* The frame (hover, open, focus) is drawn around the value by a
-   pseudo-element a few pixels outside the button, so the value's text sits
-   exactly where a plain value's would and the row keeps its height. The
-   pseudo-element is part of the button, so the frame is clickable too. */
+/* The pill (hover, open) and the focus ring, a few pixels outside the
+   button. The pseudo-element is part of the button, so it is clickable
+   too. */
 .value::before,
 .mono::before,
 .cell::before {
   content: '';
   position: absolute;
   inset: -4px -7px;
+  z-index: -1;
   border: 1px solid transparent;
-  transition: border-color 0.15s ease;
+  border-radius: var(--r-sm);
+  background: transparent;
+  transition:
+    background-color var(--dur) ease,
+    border-color var(--dur) ease;
 }
 
+/* mono: the status line's bordered pill, like Gr8r's project status pill
+   (a --surface pill in the soft border, filled on hover and while
+   open). */
 .mono::before {
   inset: -4px -6px;
+  border-color: var(--border);
+  background: var(--surface);
 }
 
+/* The ring moves onto the pill; the transparent outline stays on the
+   button, so forced colours still draw one. */
 .value:focus-visible,
 .mono:focus-visible,
 .cell:focus-visible {
-  outline: 0;
+  outline: 2px solid transparent;
 }
 
 .value:focus-visible::before,
 .mono:focus-visible::before,
 .cell:focus-visible::before {
-  border: 2px solid var(--accent);
+  border: 2px solid var(--focus-ring);
 }
 
 .value[aria-expanded='true']::before,
-.mono[aria-expanded='true']::before,
+.mono[aria-expanded='true']::before {
+  background: var(--surface-2);
+}
+
+/* A list cell's pill is one step deeper: its row takes the --surface-2
+   hover fill around it. */
 .cell[aria-expanded='true']::before {
-  border-color: var(--border);
+  background: var(--surface-3);
+}
+
+.mono[aria-expanded='true']::before {
+  border-color: var(--border-strong);
 }
 
 .trigger:disabled {
@@ -80,7 +113,7 @@
 .face {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
 }
 
@@ -101,54 +134,55 @@
 /* value: the property sheet's reading voice. */
 .value {
   min-height: 20px;
-  font-size: 13.5px;
-  font-weight: 400;
-  line-height: 1.45;
-  color: var(--ink-soft);
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh);
+  color: var(--text);
 }
 
-/* mono: the status line's voice; a state name never wraps. */
+/* mono (the status line; the name is historical): a state name never
+   wraps. */
 .mono {
   min-height: 16px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
   white-space: nowrap;
+  color: var(--text);
 }
 
-/* quiet: a bare mono action, like the quiet button. */
+/* quiet: a small ghost button ("+ Add"). */
 .quiet {
-  min-height: 24px;
-  padding: 2px 6px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  min-height: var(--h-sm);
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   line-height: 1;
-  text-transform: uppercase;
   white-space: nowrap;
-  color: var(--foreground);
-  transition: color 0.15s ease;
+  color: var(--text-2);
 }
 
-.quiet:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
+.quiet .face {
+  gap: 5px;
 }
 
-/* cell: a list cell's value. It takes the cell's voice (the table sets
-   mono caps for a state or priority, the sans for a name), so its text
-   sits exactly where the plain value's would; the hairline frame of the
-   value voice shows on hover. One line, cut with an ellipsis. */
+.quiet[aria-expanded='true'] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* cell: a list cell's value, in the cell's own voice (the table's
+   secondary text), so its text sits exactly where the plain value's
+   would; the pill shows on hover. One line, cut with an ellipsis. */
 .cell {
   min-height: 20px;
   max-width: 100%;
   font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
   white-space: nowrap;
+}
+
+.cell .face {
+  gap: 6px;
 }
 
 .cell .faceText {
@@ -157,23 +191,18 @@
   overflow-wrap: normal;
 }
 
-/* bar: an action on the bulk bar, in the button's mono voice. No box at
-   rest; the accent floods it on hover, and it is ink-filled while its
-   popover is open (the pressed button). */
+/* bar: a ghost button on the inverted bulk bar (Gr8r's .bulkbar .btn):
+   --text-inv at 0.85 opacity (4.5:1 or better on the fill, checked in
+   tasks-contrast.test.ts), a faint light wash on hover or while open. */
 .bar {
-  min-height: 28px;
-  padding: 0 10px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
+  min-height: var(--h-sm);
+  padding: 0 8px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
   line-height: 1;
-  text-transform: uppercase;
   white-space: nowrap;
-  color: var(--foreground);
-  transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+  color: var(--text-inv);
+  opacity: 0.85;
 }
 
 .bar .face {
@@ -181,15 +210,15 @@
 }
 
 .bar[aria-expanded='true'] {
-  background: var(--foreground);
-  color: var(--background);
+  background: color-mix(in srgb, var(--text-inv) 14%, transparent);
+  opacity: 1;
 }
 
 /* Inside its frame: the bar's action strip scrolls on a phone and would
    cut an outside ring. */
 .bar:focus-visible {
-  outline: 2px solid var(--accent);
   outline-offset: -2px;
+  opacity: 1;
 }
 
 .bar:disabled {
@@ -197,42 +226,57 @@
   opacity: 0.45;
 }
 
+/* The pending note beside a bar trigger sits on the inverted fill too. */
+.bar + [data-edit-pending] {
+  color: var(--text-inv);
+  opacity: 0.85;
+}
+
 @media (hover: hover) and (width >= 901px) {
-  .value:not(:disabled, :focus-visible):hover::before,
-  .mono:not(:disabled, :focus-visible):hover::before,
-  .cell:not(:disabled, :focus-visible):hover::before {
-    border-color: var(--border);
+  .value:not(:disabled):hover::before {
+    background: var(--surface-2);
+  }
+
+  .cell:not(:disabled):hover::before {
+    background: var(--surface-3);
+  }
+
+  .mono:not(:disabled):hover::before {
+    border-color: var(--border-strong);
+    background: var(--surface-2);
   }
 
   .quiet:not(:disabled):hover {
-    color: var(--accent-ink);
+    background: var(--surface-2);
+    color: var(--text);
   }
 
-  .bar:not(:disabled, [aria-expanded='true']):hover {
-    background: var(--accent);
-    color: var(--on-accent);
+  .bar:not(:disabled):hover {
+    background: color-mix(in srgb, var(--text-inv) 14%, transparent);
+    opacity: 1;
   }
 }
 
-/* Touch has no hover to reveal the frame: a faint rule under the value
+/* Touch has no hover to reveal the pill: a faint rule under the value
    says "tap me". It stays inside the value's column (a wrapped list of
    labels is as wide as the column). */
 @media (hover: none) {
   .value::before,
-  .mono::before,
   .cell::before {
     inset-inline: 0;
+    border-radius: 0;
   }
 
-  .value:not(:disabled)::before,
-  .mono:not(:disabled)::before,
-  .cell:not(:disabled)::before {
-    border-bottom-color: var(--grey-3);
+  .value:not(:disabled, :focus-visible)::before,
+  .cell:not(:disabled, :focus-visible)::before {
+    border-bottom-color: var(--border-strong);
   }
 }
 
+/* An empty value: the quiet text step, unless the host gave it a tone
+   (below). */
 .placeholder {
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 /* A placeholder with a tone (accent, or a status: warning "Unassigned")
@@ -251,28 +295,35 @@
   color: var(--tone-ink);
 }
 
-/* Multiple values as small square tokens in the chip voice. */
+/* Several values (labels) as Gr8r's label chips (.lbl): a 20px neutral
+   bordered chip; the label's colour lives only in its small square. */
 .tokens {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 4px;
   min-width: 0;
+  padding: 1px 0;
 }
 
 .token {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   max-width: 100%;
-  padding: 2px 6px;
-  border: 1px solid var(--grey-3);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  min-height: 20px;
+  padding: 0 7px 0 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-chip);
+  background: var(--surface);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-regular);
   line-height: 1.3;
-  text-transform: uppercase;
-  color: var(--foreground);
+  color: var(--text-2);
+}
+
+.token [data-mark='swatch'] {
+  width: 6px;
+  height: 6px;
 }
 
 .tokenText {
@@ -302,7 +353,7 @@
   border: 0;
   overflow: visible;
   background: transparent;
-  color: var(--foreground);
+  color: var(--text);
   visibility: hidden;
 }
 
@@ -315,8 +366,8 @@
   bottom: var(--picker-bottom, 0);
 }
 
-/* Inherits nothing from where the trigger sits (a right-aligned mono
-   section note, an uppercase status line): the panel sets its own voice. */
+/* Inherits nothing from where the trigger sits (a right-aligned section
+   note, the status pill): the panel sets its own voice. */
 .panel {
   --picker-cap: 360px;
 
@@ -328,25 +379,32 @@
     var(--picker-cap),
     var(--picker-max-height, var(--picker-cap))
   );
-  border: 1px solid var(--border);
-  border-top: 2px solid var(--accent);
-  background: var(--background);
-  color: var(--foreground);
+  padding: 4px;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--text);
   font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 400;
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
   letter-spacing: normal;
-  line-height: 1.4;
+  line-height: var(--lh);
   text-align: start;
   text-transform: none;
   white-space: normal;
-  animation: rise 0.18s var(--ease-out-quint) both;
+  transform-origin: top left;
+  animation: pop-in 0.16s var(--ease) both;
 }
 
-@keyframes rise {
+.layer[data-side='above'] .panel {
+  transform-origin: bottom left;
+}
+
+@keyframes pop-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scale(0.97);
   }
 
   to {
@@ -355,19 +413,21 @@
   }
 }
 
+/* Gr8r's search row: bleeds to the card's edges, a divider under it. */
 .searchRow {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 40px;
+  gap: 8px;
+  height: 38px;
+  margin: -4px -4px 4px;
   padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--divider);
 }
 
 .searchIcon {
   flex: none;
-  color: var(--muted);
+  color: var(--text-4);
 }
 
 .input {
@@ -376,39 +436,38 @@
   height: 100%;
   padding: 0;
   border: 0;
-  outline: 0;
+  /* Transparent, not none: forced-colours mode paints it, so the field
+     keeps a visible focus there. */
+  outline: 2px solid transparent;
   background: transparent;
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 400;
-  letter-spacing: 0.01em;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
   /* A placeholder longer than the field ends in "…", not mid-word. */
   text-overflow: ellipsis;
 }
 
 .input:focus-visible {
-  outline: 0;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
 
 .input::placeholder {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: var(--text-3);
 }
 
 .close {
   flex: none;
   display: grid;
   place-items: center;
-  height: 28px;
-  padding: 0 6px;
-  color: var(--muted);
+  height: var(--h-xs);
+  padding: 0 3px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .closeWord {
@@ -417,8 +476,8 @@
 
 @media (hover: hover) and (width >= 901px) {
   .close:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
@@ -430,23 +489,20 @@
   overscroll-behavior: contain;
 }
 
-.list {
-  padding: 4px 0;
-}
-
 .list:empty {
   display: none;
 }
 
-/* A menu (no search row): the list holds focus, and its active row is
-   the focus indicator, as the search box's active row is. */
+/* A menu (no search row): the list holds focus, and its active option is
+   the focus indicator, as the search box's active option is (a
+   transparent outline, so forced colours still ring the list). */
 .list:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
 }
 
 /* A menu's "Done" for the phone sheet (the search row's is gone). A menu
-   draws no key hints, so on a desktop its foot shows only while a pick
-   saves or after one failed. */
+   draws no key hints (Gr8r's menus have no foot), so on a desktop its
+   foot shows only while a pick saves or after one failed. */
 .sheetClose {
   display: none;
 }
@@ -461,59 +517,58 @@
   display: none;
 }
 
+/* Groups part with Gr8r's menu separator: a divider to the card's edges. */
 .option + .group,
 .group + .group {
-  margin-top: 4px;
-  border-top: 1px solid var(--hairline-faint);
+  margin: 4px -4px 0;
+  padding: 4px 4px 0;
+  border-top: 1px solid var(--divider);
 }
 
 .groupTitle {
-  padding: 10px 12px 4px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  padding: 8px 8px 4px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-caps);
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 .option {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 32px;
-  padding: 6px 12px;
-  background: var(--background);
-  color: var(--foreground);
+  gap: 9px;
+  min-height: var(--h-md);
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  color: var(--text);
   cursor: pointer;
   user-select: none;
 }
 
-/* The active row: paper and ink swap locally, so marks, hints and the
-   check all invert from the same tokens. */
+/* The active row (the arrow keys, or the pointer on a hover screen):
+   Gr8r's soft fill plus a 2px accent bar on the left edge. Focus stays
+   in the search field (aria-activedescendant), so this is the only focus
+   cue, and the fill alone is 1.1:1; the bar is 3.4:1 or better. */
 .option[data-active='true'] {
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --accent-ink: var(--accent-ink-inverse);
-  --accent-ink-hover: var(--accent-ink-inverse);
-  --red-ink: var(--red-ink-inverse);
-  --amber-ink: var(--amber-ink-inverse);
-  --green-ink: var(--green-ink-inverse);
-  --blue-ink: var(--blue-ink-inverse);
-  --grey-2-ink: var(--muted-inverse);
-  --border: var(--paper);
-  --muted: var(--muted-inverse);
-  --ink-soft: var(--ink-soft-inverse);
-  --hairline-faint: var(--hairline-inverse);
-  --grey-3: var(--hairline-inverse);
+  background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+@media (forced-colors: active) {
+  .option[data-active='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 
 .optionMark {
   display: inline-grid;
   place-items: center;
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
+  flex: 0 0 20px;
+  width: 20px;
+  height: 20px;
+  color: var(--text-2);
 }
 
 .optionLabel {
@@ -524,8 +579,9 @@
   white-space: nowrap;
 }
 
-/* The hint (an issue key, a date) keeps its full width up to 45% of the
-   row; the label gives way first, so "ENG-124" never reads "ENG-…". */
+/* The hint (a handle, a date, an issue key) keeps its full width up to
+   45% of the row; the label gives way first, so "ENG-124" never reads
+   "ENG-…". */
 .hint {
   flex: 0 0 auto;
   min-width: 0;
@@ -533,26 +589,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* TaskRelationPicker's hints are issue keys: the mono id voice. */
+.keyHints .hint {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
 }
 
 .tick {
   flex: none;
+  color: var(--accent);
 }
 
-/* The multiple picker's box: the Checkbox primitive's 13px square,
-   hollow when off, the accent with an on-accent check when on. */
+/* The multiple picker's box: the Checkbox primitive, 14px with a 4px
+   radius, hollow when off, the accent with an on-accent tick when on. */
 .check {
   display: inline-grid;
   place-items: center;
   flex: none;
-  width: 13px;
-  height: 13px;
-  border: 1px solid var(--border);
+  width: 14px;
+  height: 14px;
+  border: 1.5px solid var(--control-border);
+  border-radius: var(--r-xs);
+  background: var(--surface);
 }
 
 .check svg {
@@ -560,7 +623,7 @@
   height: 11px;
   fill: none;
   stroke: var(--on-accent);
-  stroke-width: 1.6;
+  stroke-width: 1.8;
   opacity: 0;
 }
 
@@ -576,8 +639,12 @@
 .disabled {
   padding-top: 6px;
   padding-bottom: 6px;
-  color: var(--muted);
+  color: var(--text-3);
   cursor: not-allowed;
+}
+
+.disabled .optionMark {
+  opacity: 0.6;
 }
 
 /* A disabled row is often a sentence (why a choice is off, a menu's
@@ -588,66 +655,61 @@
 }
 
 .retryRow .optionLabel {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: var(--fw-medium);
   color: var(--accent-ink);
-}
-
-/* On the active fill the accent would be too faint: the row's own ink. */
-.retryRow[data-active='true'] .optionLabel {
-  color: inherit;
 }
 
 .statusRow {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
+  padding: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
 }
 
-/* Loading is the blueprint hatch, never a spinner. */
+/* Loading is a shimmering bar (the Skeleton's), never a spinner. */
 .loadingBar {
   flex: none;
   width: 40px;
   height: 8px;
-  border: 1px solid var(--grey-3);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 5px
+  border-radius: var(--r-xs);
+  background: linear-gradient(
+    90deg,
+    var(--surface-3) 0%,
+    var(--surface-2) 45%,
+    var(--surface-3) 90%
   );
+  background-size: 220% 100%;
+  animation: shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -100% 0;
+  }
 }
 
 .errorRow {
   display: flex;
   align-items: baseline;
-  gap: 10px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--hairline-faint);
-  font-size: 12.5px;
+  gap: 8px;
+  margin: 4px -4px 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--divider);
+  font-size: var(--fs-sm);
   line-height: 1.45;
-  color: var(--ink-soft);
+  color: var(--text);
 }
 
 .errorKey {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--red-ink); /* failed: the red status hue */
+  font-weight: var(--fw-semibold);
+  color: var(--red);
 }
 
 .errorText {
@@ -655,26 +717,26 @@
   overflow-wrap: anywhere;
 }
 
+/* A quiet recessed foot (like the palette's): key hints, or the save
+   state while a pick is saving or after it failed. */
 .foot {
   flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
-  padding: 6px 12px;
-  border-top: 1px solid var(--hairline-faint);
+  min-height: 32px;
+  margin: 4px -4px -4px;
+  padding: 5px 12px;
+  border-top: 1px solid var(--divider);
+  background: var(--sunken);
 }
 
 .hints {
   display: flex;
   flex-wrap: wrap;
   gap: 4px 14px;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .hints > span {
@@ -692,24 +754,26 @@
     display: flex;
     flex-direction: column;
     justify-content: flex-end;
-    background: color-mix(in srgb, var(--ink) 35%, transparent);
+    background: var(--overlay);
   }
 
-  .panel {
+  .panel,
+  .layer[data-side='above'] .panel {
     width: 100%;
     max-width: none;
     max-height: min(78vh, 560px);
-    border-right: 0;
-    border-bottom: 0;
-    border-left: 0;
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding: 4px 8px calc(4px + env(safe-area-inset-bottom, 0px));
+    border-radius: 14px 14px 0 0;
+    transform-origin: bottom center;
     animation-name: sheet-in;
     animation-duration: 0.28s;
+    animation-timing-function: var(--ease-drawer);
   }
 
   .searchRow {
-    height: 48px;
-    padding-left: 16px;
+    height: 50px;
+    margin: -4px -8px 4px;
+    padding: 0 8px 0 18px;
   }
 
   /* 16px keeps iOS from zooming into the field. */
@@ -719,21 +783,36 @@
 
   .option {
     min-height: 44px;
-    padding: 8px 16px;
-    font-size: 14px;
+    padding: 6px 10px;
+    font-size: 15px;
+  }
+
+  .option + .group,
+  .group + .group,
+  .errorRow {
+    margin-inline: -8px;
+    padding-inline: 8px;
   }
 
   .groupTitle,
-  .statusRow,
-  .errorRow,
+  .statusRow {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .errorRow {
+    padding-inline: 18px;
+  }
+
   .foot {
-    padding-right: 16px;
-    padding-left: 16px;
+    margin: 4px -8px calc(-4px - env(safe-area-inset-bottom, 0px));
+    padding: 6px 18px calc(6px + env(safe-area-inset-bottom, 0px));
   }
 
   .close {
     height: 36px;
     padding: 0 10px;
+    border-radius: var(--r-sm);
   }
 
   .closeKey {
@@ -742,15 +821,11 @@
 
   .closeWord {
     display: inline;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--foreground);
+    font-size: var(--fs);
+    font-weight: var(--fw-semibold);
+    color: var(--accent-ink);
   }
 
-  /* A menu's own "Done", in the search row's close voice. */
   .foot:has(> .sheetClose:only-child) {
     display: flex;
   }
@@ -761,12 +836,10 @@
     height: 36px;
     margin-left: auto;
     padding: 0 10px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    color: var(--foreground);
+    border-radius: var(--r-sm);
+    font-size: var(--fs);
+    font-weight: var(--fw-semibold);
+    color: var(--accent-ink);
   }
 
   .hints {
@@ -780,13 +853,7 @@
   /* A tap needs no active row: it is drawn once the arrow keys are used
      (a phone with a keyboard). The tick still marks the current value. */
   .list:not([data-keyboard='true']) .option[data-active='true'] {
-    --background: inherit;
-    --foreground: inherit;
-    --border: inherit;
-    --muted: inherit;
-    --ink-soft: inherit;
-    --hairline-faint: inherit;
-    --grey-3: inherit;
+    background: transparent;
   }
 }
 
@@ -803,16 +870,18 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .quiet,
-  .bar,
-  .value::before,
-  .mono::before,
-  .cell::before,
+  .trigger,
   .close {
     transition: none;
   }
 
-  .panel {
+  .panel,
+  .layer[data-side='above'] .panel {
     animation: none;
+  }
+
+  .loadingBar {
+    animation: none;
+    opacity: 0.85;
   }
 }

@@ -1,0 +1,53 @@
+/* The demo strip's one line (the shell's banner draws the full-bleed
+   --sunken strip around it): a 14px info icon in the accent, the "Demo
+   data" lead-in in --text 600, then the sentence in --text-2, the long
+   copy on wide screens and the short one below 1180px, so it never wraps
+   or truncates. Hidden copies leave the accessibility tree too
+   (display: none). */
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.key {
+  flex: none;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+/* The "·" is decoration (aria-hidden), so it may use the icon step. */
+.sep {
+  color: var(--text-4);
+}
+
+.text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.short {
+  display: none;
+}
+
+@media (width <= 1180px) {
+  .long {
+    display: none;
+  }
+
+  .short {
+    display: inline;
+  }
+}

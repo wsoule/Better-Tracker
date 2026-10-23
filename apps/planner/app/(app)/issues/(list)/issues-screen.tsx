@@ -24,8 +24,7 @@ import {
   useToast,
   ViewToolbar,
 } from '@better-tracker/ui';
-import { CheckSquare } from 'lucide-react';
-import Link from 'next/link';
+import { CheckSquare, Link2, Network } from 'lucide-react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
@@ -913,7 +912,7 @@ export default function IssuesScreen({
                     icon={
                       <CheckSquare
                         size={14}
-                        strokeWidth={1.5}
+                        strokeWidth={1.8}
                         aria-hidden="true"
                       />
                     }
@@ -926,18 +925,26 @@ export default function IssuesScreen({
           }
           end={
             <>
-              {/* The timeline toolbar's "Open as graph" voice: muted mono
-                  caps, no icon. */}
-              <Link href={issueListGraphHref(query)} className={css.endAction}>
+              {/* Gr8r's toolbar actions: ghost buttons with a leading
+                  icon. */}
+              <Button
+                variant="quiet"
+                size="sm"
+                href={issueListGraphHref(query)}
+                icon={
+                  <Network size={14} strokeWidth={1.8} aria-hidden="true" />
+                }
+              >
                 Open as graph
-              </Link>
-              <button
-                type="button"
-                className={css.endAction}
+              </Button>
+              <Button
+                variant="quiet"
+                size="sm"
                 onClick={() => void copyLink()}
+                icon={<Link2 size={14} strokeWidth={1.8} aria-hidden="true" />}
               >
                 Copy link
-              </button>
+              </Button>
             </>
           }
         />

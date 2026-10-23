@@ -8,36 +8,51 @@ import type { UiStatus, UiTone } from '../types';
 // about Linear, milestones or issues.
 
 /**
- * Node emphasis in the status tones (docs/architecture.md §8.2): an ink
- * hairline (default), faint (muted: closed or inactive work, its status
- * mark in the inactive grey), or a 2px rule in the tone's status hue:
- * danger (red: overdue), warning (amber: at risk, unassigned, needs
- * action), success (green) or info (blue). `accent` draws the rule in the
- * purple for a host's own emphasis; it is never a status (the graph keeps
- * the purple for selection, hover and keyboard focus). Under the Status
- * highlight a node's readiness tone replaces it, and a ready node
- * (success) is drawn as a 1px green edge only, so it reads apart from the
- * 2px rule of a blocked one without its hue.
+ * Node emphasis in the status tones (docs/architecture.md §8.2): Gr8r's
+ * plain card (default), a quiet one (muted: closed or inactive work, its
+ * words in --text-3 and its status mark in the inactive grey, shape kept),
+ * or a 1.5px edge in the tone's status hue: danger (red), warning (amber:
+ * at risk, unassigned, needs action), success (green) or info (blue). An
+ * overdue box (the `Overdue` tag) under the Risk highlight is tinted
+ * instead: a --red-soft fill inside a 1px red edge, never a flood.
+ * `accent` draws the edge in the purple for a host's own emphasis; it is
+ * never a status (the graph keeps the purple for selection, the paths
+ * being read and keyboard focus). Under the Status highlight a node's
+ * readiness tone replaces it, and a ready node (success) is drawn as a 1px
+ * green edge only, so it reads apart from a blocked one's 1.5px edge
+ * without its hue (the chip's words say it too).
  */
 export type GraphNodeTone = UiTone;
 
 /**
- * Flags drawn on a node as mono chips. OVERDUE also floods the node with
- * the red status hue; CYCLE adds the dashed red outline (drawn from the
- * tag); UNASSIGNED is a filled amber chip. Any other string is shown as a
- * plain chip.
+ * Flags drawn on a node as sentence-case Chips (the word is the meaning;
+ * its tone only repeats it). A few words have a tone of their own:
+ * `Unassigned` a tinted amber chip; `Overdue` a red dot pill (and under
+ * the Risk highlight the box's red tint); `Cycle` a tinted red chip plus
+ * the dashed red outline round the box; `On a cycle` and `Cycle inside`
+ * tinted red; `No lead` an amber dot pill; `Inactive` quiet text. Any
+ * other string is a neutral chip.
  */
-export type GraphNodeTag = 'UNASSIGNED' | 'OVERDUE' | 'CYCLE' | (string & {});
+export type GraphNodeTag =
+  | 'Unassigned'
+  | 'Overdue'
+  | 'Cycle'
+  | 'On a cycle'
+  | 'Cycle inside'
+  | 'No lead'
+  | 'Inactive'
+  | (string & {});
 
 export interface GraphNodeData {
   id: string;
   /** The name: a milestone or issue title. */
   label: string;
-  /** Mono second line: "ATLAS · DUE OCT 18", "ATL-41 · ANA". */
+  /** Quiet second line: "Atlas · Oct 18", "ATL-41 · Ana" (a leading
+      `key` in it is drawn in Geist Mono). */
   sublabel?: string;
   /** Where the node lives (open in Linear, the timeline drawer…). */
   href?: string;
-  /** Outside the requested scope (one hop away): dashed muted border. */
+  /** Outside the requested scope (one hop away): a dashed neutral edge. */
   external?: boolean;
   tone: GraphNodeTone;
   status?: UiStatus;
@@ -46,7 +61,7 @@ export interface GraphNodeData {
   tags?: GraphNodeTag[];
   /**
    * Cluster key and label (the project). Nodes sharing a group are drawn
-   * inside one hatched frame when the graph is asked to cluster. Ignored
+   * inside one soft frame when the graph is asked to cluster. Ignored
    * when the graph is given `clusters`.
    */
   group?: string;
@@ -58,7 +73,8 @@ export interface GraphNodeData {
   cluster?: string;
   /**
    * A short identifier ("ENG-23"): the path readout names the node by it,
-   * else by its label cut to 32 characters.
+   * else by its label cut to 32 characters. When the sublabel starts with
+   * it, the box draws it there in Geist Mono (the one mono voice).
    */
   key?: string;
   /**
@@ -81,11 +97,11 @@ export interface GraphNodeData {
  */
 export interface GraphClusterData {
   id: string;
-  /** Mono caps title in the frame's top-left corner. */
+  /** Sentence-case title in the frame's top-left corner. */
   label: string;
   /** The enclosing cluster's id; none (or an unknown id) for the top. */
   parent?: string;
-  /** Inactive work: a hatched frame with a dim title. */
+  /** Inactive work: a dashed grey frame with a quiet title. */
   muted?: boolean;
   /** Outside the scope: a dashed frame. */
   external?: boolean;
@@ -94,14 +110,15 @@ export interface GraphClusterData {
 /**
  * How an edge is drawn. One kind per edge; when several apply, hosts pick
  * in this precedence: resolved > cycle > risk > cross > default.
- * - default: 1px ink, the blocker blocks the waiting node
- * - risk: amber (the warning hue), part of a chain ending in an
- *   unassigned/overdue blocker
- * - cycle: dashed red (the danger hue), both ends wait on each other
- * - cross: dashed ink, crosses a project (or owner) boundary
- * - resolved: dotted grey (green dots under the Status highlight): one
- *   end is done (the blocker, or the node that waited), so it no longer
- *   blocks; the path walks and the critical path skip it
+ * - default: a thin --text-2 curve, the blocker blocks the waiting node
+ * - risk: 2px amber (the warning hue) under the Risk highlight, part of a
+ *   chain ending in an unassigned/overdue blocker (a plain curve under
+ *   Status and Critical path)
+ * - cycle: long red dashes (the danger hue), both ends wait on each other
+ * - cross: short dashes, crosses a project (or owner) boundary
+ * - resolved: 2px --text-3 dots (green dots under the Status highlight):
+ *   one end is done (the blocker, or the node that waited), so it no
+ *   longer blocks; the path walks and the critical path skip it
  */
 export type GraphEdgeKind = 'default' | 'risk' | 'cycle' | 'cross' | 'resolved';
 
@@ -111,7 +128,7 @@ export interface GraphEdgeData {
   /** The node that waits on it. */
   to: string;
   kind: GraphEdgeKind;
-  /** Relations this edge summarises; shown as a mono count when > 1. */
+  /** Relations this edge summarises; shown as a count pill when > 1. */
   weight?: number;
   /**
    * It crosses a project (or owner) boundary, whatever its kind. The
@@ -128,7 +145,7 @@ export type GraphDirection = 'LR' | 'TB';
 export interface GraphLayoutOptions {
   direction?: GraphDirection;
   /**
-   * Draw groups as hatched frames (dagre compound clusters). Off by
+   * Draw groups as soft frames (dagre compound clusters). Off by
    * default: frames keep a project together but spread a graph with many
    * cross-group edges out, so hosts opt in where groups are few. Ignored
    * when `clusters` is given.
@@ -190,7 +207,7 @@ export interface LaidOutGroup {
   height: number;
   /**
    * `cluster` for a frame from `clusters` (the title inside its top-left
-   * corner), absent for a hatched `group` frame (the title on its rule).
+   * corner), absent for a `group` frame (the title on its edge).
    */
   kind?: 'cluster';
   /** Nesting depth of a cluster frame: 0 at the top. */
@@ -298,7 +315,8 @@ export interface GraphPathWords {
       may still free something outside the graph (`unblock` says so). */
   holdsUpNone: string;
   unblock: string;
-  /** The square tag on what finishing the active node alone would unblock. */
+  /** The green dot pill riding what finishing the active node alone would
+      unblock. */
   next: string;
   notDrawn: string;
   /** The readout's state word for a done node without a statusLabel. */
@@ -333,7 +351,8 @@ export interface UpstreamChain {
 export interface DependencyGraphProps {
   nodes: GraphNodeData[];
   edges: GraphEdgeData[];
-  /** Persistently marked node (ink fill); its paths show when idle. */
+  /** Persistently marked node (the selection: an --accent-soft fill inside
+      a 2px accent edge); its paths show when idle. */
   selectedId?: string | null;
   /** Click / Enter on a node. Omit for a read-only graph. */
   onSelect?: (id: string) => void;
@@ -363,8 +382,9 @@ export interface DependencyGraphProps {
    */
   layout?: GraphLayout;
   /**
-   * The node the graph is about (one issue's chain): a 2px ink rule inside
-   * its box. It lights nothing, unlike selection (under the Critical path
+   * The node the graph is about (one issue's chain): a 2px accent ring
+   * standing 3px off its box (the path rings hug the box). It lights
+   * nothing, unlike selection (under the Critical path
    * highlight the chain shown at rest runs through it); the readout
    * describes it while nothing else is active, and its accessible name
    * ends with `focusLabel`. On the first paint the frame scrolls it (else
@@ -395,9 +415,9 @@ export interface DependencyGraphProps {
    * counted as one step), numbering its boxes. Switching never moves a
    * box: the layout ignores it. Pointing at, focusing, tapping or
    * selecting a node lights what it waits on (accent rings and lines) and
-   * what it holds up (ink), marking what finishing it alone would unblock
-   * with a `pathWords.next` tag; under `critical` it shows the longest
-   * chain through it instead.
+   * what it holds up (--text rings and lines), marking what finishing it
+   * alone would unblock with a `pathWords.next` pill; under `critical` it
+   * shows the longest chain through it instead.
    */
   highlight?: GraphHighlight;
   /**
@@ -413,21 +433,26 @@ export interface DependencyGraphProps {
 }
 
 /**
- * What a legend swatch draws: `node-warning` the 2px amber rule (at risk,
- * needs action), `node-overdue` the red flood, `node-cycle` the dashed red
- * outline; `node-accent` the 2px purple rule of a host's own emphasis.
- * The Status highlight's boxes: `node-ready` the 1px green edge,
- * `node-blocked` the 2px amber rule, `node-stuck` the 2px red rule; the
- * Critical path's: `node-chain` an ink ring with a step number,
+ * What a legend swatch draws, as the graph draws it (Gr8r's cards in
+ * miniature): `node` the plain card, `node-warning` the 1.5px amber edge
+ * (at risk, needs action), `node-overdue` the red tint inside a 1px red
+ * edge, `node-cycle` the dashed red outline, `node-external` the dashed
+ * edge, `node-muted` the quiet card, `node-focus` the accent ring standing
+ * off the card; `node-accent` the 1.5px purple edge of a host's own
+ * emphasis. The Status highlight's boxes: `node-ready` the 1px green
+ * edge, `node-blocked` the 1.5px amber edge, `node-stuck` the 1.5px red
+ * edge; the Critical path's: `node-chain` a --text ring with a step disc,
  * `node-faded` a box off the path. `edge-unblocked` green dots,
- * `edge-chain` the 2.5px ink line. The `path-*` marks (a Paths row) show
- * what pointing at a node lights: `path-active` the accent flood of the
- * node being read (pointed at, focused or tapped), `path-up` the accent
- * ring of what it waits on, `path-down` the ink ring of what it holds up,
- * `path-next` the square tag on what finishing it would unblock,
- * `path-chain` the ink ring and step number of the chain through it (as
- * `node-chain`: the critical path is ink, never the accent). `cluster` is a frame around the boxes that share a
- * parent (`clusters`), `cluster-muted` a hatched one of inactive work;
+ * `edge-chain` the 2.5px --text line. The `path-*` marks (a Paths row)
+ * show what pointing at a node lights: `path-active` the box being read
+ * (pointed at, focused or tapped: a 2px accent ring on the soft
+ * accent tint),
+ * `path-up` the accent ring of what it waits on, `path-down` the --text
+ * ring of what it holds up, `path-next` the green dot pill on what
+ * finishing it would unblock, `path-chain` the --text ring and step disc
+ * of the chain through it (as `node-chain`: the critical path is --text,
+ * never the accent). `cluster` is a frame around the boxes that share a
+ * parent (`clusters`), `cluster-muted` a dashed grey one of inactive work;
  * both sit in the Nodes row, and a plain `node` swatch can say "No
  * dependencies".
  */
@@ -463,9 +488,9 @@ export type GraphLegendMark =
 
 export interface GraphLegendItem {
   mark: GraphLegendMark;
-  /** Mono uppercase name ("RISK CHAIN"). */
+  /** Sentence-case name ("Risk chain"). */
   label: string;
-  /** Muted explanation ("waits on an unassigned or overdue blocker"). */
+  /** Quiet explanation ("waits on an unassigned or overdue blocker"). */
   note?: string;
 }
 
@@ -480,7 +505,7 @@ export interface GraphLegendProps {
 export interface MermaidSourceProps {
   /** The Mermaid text to copy and show. */
   source: string;
-  /** Button wording (uppercased by the style). */
+  /** Button wording. */
   copyLabel?: string;
   /** Wording during the 1600ms confirmation. */
   copiedLabel?: string;

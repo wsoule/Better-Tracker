@@ -30,21 +30,32 @@
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace; `LINEAR_FIXTURE=showcase` serves the large showcase workspace, made
   for the live demo). Tests never call real Linear or Slack.
-- UI: layout and interaction follow Gr8r Studio (sidebar shell, command palette,
-  grouped lists, Gantt timeline, slide-over drawer); the visual language follows
-  the wsoule/Analytics `competitors-site` design system (tokens in
-  `packages/ui/src/styles/tokens.css`, one accent, hairlines, no radius or
-  shadows). The accent is purple (`#9747ff`), not Analytics' orange. See
-  `docs/architecture.md` §8.
-- Keep that look (owner decision 2026-10-22, design doc §12; a Gr8r-style
-  restyle was declined and is kept on `claude/ui-reskin` for reference only).
-  Status is coloured with the status hues, never the purple: red overdue and
-  failed, amber at risk, blocked and unassigned, green on track and done, blue
-  in progress, grey inactive. Purple is for the brand, selection, focus, links,
-  new/unread and today. Colour a status through `UiTone` (`danger`, `warning`,
-  `success`, `info`, `muted`) and the `data-tone` hook (`--tone`, `--tone-ink`),
-  keep its shape and words, and follow the table in `docs/architecture.md` §8.2
-  "Status colours".
+- UI: layout, interaction AND look follow Gr8r Studio (owner decision
+  2026-10-23, design doc §12: the Gr8r restyle declined on 2026-10-22 is adopted
+  after all): sidebar shell, command palette, grouped lists, Gantt timeline,
+  slide-over drawer; warm neutral surfaces, soft borders, radius, soft shadows
+  only on floating things, tinted status colours, sentence-case Geist, Geist
+  Mono only for ids and keys. Tokens are in `packages/ui/src/styles/tokens.css`;
+  never write a hex outside it. The accent stays purple (`#9747ff`) in Gr8r's
+  accent role (primary, focus, selection, progress, today, unread, links) and
+  never means a status. The old Analytics look (black hairlines, mono caps,
+  hatching, numbered blocks, zero radius, ink floods) is retired; no sheet reads
+  its token names any more (tests check every file); they stay in tokens.css as
+  deprecated aliases only until the branches written before the restyle are
+  merged and restyled. Dark mode is a soft warm dark: nothing darker than
+  `#1a1a19` (owner 2026-10-23: the near-black was "too dark"). See
+  `docs/architecture.md` §8.2.
+- Status keeps its hue mapping (owner decision 2026-10-22): red overdue and
+  failed, amber at risk, blocked, missing input and unassigned, green on track
+  and succeeded, blue in progress and live, grey paused and inactive; done keeps
+  a filled neutral mark, never green-filled next to red. Only the rendering is
+  Gr8r's (tinted chips and alerts, dot pills, toned text, status diamonds).
+  Colour a status through `UiTone` (`danger`, `warning`, `success`, `info`,
+  `muted`) and the `data-tone` hook (`--tone`, `--tone-ink`, `--tone-soft`,
+  `--tone-line`, `--on-tone`), keep its shape and words, and follow the table in
+  `docs/architecture.md` §8.2 "Status colours". Text holds 4.5:1, marks and
+  control edges 3:1 (`--control-border`), never colour alone, and forced colours
+  keep every shape.
 
 ## Agent Environment
 

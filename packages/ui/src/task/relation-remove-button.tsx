@@ -117,7 +117,7 @@ export function RelationRemoveButton({
         data-relation-remove=""
         onClick={remove}
       >
-        <X size={14} strokeWidth={1.5} aria-hidden="true" />
+        <X size={14} strokeWidth={1.8} aria-hidden="true" />
       </button>
       {error !== null ? (
         <span className={styles.removeError} role="alert">

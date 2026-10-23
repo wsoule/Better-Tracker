@@ -5,13 +5,14 @@ import type { ComponentType, ReactNode } from 'react';
 // models onto these shapes in a thin adapter.
 
 /**
- * Status in the Analytics Mark idiom (filled vs hollow vs hatched squares),
- * coloured by the status hues (docs/architecture.md §8.2): done = filled
- * ink (never green: a green fill reads as the red one without red-green
- * vision), on_track = hollow green, at_risk = 2px amber outline, overdue =
- * filled red, missing = hatched grey (an input is missing), open = hollow
- * ink (open work that makes no status claim of its own, such as an issue
- * box on the graph, whose status is its milestone's).
+ * A milestone's status as drawn by StatusMark, a diamond coloured by the
+ * status hues (docs/architecture.md §8.2): done = solid neutral with a
+ * tick (never green: a green fill reads as the red one without red-green
+ * vision), on_track = green outline, at_risk = amber with the bottom half
+ * filled, overdue = solid red, missing = dotted grey outline (an input is
+ * missing), open = neutral outline (open work that makes no status claim
+ * of its own, such as an issue box on the graph, whose status is its
+ * milestone's).
  */
 export type UiStatus =
   | 'done'
@@ -31,10 +32,12 @@ export type SemanticTone = 'danger' | 'warning' | 'success' | 'info';
 
 /**
  * The colour of a piece of text, a chip, a notice, a count or a fill:
- * default ink, muted grey (inactive, nothing to do), accent (the brand
- * purple: new, unread, selected; never a status), or a status tone.
- * Components emit it as `data-tone`, which gives their CSS --tone (mark),
- * --tone-ink (text) and --on-tone (tokens.css, TONE HOOK).
+ * default neutral, muted grey (inactive, nothing to do), accent (the brand
+ * purple: new, unread, selected, progress; never a status), or a status
+ * tone. Components emit it as `data-tone`, which gives their CSS --tone
+ * (the hue), --tone-ink (text), --tone-soft (a tint), --tone-line (a
+ * tinted border) and --on-tone (text on a solid fill) (tokens.css, TONE
+ * HOOK).
  */
 export type UiTone = 'default' | 'muted' | 'accent' | SemanticTone;
 

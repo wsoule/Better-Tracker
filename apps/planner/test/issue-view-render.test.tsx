@@ -100,8 +100,10 @@ describe('the issue page view', () => {
   // the issue's blocking chain whenever it has a relation, for everyone;
   // the graph only reads, so a guest keeps it.
   test('"Blocked by" links the blocking chain beside "+ Add", for a guest alone', () => {
+    // A quiet small Button (the Graph nav icon, then its label) like the
+    // "+ Add" beside it.
     const chainLink =
-      /<a href="\/graph\?chain=ENG-23"[^>]*aria-label="Blocking chain of ENG-23 as a graph">Graph<\/a>/;
+      /<a href="\/graph\?chain=ENG-23"[^>]*aria-label="Blocking chain of ENG-23 as a graph">(?:(?!<\/a>).)*<span>Graph<\/span><\/a>/;
     const editor = render(<IssuePageView model={modelFor('ENG-23')} />);
     expect(editor).toMatch(chainLink);
     expect(editor).toContain('aria-label="Add blocked by"');
@@ -123,8 +125,8 @@ describe('the issue page view', () => {
     const blocksAt = holder.indexOf('>Blocks<');
     expect(blocksAt).toBeGreaterThan(holder.indexOf('>Blocked by<'));
     expect(holder.slice(0, blocksAt)).not.toContain('Blocking chain of');
-    expect(holder.slice(blocksAt)).toContain(
-      'aria-label="Blocking chain of ENG-12 as a graph">Graph</a>'
+    expect(holder.slice(blocksAt)).toMatch(
+      /aria-label="Blocking chain of ENG-12 as a graph">(?:(?!<\/a>).)*<span>Graph<\/span><\/a>/
     );
 
     // No relation, no chain to draw: no link.

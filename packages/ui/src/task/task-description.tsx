@@ -44,7 +44,7 @@ export function likelyOverflows(text: string, lines: number): boolean {
  * (markdown shows as typed, markup as text), so a description can never
  * inject HTML. Long text is clamped to `clampLines` lines with a Show more
  * button (aria-expanded) that only appears when the text really is longer.
- * Loading shows hatched skeleton lines, an error shows one line with an
+ * Loading shows skeleton lines, an error shows one line with an
  * optional retry, and blank text says "No description". Each paragraph
  * takes its own direction, so a right-to-left line reads right to left.
  * A host that renders the description itself passes `content` instead.

@@ -86,8 +86,9 @@ function countCycles(fixture: GraphFixture): number {
   return fixture.edges.filter((edge) => edge.kind === 'cycle').length / 2;
 }
 
-/* One node in the slide-over's "Waits on" / "Holds up" lists: a row that
-   re-selects that node, so the reader can walk the chain from the panel. */
+/* One node in the slide-over's "Waits on" / "Holds up" lists: a row of
+   one Gr8r list panel that re-selects that node, so the reader can walk
+   the chain from the panel. */
 function NodeRow({
   node,
   onSelect,
@@ -112,15 +113,14 @@ function NodeRow({
   );
 }
 
-/* A flag chip's tone: the status hue of what it says (architecture §8.2:
-   OVERDUE red, UNASSIGNED amber, both still filled chips, as slabs of the
-   hue); CYCLE stays ink, as on the box, and any other flag (+N MORE) keeps
-   the filled accent it had. */
-function flagTone(tag: string): ChipTone {
-  if (tag === 'OVERDUE') return 'danger';
-  if (tag === 'UNASSIGNED') return 'warning';
-  if (tag === 'CYCLE') return 'default';
-  return 'accent';
+/* A flag chip's look, as the canvas draws it (architecture §8.2):
+   Unassigned a tinted amber chip, Overdue a red dot pill, Cycle a tinted
+   red chip; any other flag (+N more) a neutral chip. */
+function flagChip(tag: string): { tone: ChipTone; filled: boolean } {
+  if (tag === 'Unassigned') return { tone: 'warning', filled: true };
+  if (tag === 'Overdue') return { tone: 'danger', filled: false };
+  if (tag === 'Cycle') return { tone: 'danger', filled: true };
+  return { tone: 'default', filled: false };
 }
 
 /* The selection panel the /graph page opens: what the node is, what it
@@ -181,7 +181,7 @@ function SelectionPanel({
     >
       {node === undefined ? null : (
         <div className={styles.panel}>
-          {tags.includes('OVERDUE') ? (
+          {tags.includes('Overdue') ? (
             <AlertStrip label="Overdue" tone="danger">
               {holdsUp.length === 0
                 ? 'Past its date.'
@@ -215,8 +215,8 @@ function SelectionPanel({
                       {tags.map((tag) => (
                         <Chip
                           key={tag}
-                          tone={flagTone(tag)}
-                          filled={tag === 'OVERDUE' || tag === 'UNASSIGNED'}
+                          tone={flagChip(tag).tone}
+                          filled={flagChip(tag).filled}
                         >
                           {tag}
                         </Chip>
@@ -458,7 +458,6 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
     <main className={`page ${styles.page}`}>
       <div className="block">
         <BlockBar
-          index="00"
           title="UI gallery · graph"
           meta={
             <span className={styles.barMeta}>
@@ -471,53 +470,54 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         />
       </div>
 
-      <section className="block" aria-labelledby="graph-page">
-        <BlockBar
-          index="01"
-          title="Dependencies"
-          meta={`${fixture.nodes.length} nodes · ${fixture.edges.length} edges · ${countCycles(fixture)} cycle`}
-        />
-        <h2 id="graph-page" className="srOnly">
-          Dependency graph, {fixture.title}
-        </h2>
+      <section className={`block ${styles.stack}`} aria-labelledby="graph-page">
+        <div>
+          <BlockBar
+            title="Dependencies"
+            meta={`${fixture.nodes.length} nodes · ${fixture.edges.length} edges · ${countCycles(fixture)} cycle`}
+          />
+          <h2 id="graph-page" className="srOnly">
+            Dependency graph, {fixture.title}
+          </h2>
+          <DependencyGraph
+            nodes={fixture.nodes}
+            edges={fixture.edges}
+            highlight={highlight}
+            readout={idleReadout(fixture, highlight)}
+            pathWords={fixture === MILESTONE_GRAPH ? BOX_WORDS : ISSUE_WORDS}
+            selectedId={selectedId}
+            onSelect={(id) =>
+              setSelectedId((current) => (current === id ? null : id))
+            }
+            ariaSummary={fixture.ariaSummary}
+            emptyMessage={fixture.emptyMessage}
+            clusters={frames ? fixture.clusters : undefined}
+            toolbar={
+              <>
+                <SegmentedControl
+                  label="Graph level"
+                  size="sm"
+                  options={LEVELS}
+                  value={level}
+                  onChange={(id) => {
+                    setLevel(id);
+                    setSelectedId(null);
+                  }}
+                />
+                {highlightSwitch}
+                <Switch
+                  label="Frames"
+                  note="by project and milestone"
+                  checked={frames}
+                  onChange={setFrames}
+                />
+              </>
+            }
+          />
+        </div>
         <GraphLegend
           items={legendOf(fixture, highlight, frames)}
           label={`Graph legend: ${HIGHLIGHTS.find((h) => h.id === highlight)?.label ?? ''}`}
-        />
-        <DependencyGraph
-          nodes={fixture.nodes}
-          edges={fixture.edges}
-          highlight={highlight}
-          readout={idleReadout(fixture, highlight)}
-          pathWords={fixture === MILESTONE_GRAPH ? BOX_WORDS : ISSUE_WORDS}
-          selectedId={selectedId}
-          onSelect={(id) =>
-            setSelectedId((current) => (current === id ? null : id))
-          }
-          ariaSummary={fixture.ariaSummary}
-          emptyMessage={fixture.emptyMessage}
-          clusters={frames ? fixture.clusters : undefined}
-          toolbar={
-            <>
-              <SegmentedControl
-                label="Graph level"
-                size="sm"
-                options={LEVELS}
-                value={level}
-                onChange={(id) => {
-                  setLevel(id);
-                  setSelectedId(null);
-                }}
-              />
-              {highlightSwitch}
-              <Switch
-                label="Frames"
-                note="by project and milestone"
-                checked={frames}
-                onChange={setFrames}
-              />
-            </>
-          }
         />
         <MermaidSource
           source={mermaid}
@@ -539,53 +539,58 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         />
       </section>
 
-      <section className="block" aria-labelledby="graph-epic">
-        <BlockBar
-          index="02"
-          title="Read-only · top to bottom"
-          meta="Dispatch epic shape · no selection · focus still lights the chain"
-        />
-        <h2 id="graph-epic" className="srOnly">
-          A read-only epic graph, top to bottom
-        </h2>
+      <section className={`block ${styles.stack}`} aria-labelledby="graph-epic">
+        <div>
+          <BlockBar
+            title="Read-only · top to bottom"
+            meta="Dispatch epic shape · no selection · focus still lights the chain"
+          />
+          <h2 id="graph-epic" className="srOnly">
+            A read-only epic graph, top to bottom
+          </h2>
+          <DependencyGraph
+            nodes={EPIC_NODES}
+            edges={EPIC_EDGES}
+            highlight={highlight}
+            direction="TB"
+            ariaSummary="Epic graph of 5 tasks: the client queue needs you and holds up conflict resolution, which holds up shipping behind a flag."
+            emptyMessage="No tasks yet."
+            hint={null}
+          />
+        </div>
         <GraphLegend items={EPIC_LEGEND} label="Epic graph legend" />
-        <DependencyGraph
-          nodes={EPIC_NODES}
-          edges={EPIC_EDGES}
-          highlight={highlight}
-          direction="TB"
-          ariaSummary="Epic graph of 5 tasks: the client queue needs you and holds up conflict resolution, which holds up shipping behind a flag."
-          emptyMessage="No tasks yet."
-          hint={null}
-        />
       </section>
 
-      <section className="block" aria-labelledby="graph-chain">
-        <BlockBar
-          index="03"
-          title="Chain · focus"
-          meta="One issue's chain · focusId ruled · +2 MORE leads on · precomputed layout"
-        />
-        <h2 id="graph-chain" className="srOnly">
-          {CHAIN_GRAPH.title}
-        </h2>
+      <section
+        className={`block ${styles.stack}`}
+        aria-labelledby="graph-chain"
+      >
+        <div>
+          <BlockBar
+            title="Chain · focus"
+            meta="One issue's chain · focusId ringed · +2 more leads on · precomputed layout"
+          />
+          <h2 id="graph-chain" className="srOnly">
+            {CHAIN_GRAPH.title}
+          </h2>
+          <DependencyGraph
+            nodes={CHAIN_GRAPH.nodes}
+            edges={CHAIN_GRAPH.edges}
+            layout={CHAIN_LAYOUT}
+            highlight={highlight}
+            pathWords={ISSUE_WORDS}
+            toolbar={highlightSwitch}
+            focusId={CHAIN_GRAPH.focusId}
+            focusLabel="the issue this chain is about"
+            ariaSummary={CHAIN_GRAPH.ariaSummary}
+            emptyMessage={CHAIN_GRAPH.emptyMessage}
+          />
+        </div>
         <GraphLegend items={CHAIN_LEGEND} label="Chain graph legend" />
-        <DependencyGraph
-          nodes={CHAIN_GRAPH.nodes}
-          edges={CHAIN_GRAPH.edges}
-          layout={CHAIN_LAYOUT}
-          highlight={highlight}
-          pathWords={ISSUE_WORDS}
-          toolbar={highlightSwitch}
-          focusId={CHAIN_GRAPH.focusId}
-          focusLabel="the issue this chain is about"
-          ariaSummary={CHAIN_GRAPH.ariaSummary}
-          emptyMessage={CHAIN_GRAPH.emptyMessage}
-        />
       </section>
 
       <section className="block" aria-labelledby="graph-empty">
-        <BlockBar index="04" title="Empty" meta="emptyMessage" />
+        <BlockBar title="Empty" meta="emptyMessage" />
         <h2 id="graph-empty" className="srOnly">
           Empty graph
         </h2>

@@ -67,12 +67,13 @@ export const WEEK_TASK_COLUMNS: TaskColumnId[] = ['state', 'priority', 'due'];
 export interface WeekAttentionItem {
   id: string;
   projectName: string;
-  /** Mono line under the name: why it needs attention. */
+  /** The quiet line under the name: why it needs attention. */
   detail: string;
-  /** Right-aligned mono flag: "Blocked", "2 unassigned". */
+  /** The tinted chip at the row's end: "Blocked", "2 unassigned". */
   flag: string;
-  /** The row's 2px rule and the flag's colour: warning (blocked,
-      unassigned issues), architecture §8.2 "needs attention". */
+  /** The chip's tone (a tinted chip; the row itself has no rule):
+      warning (blocked, unassigned issues), architecture §8.2 "needs
+      attention". */
   tone: UiTone;
   href: string;
   /** Accessible name of the whole-row link. */
@@ -86,6 +87,11 @@ export interface WeekPageModel {
   heading: string;
   receipts: string;
   stats: StatCell[];
+  /** The issue list's section title ("Your issues", "Dev Patel's issues")
+      and its quiet count ("3 open"): the list sits under its own title,
+      as the deadlines and attention panels beside it do. */
+  issuesTitle: string;
+  issuesMeta: string;
   sections: TaskSectionData[];
   emptyMessage: string;
   deadlines: DeadlineGroup[];
@@ -327,7 +333,7 @@ function noMilestoneProjects(
 
 /**
  * A week section's status mark. The timeline bar carries the rubric, so a
- * milestone that is on track but missing an input reads as hatched here
+ * milestone that is on track but missing an input reads as missing (the dotted mark) here
  * too (same mark as on the timeline and in the deadline list); without a
  * bar the plain status mark is used.
  */
@@ -787,7 +793,7 @@ function buildDeadlines(
       id: 'overdue',
       label: 'Overdue',
       // Overdue is danger, due today or tomorrow a warning (§8.2
-      // "upcoming deadlines"); an empty group stays ink.
+      // "upcoming deadlines"); an empty group stays neutral.
       tone: overdue.length > 0 ? 'danger' : 'default',
       items: sorted(overdue),
     },
@@ -951,6 +957,12 @@ export function buildWeekPage(input: WeekPageInput): WeekPageModel {
       input.newBadgeDays,
       leadsProjects
     ),
+    issuesTitle: isSelf
+      ? 'Your issues'
+      : week.userName === ''
+        ? 'Their issues'
+        : `${week.userName}'s issues`,
+    issuesMeta: `${week.totals.open} open`,
     sections: buildSections(week, bars, unplanned, copy),
     emptyMessage: isSelf
       ? "Nothing assigned to you is open. Work in your projects' next milestones lands here when the daily run assigns it."

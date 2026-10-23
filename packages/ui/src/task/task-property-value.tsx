@@ -18,7 +18,8 @@ function toneClass(tone: UiTone): string | undefined {
    PropertyListItem's value; editors (Dispatch's pickers) can be its
    children just as well as text. A tone colours the value or the note
    with the tone's TEXT colour (data-tone: warning "Unassigned", danger an
-   overdue date, accent something new); muted greys it. */
+   overdue date, accent something new), the toned look of §8.2 (no fill);
+   muted puts it in the quiet text step. `mono` is tabular figures. */
 export function TaskPropertyValue({
   children,
   note,

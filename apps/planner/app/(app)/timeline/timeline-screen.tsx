@@ -2,13 +2,13 @@
 
 import {
   Button,
-  Link,
   Notice,
   SegmentedControl,
   TimelineChart,
   type TimelineZoom,
   useToast,
 } from '@better-tracker/ui';
+import { Network, Search } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   useCallback,
@@ -321,15 +321,23 @@ export default function TimelineScreen({
               <label className="srOnly" htmlFor={searchId}>
                 Search projects
               </label>
-              <input
-                id={searchId}
-                className={`input ${css.search}`}
-                type="search"
-                placeholder="Search"
-                autoComplete="off"
-                value={state.query}
-                onChange={(event) => update({ query: event.target.value })}
-              />
+              <span className={css.searchWrap}>
+                <Search
+                  className={css.searchIcon}
+                  size={13}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
+                <input
+                  id={searchId}
+                  className={`input ${css.search}`}
+                  type="search"
+                  placeholder="Search projects"
+                  autoComplete="off"
+                  value={state.query}
+                  onChange={(event) => update({ query: event.target.value })}
+                />
+              </span>
               <label className="srOnly" htmlFor={initiativeId}>
                 Initiative
               </label>
@@ -346,13 +354,17 @@ export default function TimelineScreen({
                 ))}
               </select>
               {/* The same work as a dependency graph: the workspace's
-                  milestones, or the filtered initiative's. */}
-              <Link
+                  milestones, or the filtered initiative's. A quiet
+                  toolbar button, the Graph nav item's icon on it. */}
+              <Button
                 href={timelineGraphHref(initiative, model.hasInitiatives)}
+                variant="quiet"
+                size="sm"
+                icon={<Network size={14} strokeWidth={1.8} />}
                 className={css.graphOpen}
               >
                 Open as graph
-              </Link>
+              </Button>
             </div>
           }
           toolbarEnd={

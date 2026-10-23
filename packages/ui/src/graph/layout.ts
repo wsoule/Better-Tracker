@@ -14,66 +14,129 @@ import type {
   LaidOutNode,
 } from './types';
 
-// Pure layout for the dependency graph: node boxes sized from mono text
-// metrics, positions and edge routes from dagre (rankdir LR by default),
-// or, given clusters, nested labelled frames whose linked items flow by
-// dagre and whose unlinked boxes pack into grids (layoutClustered). No
-// DOM, no React, no randomness: the same input gives the same output on
-// the server and the client, so the SVG hydrates without a diff.
+// Pure layout for the dependency graph: node boxes sized from Geist text
+// metrics (a per-character width table, below), positions and edge routes
+// from dagre (rankdir LR by default), or, given clusters, nested labelled
+// frames whose linked items flow by dagre and whose unlinked boxes pack
+// into grids (layoutClustered). No DOM, no React, no randomness: the same
+// input gives the same output on the server and the client, so the SVG
+// hydrates without a diff.
 
 /**
- * Box metrics shared with dependency-graph.module.css. Mono fonts advance
- * 0.6em per glyph, so a label's width is its length times the advance (plus
- * letter-spacing). Change a size here and in the CSS together.
+ * Box metrics shared with dependency-graph.module.css (Gr8r's card: 10px
+ * by 12px padding, a 13.5px medium title on 18px lines, a 12px quiet line,
+ * Chip atoms under it). Text widths come from GEIST_500 below. Change a
+ * size here and in the CSS together.
  */
 export const GRAPH_METRICS = {
   /** The node's 1px border, counted inside its box. */
   border: 1,
   padX: 12,
   padY: 10,
-  /** Status glyph square and the gap after it. */
-  glyph: 11,
+  /** The status diamond's 12px slot and the gap after it. */
+  glyph: 12,
   glyphGap: 8,
-  /** Label: 11.5px mono, no tracking. */
-  labelAdvance: 11.5 * 0.6,
-  labelLine: 16,
-  /** Sublabel: 9px mono uppercase, 0.1em tracking. */
-  subAdvance: 9 * 0.7,
-  subLine: 13,
-  subGap: 3,
-  /** Tag chips: 8.5px mono uppercase, 0.1em tracking, 1px border. */
-  tagAdvance: 8.5 * 0.7,
-  tagPadX: 5,
-  tagHeight: 15,
+  /** Label: --fs (13.5px) Geist 500 on 18px lines. */
+  labelSize: 13.5,
+  labelLine: 18,
+  /** Sublabel: --fs-xs (12px) Geist on a 16px line, 2px under the label
+      (an issue key in it is drawn in Geist Mono, which runs narrower). */
+  subSize: 12,
+  subLine: 16,
+  subGap: 2,
+  /** Chips: the Chip atom (12px Geist 500, 7px padding, a 1px border,
+      20px tall), 4px apart, 8px under the text. */
+  tagSize: 12,
+  tagPadX: 7,
+  tagHeight: 20,
   tagGap: 4,
-  tagsGap: 7,
-  /** The square mark leading a ready node's readiness chip, and its gap. */
-  readyDot: 5,
-  readyDotGap: 4,
-  minWidth: 168,
-  maxWidth: 248,
-  /** Weight label box. */
-  weightAdvance: 9.5 * 0.6,
+  tagsGap: 8,
+  /** The 6px dot leading a dot pill (a status chip that is not filled:
+      Ready, Clear, Overdue, No lead) and the gap after it. */
+  readyDot: 6,
+  readyDotGap: 5,
+  minWidth: 176,
+  maxWidth: 264,
+  /** Weight pill: 11px Geist 500 tabular figures (0.62em each). */
+  weightAdvance: 11 * 0.62,
   weightPadX: 5,
   weightHeight: 16,
 } as const;
+
+/**
+ * Geist's advance widths at weight 500, in thousandths of an em, for the
+ * printable ASCII characters (space to tilde), measured in the browser with
+ * the body's `ss01` / `cv11` features. Weight 400 runs about 2% narrower,
+ * so the same table sizes the 400 sublabel safely.
+ */
+const GEIST_500: readonly number[] = [
+  243, 228, 361, 515, 643, 810, 649, 186, 290, 290, 427, 562, 213, 418, 213,
+  391, 683, 368, 630, 625, 629, 641, 604, 550, 624, 606, 302, 302, 546, 544,
+  546, 570, 925, 689, 680, 713, 711, 602, 578, 713, 699, 263, 582, 638, 556,
+  873, 728, 751, 638, 745, 680, 654, 578, 696, 679, 959, 633, 613, 561, 361,
+  367, 361, 438, 558, 258, 564, 599, 554, 599, 567, 337, 598, 585, 239, 269,
+  562, 273, 868, 574, 579, 599, 599, 360, 528, 350, 586, 560, 829, 567, 553,
+  535, 395, 274, 395, 523,
+];
+
+/** A few common characters outside ASCII, same units. */
+const GEIST_500_EXTRA: Readonly<Record<string, number>> = {
+  '…': 612,
+  '·': 213,
+  '‘': 218,
+  '’': 218,
+  '“': 399,
+  '”': 399,
+  '—': 908,
+  '–': 592,
+  '›': 348,
+  '→': 954,
+};
+
+/** Anything else (accented letters, other scripts): a wide-ish guess. */
+const FALLBACK_ADVANCE = 640;
+
+/** Headroom for rounding and the fallback face before Geist loads. */
+const WIDTH_SAFETY = 1.04;
+
+/** Semibold (600, the frame titles) runs about 3% wider than the table. */
+const SEMIBOLD = 1.03;
+
+/**
+ * The rendered width in px of `text` set in Geist at `size` px: the sum of
+ * each character's advance (no kerning), with a little headroom. Exact
+ * enough to wrap and clip labels on the server; CSS still ellipsizes a
+ * line that comes out wider.
+ */
+export function textWidth(text: string, size: number): number {
+  let units = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    units +=
+      code >= 32 && code < 127
+        ? (GEIST_500[code - 32] ?? FALLBACK_ADVANCE)
+        : (GEIST_500_EXTRA[ch] ?? FALLBACK_ADVANCE);
+  }
+  return (units * size * WIDTH_SAFETY) / 1000;
+}
 
 const M = GRAPH_METRICS;
 
 /**
  * Cluster frame metrics shared with dependency-graph.module.css (.cluster,
- * .clusterTitle): the title is 9px mono caps (0.1em tracking) on a 12px
- * line, `titleTop` below the frame's top rule and `titleX` in from its
- * left; the frame's content starts `padTop` down and `padX` in. The gaps
- * space a frame's flow, grid and shelves, and the grid's cells.
+ * .clusterTitle): the title is sentence-case Geist at --fs-xs (12px), 600,
+ * on a 16px line, `titleTop` below the frame's top edge and `titleX` in
+ * from its left; the frame's content starts `padTop` down and `padX` in.
+ * The gaps space a frame's flow, grid and shelves, and the grid's cells.
  */
 export const CLUSTER_METRICS = {
   padX: 12,
-  padTop: 30,
+  padTop: 32,
   padBottom: 12,
   titleTop: 8,
   titleX: 10,
-  titleAdvance: 9 * 0.7,
+  titleSize: 12,
+  titleLine: 16,
   /** Title characters a frame widens for (a longer title is cut). */
   titleMaxChars: 40,
   /** Between a frame's flow, grid and shelves, and between shelved frames. */
@@ -141,9 +204,45 @@ function clip(text: string, max: number): string {
 }
 
 /**
+ * Cuts `text` to fit `maxWidth` px in Geist at `size`, ending in an
+ * ellipsis when cut (the longest prefix that still fits with it).
+ */
+export function clipText(text: string, maxWidth: number, size: number): string {
+  if (textWidth(text, size) <= maxWidth) return text;
+  const chars = Array.from(text);
+  let lo = 0;
+  let hi = chars.length;
+  // Binary search on the prefix length: the width grows with it.
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const candidate = `${chars.slice(0, mid).join('').trimEnd()}${ELLIPSIS}`;
+    if (textWidth(candidate, size) <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo === 0
+    ? ELLIPSIS
+    : `${chars.slice(0, lo).join('').trimEnd()}${ELLIPSIS}`;
+}
+
+/** The longest prefix of `word` (at least one character) that fits. */
+function fittingPrefix(word: string, maxWidth: number, size: number): string {
+  const chars = Array.from(word);
+  let n = 1;
+  while (
+    n < chars.length &&
+    textWidth(chars.slice(0, n + 1).join(''), size) <= maxWidth
+  ) {
+    n += 1;
+  }
+  return chars.slice(0, n).join('');
+}
+
+/**
  * Greedy word wrap by character count (exact for a mono face): at most
  * `maxLines` lines of `maxChars`; a word longer than a line is broken, and
- * whatever does not fit ends the last line with an ellipsis.
+ * whatever does not fit ends the last line with an ellipsis. The boxes
+ * wrap by measured Geist width instead (wrapText); this stays for hosts
+ * that draw in a mono face.
  */
 export function wrapMono(
   text: string,
@@ -182,16 +281,82 @@ export function wrapMono(
   return lines.length > 0 ? lines : [''];
 }
 
-/** Width of one tag chip, border included. */
-function tagWidth(tag: string): number {
-  return Math.ceil(tag.length * M.tagAdvance + M.tagPadX * 2 + 2);
+/**
+ * Greedy word wrap by measured Geist width: at most `maxLines` lines no
+ * wider than `maxWidth` px at `size`; a word wider than a line is broken,
+ * and whatever does not fit ends the last line with an ellipsis.
+ */
+export function wrapText(
+  text: string,
+  maxWidth: number,
+  size: number,
+  maxLines: number
+): string[] {
+  const words = text.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = '';
+  let index = 0;
+  while (index < words.length && lines.length < maxLines) {
+    const word = words[index];
+    const candidate = current === '' ? word : `${current} ${word}`;
+    if (textWidth(candidate, size) <= maxWidth) {
+      current = candidate;
+      index += 1;
+    } else if (current === '') {
+      // A single word wider than the line: hard-break it.
+      const head = fittingPrefix(word, maxWidth, size);
+      lines.push(head);
+      words[index] = word.slice(head.length);
+    } else {
+      lines.push(current);
+      current = '';
+    }
+  }
+  if (current !== '' && lines.length < maxLines) {
+    lines.push(current);
+  }
+  if (index < words.length || (lines.length === maxLines && current !== '')) {
+    // Text remains: the last line carries the ellipsis.
+    const rest = [lines[lines.length - 1] ?? '', ...words.slice(index)]
+      .join(' ')
+      .trim();
+    lines[lines.length - 1] = clipText(rest, maxWidth, size);
+  }
+  return lines.length > 0 ? lines : [''];
+}
+
+/**
+ * A frame title's drawn width in px: sentence-case Geist at the title
+ * size, semibold, cut at `titleMaxChars` characters (a longer title is
+ * ellipsized by the CSS inside the frame).
+ */
+export function clusterTitleWidth(label: string): number {
+  return textWidth(clip(label, C.titleMaxChars), C.titleSize) * SEMIBOLD;
+}
+
+/**
+ * The tag words drawn as a dot pill (a status Chip that is not filled), so
+ * their chip leads with a 6px dot: see DependencyGraph's tagChip. Any
+ * other tag is a badge (tinted, neutral or plain) with no dot.
+ */
+const DOT_TAGS: ReadonlySet<string> = new Set(['Overdue', 'No lead']);
+
+/** Width of one Chip (border included), plus its dot when it has one. */
+function tagWidth(tag: string, dot = false): number {
+  return Math.ceil(
+    textWidth(tag, M.tagSize) +
+      M.tagPadX * 2 +
+      2 +
+      (dot ? M.readyDot + M.readyDotGap : 0)
+  );
 }
 
 /**
  * The widths of a node's chips in drawing order: the readiness chip first
  * (when it has a word and is not independent, whose word is said but not
- * drawn; a ready one leads with a square mark), then its tags. The chip is
- * drawn under every highlight, so one layout fits all.
+ * drawn), then its tags. The chip is drawn under every highlight, a dot
+ * pill under Status when it is ready (success) or informs (info), so its
+ * dot's room is always kept and one layout fits all.
  */
 function chipWidths(node: GraphNodeData): number[] {
   const widths: number[] = [];
@@ -201,10 +366,12 @@ function chipWidths(node: GraphNodeData): number[] {
     readiness.label !== '' &&
     readiness.state !== 'independent'
   ) {
-    const dot = readiness.state === 'ready' ? M.readyDot + M.readyDotGap : 0;
-    widths.push(tagWidth(readiness.label) + dot);
+    const dot = readiness.tone === 'success' || readiness.tone === 'info';
+    widths.push(tagWidth(readiness.label, dot));
   }
-  for (const tag of node.tags ?? []) widths.push(tagWidth(tag));
+  for (const tag of node.tags ?? []) {
+    widths.push(tagWidth(tag, DOT_TAGS.has(tag)));
+  }
   return widths;
 }
 
@@ -213,7 +380,8 @@ function tagRows(widths: readonly number[], width: number): number {
   if (widths.length === 0) return 0;
   let rows = 1;
   let used = 0;
-  for (const w of widths) {
+  for (const width0 of widths) {
+    const w = Math.min(width0, width);
     const next = used === 0 ? w : used + M.tagGap + w;
     if (next > width && used > 0) {
       rows += 1;
@@ -248,23 +416,17 @@ export function measureNode(node: GraphNodeData): NodeMeasure {
     tagsRow += (tagsRow === 0 ? 0 : M.tagGap) + w;
   }
   const natural = Math.max(
-    node.label.length * M.labelAdvance,
-    sublabel.length * M.subAdvance,
+    textWidth(node.label, M.labelSize),
+    textWidth(sublabel, M.subSize),
     tagsRow
   );
   const width = Math.ceil(
     Math.min(M.maxWidth, Math.max(M.minWidth, natural + chrome))
   );
   const inner = width - chrome;
-  const labelLines = wrapMono(
-    node.label,
-    Math.max(1, Math.floor(inner / M.labelAdvance)),
-    MAX_LABEL_LINES
-  );
-  const sublabelLine = clip(
-    sublabel,
-    Math.max(1, Math.floor(inner / M.subAdvance))
-  );
+  const labelLines = wrapText(node.label, inner, M.labelSize, MAX_LABEL_LINES);
+  const sublabelLine =
+    sublabel === '' ? '' : clipText(sublabel, inner, M.subSize);
   const rows = tagRows(chips, inner);
   const height =
     (M.padY + M.border) * 2 +
@@ -1433,10 +1595,7 @@ function layoutFrame(
     frame.height = y;
     return;
   }
-  const title = Math.ceil(
-    Math.min(frame.data.label.length, C.titleMaxChars) * C.titleAdvance +
-      C.titleX * 2
-  );
+  const title = Math.ceil(clusterTitleWidth(frame.data.label) + C.titleX * 2);
   frame.width = Math.max(contentWidth + C.padX * 2, title);
   frame.height = y + C.padTop + C.padBottom;
 }
@@ -1615,7 +1774,7 @@ function turnRound(a: Point, b: Point, box: Box): [Point, Point] {
 
 /**
  * An arrow between frames, kept off the boxes it would run behind (and
- * the frame titles' paper patches, which hide what runs under them).
+ * the frame titles' patches, which hide what runs under them).
  * Between its lead-out and lead-in points each straight run of its
  * control polygon that enters another box turns round it by its nearer
  * side (turnRound), so it runs along the gap beside the box; the new
@@ -2056,7 +2215,8 @@ function layoutClustered(
       );
     });
   // What an arrow between frames keeps clear of: every box, and each
-  // frame title's paper patch (drawn over the arrows, it hides them).
+  // frame title's patch in the canvas colour (drawn over the arrows, it
+  // hides them).
   const obstacles = obstaclesOf([
     ...placed,
     ...groups.map((group) => ({
@@ -2065,9 +2225,9 @@ function layoutClustered(
       width:
         Math.min(
           Math.max(0, group.width - C.titleX * 2),
-          Math.min(group.label.length, C.titleMaxChars) * C.titleAdvance
+          clusterTitleWidth(group.label)
         ) + 6,
-      height: 12,
+      height: C.titleLine,
     })),
   ]);
   const laidEdges: LaidOutEdge[] = [];

@@ -180,6 +180,9 @@ test.describe('graph highlights', () => {
     page,
   }) => {
     await page.goto('/graph?chain=ENG-23');
+    // At rest means no pointer on a box: the sign-in click leaves the mouse
+    // mid-page, where a box may now sit.
+    await page.mouse.move(0, 0);
     const frame = page.locator('[data-highlight]');
     await expect(frame).toHaveAttribute('data-highlight', 'status');
     await expect(

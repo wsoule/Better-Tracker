@@ -1022,15 +1022,23 @@ describe('cluster styles', () => {
     return css.slice(open + 1, css.indexOf('}', open));
   };
 
-  test('a hairline frame, a titled paper patch, a hatched muted frame, dashes outside', () => {
-    expect(rule('.cluster')).toContain('border: 1px solid var(--grey-2)');
-    expect(rule('.clusterTitle')).toContain('background: var(--background)');
-    expect(rule('.clusterTitle')).toContain('text-transform: uppercase');
-    expect(rule('.clusterTitle')).toContain('font-family: var(--font-mono)');
-    expect(rule('.clusterTitleTop')).toContain('color: var(--foreground)');
-    expect(rule('.clusterTitleMuted')).toContain('color: var(--grey-2-ink)');
-    expect(rule('.clusterMuted')).toContain('border-color: var(--grey)');
-    expect(rule('.clusterMuted')).toContain('var(--hatch)');
+  test('a soft rounded frame, a sentence-case title on a canvas patch, a dashed grey muted frame, dashes outside', () => {
+    // 3:1 on the canvas: the frame is the only cue that groups.
+    expect(rule('.cluster')).toContain(
+      'border: 1px solid var(--control-border)'
+    );
+    expect(rule('.cluster')).toContain('border-radius: var(--r-lg)');
+    // The title's patch is the canvas colour, so an arrow passes behind it.
+    expect(rule('.clusterTitle')).toContain('background: var(--sunken)');
+    expect(rule('.clusterTitle')).not.toContain('text-transform');
+    expect(rule('.clusterTitle')).not.toContain('font-family');
+    expect(rule('.clusterTitle')).toContain('font-weight: var(--fw-semibold)');
+    expect(rule('.clusterTitle')).toContain('color: var(--text-3)');
+    expect(rule('.clusterTitleTop')).toContain('color: var(--text-2)');
+    expect(rule('.clusterTitleMuted')).toContain('color: var(--text-3)');
+    expect(rule('.clusterMuted')).toContain('border-style: dashed');
+    expect(rule('.clusterMuted')).toContain('border-color: var(--gray)');
+    expect(css).not.toContain('--hatch');
     expect(rule('.clusterExternal')).toContain('border-style: dashed');
   });
 
@@ -1042,16 +1050,23 @@ describe('cluster styles', () => {
     expect(rule('.clusterTitleMuted', forced)).toContain('color: GrayText');
   });
 
-  test('a done box keeps its filled ink square when faint', () => {
-    expect(rule('.toneMuted > .done')).toContain(
-      '--glyph-ink: var(--foreground)'
-    );
+  test('a done box keeps its solid neutral diamond when quiet', () => {
+    // The quiet box greys every hue but done's, which stays --text.
+    expect(rule('.toneMuted')).not.toContain('--glyph-ink');
+    expect(rule('.node')).toContain('--glyph-ink: var(--text)');
   });
 
   test('the title metrics match the stylesheet', () => {
-    expect(rule('.clusterTitle')).toContain('font-size: 9px');
-    expect(rule('.clusterTitle')).toContain('line-height: 12px');
-    expect(CLUSTER_METRICS.titleAdvance).toBeCloseTo(9 * 0.7);
+    // --fs-xs is 12px (tokens.css).
+    expect(rule('.clusterTitle')).toContain('font-size: var(--fs-xs)');
+    expect(CLUSTER_METRICS.titleSize).toBe(12);
+    expect(rule('.clusterTitle')).toContain(
+      `line-height: ${CLUSTER_METRICS.titleLine}px`
+    );
+    // Room under the title before the content: its line and two gaps.
+    const room: number =
+      CLUSTER_METRICS.titleTop * 2 + CLUSTER_METRICS.titleLine;
+    expect(CLUSTER_METRICS.padTop as number).toBe(room);
   });
 });
 

@@ -115,14 +115,16 @@ export function toggleValue(
 
 /** "AM" for "Ana Moreno", "D" for "dev": the first letters of the first
     and last words, by code point so an emoji or accented letter stays
-    whole. */
+    whole. The one initials helper of the package and its hosts (avatars,
+    the brand tile), so a person gets the same letters everywhere. Not
+    locale-sensitive (toUpperCase): the server and the browser must agree. */
 export function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
   if (words.length === 0) return '?';
   const first = Array.from(words[0])[0] ?? '';
   const last =
     words.length > 1 ? (Array.from(words[words.length - 1])[0] ?? '') : '';
-  return `${first}${last}`.toLocaleUpperCase();
+  return `${first}${last}`.toUpperCase();
 }
 
 /** True for `#rgb`, `#rgba`, `#rrggbb` and `#rrggbbaa`: the only colours

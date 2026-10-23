@@ -125,7 +125,7 @@ export function formatDayLong(iso: string, referenceYearOf?: string): string {
 /**
  * Maps the window [start, end] (inclusive days) onto x pixels: day i of the
  * window owns the column [i·dayWidth, (i+1)·dayWidth). Dates are drawn at
- * the centre of their column (bars, diamonds and the TODAY rule share it),
+ * the centre of their column (bars, diamonds and the today line share it),
  * so a milestone due today sits exactly on the rule.
  */
 export interface TimeScale {
@@ -284,7 +284,7 @@ export interface Span {
   width: number;
 }
 
-/** Contiguous Saturday–Sunday runs inside the window (shaded with --tint
+/** Contiguous Saturday–Sunday runs inside the window (shaded with --sunken
  * in the weeks zoom). */
 export function weekendSpans(scale: TimeScale): Span[] {
   const spans: Span[] = [];

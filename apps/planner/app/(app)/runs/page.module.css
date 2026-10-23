@@ -1,11 +1,12 @@
 /* /runs and /runs/[id] page furniture around the package components: the
-   header, the run controls, one block per project, and the cell contents.
-   Built only from the shared tokens. */
+   page head (title, chips, subtitle), the run controls, a section per
+   part (a heading row over its panel or notice), and the cell contents.
+   Built only from the shared tokens, in Gr8r's moves. */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
@@ -15,15 +16,15 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 14px;
+  gap: 8px 12px;
 }
 
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
+  color: var(--text);
 }
 
 .chips {
@@ -34,51 +35,108 @@
 
 .receipts {
   max-width: 96ch;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
 }
 
 .body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
   max-width: 1440px;
   margin: 24px auto 0;
   padding: 0 48px 72px;
 }
 
-.body > * + * {
-  margin-top: 24px;
-}
-
-.collapse > * + * {
-  margin-top: -1px;
-}
-
-.actions {
+/* A heading row over its notice, panel and notes. */
+.section {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+
+.section > :global(.blockBar) {
+  padding-bottom: 0;
+}
+
+/* A plain panel (loading skeletons). */
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
+/* /runs: the header as a grid, the run controls top right (Gr8r's header
+   actions) beside the title and receipts, their one-line note under the
+   receipts. One column on narrow screens. */
+.headActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'title actions'
+    'receipts actions'
+    'note note';
+  column-gap: 24px;
+}
+
+.headActions > .title {
+  grid-area: title;
+}
+
+.headActions > .receipts {
+  grid-area: receipts;
 }
 
 .actionBar {
   display: flex;
+  grid-area: actions;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 12px;
-  padding: 12px 18px;
-  border: 1px solid var(--border);
+  align-self: start;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .actionNote {
-  flex: 1 1 280px;
-  max-width: 80ch;
-  font-size: 13.5px;
+  grid-area: note;
+  max-width: 96ch;
+  margin-top: 6px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--text-3);
 }
 
+.actionNote:empty {
+  display: none;
+}
+
+/* The run's properties: Gr8r's flat property list, no box around it, in
+   two columns where there is room. */
 .facts {
-  padding: 6px 18px 10px;
-  border: 1px solid var(--border);
+  max-width: 760px;
+}
+
+@media (width >= 901px) {
+  .facts > dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 32px;
+  }
+}
+
+/* A blocked project: the reason as plain sentences under the section's
+   "Blocked" chip, with a quiet link to its timeline lane. */
+.blockText {
+  max-width: 96ch;
+  font-size: var(--fs);
+  line-height: var(--lh);
+  color: var(--text-2);
+}
+
+.blockLink {
+  margin-left: 6px;
 }
 
 .issue {
@@ -88,25 +146,37 @@
   min-width: 0;
 }
 
+/* The issue key is an id: Geist Mono, small and quiet. */
 .issueKey {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
 }
 
 .issueTitle {
   overflow-wrap: anywhere;
 }
 
-.blockGaps {
-  margin-top: 6px;
-  padding-left: 18px;
-  list-style: square;
+.count {
+  font-variant-numeric: tabular-nums;
 }
 
-/* Loading skeleton: header lines and the controls' height. */
+.blockGaps {
+  margin-top: 4px;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+/* The already-assigned skips: one quiet sentence under the panel. */
+.skipLine {
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+
+/* Loading skeleton: header lines. */
 .skeletonHead {
   display: flex;
   flex-direction: column;
@@ -120,16 +190,23 @@
     padding: 0 16px;
   }
 
-  .title {
-    font-size: 22px;
+  .headActions {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'title'
+      'receipts'
+      'actions'
+      'note';
+    row-gap: 4px;
+  }
+
+  .actionBar {
+    justify-content: flex-start;
+    margin-top: 10px;
   }
 
   .body {
     margin-top: 20px;
     padding: 0 16px 48px;
-  }
-
-  .actionBar {
-    padding: 12px 14px;
   }
 }

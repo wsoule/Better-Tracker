@@ -55,7 +55,7 @@ import type { IssueListOptionsState } from './use-issue-list-options';
    "…" menu with its weight. Pickers that list workspace data fetch the
    options on first open (useIssueListOptions). */
 
-const ICON = { size: 14, strokeWidth: 1.5, 'aria-hidden': true } as const;
+const ICON = { size: 14, strokeWidth: 1.8, 'aria-hidden': true } as const;
 
 /** The issues a row's menu or the bulk bar acts on. */
 export interface MoveTargets {

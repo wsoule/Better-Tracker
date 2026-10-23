@@ -12,8 +12,8 @@ export interface ThemeToggleProps {
 /* Stateless by design: both glyphs are always rendered (identical markup in
    both themes, so there is nothing to hydrate wrong) and CSS picks the visible
    one. The glyph shown is the mode you would switch TO. Drawn in currentColor
-   so it rides every chrome state for free: ink on the flat bar, white on the
-   accent hover flood, inverted ink in dark. */
+   so it follows the button's own colour: --text-2 at rest, --text on its
+   hover fill, in either theme. */
 export default function ThemeToggle({
   storageKey,
 }: ThemeToggleProps): ReactNode {

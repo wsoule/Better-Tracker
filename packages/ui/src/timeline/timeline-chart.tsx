@@ -1,8 +1,9 @@
 'use client';
 
-import { Crosshair } from 'lucide-react';
+import { CalendarRange, Crosshair } from 'lucide-react';
 import {
   type CSSProperties,
+  type FocusEvent,
   memo,
   type ReactElement,
   useCallback,
@@ -13,12 +14,13 @@ import {
   useState,
 } from 'react';
 
+import StatusMark from '../components/status-mark';
 import { Link } from '../lib/link';
 import { Button } from '../tasks/button';
 import { cx } from '../tasks/class-names';
+import { EmptyState } from '../tasks/notice';
 import { SegmentedControl } from '../tasks/segmented-control';
 import { Switch } from '../tasks/switch';
-import type { UiStatus } from '../types';
 import { formatDay, formatDayLong, type TimeScale } from './dates';
 import {
   computeConnectors,
@@ -42,8 +44,9 @@ import type {
   TimelineZoom,
 } from './types';
 
-// The Gr8r Gantt in the Analytics Matrix drawing style (architecture §8.4
-// Timeline). One scroll container owns both axes so the two-row header and
+// Gr8r Studio's Gantt (architecture §8.4 Timeline): a flat toolbar, a
+// legend of status marks, then one panel. One scroll container owns both
+// axes so the two-row header and
 // the lane column stay sticky without scroll syncing; geometry comes from
 // the pure layout module, memoised per data/zoom change; a drag re-renders
 // only the dragged bar. Below 900px the chart gives way to per-project
@@ -79,7 +82,7 @@ interface Override {
 
 interface LiveMessage {
   tone: 'status' | 'error';
-  /** Mono key before the sentence: SAVING, SAVED, NOT SAVED. */
+  /** Lead-in word before the sentence: Saving, Saved, Not saved. */
   key: string;
   text: string;
 }
@@ -129,6 +132,37 @@ function scrollTrackTo(
 function scrollLaneIntoView(el: HTMLElement, lane: LaneRow): void {
   const visible = Math.max(0, el.clientHeight - HEADER_HEIGHT);
   el.scrollTop = Math.max(0, lane.top + lane.height / 2 - visible / 2);
+}
+
+/* Keeps a keyboard-focused bar, handle or chip clear of the sticky lane
+   column and header (WCAG 2.4.11). The browser only scrolls a focused
+   element that is outside the scroll box, and one under the sticky column
+   is inside it, so it would stay hidden. Pointer focus (not
+   :focus-visible) is left alone, so a click never moves the chart, and
+   the sticky cells themselves (lane names, group links) only need the
+   vertical check. */
+function revealFocused(el: HTMLElement, target: HTMLElement): void {
+  if (target === el) return;
+  let keyboard = true;
+  try {
+    keyboard = target.matches(':focus-visible');
+  } catch {
+    // An engine without :focus-visible: treat focus as keyboard focus.
+  }
+  if (!keyboard) return;
+  const port = el.getBoundingClientRect();
+  const box = target.getBoundingClientRect();
+  const top = port.top + HEADER_HEIGHT + 8;
+  const bottom = port.top + el.clientHeight - 8;
+  if (box.top < top) el.scrollTop -= top - box.top;
+  else if (box.bottom > bottom) el.scrollTop += box.bottom - bottom;
+  if (target.closest('[data-timeline-sticky]') !== null) return;
+  const left = port.left + LANE_WIDTH + 12;
+  const right = port.left + el.clientWidth - 12;
+  if (box.left < left) el.scrollLeft -= left - box.left;
+  else if (box.right > right) {
+    el.scrollLeft += Math.min(box.right - right, box.left - left);
+  }
 }
 
 /* Brings the chart itself into the page's view (block: nearest, so a chart
@@ -213,28 +247,29 @@ const GroupRowView = memo(function GroupRowView({
   const count = group.lanes.length;
   return (
     <div className={cx(styles.row, styles.groupRow)} style={{ height }}>
-      <div className={cx(styles.laneCell, styles.groupCell)}>
-        {/* The title shows the whole name when the count has ellipsized
-            it. */}
+      <div
+        className={cx(styles.laneCell, styles.groupCell)}
+        data-timeline-sticky=""
+      >
+        {/* The title shows the whole name when the count and the link
+            have ellipsized it. */}
         <h3 className={styles.groupLabel} title={group.label}>
           {group.label}
         </h3>
-        {/* The count and the link stack in one narrow column on the
-            right, so the link costs the name no width. */}
-        <span className={styles.groupMeta}>
-          <span className={styles.groupCount}>
-            {count} {count === 1 ? 'project' : 'projects'}
-          </span>
-          {group.link !== undefined ? (
-            <Link
-              href={group.link.href}
-              className={styles.groupLink}
-              aria-label={group.link.ariaLabel}
-            >
-              {group.link.label}
-            </Link>
-          ) : null}
+        <span className={styles.groupCount}>
+          {count} {count === 1 ? 'project' : 'projects'}
         </span>
+        {/* The quiet link sits at the cell's right edge, after the count
+            that stays beside the name. */}
+        {group.link !== undefined ? (
+          <Link
+            href={group.link.href}
+            className={styles.groupLink}
+            aria-label={group.link.ariaLabel}
+          >
+            {group.link.label}
+          </Link>
+        ) : null}
       </div>
       <div className={styles.track} />
     </div>
@@ -298,14 +333,13 @@ const LaneRowView = memo(function LaneRowView({
       aria-label={groupName}
       className={cx(
         styles.row,
-        styles.laneRow,
         lane.muted === true ? styles.laneMuted : undefined,
         focused ? styles.laneFocus : undefined
       )}
       style={{ height: row.height }}
       data-lane-id={lane.id}
     >
-      <div className={styles.laneCell}>
+      <div className={styles.laneCell} data-timeline-sticky="">
         <div className={styles.laneText}>
           {lane.href !== undefined ? (
             <Link href={lane.href} className={styles.laneName}>
@@ -371,6 +405,14 @@ const LaneRowView = memo(function LaneRowView({
                 aria-current={chip.id === selectedBarId ? 'true' : undefined}
                 onClick={() => onOpen(chip.id)}
               >
+                {/* Drawing only: the chip's name says the status. */}
+                <span className={styles.chipMark} aria-hidden="true">
+                  <StatusMark
+                    status={chip.status}
+                    label={chip.statusLabel}
+                    muted={lane.muted === true}
+                  />
+                </span>
                 <span className={styles.chipLabel}>{chip.label}</span>
                 <span
                   className={cx(
@@ -431,18 +473,6 @@ const Connectors = memo(function Connectors({
     </svg>
   );
 });
-
-/** A legend mini bar in its status's shape and hue (`data-status` names
- * it for tests and tooling; the label beside it says it in words). */
-function LegendSwatch({ status }: { status: UiStatus }): ReactElement {
-  return (
-    <span
-      className={cx(styles.swatch, styles[`s_${status}`])}
-      data-status={status}
-      aria-hidden="true"
-    />
-  );
-}
 
 /* ---- the chart -------------------------------------------------------- */
 
@@ -634,6 +664,13 @@ export function TimelineChart({
   const dayWidth = layout.scale.dayWidth;
   const dayWidthRef = useRef(dayWidth);
 
+  const onFocus = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    const el = scrollerRef.current;
+    if (el !== null && event.target instanceof HTMLElement) {
+      revealFocused(el, event.target);
+    }
+  }, []);
+
   const onScroll = useCallback(() => {
     const el = scrollerRef.current;
     if (el === null) return;
@@ -755,8 +792,8 @@ export function TimelineChart({
           ) : null}
           <Button
             size="sm"
-            variant="secondary"
-            icon={<Crosshair size={14} strokeWidth={1.5} />}
+            variant="quiet"
+            icon={<Crosshair size={14} strokeWidth={1.8} />}
             onClick={scrollToToday}
             disabled={layout.todayX === null || laneCount === 0}
           >
@@ -792,7 +829,10 @@ export function TimelineChart({
           <ul className={styles.legend} aria-label="Legend">
             {legend.map((item) => (
               <li key={item.status} className={styles.legendItem}>
-                <LegendSwatch status={item.status} />
+                {/* The mark is drawing: the label beside it says it. */}
+                <span className={styles.legendMark} aria-hidden="true">
+                  <StatusMark status={item.status} label={item.label} />
+                </span>
                 <span className={styles.legendLabel}>{item.label}</span>
               </li>
             ))}
@@ -821,7 +861,10 @@ export function TimelineChart({
       </div>
 
       {laneCount === 0 ? (
-        <p className={cx('empty', styles.empty)}>{emptyLabel}</p>
+        // Gr8r's centred empty state (icon, sentence), as every list has.
+        <EmptyState icon={<CalendarRange size={22} strokeWidth={1.8} />}>
+          {emptyLabel}
+        </EmptyState>
       ) : (
         <>
           <div
@@ -831,6 +874,7 @@ export function TimelineChart({
             role="region"
             aria-label={`${label}, ${formatDayLong(scale.windowStart, today)} to ${formatDayLong(scale.windowEnd, today)}`}
             onScroll={onScroll}
+            onFocus={onFocus}
           >
             <div
               className={styles.canvas}
@@ -843,9 +887,6 @@ export function TimelineChart({
               >
                 <div className={styles.corner}>
                   <span className={styles.cornerLabel}>Project</span>
-                  <span className={styles.cornerSub}>
-                    Lead · {zoom === 'weeks' ? 'days' : 'weeks'}
-                  </span>
                 </div>
                 <TimelineScaleHeader
                   windowStart={windowStart}

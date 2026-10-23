@@ -45,8 +45,8 @@ export const MODE_LABEL: Record<AllocationMode, string> = {
   live: 'Live',
 };
 
-/** A run's mode as a chip (architecture §8.2 "allocation mode"): DRY RUN
-    is the hollow ink chip, LIVE (it wrote to Linear) the blue info chip. */
+/** A run's mode as a chip (architecture §8.2 "allocation mode"): Dry run
+    is the neutral badge, Live (it wrote to Linear) the tinted blue chip. */
 export const MODE_TONE: Record<AllocationMode, ChipTone> = {
   dry_run: 'default',
   live: 'info',
@@ -142,17 +142,17 @@ export interface RunRowModel {
   /** "Daily schedule", "Ana Moreno". */
   startedBy: string;
   trigger: string;
-  /** The mono line under the start time: "Manual · Ana Moreno", or
+  /** The quiet line under the start time: "Manual · Ana Moreno", or
       "Daily schedule" (the trigger says the same thing twice there). */
   byline: string;
   mode: AllocationMode;
   modeLabel: string;
   modeTone: ChipTone;
-  /** LIVE is a filled chip (MODE_FILLED). */
+  /** Live is a tinted chip (MODE_FILLED). */
   modeFilled: boolean;
   statusLabel: string;
   statusTone: ChipTone;
-  /** A failed or partly failed run is a filled chip (RUN_STATUS_FILLED). */
+  /** A failed or partly failed run is a tinted chip (RUN_STATUS_FILLED). */
   statusFilled: boolean;
   /** Null while running (the summary is written when it finishes). */
   counts: RunCounts | null;
@@ -160,8 +160,9 @@ export interface RunRowModel {
   finished: string;
   /** "took 1.2 s", or null while running. */
   took: string | null;
-  /** The row's 2px rule: danger for a failed run or failed writes,
-      warning for a partly failed one; default otherwise. */
+  /** The row's tone, data only (no row rule: the status chip says it):
+      danger for a failed run or failed writes, warning for a partly
+      failed one; default otherwise. */
   rowTone: 'default' | 'warning' | 'danger';
   rowLabel: string;
 }
@@ -269,7 +270,8 @@ const OUTCOME_LABEL: Record<RunIssueOutcome, string> = {
 };
 
 /** An issue's outcome chip (architecture §8.2 "run issue outcome"): would
-    assign ink, assigned green, failed red, not written or skipped grey. */
+    assign a neutral badge, assigned green, failed red, not written or
+    skipped plain grey. */
 const OUTCOME_TONE: Record<RunIssueOutcome, ChipTone> = {
   planned: 'default',
   applied: 'success',
@@ -358,11 +360,11 @@ export interface RunDetailModel {
   mode: AllocationMode;
   modeLabel: string;
   modeTone: ChipTone;
-  /** LIVE is a filled chip (MODE_FILLED). */
+  /** Live is a tinted chip (MODE_FILLED). */
   modeFilled: boolean;
   statusLabel: string;
   statusTone: ChipTone;
-  /** A failed or partly failed run is a filled chip (RUN_STATUS_FILLED). */
+  /** A failed or partly failed run is a tinted chip (RUN_STATUS_FILLED). */
   statusFilled: boolean;
   properties: RunProperty[];
   stats: RunStat[];
@@ -534,7 +536,8 @@ function groupMeta(group: RunProjectGroup): string {
   const parts: string[] = [];
   const count = (outcome: RunIssueOutcome) =>
     group.rows.filter((row) => row.outcome === outcome).length;
-  if (group.block !== null) parts.push('Blocked');
+  // A blocked project says so with the tinted "Blocked" chip beside its
+  // name (the run page), so the counts here leave the word out.
   if (count('applied') > 0) parts.push(`${count('applied')} assigned`);
   if (count('planned') > 0) parts.push(`${count('planned')} would assign`);
   if (count('failed') > 0) parts.push(`${count('failed')} failed`);

@@ -41,10 +41,11 @@ export function escapeMermaidLabel(text: string): string {
 }
 
 /**
- * The status hues of the Mermaid export: the light theme's status MARK
- * colours (`--red`, `--amber`, `--green` in packages/ui's tokens.css,
- * architecture §8.2 "Status colours"; a core test reads that file and
- * keeps them equal), since pasted Mermaid cannot read CSS variables. Each
+ * The status hues of the Mermaid export: the status hues of packages/ui's
+ * tokens.css (`--red`, `--amber`, `--green`, architecture §8.2 "Status
+ * colours") at a mid tone, since pasted Mermaid cannot read CSS variables
+ * and renders in either theme (a core test reads that file and keeps each
+ * the same hue as its token). Each
  * holds 3:1 or more as a stroke on white, on Mermaid's default node fills
  * (light #ececff, dark #1f2020) and on GitHub's dark page (#0d1117). In
  * the status highlight a hue only repeats the label's readiness word.

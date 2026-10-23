@@ -2,6 +2,7 @@
 
 import {
   Ellipsis,
+  Folder,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -22,8 +23,10 @@ import {
   useSyncExternalStore,
 } from 'react';
 
+import { InitialsAvatar } from '../components/initials-avatar';
 import StatusMark from '../components/status-mark';
 import ThemeToggle from '../components/theme-toggle';
+import { initials } from '../edit/shared';
 import { Link } from '../lib/link';
 import styles from './app-shell.module.css';
 import { useOptionalCommandPalette } from './command-palette';
@@ -39,7 +42,7 @@ import {
   useScrollLock,
   writeStorage,
 } from './dom';
-import { KbdKeys } from './kbd';
+import { Kbd, KbdKeys } from './kbd';
 import { cx, renderIcon } from './render';
 import type {
   AppShellProps,
@@ -48,12 +51,14 @@ import type {
   ShellUser,
 } from './types';
 
-/* One primary-nav row: icon, mono label, count; the shortcut shows on
-   hover. `data-tip` feeds the rail tooltip when the sidebar is collapsed. */
+/* One primary-nav row: icon, label, count; the shortcut shows on hover.
+   `data-tip` feeds the rail tooltip when the sidebar is collapsed. A count
+   with a tone (accent = new / unread, or a status tone) is a badge. */
 function NavRow({ item }: { item: ShellNavItem }): ReactNode {
   const showCount = item.count !== undefined && item.count > 0;
-  // A status-toned count is the accent count's square chip in the status
-  // hue (data-tone gives the CSS --tone and --on-tone).
+  // A toned count is a Gr8r badge: accent (new, unread) the solid accent
+  // pill, a status tone its tinted pill (data-tone gives the CSS --tone,
+  // --tone-ink and --tone-soft). default and muted stay a quiet number.
   const tone = item.countTone ?? 'default';
   const statusToned =
     tone !== 'default' && tone !== 'muted' && tone !== 'accent';
@@ -89,7 +94,17 @@ function NavRow({ item }: { item: ShellNavItem }): ReactNode {
   );
 }
 
-/* A titled sidebar list (PROJECTS): status mark + name per row. */
+/* A titled sidebar list (Projects), Gr8r's quiet project rows: a grey
+   tile with a folder, the name, and the status mark (a diamond) on the
+   right only for a milestone that needs attention (overdue, at risk), so
+   the chrome is not a column of coloured marks. Every row's status is in
+   its accessible name and its rail tooltip: one explicit name, the
+   visible project name first and then its status ("Delta exports,
+   Missing input"), so it never depends on how a browser spaces a hidden
+   span, and the mark on a loud row is decoration beside it (not read
+   twice). */
+const LOUD_STATUSES: ReadonlySet<string> = new Set(['overdue', 'at_risk']);
+
 function SectionList({
   section,
   headingId,
@@ -122,13 +137,21 @@ function SectionList({
             <li key={item.id} data-tip={`${item.label} · ${item.statusLabel}`}>
               <Link
                 href={item.href}
-                className={cx(styles.item, styles.sectionItem)}
+                className={styles.item}
+                aria-label={`${item.label}, ${item.statusLabel}`}
                 aria-current={item.current === true ? 'page' : undefined}
               >
                 <span className={styles.icon}>
-                  <StatusMark status={item.status} label={item.statusLabel} />
+                  <span className={styles.projectTile} aria-hidden="true">
+                    <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
+                  </span>
                 </span>
                 <span className={styles.label}>{item.label}</span>
+                {LOUD_STATUSES.has(item.status) ? (
+                  <span className={styles.projectStatus} aria-hidden="true">
+                    <StatusMark status={item.status} label={item.statusLabel} />
+                  </span>
+                ) : null}
               </Link>
             </li>
           ))}
@@ -138,23 +161,10 @@ function SectionList({
   );
 }
 
-/** Up to two initials for the square avatar. */
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter((part) => part !== '')
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join('')
-    .toUpperCase();
-}
-
 function UserBlock({ user }: { user: ShellUser }): ReactNode {
   const inner = (
     <>
-      <span className={styles.avatar} aria-hidden="true">
-        {initials(user.name)}
-      </span>
+      <InitialsAvatar name={user.name} size="base" />
       <span className={styles.userName}>{user.name}</span>
       {user.badge !== undefined && user.badge !== '' ? (
         <span className={styles.badge}>{user.badge}</span>
@@ -206,9 +216,11 @@ interface RailTip {
 }
 
 /**
- * The app frame (architecture §8.3): a fixed 252px hatched sidebar — brand
- * row, primary nav, titled sections, footer (settings, user, theme, sign
- * out) — beside a 46px topbar (breadcrumb, search trigger) and the content.
+ * The app frame (architecture §8.3), Gr8r's two-tone shell: a fixed 252px
+ * warm grey sidebar — brand row (a 22px tile, the product and workspace
+ * names), primary nav, titled sections, footer (settings, user, theme,
+ * sign out) — beside a 46px white topbar (breadcrumb, search trigger) and
+ * the content.
  *
  * Desktop: "[" (or the brand-row button) collapses the sidebar to a 52px
  * icon rail, remembered under `storageKey`. Phone (≤ 900px): the sidebar is
@@ -356,6 +368,9 @@ export default function AppShell({
       className={styles.shell}
       data-drawer={drawerOpen ? 'open' : 'closed'}
       data-shell-tabbar={hasTabs ? 'true' : undefined}
+      data-shell-banner={
+        banner !== undefined && banner !== null ? 'true' : undefined
+      }
     >
       <Link href={`#${mainId}`} className="skipLink">
         Skip to content
@@ -389,33 +404,41 @@ export default function AppShell({
         onFocus={(event) => showTip(event.target)}
         onBlur={() => setTip(null)}
       >
-        {/* Registration marks where the sidebar's right hairline crosses
-            the topbar line and the footer line: 11px crossed 1px arms
-            centred on the border, as on the Analytics nav. */}
-        <span className={cx(styles.mark, styles.markTop)} aria-hidden="true" />
-
-        <div className={styles.brand}>
-          <Link href={brandHref} className={styles.brandLink}>
-            <span className={styles.appName}>{appName}</span>
-            {workspaceName !== undefined && workspaceName !== '' ? (
-              <span className={styles.workspace}>{workspaceName}</span>
-            ) : null}
+        <div className={styles.brand} data-tip={appName}>
+          <Link
+            href={brandHref}
+            className={styles.brandLink}
+            aria-label={
+              workspaceName !== undefined && workspaceName !== ''
+                ? `${appName} ${workspaceName}`
+                : appName
+            }
+          >
+            <span className={styles.logo} aria-hidden="true">
+              {initials(appName)}
+            </span>
+            <span className={styles.brandText} aria-hidden="true">
+              <span className={styles.appName}>{appName}</span>
+              {workspaceName !== undefined && workspaceName !== '' ? (
+                <span className={styles.workspace}>{workspaceName}</span>
+              ) : null}
+            </span>
           </Link>
           <span className={styles.collapseWrap} data-tip={collapseLabel}>
             <button
               type="button"
-              className={cx(styles.squareButton, styles.collapseButton)}
+              className={styles.iconButton}
               aria-label={collapseLabel}
               aria-keyshortcuts="["
               title={railActive ? undefined : `${collapseLabel} ( [ )`}
               onClick={toggleCollapsed}
             >
               {collapsed ? (
-                <PanelLeftOpen size={15} strokeWidth={1.5} aria-hidden="true" />
+                <PanelLeftOpen size={16} strokeWidth={1.8} aria-hidden="true" />
               ) : (
                 <PanelLeftClose
-                  size={15}
-                  strokeWidth={1.5}
+                  size={16}
+                  strokeWidth={1.8}
                   aria-hidden="true"
                 />
               )}
@@ -423,11 +446,11 @@ export default function AppShell({
           </span>
           <button
             type="button"
-            className={cx(styles.squareButton, styles.closeButton)}
+            className={cx(styles.iconButton, styles.closeButton)}
             aria-label="Close navigation"
             onClick={() => setDrawerOpen(false)}
           >
-            <X size={16} strokeWidth={1.5} aria-hidden="true" />
+            <X size={18} strokeWidth={1.8} aria-hidden="true" />
           </button>
         </div>
 
@@ -449,10 +472,6 @@ export default function AppShell({
         </div>
 
         <div className={styles.footer}>
-          <span
-            className={cx(styles.mark, styles.markBottom)}
-            aria-hidden="true"
-          />
           {footer}
           {settings !== undefined ? (
             <ul className={styles.list}>
@@ -463,7 +482,7 @@ export default function AppShell({
                   aria-current={settings.current === true ? 'page' : undefined}
                 >
                   <span className={styles.icon}>
-                    <Settings size={16} strokeWidth={1.5} aria-hidden="true" />
+                    <Settings size={16} strokeWidth={1.8} aria-hidden="true" />
                   </span>
                   <span className={styles.label}>{settingsLabel}</span>
                 </Link>
@@ -490,11 +509,11 @@ export default function AppShell({
                   >
                     <button
                       type="submit"
-                      className={styles.squareButton}
+                      className={styles.iconButton}
                       aria-label={signOutLabel}
                       title={railActive ? undefined : signOutLabel}
                     >
-                      <LogOut size={14} strokeWidth={1.5} aria-hidden="true" />
+                      <LogOut size={15} strokeWidth={1.8} aria-hidden="true" />
                     </button>
                   </form>
                 ) : null}
@@ -514,13 +533,13 @@ export default function AppShell({
         <header className={styles.topbar}>
           <button
             type="button"
-            className={cx(styles.squareButton, styles.menuButton)}
+            className={cx(styles.iconButton, styles.menuButton)}
             aria-label="Open navigation"
             aria-expanded={drawerOpen}
             aria-controls={sidebarId}
             onClick={() => setDrawerOpen(true)}
           >
-            <Menu size={16} strokeWidth={1.5} aria-hidden="true" />
+            <Menu size={19} strokeWidth={1.8} aria-hidden="true" />
           </button>
           {crumbs.length > 0 ? (
             <nav aria-label="Breadcrumb" className={styles.crumbs}>
@@ -531,7 +550,7 @@ export default function AppShell({
                     <li key={`${i}-${crumb.label}`} className={styles.crumb}>
                       {i > 0 ? (
                         <span className={styles.sep} aria-hidden="true">
-                          ›
+                          /
                         </span>
                       ) : null}
                       {crumb.href !== undefined && !last ? (
@@ -561,9 +580,12 @@ export default function AppShell({
               aria-keyshortcuts="Control+K Meta+K"
               onClick={openSearch}
             >
-              <Search size={14} strokeWidth={1.5} aria-hidden="true" />
+              <Search size={13} strokeWidth={1.8} aria-hidden="true" />
               <span className={styles.searchLabel}>{searchLabel}</span>
-              <KbdKeys keys={[mod, 'K']} className={styles.searchKeys} />
+              {/* One cap for the chord, as Gr8r prints it ("⌘K"). */}
+              <Kbd className={styles.searchKeys}>
+                {mod === '⌘' ? '⌘K' : `${mod} K`}
+              </Kbd>
             </button>
           ) : null}
           {topbarActions !== undefined && topbarActions !== null ? (
@@ -606,7 +628,7 @@ export default function AppShell({
                 onClick={() => setDrawerOpen(true)}
               >
                 <span className={styles.tabIcon}>
-                  <Ellipsis size={16} strokeWidth={1.5} aria-hidden="true" />
+                  <Ellipsis size={19} strokeWidth={1.8} aria-hidden="true" />
                 </span>
                 <span className={styles.tabLabel}>{moreLabel}</span>
               </button>

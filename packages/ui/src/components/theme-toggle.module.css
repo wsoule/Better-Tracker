@@ -1,16 +1,25 @@
+/* Gr8r's small icon button: 26px, 6px radius, --text-2; a grey fill on
+   hover. The toggle sits on the grey sidebar and the signed-out --bg page,
+   where --surface-2 is all but invisible, so it hovers to --surface-3
+   (Gr8r's sidebar hover). */
 .toggle {
-  width: 26px;
-  height: 26px;
-  flex: 0 0 26px;
-  border: 1px solid currentColor;
+  width: var(--h-sm);
+  height: var(--h-sm);
+  flex: 0 0 var(--h-sm);
   display: grid;
   place-items: center;
-  color: inherit;
-  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
-.toggle:hover {
-  transform: rotate(35deg);
+@media (hover: hover) {
+  .toggle:hover {
+    background: var(--surface-3);
+    color: var(--text);
+  }
 }
 
 .sun,
@@ -45,8 +54,5 @@
 @media (prefers-reduced-motion: reduce) {
   .toggle {
     transition: none;
-  }
-  .toggle:hover {
-    transform: none;
   }
 }

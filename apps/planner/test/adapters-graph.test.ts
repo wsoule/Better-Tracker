@@ -215,11 +215,11 @@ describe('edgeKind', () => {
 });
 
 describe('node flags', () => {
-  test('tags come from core flags, UNASSIGNED only while open', () => {
+  test('tags come from core flags, Unassigned only while open', () => {
     expect(nodeTags(node())).toEqual([]);
     expect(
       nodeTags(node({ unassigned: true, overdue: true, inCycle: true }))
-    ).toEqual(['UNASSIGNED', 'OVERDUE', 'CYCLE']);
+    ).toEqual(['Unassigned', 'Overdue', 'Cycle']);
     expect(nodeTags(node({ open: false, unassigned: true }))).toEqual([]);
   });
 
@@ -228,7 +228,7 @@ describe('node flags', () => {
     expect(nodeTone(node({ open: false }))).toBe('muted');
     expect(nodeTone(node({ unassigned: true }))).toBe('warning');
     expect(nodeTone(node({ overdue: true }))).toBe('danger');
-    // Overdue wins over unassigned: the box floods red either way.
+    // Overdue wins over unassigned: the box is tinted red either way.
     expect(nodeTone(node({ overdue: true, unassigned: true }))).toBe('danger');
     const milestone = node({ kind: 'milestone', status: 'on_track' });
     // A later milestone's unassigned issues are normal: no amber rule.
@@ -243,11 +243,11 @@ describe('node flags', () => {
     expect(nodeTags({ ...project, unassigned: true })).toEqual([]);
     expect(
       nodeTags({ ...project, ownerId: null, holdsCycle: true, overdue: true })
-    ).toEqual(['OVERDUE', 'CYCLE INSIDE', 'NO LEAD']);
-    // Paused work is never loud: no OVERDUE, no NO LEAD, but INACTIVE.
+    ).toEqual(['Overdue', 'Cycle inside', 'No lead']);
+    // Paused work is never loud: no Overdue, no No lead, but Inactive.
     expect(
       nodeTags({ ...project, active: false, ownerId: null, overdue: true })
-    ).toEqual(['INACTIVE']);
+    ).toEqual(['Inactive']);
     const milestone = node({ kind: 'milestone', status: 'overdue' });
     expect(
       nodeTags({
@@ -257,18 +257,18 @@ describe('node flags', () => {
         inCycle: true,
         holdsCycle: true,
       })
-    ).toEqual(['UNASSIGNED', 'OVERDUE', 'CYCLE', 'CYCLE INSIDE']);
+    ).toEqual(['Unassigned', 'Overdue', 'Cycle', 'Cycle inside']);
     expect(
       nodeTags(node({ kind: 'initiative', holdsCycle: true, active: false }))
-    ).toEqual(['CYCLE INSIDE', 'INACTIVE']);
-    // An issue's own loop is CYCLE, never CYCLE INSIDE; +N MORE on a chain.
+    ).toEqual(['Cycle inside', 'Inactive']);
+    // An issue's own loop is Cycle, never Cycle inside; +N more on a chain.
     expect(
       nodeTags(node({ inCycle: true, holdsCycle: true, hiddenNeighbours: 2 }))
-    ).toEqual(['CYCLE', '+2 MORE']);
+    ).toEqual(['Cycle', '+2 more']);
     // An open issue of a paused project says so (its quiet box has a
     // word); a closed one is quiet anyway.
     expect(nodeTags(node({ overdue: true, active: false }))).toEqual([
-      'INACTIVE',
+      'Inactive',
     ]);
     expect(
       nodeTags(node({ overdue: true, active: false, open: false }))
@@ -277,7 +277,7 @@ describe('node flags', () => {
     // the dashed outline of a drawn cycle (CYCLE).
     expect(
       nodeTags(node({ holdsCycle: true, readiness: 'blocked', blockedBy: 1 }))
-    ).toEqual(['ON A CYCLE']);
+    ).toEqual(['On a cycle']);
   });
 
   test('tone: inactive work is quiet, aggregate boxes follow their status', () => {
@@ -299,7 +299,7 @@ describe('node flags', () => {
     expect(nodeTone(node({ overdue: true, active: false }))).toBe('default');
   });
 
-  test('issue marks: closed filled, unassigned hatched, owned hollow ink', () => {
+  test('issue marks: closed solid, unassigned dotted, owned an open diamond', () => {
     expect(
       issueMark({ open: false, unassigned: true, stateName: 'Done' })
     ).toEqual({ status: 'done', label: 'Done' });
@@ -379,10 +379,10 @@ describe('buildGraphPage on the demo workspace', () => {
     );
   });
 
-  test('an overdue milestone floods red, says so and names its project', () => {
+  test('an overdue milestone is tinted red, says so and names its project', () => {
     const model = page({ level: 'milestone' });
     const overdue = model.nodes.find(
-      (n) => n.tags?.includes('OVERDUE') === true
+      (n) => n.tags?.includes('Overdue') === true
     );
     expect(overdue).toBeDefined();
     if (overdue === undefined) return;
@@ -401,7 +401,7 @@ describe('buildGraphPage on the demo workspace', () => {
     expect(model.ariaSummary).toMatch(/1 cycle: .+ and .+ wait on each other/);
     expect(model.meta).toContain('1 cycle');
     const cycleNodes = model.nodes.filter(
-      (n) => n.tags?.includes('CYCLE') === true
+      (n) => n.tags?.includes('Cycle') === true
     );
     expect(cycleNodes).toHaveLength(2);
     expect(model.edges.some((e) => e.kind === 'cycle')).toBe(true);
@@ -544,7 +544,7 @@ describe('every item drawn, framed by parent', () => {
       canStart: true,
     });
     // Its own facts keep their hue: at risk and unassigned stay amber.
-    expect([harbor?.tone, harbor?.tags]).toEqual(['warning', ['UNASSIGNED']]);
+    expect([harbor?.tone, harbor?.tags]).toEqual(['warning', ['Unassigned']]);
     expect(
       model.details['ms-harbor-1']?.properties.find(
         (p) => p.label === 'Readiness'
@@ -694,7 +694,7 @@ describe('every item drawn, framed by parent', () => {
       {
         mark: 'cluster-muted',
         label: 'Inactive',
-        note: 'a hatched frame of paused work',
+        note: 'a dashed frame of paused work',
       },
     ]);
   });
@@ -702,7 +702,7 @@ describe('every item drawn, framed by parent', () => {
 
 // Goldens captured on 2026-10-22 from the page as it was before the graph
 // levels change (spec §13 commit 1): today's three kinds of /graph page
-// keep what they say and draw. Tags may gain CYCLE INSIDE (asserted on its
+// keep what they say and draw. Tags may gain Cycle inside (asserted on its
 // own), so it is left out of the tag comparison. Updated 2026-10-23 for the
 // owner's every-item rule: the boxes that were listed under the canvas are
 // drawn now, in the same order around the related ones, inside frames.
@@ -719,7 +719,7 @@ describe('pages kept', () => {
       edges: m.edges.map((e) => [e.from, e.to, e.kind, e.weight]),
       tags: m.nodes.map((n) => [
         n.id,
-        (n.tags ?? []).filter((tag) => tag !== 'CYCLE INSIDE'),
+        (n.tags ?? []).filter((tag) => tag !== 'Cycle inside'),
       ]),
     };
   };
@@ -769,23 +769,23 @@ describe('pages kept', () => {
         ['ms-beacon-1', 'ms-juniper-1', 'risk', 1],
       ],
       tags: [
-        ['ms-fjord-1', ['UNASSIGNED', 'INACTIVE']],
-        ['ms-atlas-2', ['UNASSIGNED', 'OVERDUE']],
+        ['ms-fjord-1', ['Unassigned', 'Inactive']],
+        ['ms-atlas-2', ['Unassigned', 'Overdue']],
         ['ms-juniper-1', []],
         ['ms-atlas-1', []],
         ['ms-beacon-1', []],
-        ['ms-harbor-1', ['UNASSIGNED']],
-        ['ms-compass-1', ['UNASSIGNED']],
+        ['ms-harbor-1', ['Unassigned']],
+        ['ms-compass-1', ['Unassigned']],
         ['ms-garnet-1', []],
-        ['ms-ember-1', ['UNASSIGNED']],
-        ['ms-delta-1', ['UNASSIGNED']],
+        ['ms-ember-1', ['Unassigned']],
+        ['ms-delta-1', ['Unassigned']],
         ['ms-garnet-2', []],
-        ['ms-atlas-3', ['UNASSIGNED']],
+        ['ms-atlas-3', ['Unassigned']],
         ['ms-harbor-2', []],
         ['ms-beacon-2', []],
         ['ms-juniper-2', []],
         ['ms-compass-2', []],
-        ['ms-compass-3', ['UNASSIGNED']],
+        ['ms-compass-3', ['Unassigned']],
       ],
     });
   });
@@ -817,10 +817,10 @@ describe('pages kept', () => {
         ['iss-eng-12', 'iss-eng-23', 'risk', 1],
       ],
       tags: [
-        ['iss-eng-10', ['OVERDUE']],
-        ['iss-eng-12', ['UNASSIGNED', 'OVERDUE']],
-        ['iss-eng-11', ['OVERDUE']],
-        ['iss-eng-13', ['UNASSIGNED', 'OVERDUE']],
+        ['iss-eng-10', ['Overdue']],
+        ['iss-eng-12', ['Unassigned', 'Overdue']],
+        ['iss-eng-11', ['Overdue']],
+        ['iss-eng-13', ['Unassigned', 'Overdue']],
         ['iss-eng-23', []],
         ['iss-eng-16', []],
       ],
@@ -854,8 +854,8 @@ describe('pages kept', () => {
         ['iss-eng-23', 'iss-ops-20', 'risk', 1],
       ],
       tags: [
-        ['iss-eng-70', ['CYCLE']],
-        ['iss-eng-71', ['CYCLE']],
+        ['iss-eng-70', ['Cycle']],
+        ['iss-eng-71', ['Cycle']],
         ['iss-ops-20', []],
         ['iss-eng-72', []],
         ['iss-eng-73', []],
@@ -907,8 +907,8 @@ describe('every level on the demo workspace', () => {
     ]);
     const platform = model.nodes[0];
     expect(platform?.sublabel).toBe('5 projects · Dec 20');
-    expect(platform?.tags).toEqual(['OVERDUE', 'CYCLE', 'CYCLE INSIDE']);
-    // Its next milestones are overdue: the red flood, not the purple.
+    expect(platform?.tags).toEqual(['Overdue', 'Cycle', 'Cycle inside']);
+    // Its next milestones are overdue: the red tint, not the purple.
     expect(platform?.tone).toBe('danger');
     expect(platform?.cluster).toBeUndefined();
     // "No initiative" is on no relation: drawn all the same, in no frame
@@ -952,7 +952,7 @@ describe('every level on the demo workspace', () => {
       'Holds up — what waits on it, through box arrows',
       'Clear next — clear once it is finished',
     ]);
-    // The swatches draw the status hues: the red flood, the amber rule.
+    // The swatches draw the status hues: the red tint, the amber edge.
     expect(model.legends.risk.slice(0, 3).map((item) => item.mark)).toEqual([
       'node',
       'node-overdue',
@@ -1004,14 +1004,14 @@ describe('every level on the demo workspace', () => {
     expect(
       model.nodes.map((n) => [n.id, n.sublabel, n.tags, n.cluster])
     ).toEqual([
-      ['proj-atlas', 'Chloe Diaz', ['OVERDUE'], 'initiative:init-platform'],
+      ['proj-atlas', 'Chloe Diaz', ['Overdue'], 'initiative:init-platform'],
       ['proj-harbor', 'Elena Novak', [], 'initiative:init-platform'],
-      ['proj-delta', 'No lead', ['NO LEAD'], 'initiative:init-platform'],
-      ['proj-fjord', 'Femi Adeyemi', ['INACTIVE'], 'initiative:init-platform'],
+      ['proj-delta', 'No lead', ['No lead'], 'initiative:init-platform'],
+      ['proj-fjord', 'Femi Adeyemi', ['Inactive'], 'initiative:init-platform'],
       [
         'proj-juniper',
         'Grace Lin',
-        ['CYCLE INSIDE'],
+        ['Cycle inside'],
         'initiative:init-platform',
       ],
       ['proj-beacon', 'Dev Patel', [], 'initiative:init-growth'],
@@ -1040,7 +1040,7 @@ describe('every level on the demo workspace', () => {
       (n) => n.id === 'proj-delta'
     );
     expect(deltaNode === undefined ? [] : nodeTags(deltaNode)).toEqual([
-      'NO LEAD',
+      'No lead',
     ]);
     expect(
       model.legends.risk.find((item) => item.mark === 'edge-cross')
@@ -1054,10 +1054,10 @@ describe('every level on the demo workspace', () => {
     ).toBe(false);
   });
 
-  test('/graph: CYCLE INSIDE on ms-juniper-1, the muted swatch names inactive', () => {
+  test('/graph: Cycle inside on ms-juniper-1, the muted swatch names inactive', () => {
     const model = page({ level: 'milestone' });
     expect(model.nodes.find((n) => n.id === 'ms-juniper-1')?.tags).toEqual([
-      'CYCLE INSIDE',
+      'Cycle inside',
     ]);
     expect(
       model.legends.risk.find((item) => item.mark === 'node-muted')
@@ -1071,15 +1071,15 @@ describe('every level on the demo workspace', () => {
     );
   });
 
-  test('an inactive project’s milestone is INACTIVE and muted in its initiative', () => {
+  test('an inactive project’s milestone is Inactive and muted in its initiative', () => {
     const graph = graphOf({
       level: 'milestone',
       initiativeId: 'init-platform',
     });
     const fjord = graph.nodes.find((n) => n.id === 'ms-fjord-1');
     expect(fjord === undefined ? null : nodeTags(fjord)).toEqual([
-      'UNASSIGNED',
-      'INACTIVE',
+      'Unassigned',
+      'Inactive',
     ]);
     expect(fjord === undefined ? null : nodeTone(fjord)).toBe('muted');
     // Drawn among the others, its box is faint and its mark says why, in
@@ -1479,8 +1479,8 @@ describe('“No initiative” copy, empty containers and quiet boxes', () => {
     expect(
       fjord.nodes.map((n) => [n.id, n.readiness?.tone, n.tags?.at(-1)])
     ).toEqual([
-      ['iss-ops-8', 'muted', 'INACTIVE'],
-      ['iss-ops-9', 'muted', 'INACTIVE'],
+      ['iss-ops-8', 'muted', 'Inactive'],
+      ['iss-ops-9', 'muted', 'Inactive'],
     ]);
     expect(fjord.receipts).toBe(
       '2 issues in Fjord analytics, in 1 milestone; no blocking relations.'
@@ -1495,7 +1495,7 @@ describe('“No initiative” copy, empty containers and quiet boxes', () => {
       tone: 'muted',
       status: 'overdue',
       statusLabel: 'Overdue · inactive project',
-      tags: ['UNASSIGNED', 'INACTIVE'],
+      tags: ['Unassigned', 'Inactive'],
       cluster: 'project:proj-fjord',
     });
     expect(dashboards?.readiness?.tone).toBe('muted');
@@ -1679,12 +1679,12 @@ describe('one issue’s chain', () => {
     };
     const model = pageOf(cut);
     expect(model.nodes.find((n) => n.id === 'iss-ops-20')?.tags).toEqual([
-      '+2 MORE',
+      '+2 more',
     ]);
     expect(model.notices).toEqual([
       {
         id: 'chain-cut',
-        text: 'Drawn: the nearest 3 issues; 4 more are further out. Issues marked +N MORE lead on: open one and choose Graph to follow its chain.',
+        text: 'Drawn: the nearest 3 issues; 4 more are further out. Issues marked +N more lead on: open one and choose Graph to follow its chain.',
       },
     ]);
   });
@@ -2274,7 +2274,7 @@ describe('graph highlights', () => {
       ['OPS-20', 'Blocked by 1', 0],
     ]);
     // ENG-12 is Backlog and still dependency-ready, with its own chips.
-    expect(byKey(model, 'ENG-12')?.tags).toEqual(['UNASSIGNED', 'OVERDUE']);
+    expect(byKey(model, 'ENG-12')?.tags).toEqual(['Unassigned', 'Overdue']);
     expect(model.readouts).toEqual({
       status: '1 ready · 2 blocked',
       risk: '2 relations on a risk chain · no cycles',
@@ -2374,7 +2374,7 @@ describe('graph highlights', () => {
     expect(
       model.nodes.filter((n) => n.readiness?.state === 'independent')
     ).toHaveLength(11);
-    expect(byKey(model, 'Tokens and type')?.tags).toContain('CYCLE INSIDE');
+    expect(byKey(model, 'Tokens and type')?.tags).toContain('Cycle inside');
     expect(byKey(model, 'Dual-write')?.readiness?.unblocks).toBe(2);
     expect(model.readouts).toEqual({
       // Push notifications has no issues: counted apart, never complete.
@@ -2411,9 +2411,9 @@ describe('graph highlights', () => {
       'Waits on — what the box you point at waits on',
       'Holds up — what waits on it, through box arrows',
       'Clear next — clear once it is finished',
-      // The frames, last in the Nodes row: projects, the paused one hatched.
+      // The frames, last in the Nodes row: projects, the paused one dashed.
       'Project — a frame of its milestones',
-      'Inactive — a hatched frame of paused work',
+      'Inactive — a dashed frame of paused work',
     ]);
     expect(model.legends.critical.map((i) => i.note)).toContain(
       'the longest chain of open blockers, counted in milestones'
@@ -2490,7 +2490,7 @@ describe('graph highlights', () => {
       expect([n?.readiness?.label, n?.readiness?.tone, n?.tags]).toEqual([
         'Blocked by 1',
         'danger',
-        ['CYCLE'],
+        ['Cycle'],
       ]);
       expect(n?.readiness?.unblocks).toBe(1);
     }

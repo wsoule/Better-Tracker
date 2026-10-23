@@ -1,47 +1,57 @@
-import { Register, RegisterCell, RegisterRow } from '@better-tracker/ui';
+import { Chip, InitialsAvatar } from '@better-tracker/ui';
 
 import type {
   PersonRow,
   ReadOnlySettingRow,
 } from '../../../lib/adapters/settings';
 import css from './page.module.css';
+import { SettingBlock, SettingRow, SettingValue } from './setting-rows';
 
 /* Settings for a Linear guest (owner decision 2026-10-22, "Guests limited
-   to read only"): the same registers as the forms, with every value as
-   plain text and no Save, Reset, switches, boxes or inputs. The page puts
-   the one read-only notice above them; PATCH /api/settings and the engine
-   refuse a guest's save whatever is shown. */
+   to read only"): the same rows and headings as the forms, with every
+   value as plain text and no Save, Reset, switches, boxes or inputs. The
+   page puts the one read-only notice above them; PATCH /api/settings and
+   the engine refuse a guest's save whatever is shown. */
 
-/** Modes or Schedule as a two-column register of setting and value. */
+/** Modes or Schedule as setting rows with their values, grouped under the
+    form's headings when `groupOf` names one per row id (Schedule:
+    scheduleRowGroup); consecutive rows with one heading share a block. */
 export function ReadOnlySettings({
   label,
   rows,
+  groupOf,
 }: {
   label: string;
   rows: ReadOnlySettingRow[];
+  groupOf?: (id: string) => string | undefined;
 }) {
+  const groups: { title: string | undefined; rows: ReadOnlySettingRow[] }[] =
+    [];
+  for (const row of rows) {
+    const title = groupOf?.(row.id);
+    const last = groups.at(-1);
+    if (last !== undefined && last.title === title) last.rows.push(row);
+    else groups.push({ title, rows: [row] });
+  }
   return (
-    <Register
-      label={label}
-      columns="minmax(0, 1fr) 220px"
-      stackWithin={700}
-      stackedColumns="minmax(0, 1fr)"
-    >
-      {rows.map((row) => (
-        <RegisterRow key={row.id}>
-          <RegisterCell variant="name" sub={row.sub}>
-            {row.label}
-          </RegisterCell>
-          <RegisterCell align="end" variant="mono">
-            {row.value}
-          </RegisterCell>
-        </RegisterRow>
+    <div className={css.form} aria-label={label} role="group">
+      {groups.map((group) => (
+        <SettingBlock key={group.title ?? '-'} title={group.title}>
+          {group.rows.map((row) => (
+            <SettingRow
+              key={row.id}
+              title={row.label}
+              help={row.sub}
+              control={<SettingValue>{row.value}</SettingValue>}
+            />
+          ))}
+        </SettingBlock>
       ))}
-    </Register>
+    </div>
   );
 }
 
-/** Watchers as a register: each person and whether they watch. */
+/** Watchers as Gr8r's member list: each person and whether they watch. */
 export function ReadOnlyWatchers({
   rows,
   watcherUserIds,
@@ -54,40 +64,42 @@ export function ReadOnlyWatchers({
   const watching = new Set(watcherUserIds);
   return (
     <div className={css.form}>
-      <Register
-        label="Watchers"
-        columns="minmax(0, 1.2fr) minmax(0, 1fr) 104px"
-        header={[
-          { id: 'person', label: 'Person' },
-          { id: 'email', label: 'Email' },
-          { id: 'watcher', label: 'Watcher' },
-        ]}
-        stackWithin={700}
-        stackedColumns="minmax(0, 1fr) auto auto"
-      >
+      <ul className={css.people} aria-label="Watchers">
         {rows.map((row) => (
-          <RegisterRow key={row.id} tone={row.active ? 'default' : 'muted'}>
-            <RegisterCell
-              label="Person"
-              variant="name"
-              sub={row.note ?? undefined}
-            >
-              {row.name}
-            </RegisterCell>
-            <RegisterCell label="Email" tone="muted">
-              {row.email ?? '—'}
-            </RegisterCell>
-            <RegisterCell
-              label="Watcher"
-              variant="mono"
-              tone={watching.has(row.id) ? 'default' : 'muted'}
-            >
-              {watching.has(row.id) ? 'Watcher' : '—'}
-            </RegisterCell>
-          </RegisterRow>
+          <li
+            key={row.id}
+            className={css.person}
+            data-inactive={row.active ? undefined : 'true'}
+          >
+            <PersonCell row={row} />
+            <span className={css.personControl}>
+              {watching.has(row.id) ? (
+                <Chip>Watcher</Chip>
+              ) : (
+                <span className="srOnly">Not a watcher</span>
+              )}
+            </span>
+          </li>
         ))}
-      </Register>
+      </ul>
       <p className={css.formHint}>{hint}</p>
     </div>
+  );
+}
+
+/** A person's round initials, name (with "Deactivated in Linear" when
+    so) and email: the left side of a Watchers row. */
+export function PersonCell({ row }: { row: PersonRow }) {
+  return (
+    <>
+      <InitialsAvatar name={row.name} size="md" />
+      <span className={css.personText}>
+        <span className={css.personName}>
+          {row.name}
+          {row.note !== null ? <Chip tone="muted">{row.note}</Chip> : null}
+        </span>
+        <span className={css.personMeta}>{row.email ?? 'No email'}</span>
+      </span>
+    </>
   );
 }

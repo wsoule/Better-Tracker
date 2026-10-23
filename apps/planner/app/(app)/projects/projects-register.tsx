@@ -5,7 +5,6 @@ import {
   Button,
   Chip,
   EmptyState,
-  Link,
   ProgressRule,
   Register,
   RegisterCell,
@@ -14,6 +13,7 @@ import {
   type SegmentedOption,
   StatusMark,
 } from '@better-tracker/ui';
+import { ArrowUpRight, ListChecks, Network, Search } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
@@ -29,12 +29,15 @@ import { plural } from '../../../lib/format';
 import css from './page.module.css';
 
 const COLUMNS =
-  'minmax(0, 1.2fr) 116px minmax(0, 1.5fr) 140px minmax(0, 0.8fr) minmax(0, 1.2fr) 168px';
+  'minmax(150px, 1.3fr) 100px minmax(140px, 1.4fr) 96px minmax(84px, 0.8fr) minmax(116px, 1fr) 84px';
 
-/* The seven columns stay readable down to a register about 1000px wide
-   (1440 with the sidebar open). Narrower (1280 with the sidebar, a
-   tablet, a phone) each row becomes a card: the project on top, the other
-   cells in as many 150px columns as fit (two on a phone). */
+/* Gr8r keeps the table: the seven columns stay readable down to a
+   register 900px wide (a 1280px window with the sidebar open leaves 932):
+   every column keeps a floor that fits its content (an "Allocating 2"
+   chip on one line, the links three 26px ghost icon buttons), and the
+   floors with the gaps fit in 900px. Narrower (a tablet, a phone) each row becomes a card: the
+   project on top, the other cells in as many 150px columns as fit (two on
+   a phone). */
 const STACKED_COLUMNS = 'repeat(auto-fill, minmax(150px, 1fr))';
 
 const HEADER = [
@@ -67,10 +70,11 @@ function syncUrl(query: string, filter: ProjectFilterId): string {
 
 /* The projects register's client island: search box and status filter
    over the rows the server built (filterProjectGroups does the matching),
-   then one hairline block per initiative, whose bar links to the
-   initiative's dependency graph. Rows open the project's timeline lane;
-   the end cell links to its graph, its issues (the Issues page) and
-   Linear. */
+   then one panel per initiative under its section title, whose quiet
+   Graph button opens the initiative's dependency graph. Rows open the
+   project's timeline lane; the end cell links to its graph, its issues
+   (the Issues page) and Linear, as 26px ghost icon buttons that keep the
+   links' names (Graph, Issues, "… in Linear"). */
 export default function ProjectsRegister({
   groups,
   filters,
@@ -130,16 +134,24 @@ export default function ProjectsRegister({
           <label className="srOnly" htmlFor={searchId}>
             Search projects
           </label>
-          <input
-            id={searchId}
-            ref={searchRef}
-            className={`input ${css.search}`}
-            type="search"
-            placeholder="Search projects"
-            autoComplete="off"
-            value={query}
-            onChange={(event) => update(event.target.value, filter)}
-          />
+          <span className={css.searchWrap}>
+            <Search
+              className={css.searchIcon}
+              size={13}
+              strokeWidth={1.8}
+              aria-hidden="true"
+            />
+            <input
+              id={searchId}
+              ref={searchRef}
+              className={`input ${css.search}`}
+              type="search"
+              placeholder="Search projects"
+              autoComplete="off"
+              value={query}
+              onChange={(event) => update(event.target.value, filter)}
+            />
+          </span>
           <SegmentedControl
             label="Project status"
             options={filters}
@@ -184,30 +196,31 @@ export default function ProjectsRegister({
           </EmptyState>
         </div>
       ) : (
-        shown.map((group, index) => (
+        shown.map((group) => (
           <section
             key={group.id}
-            className={`${css.blocks} ${css.collapse}`}
+            className={css.blocks}
             aria-label={group.name}
           >
             <BlockBar
-              index={String(index + 1).padStart(2, '0')}
               title={group.name}
               meta={plural(group.rows.length, 'project')}
             >
-              <Link
+              <Button
                 href={group.graphHref}
-                className="accentLink"
+                variant="quiet"
+                size="sm"
+                icon={<Network size={14} strokeWidth={1.8} />}
                 aria-label={`Dependency graph of ${group.name}`}
               >
                 Graph
-              </Link>
+              </Button>
             </BlockBar>
             <Register
               label={`${group.name} projects`}
               columns={COLUMNS}
               header={HEADER}
-              stackWithin={1000}
+              stackWithin={900}
               stackedColumns={STACKED_COLUMNS}
             >
               {group.rows.map((row) => (
@@ -232,8 +245,13 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
       <RegisterCell label="Project" variant="name" sub={row.initiative}>
         {row.name}
       </RegisterCell>
+      {/* An inactive project's status is muted (no status hue in the
+          row) but still a status: the grey-dot pill keeps the column a
+          column of pills (Chip dot). */}
       <RegisterCell label="Linear">
-        <Chip tone={row.linearStatusTone}>{row.linearStatus}</Chip>
+        <Chip tone={row.linearStatusTone} dot={!row.active}>
+          {row.linearStatus}
+        </Chip>
       </RegisterCell>
       {next === null ? (
         <RegisterCell label="Next milestone" variant="mono" tone="muted">
@@ -296,27 +314,41 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
         toneSub={row.allocation.toneDetail === true}
         sub={row.allocation.detail}
       >
-        <Chip tone={row.allocation.tone} filled={row.allocation.filled}>
-          {row.allocation.label}
-        </Chip>
+        {row.allocation.plain === true ? (
+          <span className={css.plainValue}>{row.allocation.label}</span>
+        ) : (
+          <Chip tone={row.allocation.tone} filled={row.allocation.filled}>
+            {row.allocation.label}
+          </Chip>
+        )}
       </RegisterCell>
       <RegisterCell align="end">
         <span className={css.links}>
-          <Link href={row.graphHref} className="accentLink">
-            Graph
-          </Link>
-          <Link href={row.issuesHref} className="accentLink">
-            Issues
-          </Link>
-          <Link
+          <Button
+            href={row.graphHref}
+            variant="quiet"
+            size="sm"
+            icon={<Network size={14} strokeWidth={1.8} />}
+            title="Dependency graph"
+            aria-label="Graph"
+          />
+          <Button
+            href={row.issuesHref}
+            variant="quiet"
+            size="sm"
+            icon={<ListChecks size={14} strokeWidth={1.8} />}
+            title="Issues"
+            aria-label="Issues"
+          />
+          <Button
             href={row.linearUrl}
-            className="accentLink"
-            target="_blank"
-            rel="noreferrer noopener"
+            external
+            variant="quiet"
+            size="sm"
+            icon={<ArrowUpRight size={14} strokeWidth={1.8} />}
+            title="Open in Linear"
             aria-label={`${row.name} in Linear (opens in a new tab)`}
-          >
-            Linear
-          </Link>
+          />
         </span>
       </RegisterCell>
     </RegisterRow>

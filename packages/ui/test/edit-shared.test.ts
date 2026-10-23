@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import { AVATAR_HUES, avatarHue } from '../src/components/initials-avatar';
 import { foldText, toggleValue, withCount } from '../src/edit/shared';
 import {
   filterOptions,
@@ -64,10 +65,26 @@ describe('small helpers', () => {
     ['ana maría moreno', 'AM'],
     ['dev', 'D'],
     ['  ', '?'],
+    ['  Mary Ann  de la Cruz ', 'MC'],
     ['Élodie', 'É'],
+    ['élodie roux', 'ÉR'],
+    // Not locale-sensitive: a Turkish locale must not make "i" → "İ".
+    ['ivo ilic', 'II'],
     ['🙂 Smile', '🙂S'],
   ])('initials(%p) is %p', (name, expected) => {
     expect(initials(name)).toBe(expected);
+  });
+
+  test('avatarHue is one of the decorative hues, the same for the same name', () => {
+    const names = ['Ana Moreno', 'Ben Carter', 'Chloe Diaz', 'Dev Patel'];
+    for (const name of names) {
+      expect(AVATAR_HUES).toContain(avatarHue(name));
+      expect(avatarHue(name)).toBe(avatarHue(name));
+      // Case and surrounding space do not move a person to another hue.
+      expect(avatarHue(` ${name.toUpperCase()} `)).toBe(avatarHue(name));
+    }
+    // Different people spread over more than one hue.
+    expect(new Set(names.map(avatarHue)).size).toBeGreaterThan(1);
   });
 
   test.each([

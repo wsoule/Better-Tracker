@@ -1,3 +1,4 @@
+import { ArrowUpRight } from 'lucide-react';
 import { type ReactNode, useId } from 'react';
 
 import { Link } from '../lib/link';
@@ -19,7 +20,11 @@ import { TaskDescription } from './task-description';
 import styles from './task-detail.module.css';
 import { TaskRelationList } from './task-relation-list';
 import { TaskDetailSection } from './task-section';
-import type { TaskDetailLabels, TaskDetailProps } from './types';
+import type {
+  TaskDetailAlert,
+  TaskDetailLabels,
+  TaskDetailProps,
+} from './types';
 
 /** True when a slot was given something to draw. */
 function hasNode(node: ReactNode): boolean {
@@ -27,7 +32,8 @@ function hasNode(node: ReactNode): boolean {
 }
 
 /* The key in the status line: a link to the tracker when there is one
-   (new tab for http URLs), plain mono text otherwise. */
+   (new tab for http URLs), plain mono text otherwise. Issue keys are the
+   one place the view keeps Geist Mono. */
 function TaskKey({
   taskKey,
   href,
@@ -49,7 +55,7 @@ function TaskKey({
       {taskKey}
       {external ? (
         <>
-          <span aria-hidden="true"> ↗</span>
+          <ArrowUpRight size={12} strokeWidth={1.8} aria-hidden="true" />
           <span className="srOnly"> ({newTabLabel})</span>
         </>
       ) : null}
@@ -57,10 +63,62 @@ function TaskKey({
   );
 }
 
+/* How loud an alert's tone is: danger first, then warning, the rest
+   after (a stable sort keeps the host's order within one tone). */
+const TONE_RANK: Partial<Record<NonNullable<TaskDetailAlert['tone']>, number>> =
+  { danger: 0, warning: 1, info: 2, accent: 2, success: 3 };
+
+function toneRank(alert: TaskDetailAlert): number {
+  return TONE_RANK[alert.tone ?? 'warning'] ?? 4;
+}
+
+/* The issue's alerts without a stack of tinted boxes (Gr8r never stacks
+   them): the most severe one is the tinted AlertStrip, every other one a
+   row of one neutral bordered list below it (icon and lead-in in the
+   tone, the sentence quiet). */
+function TaskAlerts({
+  alerts,
+}: {
+  alerts: readonly TaskDetailAlert[];
+}): ReactNode {
+  const ordered = alerts
+    .map((alert, i) => ({ alert, key: alert.id ?? `${i}:${alert.label}` }))
+    .sort((a, b) => toneRank(a.alert) - toneRank(b.alert));
+  const [first, ...rest] = ordered;
+  if (first === undefined) return null;
+  return (
+    <div className={styles.alerts}>
+      <AlertStrip
+        label={first.alert.label}
+        tone={first.alert.tone}
+        action={first.alert.action}
+      >
+        {first.alert.message}
+      </AlertStrip>
+      {rest.length > 0 ? (
+        <div className={styles.alertList}>
+          {rest.map(({ alert, key }) => (
+            <AlertStrip
+              key={key}
+              label={alert.label}
+              tone={alert.tone}
+              action={alert.action}
+              plain
+            >
+              {alert.message}
+            </AlertStrip>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * The content of a task (issue) view, in Gr8r's task-drawer order: a
- * hatched header bar (breadcrumb, actions), the title, a status line (state
- * and key), the alert stack, the host's property sheet and `rail` sections,
+ * header bar (breadcrumb, actions), the title, a status line (key and the
+ * state pill), the alerts (tinted by tone), the host's property sheet and
+ * `rail` sections,
  * then Description, Blocked by, Blocks, Comments, Activity and any host
  * sections. `sectionMeta` puts a host's controls (an "+ Add" relation
  * picker, an Edit button) in those sections' headings.
@@ -150,7 +208,7 @@ export function TaskDetail({
           <span className={styles.control}>{status.control}</span>
         ) : (
           <span className={styles.state} data-kind={status.kind}>
-            <StateGlyph kind={status.kind} size={13} />
+            <StateGlyph kind={status.kind} size={14} />
             {status.label}
           </span>
         )}
@@ -159,18 +217,7 @@ export function TaskDetail({
         ) : null}
       </div>
       {alerts !== undefined && alerts.length > 0 ? (
-        <div className={styles.alerts}>
-          {alerts.map((alert, i) => (
-            <AlertStrip
-              key={alert.id ?? `${i}:${alert.label}`}
-              label={alert.label}
-              tone={alert.tone}
-              action={alert.action}
-            >
-              {alert.message}
-            </AlertStrip>
-          ))}
-        </div>
+        <TaskAlerts alerts={alerts} />
       ) : null}
     </div>
   );

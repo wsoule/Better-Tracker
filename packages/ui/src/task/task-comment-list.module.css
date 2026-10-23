@@ -1,46 +1,37 @@
-/* Comments as a hairline ledger: square ink initials, a mono byline, the
-   text in the reading voice. Bots and integrations go quiet. */
+/* Comments as Gr8r's drawer draws them: a 26px round avatar, the author
+   in semibold beside a quiet date, the text in the reading voice, 10px of
+   air between comments and no rules. Bots and integrations go quiet. */
 
 .list {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--hairline-faint);
 }
 
 .item {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  column-gap: 12px;
+  grid-template-columns: 26px minmax(0, 1fr);
+  column-gap: 10px;
   align-items: start;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--hairline-faint);
+  padding: 10px 0;
+}
+
+.item:first-child {
+  padding-top: 2px;
 }
 
 .avatar {
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  margin-top: 1px;
-  border: 1px solid var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  text-transform: uppercase;
-  color: var(--foreground);
+  display: inline-flex;
 }
 
-.muted .avatar {
-  border-color: var(--grey-3);
-  color: var(--muted);
+/* A bot's avatar is the neutral one. */
+.muted .avatar > [data-mark='avatar'] {
+  --c: var(--gray);
 }
 
 .main {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
@@ -50,62 +41,59 @@
   align-items: baseline;
   gap: 2px 8px;
   min-width: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
 }
 
 .author {
   min-width: 0;
-  font-size: 12.5px;
-  font-weight: 600;
-  line-height: 1.4;
-  color: var(--foreground);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .muted .author {
-  color: var(--muted);
-}
-
-.dot {
-  color: var(--grey-2);
+  color: var(--text-2);
 }
 
 .at {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
   white-space: nowrap;
 }
 
 .link {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--muted);
-  transition: color 0.15s ease;
-}
-
-.link:focus-visible {
-  color: var(--accent-ink);
+  display: inline-grid;
+  place-items: center;
+  align-self: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  color: var(--text-4);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .link:hover {
-    color: var(--accent-ink);
+    background: var(--surface-2);
+    color: var(--text);
   }
 
   .retry:hover {
     color: var(--accent-ink-hover);
+    text-decoration-color: currentcolor;
   }
 }
 
 /* As typed: line breaks kept, each line in its own direction. */
 .body {
-  font-size: 13.5px;
-  font-weight: 400;
-  line-height: 1.55;
-  color: var(--ink-soft);
+  font-size: var(--fs);
+  font-weight: var(--fw-regular);
+  line-height: var(--lh-long);
+  color: var(--text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   unicode-bidi: plaintext;
@@ -114,59 +102,57 @@
 
 .content {
   min-width: 0;
-  font-size: 13.5px;
-  line-height: 1.55;
-  color: var(--ink-soft);
+  font-size: var(--fs);
+  line-height: var(--lh-long);
+  color: var(--text);
   overflow-wrap: anywhere;
 }
 
 .muted .body,
 .muted .content {
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 .empty {
-  font-size: 13.5px;
+  font-size: var(--fs);
   line-height: 1.5;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
+/* A failed read: Gr8r's danger alert, a red-tinted 8px box. */
 .error {
   display: flex;
   align-items: baseline;
-  gap: 14px;
-  padding: 10px 0;
-  border-top: 1px solid var(--hairline-faint);
-  border-bottom: 1px solid var(--hairline-faint);
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r);
+  background: var(--red-soft);
 }
 
 .errorKey {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--red-ink); /* failed: the red status hue */
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--red);
 }
 
 .errorText {
   min-width: 0;
-  font-size: 13.5px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
-  color: var(--ink-soft);
+  color: var(--text);
 }
 
 .retry {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-weight: var(--fw-medium);
   color: var(--accent-ink);
-  border-bottom: 1px solid currentcolor;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
   white-space: nowrap;
-  transition: color 0.15s ease;
+  transition:
+    color var(--dur) ease,
+    text-decoration-color var(--dur) ease;
 }
 
 .retry:focus-visible {
@@ -175,7 +161,7 @@
 
 /* The composer sits under the newest comment. */
 .composer {
-  margin-top: 14px;
+  margin-top: 10px;
 }
 
 @media (prefers-reduced-motion: reduce) {

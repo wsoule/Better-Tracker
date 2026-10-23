@@ -1,17 +1,19 @@
 import type { CSSProperties, ReactNode } from 'react';
 
+import { InitialsAvatar } from '../components/initials-avatar';
 import StatusMark from '../components/status-mark';
 import { PriorityGlyph, StateGlyph } from '../tasks/task-glyphs';
 import styles from './picker-mark.module.css';
-import { initials, isHexColor } from './shared';
+import { isHexColor } from './shared';
 import type { PickerMark } from './types';
 
 /* The leading mark of a picker option or trigger, drawn from the system's
-   own glyphs: the state circle, the priority bars, square initials (a
-   dashed empty square for nobody), the milestone status square, a label's colour square or a host's node. Not
-   a client module, so a read-only face renders on the server too. The
-   marks are decorative (the label is always printed beside them) except
-   the status square, which names its status. */
+   own glyphs: the state circle, the priority bars, the round avatar (a
+   dashed empty circle for nobody), the milestone status diamond, a
+   label's colour square or a host's node. Not a client module, so a
+   read-only face renders on the server too. The marks are decorative (the
+   label is always printed beside them) except the status diamond, which
+   names its status. */
 export interface PickerMarkViewProps {
   mark: PickerMark;
 }
@@ -19,25 +21,14 @@ export interface PickerMarkViewProps {
 export function PickerMarkView({ mark }: PickerMarkViewProps): ReactNode {
   switch (mark.kind) {
     case 'state':
-      return <StateGlyph kind={mark.state} size={13} />;
+      return <StateGlyph kind={mark.state} size={14} />;
     case 'priority':
-      return <PriorityGlyph priority={mark.priority} size={13} />;
+      return <PriorityGlyph priority={mark.priority} size={14} />;
     case 'avatar':
-      // Nobody (a blank name: "Unassigned", "Unassign") is the same
-      // square, dashed and empty, as the list's unassigned cell draws it;
-      // never a "?".
-      return mark.name.trim() === '' ? (
-        <span
-          className={styles.avatar}
-          aria-hidden="true"
-          data-mark="avatar"
-          data-empty="true"
-        />
-      ) : (
-        <span className={styles.avatar} aria-hidden="true" data-mark="avatar">
-          {initials(mark.name)}
-        </span>
-      );
+      // The package's one avatar (one hue per person everywhere). Nobody
+      // (a blank name: "Unassigned", "Unassign") is its dashed empty
+      // circle, as the list's unassigned cell draws it; never a "?".
+      return <InitialsAvatar name={mark.name} />;
     case 'status':
       return (
         <StatusMark

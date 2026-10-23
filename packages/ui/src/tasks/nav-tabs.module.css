@@ -1,7 +1,12 @@
-/* The tab strip as links. Cells are bordered boxes whose shared edges
-   collapse with -1px (the list pads 1px back), so a strip of any length,
-   wrapped or stacked, reads as one drawing. Current = ink fill; hover =
-   accent flood (gated off touch); unavailable = hatched and muted. */
+/* Navigation tabs in Gr8r's two forms. Horizontal: a tab bar on a 1px
+   --border rule, 12.5px medium --text-2 tabs, the current one in --text
+   with a 2px --text underline (not the accent). Vertical: Gr8r's settings
+   sub-nav, 30px rows with a 6px radius and an optional 16px icon in
+   --text-4, hover --surface-2, the current one the sidebar's current pill
+   (--nav-current-*: raised white in light, a --surface-3 fill in dark)
+   with its icon in the accent, the cue that reaches 3:1; it becomes one
+   horizontally scrolling strip at 900px and below. A cell that cannot be
+   followed yet is dimmed. */
 
 .nav {
   max-width: 100%;
@@ -10,11 +15,16 @@
 .list {
   display: flex;
   flex-wrap: wrap;
-  padding: 1px 0 0 1px;
+}
+
+.horizontal .list {
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
 }
 
 .vertical .list {
   flex-flow: column nowrap;
+  gap: 1px;
 }
 
 .fill .item {
@@ -24,43 +34,68 @@
 .item {
   display: flex;
   min-width: 0;
-  margin: -1px 0 0 -1px;
 }
 
 .tab {
+  position: relative;
   display: inline-flex;
   flex: 1 1 auto;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  color: var(--text-2);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .md .tab {
-  min-height: 36px;
-  padding: 0 14px;
-  font-size: 10.5px;
+  min-height: var(--h-lg);
+  padding: 0 10px;
+  font-size: var(--fs-sm);
 }
 
 .sm .tab {
-  min-height: 28px;
-  padding: 0 10px;
-  font-size: 9.5px;
+  min-height: var(--h-md);
+  padding: 0 8px;
+  font-size: var(--fs-xs);
+}
+
+.vertical .tab {
+  border-radius: var(--r-sm);
+  font-weight: var(--fw-soft);
 }
 
 .vertical.md .tab {
-  min-height: 40px;
-  padding: 0 16px;
+  min-height: var(--side-row);
+  font-size: var(--fs);
+}
+
+.icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-4);
+  transition: color var(--dur) ease;
+}
+
+.icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sm .icon,
+.sm .icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.current .icon {
+  color: var(--accent-ink);
 }
 
 .text {
@@ -70,10 +105,13 @@
 
 .count,
 .note {
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-3);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
 }
 
 .vertical .count {
@@ -83,76 +121,95 @@
 .note {
   overflow: hidden;
   text-overflow: ellipsis;
-  text-transform: none;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-regular);
 }
 
 .current {
-  background: var(--foreground);
-  color: var(--background);
+  color: var(--text);
 }
 
-.current .count,
-.current .note {
-  color: var(--background);
-  opacity: 0.7;
+.horizontal .current::after {
+  content: '';
+  position: absolute;
+  right: 8px;
+  bottom: -1px;
+  left: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--text);
 }
 
-/* Focus sits inside the cell: an outer outline would be cut by the
-   neighbour's collapsed border. */
+.vertical .current {
+  background: var(--nav-current-bg, var(--surface));
+  font-weight: var(--fw-medium);
+  box-shadow: var(--nav-current-shadow, var(--shadow-raised));
+}
+
 .tab:focus-visible {
-  position: relative;
   z-index: 1;
-  outline-offset: -4px;
-}
-
-.current:focus-visible {
-  outline-color: var(--accent);
+  outline-offset: -2px;
 }
 
 .unavailable {
   cursor: not-allowed;
-  color: var(--grey-2);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
+  color: var(--text-3);
 }
 
 @media (hover: hover) and (width >= 901px) {
   a.tab:not(.current):hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    color: var(--text);
   }
 
-  a.tab:not(.current):hover .count,
-  a.tab:not(.current):hover .note {
-    color: var(--on-accent);
+  .vertical a.tab:not(.current):hover {
+    background: var(--surface-2);
+  }
+
+  a.tab:not(.current):hover .icon {
+    color: var(--text-2);
   }
 }
 
-/* A sub-nav column has no room beside content on a phone: it becomes a
-   wrapping strip above it. */
+/* A sub-nav column has no room beside content on a phone: it becomes
+   one strip above it that scrolls sideways (Gr8r's phone settings), its
+   scrollbar hidden. */
 @media (width <= 900px) {
   .vertical .list {
-    flex-flow: row wrap;
+    flex-flow: row nowrap;
+    gap: 2px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+  }
+
+  .vertical .list::-webkit-scrollbar {
+    display: none;
+  }
+
+  .vertical .item {
+    flex: none;
   }
 
   .vertical .count {
     margin-left: 0;
   }
+}
 
-  .vertical.md .tab {
-    min-height: 36px;
-    padding: 0 12px;
+/* Forced colours drop the pill's fill and shadow: outline the current
+   cell instead (the horizontal underline is a box, which stays). */
+@media (forced-colors: active) {
+  .vertical .current {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+
+  .horizontal .current::after {
+    background: CanvasText;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tab {
+  .tab,
+  .icon {
     transition: none;
   }
 }

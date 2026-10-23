@@ -6,10 +6,9 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import type { ViewToolbarProps } from './types';
 import styles from './view-toolbar.module.css';
 
-/* The list toolbar (Gr8r's .toolbar in view-engine.js, framed like the
-   timeline chart's toolbar): a small mono search field, then the host's
-   Filter / Sort / Group triggers, and trailing actions at the right edge.
-   Layout only: the host owns every value and picker.
+/* Gr8r's list toolbar (.toolbar in view-engine.js): a small search field,
+   then the host's Filter / Sort / Group triggers, and trailing actions at
+   the right edge. Layout only: the host owns every value and picker.
 
    The search reports each keystroke (onChange) and, separately, when the
    search is final (onCommit: Enter, or leaving the field), so a host can
@@ -53,7 +52,7 @@ export function ViewToolbar({
         <Search
           className={styles.searchIcon}
           size={13}
-          strokeWidth={1.5}
+          strokeWidth={1.8}
           aria-hidden="true"
         />
         <input
@@ -82,7 +81,7 @@ export function ViewToolbar({
   );
 }
 
-/** The accent count square of a toolbar trigger ("Filter 2"): how many
+/** The accent count pill of a toolbar trigger ("Filter 2"): how many
     fields are set. Decorative beside the trigger's own accessible name,
     which should say the count in words ("Filter, 2 set"). */
 export function ToolbarBadge({ count }: { count: number }): ReactNode {

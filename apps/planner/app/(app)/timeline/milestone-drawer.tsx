@@ -15,7 +15,7 @@ import {
   StatusMark,
   useToast,
 } from '@better-tracker/ui';
-import { ArrowUpRight } from 'lucide-react';
+import { ArrowUpRight, Link2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import {
   type FormEvent,
@@ -128,8 +128,9 @@ function useSave(): {
   return { busy, save };
 }
 
-/* The milestone slide-over (architecture §8.3): PROJECT / MILESTONE crumb
-   with Open in Linear and Copy link, the overdue strip, the property list
+/* The milestone slide-over (architecture §8.3): Project / Milestone crumb
+   with Open in Linear and Copy link (ghost buttons with their icons), the
+   overdue alert, the property list
    (weight and "done means…" editable by everyone, date and lead with
    Linear write access), the rubric checklist, the issues with
    their blockers, and what the milestone waits on. While the server loads
@@ -209,10 +210,16 @@ export default function MilestoneDrawer({
               href={model.linearUrl}
               external
               title="Open the project in Linear"
+              iconAfter={<ArrowUpRight size={14} strokeWidth={1.8} />}
             >
               Open in Linear
             </Button>
-            <Button size="sm" variant="quiet" onClick={() => void copyLink()}>
+            <Button
+              size="sm"
+              variant="quiet"
+              icon={<Link2 size={14} strokeWidth={1.8} />}
+              onClick={() => void copyLink()}
+            >
               Copy link
             </Button>
           </>
@@ -268,7 +275,9 @@ function DrawerBody({
             muted={model.muted}
           />
           {model.status.lines.length > 0 ? (
-            <span className={model.muted ? css.note : css.reasons}>
+            // Risk reasons and the missing input: warnings (amber), except
+            // in an inactive project (never loud, §2.8).
+            <span {...noteProps(model.muted ? 'default' : 'warning')}>
               {model.status.lines.join(' · ')}
             </span>
           ) : null}
@@ -456,7 +465,15 @@ function DrawerBody({
         </p>
       )}
 
-      <h3 className={css.subhead}>Checklist</h3>
+      {/* The heading stays "Checklist" (main's name); the met count sits
+          beside it in the same row, outside the heading. */}
+      <div className={css.subhead}>
+        <h3 className={css.subheadTitle}>Checklist</h3>
+        <span className={css.subheadMeta}>
+          {model.rubric.filter((item) => item.met).length}/{model.rubric.length}{' '}
+          met
+        </span>
+      </div>
       <Checklist label="Milestone rubric" items={model.rubric} />
 
       <h3 className={css.subhead}>
@@ -598,7 +615,7 @@ function IssueRow({
           aria-label={`Open ${issue.key} in Linear`}
           title={`Open ${issue.key} in Linear`}
         >
-          <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
+          <ArrowUpRight size={14} strokeWidth={1.8} aria-hidden="true" />
         </a>
       ) : null}
     </li>
@@ -610,7 +627,7 @@ function IssueRow({
 function LeadText({ model }: { model: MilestoneDrawerModel }) {
   if (model.lead.name === null) {
     return (
-      <span className={css.toneMono} data-tone="warning">
+      <span className={css.toned} data-tone="warning">
         No lead
       </span>
     );
@@ -658,7 +675,7 @@ function DueDateField({
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
         />
-        <Button size="sm" type="submit" disabled={unchanged || busy}>
+        <Button type="submit" disabled={unchanged || busy}>
           {busy
             ? 'Saving'
             : next === null && value !== null
@@ -713,7 +730,7 @@ function LeadField({
             </option>
           ))}
         </select>
-        <Button size="sm" type="submit" disabled={unchanged || busy}>
+        <Button type="submit" disabled={unchanged || busy}>
           {busy ? 'Saving' : 'Save'}
         </Button>
       </span>
@@ -736,7 +753,7 @@ function DoneMeansText({ model }: { model: MilestoneDrawerModel }) {
   if (model.doneMeans.text === null) {
     // A missing input of the rubric: a warning (amber).
     return (
-      <span className={css.toneMono} data-tone="warning">
+      <span className={css.toned} data-tone="warning">
         Not set
       </span>
     );
@@ -805,12 +822,11 @@ function WeightField({
             )
           }
         />
-        <Button size="sm" type="submit" disabled={unchanged || busy}>
+        <Button type="submit" disabled={unchanged || busy}>
           {busy ? 'Saving' : 'Save'}
         </Button>
         {current === null ? null : (
           <Button
-            size="sm"
             variant="quiet"
             disabled={busy}
             onClick={() => void onSave(null)}
@@ -888,7 +904,7 @@ function DoneMeansField({
         }}
       />
       <span className={css.fieldRow}>
-        <Button size="sm" type="submit" disabled={unchanged || busy || over}>
+        <Button type="submit" disabled={unchanged || busy || over}>
           {busy
             ? 'Saving'
             : draft.trim() === '' && current !== ''

@@ -1701,18 +1701,19 @@ describe('TaskGroupTable status colours on the issue list', () => {
       )
     ).toContain('color: var(--tone-ink);');
     // The group's "Missing: …" line is amber (a missing input).
-    expect(body(tableCss, '.missing')).toContain('color: var(--amber-ink);');
+    expect(body(tableCss, '.missing')).toContain('color: var(--amber);');
     // The plain Urgent label is red; a priority picker's face takes its
     // colour from the option it shows (PickerOption.tone), never from the
     // host row, so no cell rule keys on the row's priority.
-    expect(body(tableCss, '.urgentText')).toContain('color: var(--red-ink);');
+    expect(body(tableCss, '.urgentText')).toContain('color: var(--red);');
     expect(tableCss).not.toContain('[data-priority');
-    // A filter value the planner cannot find: amber frame and values.
-    expect(body(chipsCss, ".chip[data-unknown='true']")).toContain(
-      'border-color: var(--amber-ink);'
-    );
+    // A filter value the planner cannot find: Gr8r's warning tint (an
+    // amber fill and edge) with its values in the amber text.
+    const unknown = body(chipsCss, ".chip[data-unknown='true']");
+    expect(unknown).toContain('border-color: var(--amber-line);');
+    expect(unknown).toContain('background: var(--amber-soft);');
     expect(body(chipsCss, ".summary[data-unknown='true']")).toContain(
-      'color: var(--amber-ink);'
+      'color: var(--amber);'
     );
     // No status place is left in the purple.
     for (const selector of [
@@ -1723,15 +1724,30 @@ describe('TaskGroupTable status colours on the issue list', () => {
     }
   });
 
-  test('selection, the drop frame and the in-flight hatch keep their look', () => {
-    expect(body(tableCss, ".row[data-selected='true']::before")).toContain(
-      'border-left: 2px solid var(--accent);'
+  test('selection, the drop target and the in-flight row keep their Gr8r look', () => {
+    // A selected (or open) row: the accent tint plus a 2px accent bar at
+    // its inner left edge, drawn as a border so forced colours keep it.
+    expect(
+      body(tableCss, ".row[aria-current='true'],\n.row[data-selected='true']")
+    ).toContain('background: var(--accent-soft);');
+    expect(
+      body(
+        tableCss,
+        ".row[data-selected='true']::before,\n.row[aria-current='true']::before"
+      )
+    ).toContain('border-left: 2px solid var(--accent);');
+    // A drop target: a faint accent wash framed by a 1px accent edge.
+    expect(body(tableCss, ".group[data-drop='ok']")).toContain(
+      'background: color-mix(in srgb, var(--accent) 6%, var(--sunken));'
     );
     expect(body(tableCss, ".group[data-drop='ok']::after")).toContain(
-      'border: 2px solid var(--accent);'
+      'border: 1px solid var(--accent);'
     );
+    // In flight: the hover fill, never a hatch, a hue or a fade.
     const pending = body(tableCss, ".row[data-pending='true']");
-    expect(pending).toContain('var(--hatch)');
-    expect(pending).not.toMatch(/--(red|amber|green|blue|accent)/);
+    expect(pending).toContain('background: var(--surface-2);');
+    expect(pending).not.toMatch(
+      /--(red|amber|green|blue|accent|hatch)|opacity/
+    );
   });
 });

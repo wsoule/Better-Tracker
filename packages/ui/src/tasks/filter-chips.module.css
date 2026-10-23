@@ -1,30 +1,27 @@
-/* The filter chips bar: a strip in a 1px ink frame that collapses into
-   the toolbar above it (-1px, as the timeline's legend row meets its
-   toolbar), holding one square chip per set filter in the chip voice:
-   the field as a mono key, "is", then the values in the reading voice,
-   chips joined by a mono "and". A chip naming something the host cannot
-   find draws its frame and values in amber (a missing input, architecture
-   §8.2; the TEXT colour for both, as a status Chip), beside its words
-   ("Not found"). The
-   padding inside the frame is --view-toolbar-gutter (18px, the block
-   chrome's), shared with the toolbar. */
+/* Gr8r's chips bar: a row the toolbar's height under a soft rule, in the
+   quiet --fs-xs voice, holding filter chips (26px, --r-chip, an accent
+   tint with an accent-line border, the field name in 500 --text-2, "is",
+   then the values) joined by a quiet "and". A chip naming something the
+   host cannot find takes the warning tint instead (an amber fill and
+   edge, its values in the amber text: a missing input, architecture
+   §8.2), beside its words ("Not found"). The horizontal padding follows
+   the toolbar's (--view-toolbar-gutter). */
 
 .bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 8px;
+  gap: 6px;
   min-height: 44px;
-  margin-top: -1px;
-  padding: 8px var(--view-toolbar-gutter, 18px);
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  padding: 8px var(--view-toolbar-gutter, var(--gutter));
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 .lead {
   flex: none;
-  color: var(--muted);
+  color: var(--text-4);
 }
 
 /* The chips wrap inside the list, which wraps inside the bar. */
@@ -33,7 +30,7 @@
   flex: 0 1 auto;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px 8px;
+  gap: 6px;
   min-width: 0;
   margin: 0;
   padding: 0;
@@ -43,18 +40,13 @@
 .item {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   max-width: 100%;
 }
 
 .and {
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-3);
 }
 
 .chip {
@@ -63,15 +55,17 @@
   gap: 2px;
   min-width: 0;
   max-width: 100%;
-  min-height: 28px;
-  padding: 0 2px 0 8px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  height: var(--h-sm);
+  padding: 0 3px 0 8px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-chip);
+  background: var(--accent-soft);
+  color: var(--text);
 }
 
 .chip[data-unknown='true'] {
-  border-color: var(--amber-ink);
+  border-color: var(--amber-line);
+  background: var(--amber-soft);
 }
 
 /* A chip whose face is the host's picker: the trigger carries 4px of the
@@ -84,8 +78,8 @@
 
 .face {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 5px;
   min-width: 0;
   white-space: nowrap;
 }
@@ -93,48 +87,33 @@
 .icon {
   display: inline-flex;
   flex: none;
-  align-self: center;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 .field {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
 }
 
 .is {
   flex: none;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  color: var(--text-2);
 }
 
 .summary {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 400;
-  letter-spacing: normal;
-  text-transform: none;
-  color: var(--ink-soft);
+  color: var(--text);
 }
 
 .summary[data-unknown='true'] {
-  color: var(--amber-ink);
+  color: var(--amber);
 }
 
 /* The host's picker trigger around the face: it takes the chip's voice
-   instead of its own appearance, with the flat-surface wash on hover and
-   while open. */
+   instead of its own appearance, with a faint wash on hover. */
 .editor {
   display: inline-flex;
   min-width: 0;
@@ -150,37 +129,33 @@
 .chip .editor button[data-appearance] {
   max-width: none;
   min-height: 0;
-  height: 24px;
+  height: 22px;
   margin: 0;
   padding: 0 4px;
   border: 0;
+  border-radius: var(--r-xs);
   background: transparent;
+  box-shadow: none;
   font: inherit;
-  letter-spacing: inherit;
-  text-transform: none;
   color: inherit;
+  opacity: 1;
 }
 
 .chip .editor button[data-appearance][aria-expanded='true'] {
-  background: var(--tint);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-/* ×: the toast's dismiss at chip size. */
 .remove {
   display: grid;
   flex: none;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  color: var(--muted);
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
   transition:
-    background-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.remove:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 0;
+    background-color var(--dur) ease,
+    color var(--dur) ease;
 }
 
 .add {
@@ -195,33 +170,19 @@
 
 @media (hover: hover) and (width >= 901px) {
   .chip .editor button[data-appearance]:hover {
-    background: var(--tint);
-    color: inherit;
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
 
   .remove:hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    color: var(--text);
   }
 }
 
-/* Phones: the chips wrap at once, so the leading icon would sit alone;
-   a chip wider than the bar gives way, its values ending in "…" (the
-   picker's parts take their 100% caps back). */
+/* Phones: the chips wrap at once, so the leading icon would sit alone. */
 @media (width <= 640px) {
-  .bar {
-    padding-right: var(--view-toolbar-gutter, 14px);
-    padding-left: var(--view-toolbar-gutter, 14px);
-  }
-
   .lead {
     display: none;
-  }
-
-  .editor [data-picker],
-  .editor [data-picker] > span,
-  .chip .editor button[data-appearance] {
-    max-width: 100%;
   }
 }
 

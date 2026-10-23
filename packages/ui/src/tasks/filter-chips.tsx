@@ -7,13 +7,12 @@ import { Button } from './button';
 import styles from './filter-chips.module.css';
 import type { FilterChipsProps } from './types';
 
-/* The filter chips bar (Gr8r's .chipsbar in view-engine.js): one square
-   chip per set filter, "PROJECT is Atlas billing migration, Beacon
-   search", joined by a mono "and", each with its own × (named "Remove
-   project filter"); then the host's "+ Filter" and, at the far right,
-   Clear all. A chip's face can be wrapped in the host's picker
-   (renderEditor), so a click on it reopens the values. Nothing is drawn
-   while there are no chips.
+/* Gr8r's filter chips bar (.chipsbar in view-engine.js): one chip per set
+   filter, "Project is Atlas billing migration, Beacon search", joined by a
+   quiet "and", each with its own × (named "Remove project filter"); then
+   the host's "+ Filter" and, at the far right, Clear all. A chip's face can
+   be wrapped in the host's picker (renderEditor), so a click on it reopens
+   the values. Nothing is drawn while there are no chips.
 
    Focus does not fall to <body> when a chip goes: a chip removed while
    its × had focus hands it to the next chip (its face's picker, else its
@@ -35,7 +34,7 @@ export function FilterChips({
       <ListFilter
         className={styles.lead}
         size={13}
-        strokeWidth={1.5}
+        strokeWidth={1.8}
         aria-hidden="true"
       />
       <ul className={styles.list}>
@@ -147,7 +146,7 @@ function RemoveButton({
       title={label}
       onClick={onRemove}
     >
-      <X size={12} strokeWidth={1.5} aria-hidden="true" />
+      <X size={12} strokeWidth={1.8} aria-hidden="true" />
     </button>
   );
 }

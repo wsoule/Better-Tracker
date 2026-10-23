@@ -24,7 +24,7 @@ export const MILESTONES: GraphNodeData[] = [
   node('atlas-m3', 'M3 Cutover', 'Atlas · due Oct 18 · 3d over', {
     status: 'overdue',
     statusLabel: 'Overdue',
-    tags: ['OVERDUE'],
+    tags: ['Overdue'],
     group: 'Atlas',
   }),
   node('atlas-m4', 'M4 Decommission legacy', 'Atlas · due Nov 12', {
@@ -46,7 +46,7 @@ export const MILESTONES: GraphNodeData[] = [
   node('search-m1', 'Index rebuild', 'Search · due Nov 2 · no lead', {
     tone: 'warning',
     status: 'at_risk',
-    tags: ['UNASSIGNED'],
+    tags: ['Unassigned'],
     group: 'Search',
   }),
   node('search-m2', 'Ranking v3', 'Search · no target date', {
@@ -61,11 +61,11 @@ export const MILESTONES: GraphNodeData[] = [
     group: 'Mobile',
   }),
   node('identity-m1', 'SSO rollout', 'Identity · due Nov 9', {
-    tags: ['CYCLE'],
+    tags: ['Cycle'],
     group: 'Identity',
   }),
   node('identity-m2', 'Audit log export', 'Identity · due Nov 16', {
-    tags: ['CYCLE'],
+    tags: ['Cycle'],
     group: 'Identity',
   }),
 ];
@@ -91,16 +91,16 @@ export const ISSUES: GraphNodeData[] = [
     tone: 'muted',
     status: 'done',
   }),
-  node('ATL-42', 'Dual-write shim', 'ATL-42 · Ben', { tags: ['OVERDUE'] }),
+  node('ATL-42', 'Dual-write shim', 'ATL-42 · Ben', { tags: ['Overdue'] }),
   node('ATL-43', 'Backfill orders table', 'ATL-43 · unassigned', {
     tone: 'warning',
-    tags: ['UNASSIGNED', 'OVERDUE'],
+    tags: ['Unassigned', 'Overdue'],
   }),
   node(
     'ATL-44',
     'Switch the read path over to the new cluster and drain the old one',
     'ATL-44 · Ana',
-    { tags: ['OVERDUE'] }
+    { tags: ['Overdue'] }
   ),
   node('PLT-7', 'Provision read replica', 'Platform · PLT-7 · done', {
     external: true,

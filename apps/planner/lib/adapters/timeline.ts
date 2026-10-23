@@ -212,12 +212,12 @@ export function weightTag(weight: number | null): string | null {
   return weight > 0 ? `↑${weight}` : `↓${-weight}`;
 }
 
-/** "Missing: done means…, project lead" (the bar's hatched-input line). */
+/** "Missing: done means…, project lead" (the bar's missing-input line). */
 export function missingLabel(gaps: readonly RubricGap[]): string {
   return `Missing: ${gaps.map((gap) => RUBRIC_GAP_SHORT_LABEL[gap]).join(', ')}`;
 }
 
-/** NEXT for the lane's next milestone, then the weight override. */
+/** "Next" for the lane's next milestone, then the weight override. */
 export function barTags(bar: CoreBar): string[] {
   const tags: string[] = [];
   if (bar.isNext) tags.push('Next');
@@ -252,7 +252,7 @@ export function toChartBar(bar: CoreBar, editable: boolean): TimelineBar {
   return out;
 }
 
-/** An undated milestone as a hatched chip at the lane's end. */
+/** An undated milestone as a dashed chip at the lane's end. */
 export function toUndatedChip(bar: CoreBar): TimelineUndated {
   const mark = assessmentMark(bar);
   return {
@@ -264,7 +264,7 @@ export function toUndatedChip(bar: CoreBar): TimelineUndated {
 }
 
 /**
- * The mono line under a project name: the lead; "No lead" and a
+ * The quiet line under a project name: the lead; "No lead" and a
  * deactivated lead in the warning tone (amber: allocation is stopped,
  * §8.2); and "Inactive · <lead>" for projects outside the active statuses
  * (drawn muted, never loud).
@@ -524,7 +524,7 @@ export interface TimelineBannerItem {
   label: string;
   /** Where the row goes on the timeline (a lane or a milestone drawer). */
   target: TimelineSelection;
-  /** Mono line under the label. */
+  /** The quiet line under the label. */
   detail?: string;
   /** Issue links into Linear. */
   links?: TimelineBannerLink[];
@@ -534,11 +534,11 @@ export interface TimelineBannerItem {
 
 export interface TimelineBanner {
   id: TimelineBannerId;
-  /** Mono key: NO LEAD, NO DATE, UNPLANNED, BLOCKED. */
+  /** Lead-in word: "No lead", "No date", "Unplanned", "Blocked". */
   label: string;
   /** The row's status tone (§8.2), for its key: warning for every
       banner (a missing input, unplanned issues that are never allocated,
-      a blocked project), so the block's left rule is amber too. */
+      a blocked project), which colours its icon and lead-in. */
   tone: UiTone;
   count: number;
   /** One sentence with the count. */
@@ -799,7 +799,7 @@ export interface MilestoneDrawerModel {
   today: string;
   projectId: string;
   title: string;
-  /** "ATLAS BILLING MIGRATION / DUAL-WRITE" (uppercased by the drawer). */
+  /** "Atlas billing migration / Dual-write": project, then milestone. */
   breadcrumb: string;
   projectName: string;
   /** Open in Linear: the project (Linear has no milestone page URL). */
@@ -843,7 +843,7 @@ export interface MilestoneDrawerModel {
     total: number;
     canceled: number;
     /** progressTone (§8.2): danger overdue, warning behind pace, success
-        complete, muted in an inactive project, default (the ink fill)
+        complete, muted in an inactive project, default (the accent fill)
         otherwise. */
     tone: UiTone;
   };

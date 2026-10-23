@@ -142,7 +142,7 @@ export interface GraphNodeDetail {
   id: string;
   kind: GraphLevel;
   title: string;
-  /** Mono crumb above the title: "ATLAS BILLING MIGRATION / DUAL-WRITE". */
+  /** The crumb above the title: "Atlas billing migration / Dual-write". */
   breadcrumb: string;
   status: UiStatus;
   statusLabel: string;
@@ -218,7 +218,7 @@ export interface GraphPageModel {
   tooLarge: GraphTooLarge | null;
   /** The ?node= box selected on arrival, when it is drawn. */
   initialSelectedId: string | null;
-  /** A chain's issue, ruled as the graph's focus. */
+  /** A chain's issue, ringed as the graph's focus. */
   focusId: string | null;
   ariaSummary: string;
   emptyMessage: string;
@@ -305,21 +305,22 @@ export function edgeKind(
 
 /** The chip of an issue on an open cycle that this graph does not draw
     whole: the word without the dashed outline, which stays for drawn
-    cycles (CYCLE). */
-export const ON_A_CYCLE_TAG = 'ON A CYCLE';
+    cycles (Cycle). */
+export const ON_A_CYCLE_TAG = 'On a cycle';
 
 /**
- * The mono chips on a node, from core's flags, in this order: UNASSIGNED
- * (open issues and milestones only: a project or initiative always holds
- * some unassigned later work; a filled amber chip), OVERDUE (never for an
- * inactive project's work; it floods the box red under the Risk
- * highlight), CYCLE (a drawn cycle: the box gets the dashed red outline),
- * ON A CYCLE (an issue on an open cycle the graph does not draw whole, so
- * its stuck red always has a word), CYCLE INSIDE (a box holding an issue
- * loop), NO LEAD (an active project), INACTIVE (a box with no active
- * project, or an open issue of an inactive one: paused work is quiet, and
- * the word says why) and +N MORE (a chain issue leading on to issues the
- * chain cap left out).
+ * The sentence-case chips on a node (ui DependencyGraph draws each as a
+ * Chip in its tone), from core's flags, in this order: Unassigned (open
+ * issues and milestones only: a project or initiative always holds some
+ * unassigned later work; a tinted amber chip), Overdue (never for an
+ * inactive project's work; a red dot pill, and the box's red tint under
+ * the Risk highlight), Cycle (a drawn cycle: the box gets the dashed red
+ * outline), On a cycle (an issue on an open cycle the graph does not draw
+ * whole, so its stuck red always has a word), Cycle inside (a box holding
+ * an issue loop), No lead (an active project), Inactive (a box with no
+ * active project, or an open issue of an inactive one: paused work is
+ * quiet, and the word says why) and +N more (a chain issue leading on to
+ * issues the chain cap left out).
  */
 export function nodeTags(node: GraphNode): GraphNodeTag[] {
   const tags: GraphNodeTag[] = [];
@@ -329,20 +330,20 @@ export function nodeTags(node: GraphNode): GraphNodeTag[] {
     node.open &&
     node.unassigned
   ) {
-    tags.push('UNASSIGNED');
+    tags.push('Unassigned');
   }
-  if (node.overdue && node.active) tags.push('OVERDUE');
-  if (node.inCycle) tags.push('CYCLE');
+  if (node.overdue && node.active) tags.push('Overdue');
+  if (node.inCycle) tags.push('Cycle');
   else if (!aggregate && node.open && node.holdsCycle) {
     tags.push(ON_A_CYCLE_TAG);
   }
-  if (aggregate && node.holdsCycle) tags.push('CYCLE INSIDE');
+  if (aggregate && node.holdsCycle) tags.push('Cycle inside');
   if (node.kind === 'project' && node.active && node.ownerId === null) {
-    tags.push('NO LEAD');
+    tags.push('No lead');
   }
-  if (!node.active && (aggregate || node.open)) tags.push('INACTIVE');
+  if (!node.active && (aggregate || node.open)) tags.push('Inactive');
   if ((node.hiddenNeighbours ?? 0) > 0) {
-    tags.push(`+${node.hiddenNeighbours} MORE`);
+    tags.push(`+${node.hiddenNeighbours} more`);
   }
   return tags;
 }
@@ -352,12 +353,12 @@ export function nodeTags(node: GraphNode): GraphNodeTag[] {
  * muted once closed (an issue done or canceled, a milestone complete) or
  * when its project is inactive (a box of paused work is never loud, §2.8);
  * danger (red) when it is overdue in an active project; warning (amber)
- * when it needs action; ink otherwise. An issue needs action when it is
+ * when it needs action; neutral otherwise. An issue needs action when it is
  * open and nobody owns it, in an active project; a milestone when it is at
  * risk; a project or an initiative when its next milestone (the most
  * severe of them) is at risk, danger when that one is overdue. A later
  * milestone's unassigned issues are normal (allocation hands out only the
- * next milestone), so they keep their UNASSIGNED chip without ruling every
+ * next milestone), so they keep their Unassigned chip without edging every
  * milestone in amber.
  */
 export function nodeTone(node: GraphNode): GraphNodeTone {
@@ -384,8 +385,8 @@ export function nodeTone(node: GraphNode): GraphNodeTone {
 }
 
 /** The Status highlight's tone of each readiness class (core
-    readinessClass): ready a green edge, blocked the amber rule, stuck the
-    red rule, quiet (done or paused work) faint, and independent ("No
+    readinessClass): ready a green edge, blocked an amber edge, stuck a
+    red edge, quiet (done or paused work) quiet, and independent ("No
     dependencies": on no blocking relation at all) neutral, so a graph of
     every item is not a sea of green. */
 export const READINESS_TONE: Readonly<
@@ -425,11 +426,11 @@ interface Mark {
 
 /**
  * The status mark of an issue node, in the same marks as milestones
- * (lib/adapters/status.ts): closed reads as complete (filled ink), open
- * and owned as open (the plain hollow ink square: an issue makes no status
- * claim of its own, its milestone does, so it never takes the milestone's
- * on-track green), and open with nobody assigned as a missing input
- * (hatched). The label is the Linear state's own name.
+ * (lib/adapters/status.ts): closed reads as complete (the solid neutral
+ * diamond), open and owned as open (the plain open diamond: an issue
+ * makes no status claim of its own, its milestone does, so it never takes
+ * the milestone's on-track green), and open with nobody assigned as a
+ * missing input (dotted). The label is the Linear state's own name.
  */
 export function issueMark(input: {
   open: boolean;
@@ -588,32 +589,46 @@ function presentLinks(links: readonly (GraphLink | null)[]): GraphLink[] {
 /* ---- node marks, sublabels and details, per kind -------------------------- */
 
 /**
- * How many characters one sublabel line holds in the widest box (with its
- * status mark, which every drawn box has). ui's measureNode cuts a longer
- * sublabel at its end; measured with measureNode itself, so this follows
- * the ui's box metrics.
+ * The line a drawn box shows for `sublabel`: ui's measureNode cuts a line
+ * too wide for its widest box at its end. Measured with measureNode
+ * itself (every drawn box has a status mark), so this follows the ui's
+ * box metrics and its Geist text widths.
  */
-const SUBLABEL_CHARS = measureNode({
-  id: 'measure',
-  label: '',
-  sublabel: 'x'.repeat(200),
-  tone: 'default',
-  status: 'open',
-}).sublabelLine.length;
+function shownSublabel(sublabel: string): string {
+  return measureNode({
+    id: 'measure',
+    label: '',
+    sublabel,
+    tone: 'default',
+    status: 'open',
+  }).sublabelLine;
+}
+
+/** The fewest characters of the head kept before it gives way whole. */
+const MIN_HEAD = 3;
 
 /**
  * "<head> · <tail>" for a box's one sublabel line. measureNode would cut
  * a too-long line at its end, which is where the date is, so here the
  * head gives way instead ("Atlas billing mig… · Jan 1, 2027"): the date
  * always shows. A line that fits is unchanged; a tail too long to leave
- * the head a few characters is left to the box's own cut.
+ * the head a few characters is left to the box's own cut. The longest
+ * head that fits is found by halving (the width grows with the head).
  */
 export function fitSublabel(head: string, tail: string): string {
   const full = `${head} · ${tail}`;
-  if (full.length <= SUBLABEL_CHARS) return full;
-  const room = SUBLABEL_CHARS - tail.length - ' · '.length;
-  if (room < 4) return full;
-  return `${head.slice(0, room - 1).trimEnd()}… · ${tail}`;
+  if (shownSublabel(full) === full) return full;
+  const cut = (n: number) => `${head.slice(0, n).trimEnd()}… · ${tail}`;
+  const fits = (n: number) => shownSublabel(cut(n)) === cut(n);
+  if (!fits(MIN_HEAD)) return full;
+  let lo = MIN_HEAD;
+  let hi = head.length - 1;
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (fits(mid)) lo = mid;
+    else hi = mid - 1;
+  }
+  return cut(lo);
 }
 
 /** "Atlas billing migration · Oct 18", "… · no date": fits one node line
@@ -1433,7 +1448,7 @@ function riskMarks(ctx: PageContext): GraphLegendItem[] {
 }
 
 /** The box being read: what the reader points at, focuses or taps
-    (the accent flood, on every input). */
+    (the soft accent tint under an accent ring, on every input). */
 const READING_ITEM: GraphLegendItem = {
   mark: 'path-active',
   label: 'Reading',
@@ -1737,7 +1752,7 @@ function criticalLegend(ctx: PageContext): GraphLegendItem[] {
  * The frames the graph draws, for every highlight's Nodes row: what a
  * frame stands for at this level (a milestone, inside its project's frame
  * when the issues span projects; a project; an initiative), then the
- * hatched frame of paused work when one is drawn. None at the initiative
+ * dashed frame of paused work when one is drawn. None at the initiative
  * level, in a chain, or in a mirror without initiatives at the project
  * level (no clusters).
  */
@@ -1784,7 +1799,7 @@ function frameItems(
         {
           mark: 'cluster-muted',
           label: 'Inactive',
-          note: 'a hatched frame of paused work',
+          note: 'a dashed frame of paused work',
         },
       ]
     : [frame];
@@ -1805,7 +1820,7 @@ function legendsFor(
 }
 
 /** Core's clusters as the ui draws them (GraphClusterData): the frame of
-    work with nothing active muted (hatched), one holding only boxes from
+    work with nothing active muted (dashed grey), one holding only boxes from
     outside the scope dashed. */
 export function clusterData(
   clusters: readonly GraphCluster[]
@@ -2703,7 +2718,7 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   if (graph.chain !== null && graph.chain.hidden > 0) {
     notices.push({
       id: 'chain-cut',
-      text: `Drawn: the nearest ${graph.nodes.length} issues; ${graph.chain.hidden} more are further out. Issues marked +N MORE lead on: open one and choose Graph to follow its chain.`,
+      text: `Drawn: the nearest ${graph.nodes.length} issues; ${graph.chain.hidden} more are further out. Issues marked +N more lead on: open one and choose Graph to follow its chain.`,
     });
   }
 

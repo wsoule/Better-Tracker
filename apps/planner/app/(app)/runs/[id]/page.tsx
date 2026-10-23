@@ -103,8 +103,8 @@ export default async function RunPage({
         <Notice label={model.note.label} tone="default">
           {model.note.body}
         </Notice>
-        <section className={css.collapse} aria-label="Run details">
-          <BlockBar index="01" title="Run" />
+        <section className={css.section} aria-label="Run details">
+          <BlockBar title="Run" />
           <div className={css.facts}>
             <PropertyList
               label="Run details"
@@ -121,12 +121,8 @@ export default async function RunPage({
             plan.
           </EmptyState>
         ) : (
-          model.groups.map((group, index) => (
-            <ProjectBlock
-              key={group.id}
-              group={group}
-              index={String(index + 2).padStart(2, '0')}
-            />
+          model.groups.map((group) => (
+            <ProjectBlock key={group.id} group={group} />
           ))
         )}
       </div>
@@ -135,27 +131,29 @@ export default async function RunPage({
   );
 }
 
-function ProjectBlock({
-  group,
-  index,
-}: {
-  group: RunProjectGroup;
-  index: string;
-}) {
+/* One project's part of the run: its heading and counts (a warning
+   "Blocked" chip beside the name when allocation stopped there, the
+   reason and its gaps as plain sentences under it, never a stacked tinted
+   box), the issues as a register panel, and the already-assigned skips as
+   one quiet line. */
+function ProjectBlock({ group }: { group: RunProjectGroup }) {
   return (
-    <section className={css.collapse} aria-label={group.name}>
-      <BlockBar index={index} title={group.name} meta={group.meta} />
+    <section className={css.section} aria-label={group.name}>
+      <BlockBar title={group.name} meta={group.meta}>
+        {group.block !== null ? (
+          <Chip tone="warning" filled>
+            Blocked
+          </Chip>
+        ) : null}
+      </BlockBar>
       {group.block !== null ? (
-        <Notice
-          label="Blocked"
-          tone="warning"
-          action={
-            <Link href={group.href} className="accentLink">
+        <div className={css.blockText}>
+          <p>
+            {group.block.sentence} Nothing in this project was allocated.
+            <Link href={group.href} className={`accentLink ${css.blockLink}`}>
               Timeline lane
             </Link>
-          }
-        >
-          {group.block.sentence} Nothing in this project was allocated.
+          </p>
           {group.block.gapLines.length > 0 ? (
             <ul className={css.blockGaps}>
               {group.block.gapLines.map((line) => (
@@ -163,7 +161,7 @@ function ProjectBlock({
               ))}
             </ul>
           ) : null}
-        </Notice>
+        </div>
       ) : null}
       {group.rows.length > 0 ? (
         <Register
@@ -178,7 +176,9 @@ function ProjectBlock({
         </Register>
       ) : null}
       {group.alreadyAssigned > 0 ? (
-        <EmptyState>{alreadyAssignedLine(group.alreadyAssigned)}</EmptyState>
+        <p className={css.skipLine}>
+          {alreadyAssignedLine(group.alreadyAssigned)}
+        </p>
       ) : null}
     </section>
   );
@@ -201,7 +201,6 @@ function IssueRow({ row }: { row: RunIssueRow }) {
       </RegisterCell>
       <RegisterCell
         label="State"
-        variant="mono"
         tone={row.stateMove === null ? 'muted' : 'default'}
       >
         {row.stateMove ?? '—'}

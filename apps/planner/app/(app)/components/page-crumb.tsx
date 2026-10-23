@@ -11,7 +11,7 @@ import {
 
 // The topbar breadcrumb is the section (from the URL) plus, optionally, one
 // crumb a page names itself: `<PageCrumb label="Atlas billing migration" />`
-// anywhere in a page adds "TIMELINE › ATLAS BILLING MIGRATION". It renders
+// anywhere in a page adds "Timeline / Atlas billing migration". It renders
 // nothing; it only tells the shell, and clears itself on unmount.
 
 interface CrumbApi {

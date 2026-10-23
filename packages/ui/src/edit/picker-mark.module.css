@@ -1,35 +1,24 @@
-/* Option marks. Square like every mark in the system: initials in a 1px
-   ink box (no hashed hues, one accent), and the label colour as a small
-   filled square — the only colour from data the package paints. */
-
-.avatar {
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  border: 1px solid currentcolor;
-  font-family: var(--font-mono);
-  font-size: 7.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-/* Nobody: the same square, dashed and empty. */
-.avatar[data-empty='true'] {
-  border-style: dashed;
-}
+/* Option marks. A person is the package's one round avatar
+   (InitialsAvatar, components/initials-avatar: its own sheet); a label's
+   colour is a small rounded square, the only colour from data the package
+   paints. */
 
 .swatch {
   display: inline-block;
   flex: none;
-  width: 9px;
-  height: 9px;
-  border: 1px solid var(--hairline-faint);
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
 }
 
+/* Not a hex colour: a hollow square in the chip-box edge. */
 .swatch[data-empty='true'] {
-  border-color: var(--grey-3);
+  border: 1px solid var(--border-strong);
+}
+
+/* Forced colours drop the fill: keep the square's edge. */
+@media (forced-colors: active) {
+  .swatch {
+    border: 1px solid CanvasText;
+  }
 }

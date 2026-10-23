@@ -314,16 +314,22 @@ describe('BulkBar and the toasts', () => {
     expect(/\n\.bar \{[^}]*\}/.exec(bar)?.[0]).toContain('bottom: 20px;');
   });
 
-  test('the bar is drawn like a toast: paper, a 1px ink frame, no shadow or radius', () => {
+  test('the bar is drawn like a toast: the inverted Gr8r pill on the pop shadow', () => {
     const css = readFileSync(
       path.join(import.meta.dir, '..', 'src', 'tasks', 'bulk-bar.module.css'),
       'utf8'
     );
     const bar = /\n\.bar \{[^}]*\}/.exec(css)?.[0] ?? '';
-    expect(bar).toContain('border: 1px solid var(--border);');
-    expect(bar).toContain('background: var(--background);');
-    expect(bar).toContain('color: var(--foreground);');
+    expect(bar).toContain('background: var(--text);');
+    expect(bar).toContain('color: var(--text-inv);');
+    expect(bar).toContain('border-radius: var(--r-lg);');
+    expect(bar).toContain('box-shadow: var(--shadow-pop);');
+    // Its ghost actions dim to 0.85 at rest (checked at 4.5:1 in
+    // tasks-contrast.test.ts) and wash, never flood, on hover.
+    expect(css).toMatch(/\n\.ghost,\n\.close \{[^}]*opacity: 0\.85;/);
     const code = css.replace(/\/\*[\s\S]*?\*\//g, '');
-    expect(code).not.toMatch(/box-shadow|border-radius|opacity: 0\.\d/);
+    expect(code).not.toMatch(
+      /background: var\(--accent\);\s*color: var\(--on-accent\)/
+    );
   });
 });

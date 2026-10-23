@@ -4,12 +4,16 @@ import path from 'node:path';
 
 import { MERMAID_HUES } from '../src/index';
 
-// The Mermaid export cannot read CSS variables, so MERMAID_HUES copies the
-// light theme's status MARK hexes out of the ui's tokens.css (architecture
-// §2.10 "Mermaid", §8.2 "Status colours"). This test reads that file and
-// keeps the copy equal, and checks the 3:1 the export's doc promises for a
-// stroke on the backgrounds pasted Mermaid usually lands on. core:test
-// lists tokens.css as an input (moon.yml), so a token change reruns it.
+// The Mermaid export cannot read CSS variables, so MERMAID_HUES holds its
+// own status hexes (architecture §2.10 "Mermaid", §8.2 "Status colours").
+// They are the ui's status hues (the same hue as tokens.css's --red,
+// --amber and --green, read from that file) at a mid tone: the app's light
+// hues are deep text-safe steps (the Gr8r tokens, owner decision
+// 2026-10-23) that would fall under 3:1 on a dark page, and pasted Mermaid
+// renders in either theme. The test also checks the 3:1 the export's doc
+// promises for a stroke on the backgrounds pasted Mermaid usually lands
+// on. core:test lists tokens.css as an input (moon.yml), so a token change
+// reruns it.
 
 const TOKENS = path.join(
   import.meta.dir,
@@ -43,6 +47,23 @@ function hexOf(block: string, name: string): string | null {
   return match?.[1]?.toLowerCase() ?? null;
 }
 
+/** The HSL hue angle (0–360) of a #rrggbb colour. */
+function hueAngle(hex: string): number {
+  const [r, g, b] = [1, 3, 5].map(
+    (offset) => Number.parseInt(hex.slice(offset, offset + 2), 16) / 255
+  ) as [number, number, number];
+  const max = Math.max(r, g, b);
+  const span = max - Math.min(r, g, b);
+  if (span === 0) return 0;
+  const sector =
+    max === r
+      ? ((g - b) / span) % 6
+      : max === g
+        ? (b - r) / span + 2
+        : (r - g) / span + 4;
+  return (sector * 60 + 360) % 360;
+}
+
 /** WCAG 2 relative luminance of a #rrggbb colour. */
 function luminance(hex: string): number {
   const channel = (offset: number): number => {
@@ -62,9 +83,17 @@ describe('MERMAID_HUES', () => {
   const block = lightBlock(readFileSync(TOKENS, 'utf8'));
 
   test.each(['red', 'amber', 'green'] as const)(
-    '%s is the light theme MARK token of tokens.css',
+    '%s is the same hue as the light theme token of tokens.css',
     (hue) => {
-      expect(MERMAID_HUES[hue]).toBe(hexOf(block, hue) ?? 'missing');
+      const token = hexOf(block, hue);
+      expect({ hue, token }).toEqual({
+        hue,
+        token: expect.stringMatching(/^#[0-9a-f]{6}$/),
+      });
+      const apart = Math.abs(
+        hueAngle(MERMAID_HUES[hue]) - hueAngle(token ?? '')
+      );
+      expect(Math.min(apart, 360 - apart)).toBeLessThanOrEqual(12);
     }
   );
 

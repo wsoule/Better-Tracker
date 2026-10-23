@@ -2,10 +2,13 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   basisPath,
+  clipText,
   GRAPH_METRICS,
   layoutGraph,
   measureNode,
+  textWidth,
   wrapMono,
+  wrapText,
 } from '../src/graph/layout';
 import type {
   GraphLayout,
@@ -215,16 +218,52 @@ describe('layoutGraph', () => {
 });
 
 describe('node metrics', () => {
-  test('sizes a box from its mono label, within the clamp', () => {
+  test('sizes a box from its Geist label, within the clamp', () => {
     const short = measureNode(MILESTONES[1]);
     expect(short.width).toBeGreaterThanOrEqual(GRAPH_METRICS.minWidth);
     expect(short.labelLines).toEqual(['M3 Cutover']);
     const long = measureNode(ISSUES[3]);
     expect(long.width).toBe(GRAPH_METRICS.maxWidth);
     expect(long.labelLines).toHaveLength(2);
-    expect(long.labelLines[1].endsWith('…')).toBe(true);
+    // Longer still, and the second line ends in an ellipsis.
+    const longer = measureNode({
+      ...ISSUES[3],
+      label: `${ISSUES[3].label}, then retire the replica set and its alarms`,
+    });
+    expect(longer.labelLines).toHaveLength(2);
+    expect(longer.labelLines[1].endsWith('…')).toBe(true);
+    // Every line fits the box's text column at the label's size.
+    const inner =
+      GRAPH_METRICS.maxWidth -
+      (GRAPH_METRICS.padX + GRAPH_METRICS.border) * 2 -
+      GRAPH_METRICS.glyph -
+      GRAPH_METRICS.glyphGap;
+    for (const line of [...long.labelLines, ...longer.labelLines]) {
+      expect(textWidth(line, GRAPH_METRICS.labelSize)).toBeLessThanOrEqual(
+        inner
+      );
+    }
     // Two label lines and a tag row make a taller box.
     expect(long.height).toBeGreaterThan(short.height);
+  });
+
+  test('text widths follow Geist: wide letters wider, a word too long broken', () => {
+    expect(textWidth('', 12)).toBe(0);
+    // Proportional, not mono: "W" is wider than "i", and both scale.
+    expect(textWidth('W', 12)).toBeGreaterThan(textWidth('i', 12) * 2);
+    expect(textWidth('Atlas', 24)).toBeCloseTo(textWidth('Atlas', 12) * 2);
+    // A line too wide is cut to fit, with an ellipsis.
+    const cut = clipText('Atlas billing migration', 80, 12);
+    expect(cut.endsWith('…')).toBe(true);
+    expect(textWidth(cut, 12)).toBeLessThanOrEqual(80);
+    expect(clipText('Atlas', 80, 12)).toBe('Atlas');
+    // One word wider than a line is hard-broken across the lines.
+    const lines = wrapText('Supercalifragilisticexpialidocious', 80, 12, 2);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      expect(textWidth(line, 12)).toBeLessThanOrEqual(80);
+    }
+    expect(lines[0]?.startsWith('Super')).toBe(true);
   });
 
   test('the readiness chip leads the chips: a row of its own, a ready mark wider', () => {
@@ -249,9 +288,9 @@ describe('node metrics', () => {
       plain.height + GRAPH_METRICS.tagsGap + GRAPH_METRICS.tagHeight
     );
     expect(blocked.width).toBe(plain.width);
-    // Beside tags it widens the row; a ready chip's square mark and its
-    // gap add their width.
-    const tags = ['UNASSIGNED', 'OVERDUE'];
+    // Beside tags it widens the row; a ready chip (a dot pill under
+    // Status, success) keeps its dot's room in every highlight.
+    const tags = ['Unassigned', 'Overdue'];
     const withTags = measureNode({ ...base, tags });
     const asBlocked = measureNode({
       ...base,
@@ -261,7 +300,7 @@ describe('node metrics', () => {
     const asReady = measureNode({
       ...base,
       tags,
-      readiness: readiness('ready', 'Ready'),
+      readiness: { ...readiness('ready', 'Ready'), tone: 'success' },
     });
     expect(asBlocked.width).toBeGreaterThan(withTags.width);
     expect(asReady.width - asBlocked.width).toBe(

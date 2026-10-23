@@ -7,7 +7,7 @@ import {
 
 import css from './page.module.css';
 
-/* My week while the engine loads: hatched skeletons in the page's real
+/* My week while the engine loads: shimmer skeletons in the page's real
    layout (header, stats strip, task table, deadlines, needs attention). */
 export default function WeekLoading() {
   return (
@@ -23,16 +23,23 @@ export default function WeekLoading() {
         <div className={css.columns}>
           <div className={css.grid}>
             <div className={css.main}>
-              <SkeletonRows rows={9} label="Loading your issues" />
+              <BlockBar title="Your issues" />
+              <div className={css.skeletonPanel}>
+                <SkeletonRows rows={9} label="Loading your issues" />
+              </div>
             </div>
             <aside className={css.side} aria-label="Deadlines and attention">
-              <div className={css.collapse}>
-                <BlockBar index="01" title="Upcoming deadlines" />
-                <SkeletonRows rows={4} label="Loading deadlines" />
+              <div className={css.sideSection}>
+                <BlockBar title="Upcoming deadlines" />
+                <div className={css.skeletonPanel}>
+                  <SkeletonRows rows={4} label="Loading deadlines" />
+                </div>
               </div>
-              <div className={css.collapse}>
-                <BlockBar index="02" title="Needs attention" />
-                <SkeletonRows rows={2} label="Loading projects" />
+              <div className={css.sideSection}>
+                <BlockBar title="Needs attention" />
+                <div className={css.skeletonPanel}>
+                  <SkeletonRows rows={2} label="Loading projects" />
+                </div>
               </div>
             </aside>
           </div>

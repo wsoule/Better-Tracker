@@ -2,12 +2,12 @@ import { cx } from './class-names';
 import styles from './progress-rule.module.css';
 import type { ProgressRuleProps } from './types';
 
-/* completed/scope as a drawn rule: a 1px ghost track (--grey-4) with an ink
-   fill sitting on it and a mono "3/7" receipt. Any tone but default paints
-   the fill in the tone's MARK colour and the receipt in its TEXT colour
-   (data-tone): danger overdue, warning behind pace, success complete, muted
-   inactive, accent for a fill that is not a status. Exposed as a
-   progressbar with a sentence value. */
+/* completed/scope as Gr8r's progress bar: a 4px rounded --surface-3 track
+   with an accent fill and a quiet "3/7" receipt in tabular figures. Any
+   tone but default paints the fill in the tone's hue (data-tone): danger
+   overdue, warning behind pace, success complete, muted inactive; the
+   receipt stays quiet text. Exposed as a progressbar with a sentence
+   value. */
 export function ProgressRule({
   done,
   total,

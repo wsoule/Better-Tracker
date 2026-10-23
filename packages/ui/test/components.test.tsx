@@ -133,7 +133,7 @@ describe('GraphLegend focus swatch', () => {
     expect(edges.querySelector('[data-mark="node-focus"]')).toBeNull();
   });
 
-  test('the swatch repeats the graph’s inner 2px ink rule', () => {
+  test('the swatch repeats the graph’s accent ring standing off the box', () => {
     const css = readFileSync(
       path.join(
         import.meta.dir,
@@ -145,8 +145,8 @@ describe('GraphLegend focus swatch', () => {
       'utf8'
     );
     const rule = /\.nodeFocus::after \{([^}]*)\}/.exec(css)?.[1] ?? '';
-    expect(rule).toContain('inset: 2px;');
-    expect(rule).toContain('border: 2px solid var(--foreground);');
+    expect(rule).toContain('inset: -4px;');
+    expect(rule).toContain('border: 2px solid var(--accent);');
   });
 });
 

@@ -1,11 +1,6 @@
 'use client';
 
-import {
-  Checkbox,
-  Register,
-  RegisterCell,
-  RegisterRow,
-} from '@better-tracker/ui';
+import { Checkbox } from '@better-tracker/ui';
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
 
 import {
@@ -18,6 +13,12 @@ import {
 } from '../../../lib/adapters/settings';
 import FormBar from './form-bar';
 import css from './page.module.css';
+import {
+  SCHEDULE_PROJECTS_GROUP,
+  SCHEDULE_TIME_GROUP,
+  tuningFieldGroups,
+} from './schedule-groups';
+import { SettingBlock, SettingRow } from './setting-rows';
 import { useSaveSettings } from './use-save-settings';
 
 function sameForm(a: ScheduleFormState, b: ScheduleFormState): boolean {
@@ -29,6 +30,11 @@ function sameForm(a: ScheduleFormState, b: ScheduleFormState): boolean {
   );
 }
 
+/** An input's aria-describedby: its help line, then its error if any. */
+function describedBy(help: string, error: string | undefined): string {
+  return error === undefined ? help : `${help} ${error}`;
+}
+
 /** The error keys in the order the rows show them (first one gets focus). */
 const FIELD_ORDER = [
   'timezone',
@@ -37,8 +43,9 @@ const FIELD_ORDER = [
 ] as const;
 
 /* Settings → Schedule: the workspace timezone (checked against the IANA
-   database on the server) and the tuning numbers behind risk, warnings
-   and the timeline, each with one line on what it changes. The form
+   database on the server), the tuning numbers behind risk, warnings and
+   the timeline, and the active project statuses, as Gr8r setting rows
+   under four headings, each with one line on what it changes. The form
    checks ranges before sending; the server checks everything again, and
    its timezone refusal is shown on the timezone field like the form's own
    errors. Whenever a submit stops on a field error, focus moves to the
@@ -112,20 +119,13 @@ export default function ScheduleForm({
       aria-label="Schedule"
       noValidate
     >
-      <Register
-        label="Schedule"
-        columns="minmax(0, 1fr) 220px"
-        stackWithin={700}
-        stackedColumns="minmax(0, 1fr)"
-      >
-        <RegisterRow>
-          <RegisterCell
-            variant="name"
-            sub="Decides what “today” is for due dates, the daily run and digests. An IANA name such as America/Chicago."
-          >
-            <label htmlFor={`${baseId}-tz`}>Timezone</label>
-          </RegisterCell>
-          <RegisterCell align="end">
+      <SettingBlock title={SCHEDULE_TIME_GROUP}>
+        <SettingRow
+          title="Timezone"
+          labelFor={`${baseId}-tz`}
+          help="Decides what “today” is for due dates, the daily run and digests. An IANA name such as America/Chicago."
+          helpId={`${baseId}-tz-help`}
+          control={
             <span className={css.field}>
               <input
                 id={`${baseId}-tz`}
@@ -136,11 +136,12 @@ export default function ScheduleForm({
                 value={form.timezone}
                 disabled={saving}
                 aria-invalid={errors.timezone !== undefined}
-                aria-describedby={
+                aria-describedby={describedBy(
+                  `${baseId}-tz-help`,
                   errors.timezone !== undefined
                     ? `${baseId}-tz-error`
                     : undefined
-                }
+                )}
                 onChange={(event) =>
                   setForm((f) => ({ ...f, timezone: event.target.value }))
                 }
@@ -151,63 +152,68 @@ export default function ScheduleForm({
                 </span>
               ) : null}
             </span>
-          </RegisterCell>
-        </RegisterRow>
-        {TUNING_FIELDS.map((field) => {
-          const id = `${baseId}-${field.key}`;
-          const error = errors[field.key];
-          return (
-            <RegisterRow key={field.key}>
-              <RegisterCell variant="name" sub={field.help}>
-                <label htmlFor={id}>{field.label}</label>
-              </RegisterCell>
-              <RegisterCell align="end">
-                <span className={css.field}>
-                  <span className={css.numberRow}>
-                    <input
-                      id={id}
-                      className={`input ${css.numberInput}`}
-                      type="number"
-                      inputMode="numeric"
-                      min={field.min}
-                      max={field.max}
-                      step={1}
-                      value={form.values[field.key]}
-                      disabled={saving}
-                      aria-invalid={error !== undefined}
-                      aria-describedby={
-                        error !== undefined ? `${id}-error` : undefined
-                      }
-                      onChange={(event) =>
-                        setForm((f) => ({
-                          ...f,
-                          values: {
-                            ...f.values,
-                            [field.key]: event.target.value,
-                          },
-                        }))
-                      }
-                    />
-                    <span className={css.unit}>days</span>
-                  </span>
-                  {error !== undefined ? (
-                    <span id={`${id}-error`} className={css.fieldError}>
-                      {error}
+          }
+        />
+      </SettingBlock>
+      {tuningFieldGroups().map((group) => (
+        <SettingBlock key={group.title} title={group.title}>
+          {group.fields.map((field) => {
+            const id = `${baseId}-${field.key}`;
+            const error = errors[field.key];
+            return (
+              <SettingRow
+                key={field.key}
+                title={field.label}
+                labelFor={id}
+                help={field.help}
+                helpId={`${id}-help`}
+                control={
+                  <span className={css.field}>
+                    <span className={css.numberRow}>
+                      <input
+                        id={id}
+                        className={`input ${css.numberInput}`}
+                        type="number"
+                        inputMode="numeric"
+                        min={field.min}
+                        max={field.max}
+                        step={1}
+                        value={form.values[field.key]}
+                        disabled={saving}
+                        aria-invalid={error !== undefined}
+                        aria-describedby={describedBy(
+                          `${id}-help`,
+                          error !== undefined ? `${id}-error` : undefined
+                        )}
+                        onChange={(event) =>
+                          setForm((f) => ({
+                            ...f,
+                            values: {
+                              ...f.values,
+                              [field.key]: event.target.value,
+                            },
+                          }))
+                        }
+                      />
+                      <span className={css.unit}>days</span>
                     </span>
-                  ) : null}
-                </span>
-              </RegisterCell>
-            </RegisterRow>
-          );
-        })}
-        <RegisterRow>
-          <RegisterCell
-            variant="name"
-            sub="Projects in these Linear statuses get allocation and warnings; the rest are shown but left alone."
-          >
-            Active project statuses
-          </RegisterCell>
-          <RegisterCell align="end">
+                    {error !== undefined ? (
+                      <span id={`${id}-error`} className={css.fieldError}>
+                        {error}
+                      </span>
+                    ) : null}
+                  </span>
+                }
+              />
+            );
+          })}
+        </SettingBlock>
+      ))}
+      <SettingBlock title={SCHEDULE_PROJECTS_GROUP}>
+        <SettingRow
+          title="Active project statuses"
+          help="Projects in these Linear statuses get allocation and warnings; the rest are shown but left alone."
+          control={
             <span className={css.field}>
               <span
                 id={fieldId('statuses')}
@@ -249,9 +255,9 @@ export default function ScheduleForm({
                 </span>
               ) : null}
             </span>
-          </RegisterCell>
-        </RegisterRow>
-      </Register>
+          }
+        />
+      </SettingBlock>
       <FormBar
         dirty={dirty}
         saving={saving}

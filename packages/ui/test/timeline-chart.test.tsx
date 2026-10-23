@@ -38,7 +38,7 @@ const GROUPS: TimelineGroup[] = [
             status: 'overdue',
             statusLabel: 'Overdue',
             progressLabel: '4/7',
-            tags: ['NEXT'],
+            tags: ['Next'],
             editable: true,
           },
           {
@@ -72,7 +72,7 @@ const GROUPS: TimelineGroup[] = [
             end: '2026-11-02',
             status: 'missing',
             statusLabel: 'Missing input',
-            missing: 'MISSING: DONE MEANS',
+            missing: 'Missing: done means',
             editable: true,
           },
         ],
@@ -122,7 +122,7 @@ describe('bars', () => {
     const onOpenBar = mock((_id: string) => {});
     const { chart } = renderChart({ onOpenBar });
     const rehearsal = chart.getByRole('button', {
-      name: 'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, NEXT',
+      name: 'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, Next',
     });
     expect(rehearsal.tagName).toBe('BUTTON');
     expect(rehearsal.getAttribute('type')).toBe('button');
@@ -131,7 +131,7 @@ describe('bars', () => {
 
     expect(
       chart.getByRole('button', {
-        name: 'v2 endpoints, Missing input, due Mon, Nov 2, MISSING: DONE MEANS',
+        name: 'v2 endpoints, Missing input, due Mon, Nov 2, Missing: done means',
       })
     ).toBeTruthy();
   });
@@ -157,6 +157,33 @@ describe('bars', () => {
     expect(scroller.style.getPropertyValue('--timeline-scroll-x')).toBe(
       '240px'
     );
+  });
+
+  test('say their status by shape, not only by hue (WCAG 1.4.1)', () => {
+    // Each bar's name is led by the status mark, and its due-date diamond
+    // takes the status's shape (data-status); the mark is drawing only
+    // (the bar's name already says the status).
+    const { chart } = renderChart();
+    for (const [name, status] of [
+      [/^Cutover rehearsal/, 'overdue'],
+      [/^Cutover, On track/, 'on_track'],
+      [/^v2 endpoints/, 'missing'],
+    ] as const) {
+      const bar = chart.getByRole('button', { name });
+      const mark = bar.querySelector('[data-status]');
+      expect(mark?.getAttribute('data-status')).toBe(status);
+      expect(mark?.closest('[aria-hidden="true"]')).not.toBeNull();
+      const item = bar.closest('[data-bar-id]') as HTMLElement;
+      const diamond = item.querySelector(':scope > [data-status]');
+      expect(diamond?.getAttribute('data-status')).toBe(status);
+    }
+    // The undated chip carries its mark too.
+    const chip = chart.getByRole('button', {
+      name: 'Pricing page, No target date, no due date',
+    });
+    expect(
+      chip.querySelector('[data-status]')?.getAttribute('data-status')
+    ).toBe('missing');
   });
 
   test('mark the selected bar as current', () => {
@@ -259,17 +286,20 @@ describe('group links', () => {
     }
   });
 
-  test('in the chart the link sits under the count, beside the name', () => {
+  test('in the chart the link follows the count at the cell edge', () => {
     const { chart } = renderLinked(LINKED);
     const link = chart.getByRole('link', {
       name: 'Dependency graph of Payments platform',
     });
-    // One column holds the count and the link; the name is outside it, so
-    // the link costs the name no width.
-    const meta = link.parentElement;
-    expect(meta?.firstElementChild?.textContent).toMatch(/^\d+ projects?$/);
-    expect(meta?.lastElementChild).toBe(link);
-    expect(meta?.querySelector('h3')).toBeNull();
+    // Gr8r's group row: the name, the quiet count beside it, then the
+    // link pushed to the cell's right edge as a ghost button.
+    const cell = link.parentElement;
+    const parts = Array.from(cell?.children ?? []);
+    expect(parts.map((el) => el.tagName)).toEqual(['H3', 'SPAN', 'A']);
+    expect(parts[1]?.textContent).toMatch(/^\d+ projects?$/);
+    expect(parts[2]).toBe(link);
+    // The name keeps its full text as a tooltip when it ellipsizes.
+    expect(parts[0]?.getAttribute('title')).toBe('Payments platform');
     const css = readFileSync(
       path.join(
         import.meta.dir,
@@ -280,8 +310,10 @@ describe('group links', () => {
       ),
       'utf8'
     );
-    const rule = /\.groupMeta \{([^}]*)\}/.exec(css)?.[1] ?? '';
-    expect(rule).toContain('flex-direction: column;');
+    const rule = /\.groupLink \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toContain('margin: 0 -6px 0 auto;');
+    expect(rule).not.toContain('font-family');
+    expect(rule).not.toContain('text-transform');
   });
 
   test('the label names the link when there is no ariaLabel', () => {
@@ -573,6 +605,65 @@ describe('announcements and spoken text', () => {
     }
   });
 
+  test('a sublabel that asks for action carries its tone; a quiet one has none', () => {
+    const { chart } = renderChart();
+    const ledger = chart.getByRole('group', { name: 'Ledger API, No lead' });
+    expect(within(ledger).getByText('No lead').getAttribute('data-tone')).toBe(
+      'warning'
+    );
+    const atlas = chart.getByRole('group', {
+      name: 'Atlas migration, Pat Lee',
+    });
+    expect(within(atlas).getByText('Pat Lee').hasAttribute('data-tone')).toBe(
+      false
+    );
+    cleanup();
+    // An inactive lane is never loud, whatever tone it is given.
+    const quiet = renderChart({
+      groups: [
+        {
+          id: 'g',
+          label: 'Paused',
+          lanes: [
+            {
+              id: 'p-fjord',
+              label: 'Fjord analytics',
+              sublabel: 'No lead',
+              sublabelTone: 'warning',
+              muted: true,
+              bars: [],
+              undated: [],
+            },
+          ],
+        },
+      ],
+    });
+    const fjord = quiet.chart.getByRole('group', {
+      name: 'Fjord analytics, No lead',
+    });
+    expect(within(fjord).getByText('No lead').hasAttribute('data-tone')).toBe(
+      false
+    );
+  });
+
+  test('the legend says each status in words; its marks are drawing only', () => {
+    const { getByRole } = renderChart();
+    const legend = getByRole('list', { name: 'Legend' });
+    expect(within(legend).queryAllByRole('img')).toHaveLength(0);
+    expect(
+      within(legend)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent)
+    ).toEqual([
+      'Overdue',
+      'At risk',
+      'On track',
+      'Complete',
+      'Missing input',
+      'Due date',
+    ]);
+  });
+
   test('edge cues are drawn, not read: the arrows are aria-hidden', () => {
     const { chart } = renderChart({ windowStart: '2026-10-25' });
     const atlas = chart.getByRole('group', {
@@ -708,10 +799,10 @@ describe('phone cards and empty state', () => {
     const { container } = renderChart();
     const buttons = [...container.querySelectorAll('article button')];
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
-      'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, NEXT',
+      'Cutover rehearsal, Overdue, due Mon, Oct 19, 4/7 done, Next',
       'Cutover, On track, due Fri, Nov 6',
       'Pricing page, No target date, no due date',
-      'v2 endpoints, Missing input, due Mon, Nov 2, MISSING: DONE MEANS',
+      'v2 endpoints, Missing input, due Mon, Nov 2, Missing: done means',
     ]);
     expect(container.querySelectorAll('article [role="slider"]')).toHaveLength(
       0
@@ -736,7 +827,7 @@ describe('phone cards and empty state', () => {
                 end: '2026-10-16',
                 status: 'overdue',
                 statusLabel: 'Overdue',
-                missing: 'MISSING: ISSUES',
+                missing: 'Missing: issues',
               },
             ],
             undated: [],
@@ -767,12 +858,13 @@ describe('phone cards and empty state', () => {
       [...card.querySelectorAll('button [data-tone]')].map((el) =>
         el.getAttribute('data-tone')
       );
-    // Receipts line, then the due date: overdue is danger (red) on a live
-    // lane, plain on an inactive one (§8.2).
-    expect(tones(muted)).toEqual(['default', 'default']);
+    // Receipts line, its missing input, then the due date: no tone at all
+    // in the inactive lane; the live lane's overdue receipts and date in
+    // the danger tone (docs/architecture.md §8.2).
+    expect(tones(muted)).toEqual(['default', 'default', 'default']);
     expect(tones(live)).toEqual(['danger', 'danger']);
-    // The inactive lane's mark is the grey hollow square, still named with
-    // its status; the live lane keeps the overdue mark.
+    // The inactive lane's mark is the grey hollow ring, still named with
+    // its status; the live lane keeps its status mark.
     const markOf = (card: Element) => card.querySelector('[role="img"]');
     expect(markOf(muted)?.hasAttribute('data-muted')).toBe(true);
     expect(markOf(muted)?.getAttribute('aria-label')).toBe('Overdue');
@@ -819,7 +911,7 @@ describe('phone cards and empty state', () => {
     const lines = [...container.querySelectorAll('article button')].map(
       (button) => button.querySelector('[data-tone]')?.textContent
     );
-    // The hatched mark plus the missing line say it; the status label would
+    // The dashed mark plus the missing line say it; the status label would
     // repeat it. A milestone with its own status keeps the label.
     expect(lines).toEqual([
       'At risk · 0/3 · Missing: done means…',

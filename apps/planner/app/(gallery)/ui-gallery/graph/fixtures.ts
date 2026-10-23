@@ -73,7 +73,7 @@ function withClusters(nodes: readonly GraphNodeData[]): {
  * has no dependencies (neutral, no chip); an open one is blocked by its
  * open blockers along edges that still block, and ready otherwise; it
  * unblocks the open nodes it alone blocks. The Status tone is green
- * when ready, amber when blocked, red when blocked on a CYCLE, faint when
+ * when ready, amber when blocked, red when blocked on a cycle, quiet when
  * done. Boxes say "Clear" / "Waiting on N", issues "Ready" / "Blocked by
  * N". Every edge whose ends sit in different groups (projects) is marked
  * `cross`; issues are named by their id ("ATL-42") in the readout.
@@ -124,7 +124,7 @@ function withReadiness(
       };
     }
     const blockedBy = blockers.get(node.id)?.size ?? 0;
-    const cycle = node.tags?.includes('CYCLE') === true;
+    const cycle = node.tags?.includes('Cycle') === true;
     if (blockedBy > 0) {
       return {
         state: 'blocked',
@@ -188,7 +188,7 @@ const milestoneNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'overdue',
     statusLabel: 'Overdue',
-    tags: ['OVERDUE'],
+    tags: ['Overdue'],
     group: 'Atlas',
     href: '/timeline?milestone=atlas-m3',
   },
@@ -239,7 +239,7 @@ const milestoneNodes: GraphNodeData[] = [
     tone: 'warning',
     status: 'at_risk',
     statusLabel: 'At risk',
-    tags: ['UNASSIGNED'],
+    tags: ['Unassigned'],
     group: 'Search',
     href: '/timeline?milestone=search-m1',
   },
@@ -300,7 +300,7 @@ const milestoneNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'On track',
-    tags: ['CYCLE'],
+    tags: ['Cycle'],
     group: 'Identity',
     href: '/timeline?milestone=identity-m1',
   },
@@ -311,7 +311,7 @@ const milestoneNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'On track',
-    tags: ['CYCLE'],
+    tags: ['Cycle'],
     group: 'Identity',
     href: '/timeline?milestone=identity-m2',
   },
@@ -364,7 +364,7 @@ const issueNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'In progress',
-    tags: ['OVERDUE'],
+    tags: ['Overdue'],
     group: 'Atlas › M3 Cutover',
     href: 'https://linear.app/acme/issue/ATL-42',
   },
@@ -375,7 +375,7 @@ const issueNodes: GraphNodeData[] = [
     tone: 'danger',
     status: 'missing',
     statusLabel: 'Todo',
-    tags: ['UNASSIGNED', 'OVERDUE'],
+    tags: ['Unassigned', 'Overdue'],
     group: 'Atlas › M3 Cutover',
     href: 'https://linear.app/acme/issue/ATL-43',
   },
@@ -386,7 +386,7 @@ const issueNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'Todo',
-    tags: ['OVERDUE'],
+    tags: ['Overdue'],
     group: 'Atlas › M3 Cutover',
     href: 'https://linear.app/acme/issue/ATL-44',
   },
@@ -397,7 +397,7 @@ const issueNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'Todo',
-    tags: ['CYCLE'],
+    tags: ['Cycle'],
     group: 'Atlas › M4 Decommission',
     href: 'https://linear.app/acme/issue/ATL-51',
   },
@@ -408,7 +408,7 @@ const issueNodes: GraphNodeData[] = [
     tone: 'warning',
     status: 'missing',
     statusLabel: 'Backlog',
-    tags: ['UNASSIGNED'],
+    tags: ['Unassigned'],
     group: 'Atlas › M4 Decommission',
     href: 'https://linear.app/acme/issue/ATL-52',
   },
@@ -419,7 +419,7 @@ const issueNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'In progress',
-    tags: ['CYCLE'],
+    tags: ['Cycle'],
     group: 'Atlas › M4 Decommission',
     href: 'https://linear.app/acme/issue/ATL-53',
   },
@@ -497,9 +497,9 @@ export const GRAPHS: Record<string, GraphFixture> = {
 // ---- one issue's chain -----------------------------------------------------
 // What /graph?chain=ATL-43 draws: everything the unassigned backfill waits
 // on and everything waiting on it, through open issues. The focus carries
-// the 2px ink rule (DependencyGraph focusId); a closed direct blocker is a
-// resolved leaf; PLT-9 leads on to two issues the chain cap left out, so it
-// carries the +2 MORE chip.
+// the accent ring standing off its box (DependencyGraph focusId); a closed
+// direct blocker is a resolved leaf; PLT-9 leads on to two issues the chain
+// cap left out, so it carries the +2 more chip.
 
 const chainNodes: GraphNodeData[] = [
   {
@@ -509,7 +509,7 @@ const chainNodes: GraphNodeData[] = [
     tone: 'warning',
     status: 'missing',
     statusLabel: 'Todo',
-    tags: ['UNASSIGNED'],
+    tags: ['Unassigned'],
     group: 'Atlas',
     href: 'https://linear.app/acme/issue/ATL-43',
   },
@@ -570,7 +570,7 @@ const chainNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'In progress',
-    tags: ['+2 MORE'],
+    tags: ['+2 more'],
     group: 'Platform',
     href: 'https://linear.app/acme/issue/PLT-9',
   },
@@ -738,14 +738,14 @@ function mermaidStyles(
     '  classDef cycle stroke:#d92d20,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3,opacity:0.7'
   );
-  // Overdue first and red, as the canvas floods it; never also amber risk.
+  // Overdue first and red, as the canvas tints it; never also amber risk.
   const overdue = (node: GraphNodeData) =>
-    node.tags?.includes('OVERDUE') === true;
+    node.tags?.includes('Overdue') === true;
   const overdueNodes = classed(overdue);
   const riskNodes = classed(
-    (node) => node.tags?.includes('UNASSIGNED') === true && !overdue(node)
+    (node) => node.tags?.includes('Unassigned') === true && !overdue(node)
   );
-  const cycleNodes = classed((node) => node.tags?.includes('CYCLE') === true);
+  const cycleNodes = classed((node) => node.tags?.includes('Cycle') === true);
   if (overdueNodes !== '') lines.push(`  class ${overdueNodes} overdue`);
   if (riskNodes !== '') lines.push(`  class ${riskNodes} risk`);
   if (cycleNodes !== '') lines.push(`  class ${cycleNodes} cycle`);

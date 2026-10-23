@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { connection } from 'next/server';
 import type { ReactNode } from 'react';
 
-import { geist, jetbrainsMono, THEME_STORAGE_KEY } from '../fonts';
+import { geist, geistMono, THEME_STORAGE_KEY } from '../fonts';
 
 import '@better-tracker/ui/styles.css';
 
@@ -29,7 +29,7 @@ export default async function GalleryLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={`${geist.variable} ${jetbrainsMono.variable}`}
+      className={`${geist.variable} ${geistMono.variable}`}
     >
       <body>
         <script
