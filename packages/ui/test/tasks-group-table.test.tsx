@@ -215,9 +215,42 @@ describe('TaskGroupTable structure', () => {
     expect(title.closest('[data-nav-target]')).not.toBeNull();
     // Rows without one draw no extra link.
     expect(view.queryByRole('link', { name: /A-2 in/ })).toBeNull();
-    // A word joiner glues the ↗ to the title's last word, so a wrapped
-    // title never leaves the icon on a line of its own.
-    expect(out.previousSibling?.textContent).toBe('\u2060');
+    // The title and the ↗ share one no-wrap run (a word joiner cannot
+    // hold an atomic inline), so a wrapped title never leaves the icon on
+    // a line of its own; a row without a ↗ has no run and no glued word.
+    const run = out.parentElement;
+    expect(run?.contains(title)).toBe(true);
+    expect(run?.querySelectorAll('a')).toHaveLength(2);
+    expect(out.previousSibling).toBe(title.closest('[data-nav-target]'));
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'tasks',
+        'task-group-table.module.css'
+      ),
+      'utf8'
+    );
+    expect(css).toMatch(
+      /\.titleRun,\s*\.titleRun \.titleText,\s*\.titleRun \.titleLink,\s*\.titleTail \{\s*white-space: nowrap;\s*\}/
+    );
+    expect(css).toMatch(/\.titleHead \{\s*white-space: normal;\s*\}/);
+    // A break before an atomic inline is closed only when every box
+    // ending in front of it is no-wrap: the words before the last wrap in
+    // a span of their own, the last one stays with the ↗.
+    expect(title.textContent).toBe('Issue a-1');
+    expect([...title.children].map((span) => span.textContent)).toEqual([
+      'Issue ',
+      'a-1',
+    ]);
+    // A row without one keeps its title straight in the title cell.
+    const plain = view.getByRole('link', { name: 'Issue a-2' });
+    const target = plain.closest('[data-nav-target]');
+    expect(
+      target?.parentElement?.querySelector('a[target="_blank"]')
+    ).toBeNull();
+    expect(plain.querySelector('span')).toBeNull();
   });
 
   test('rows stack by the table’s own width, not the viewport’s', () => {
@@ -459,9 +492,11 @@ describe('TaskGroupTable without the issue list props', () => {
     // heading level, a storage key, the empty message, onOpenRow and the
     // open row. The snapshot was taken before selection, drag and the
     // slots were added; none of them may change this markup. It was
-    // re-taken once when the status colours came in (architecture §8.2):
-    // the overdue date's data-tone is danger, StatusMark carries
-    // data-status and a muted group's progress rule is the inactive grey.
+    // re-taken when the status colours came in (architecture §8.2): the
+    // overdue date's data-tone is danger, StatusMark carries data-status
+    // and a muted group's progress rule is the inactive grey; and when a
+    // row's ↗ joined its title in one no-wrap run (the word joiner before
+    // it went: it could not keep the icon on the title's line).
     const sections: TaskSectionData[] = [
       ...SECTIONS,
       {

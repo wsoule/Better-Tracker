@@ -455,6 +455,22 @@
   min-width: 0;
 }
 
+/* The title with its ↗ (rows that have one): no break between its last
+   word and the ↗. CSS always allows a break before an atomic inline (the
+   ↗'s box) unless every box closing in front of it is no-wrap, so the
+   run, the title's wrappers and its last word (.titleTail) are no-wrap
+   and only the words before it (.titleHead) wrap. */
+.titleRun,
+.titleRun .titleText,
+.titleRun .titleLink,
+.titleTail {
+  white-space: nowrap;
+}
+
+.titleHead {
+  white-space: normal;
+}
+
 .titleText {
   min-width: 0;
 }

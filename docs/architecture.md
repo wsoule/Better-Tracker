@@ -2849,20 +2849,23 @@ hover floods on controls, and the timeline's today.
   not the viewport's 900px: beside the deadlines a 901–1100px window leaves the
   table 550–750px); a group heading keeps the mark, `PROJECT ›`, milestone and
   count on one line (the project ellipsizes first, the milestone wraps in
-  place), and a row's ↗ stays on its title's last line. Right column (Gr8r
-  "Upcoming deadlines"): milestones the user leads or has issues in, grouped
-  Overdue / Today / Tomorrow / This week (up to 6 days out; "Overdue" is red and
-  "Today" / "Tomorrow" amber, each only when it holds something); and "Needs
-  attention" for projects the user leads that are blocked (reason) or have
-  unassigned next-milestone issues, each row with a 2px amber rule and its flag
-  ("BLOCKED", "2 UNASSIGNED") in amber. The stats colour a non-zero status
-  number: Overdue milestones red, At risk amber (New to you and Open issues are
-  not statuses and stay ink). A group's due date follows the due-date rule (red
-  overdue, amber due today or tomorrow or undated) and its progress the progress
-  rule. Everyone gets a person picker (`?user=<id>`, honoured on the server for
-  anyone signed in, only for people in the mirror). Beside it, one quiet link to
-  the Issues page: "All my issues" (`/issues?assignee=me`) on your own week,
-  "All of <first name>'s issues" (`/issues?assignee=<id>`) on someone else's
+  place), and a row's ↗ stays on its title's last line, beside the last word
+  (title and ↗ share one no-wrap run in which only the words before the last
+  wrap: CSS always allows a break before the ↗'s box otherwise, and the word
+  joiner the row had did not hold it in Chrome). Right column (Gr8r "Upcoming
+  deadlines"): milestones the user leads or has issues in, grouped Overdue /
+  Today / Tomorrow / This week (up to 6 days out; "Overdue" is red and "Today" /
+  "Tomorrow" amber, each only when it holds something); and "Needs attention"
+  for projects the user leads that are blocked (reason) or have unassigned
+  next-milestone issues, each row with a 2px amber rule and its flag ("BLOCKED",
+  "2 UNASSIGNED") in amber. The stats colour a non-zero status number: Overdue
+  milestones red, At risk amber (New to you and Open issues are not statuses and
+  stay ink). A group's due date follows the due-date rule (red overdue, amber
+  due today or tomorrow or undated) and its progress the progress rule. Everyone
+  gets a person picker (`?user=<id>`, honoured on the server for anyone signed
+  in, only for people in the mirror). Beside it, one quiet link to the Issues
+  page: "All my issues" (`/issues?assignee=me`) on your own week, "All of
+  <first name>'s issues" (`/issues?assignee=<id>`) on someone else's
   (`WeekPageModel.allIssuesHref` and `allIssuesLabel`); it lists the same open
   issues in the weight order, without the This week / Later split and with
   inactive projects last.

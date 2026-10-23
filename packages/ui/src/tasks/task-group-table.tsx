@@ -1121,6 +1121,8 @@ function Row({
     row.project !== undefined && row.project === group.eyebrow;
   const isSelected = selection !== null && selection.selected.has(row.id);
   const tapToggles = selection !== null && selection.toggleOnClick;
+  const title =
+    row.externalHref === undefined ? row.title : gluedTitle(row.title);
 
   function onClick(event: MouseEvent<HTMLAnchorElement | HTMLButtonElement>) {
     if (onOpenRow === undefined || !isPlainClick(event)) return;
@@ -1141,7 +1143,7 @@ function Row({
         className={styles.titleLink}
         onClick={() => selection.toggleRow(row.id, false)}
       >
-        {row.title}
+        {title}
       </button>
     ) : row.href !== undefined ? (
       <Link
@@ -1151,7 +1153,7 @@ function Row({
         target={external ? '_blank' : undefined}
         rel={external ? 'noreferrer noopener' : undefined}
       >
-        {row.title}
+        {title}
         {external ? (
           <>
             <ArrowUpRight
@@ -1172,7 +1174,7 @@ function Row({
           onOpenRow?.(row, group);
         }}
       >
-        {row.title}
+        {title}
       </button>
     );
 
@@ -1227,26 +1229,32 @@ function Row({
       <div className={styles.titleCell}>
         <span className={styles.key}>{row.key}</span>
         <span className={styles.titleWrap}>
-          <span className={styles.titleText} data-nav-target="">
-            {primary}
-          </span>
-          {row.externalHref !== undefined ? (
-            // U+2060 WORD JOINER: no line break between the title's last
-            // word and the ↗.
-            <>{'\u2060'}</>
-          ) : null}
-          {row.externalHref !== undefined ? (
-            <Link
-              href={row.externalHref}
-              className={styles.linkOut}
-              target="_blank"
-              rel="noreferrer noopener"
-              aria-label={row.externalLabel ?? `Open ${row.key} in a new tab`}
-              title={row.externalLabel ?? `Open ${row.key} in a new tab`}
-            >
-              <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
-            </Link>
-          ) : null}
+          {row.externalHref === undefined ? (
+            <span className={styles.titleText} data-nav-target="">
+              {primary}
+            </span>
+          ) : (
+            // The title and its ↗ in one no-wrap run (the words before
+            // the title's last one still wrap: gluedTitle): CSS always
+            // lets a line break before an atomic inline such as the ↗'s
+            // box, so a word joiner could not keep the ↗ from falling
+            // alone onto a line of its own when the last word just fitted.
+            <span className={styles.titleRun}>
+              <span className={styles.titleText} data-nav-target="">
+                {primary}
+              </span>
+              <Link
+                href={row.externalHref}
+                className={styles.linkOut}
+                target="_blank"
+                rel="noreferrer noopener"
+                aria-label={row.externalLabel ?? `Open ${row.key} in a new tab`}
+                title={row.externalLabel ?? `Open ${row.key} in a new tab`}
+              >
+                <ArrowUpRight size={13} strokeWidth={1.5} aria-hidden="true" />
+              </Link>
+            </span>
+          )}
           {row.chips !== undefined && row.chips.length > 0 ? (
             <span className={styles.chips}>
               {row.chips.map((chip) => (
@@ -1305,6 +1313,32 @@ function Row({
         <div className={styles.actionsCell}>{slots.rowActions(row, group)}</div>
       ) : null}
     </li>
+  );
+}
+
+/** The longest last word a title glues to its ↗ (a longer one wraps
+    on its own rather than overflow the row). */
+const GLUE_MAX = 24;
+
+/**
+ * A title whose last word cannot be parted from the ↗ link after it. The
+ * row's title run is no-wrap (so no break opens before the ↗'s box, which
+ * CSS otherwise always allows before an atomic inline, whatever joiner
+ * precedes it); the words before the last sit in a span that wraps again.
+ */
+function gluedTitle(text: string): ReactNode {
+  const cut = text.lastIndexOf(' ');
+  const tail = text.slice(cut + 1);
+  if (tail === '' || tail.length > GLUE_MAX) {
+    return <span className={styles.titleHead}>{text}</span>;
+  }
+  return (
+    <>
+      {cut < 0 ? null : (
+        <span className={styles.titleHead}>{text.slice(0, cut + 1)}</span>
+      )}
+      <span className={styles.titleTail}>{tail}</span>
+    </>
   );
 }
 
