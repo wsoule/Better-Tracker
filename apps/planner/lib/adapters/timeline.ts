@@ -30,6 +30,7 @@ import type {
 
 import { dueLabel, formatDate, plural } from '../format';
 import { graphHref, initiativeGraphHref } from './graph-scope';
+import { dueTone, progressTone } from './projects';
 import { assessmentMark, blockedReasonLine } from './status';
 
 // The timeline page's core → ui mapping (architecture §8.4 Timeline, §8.3
@@ -875,40 +876,6 @@ const RUBRIC_ORDER: readonly RubricGap[] = [
   'no_issues',
 ];
 
-/**
- * The drawer's due-date tone (§8.2): danger when overdue, warning when the
- * date is missing (a rubric gap) or due today or tomorrow, else default.
- * A complete milestone and an inactive project's are never loud.
- */
-export function dueTone(
-  targetDate: string | null,
-  status: MilestoneDetail['assessment']['status'],
-  daysLeft: number | null,
-  muted: boolean
-): UiTone {
-  if (muted || status === 'complete') return 'default';
-  if (status === 'overdue') return 'danger';
-  if (targetDate === null) return 'warning';
-  if (daysLeft !== null && daysLeft >= 0 && daysLeft <= 1) return 'warning';
-  return 'default';
-}
-
-/**
- * The drawer's progress tone (§8.2, ProgressRule): danger when overdue,
- * warning when behind pace, success once complete, muted for an inactive
- * project, and default (the accent fill) otherwise.
- */
-export function progressTone(
-  assessment: Pick<MilestoneDetail['assessment'], 'status' | 'reasons'>,
-  muted: boolean
-): UiTone {
-  if (muted) return 'muted';
-  if (assessment.status === 'complete') return 'success';
-  if (assessment.status === 'overdue') return 'danger';
-  if (assessment.reasons.includes('behind_pace')) return 'warning';
-  return 'default';
-}
-
 /** "Overdue by 1 day." / "Overdue by 3 days." */
 export function overdueText(daysLate: number): string {
   return `Overdue by ${plural(daysLate, 'day')}.`;
@@ -1141,12 +1108,15 @@ export function buildMilestoneDrawer(input: {
         today,
         assessment.status
       ),
-      tone: dueTone(
-        milestone.targetDate,
-        assessment.status,
-        assessment.daysLeft,
-        muted
-      ),
+      // The shared due-date tone (projects.ts); an inactive project's
+      // date is never loud (§2.8).
+      tone: muted
+        ? 'default'
+        : dueTone(
+            assessment.status,
+            assessment.daysLeft,
+            milestone.targetDate === null
+          ),
     },
     lead: {
       id: project.leadId,

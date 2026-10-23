@@ -1348,12 +1348,12 @@ describe('toMermaid', () => {
         '  n0 --> n1',
         '  n2 -.-> n1',
         '  n3 --> n0',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef risk stroke:#88590d,stroke-width:2px',
+        '  classDef cycle stroke:#b03b2f,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  class n0,n1 risk',
         '  class n3 external',
-        '  linkStyle 0 stroke:#9747ff',
+        '  linkStyle 0 stroke:#88590d',
         '',
       ].join('\n')
     );
@@ -1382,8 +1382,8 @@ describe('toMermaid', () => {
         n1["Beta"]
         n0 -->|3| n1
         n1 --> n0
-        classDef risk stroke:#9747ff,stroke-width:2px
-        classDef cycle stroke:#9747ff,stroke-dasharray:5 3
+        classDef risk stroke:#88590d,stroke-width:2px
+        classDef cycle stroke:#b03b2f,stroke-dasharray:5 3
         classDef external stroke-dasharray:3 3,opacity:0.7
         class n0,n1 cycle
       "
@@ -1405,8 +1405,8 @@ describe('toMermaid', () => {
     ).toBe(
       [
         'flowchart LR',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef risk stroke:#88590d,stroke-width:2px',
+        '  classDef cycle stroke:#b03b2f,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '',
       ].join('\n')
@@ -2665,11 +2665,11 @@ describe('toMermaid at every level', () => {
         '  n2["Platform reliability<br/>5 projects"]',
         '  n0 -->|3| n1',
         '  n1 -->|2| n2',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef risk stroke:#88590d,stroke-width:2px',
+        '  classDef cycle stroke:#b03b2f,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  class n0 risk',
-        '  linkStyle 0 stroke:#9747ff',
+        '  linkStyle 0 stroke:#88590d',
         '',
       ].join('\n')
     );
@@ -2706,8 +2706,8 @@ describe('toMermaid at every level', () => {
         '  n1["Up<br/>ENG-2 · Bo"]',
         '  n1 --> n0',
         '  %% Showing the nearest 2 of 4 issues on this chain',
-        '  classDef risk stroke:#9747ff,stroke-width:2px',
-        '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+        '  classDef risk stroke:#88590d,stroke-width:2px',
+        '  classDef cycle stroke:#b03b2f,stroke-dasharray:5 3',
         '  classDef external stroke-dasharray:3 3,opacity:0.7',
         '  classDef focus stroke-width:3px',
         '  class n0 focus',

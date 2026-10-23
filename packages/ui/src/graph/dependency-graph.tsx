@@ -1,6 +1,6 @@
 'use client';
 
-import { Maximize, Minus, Plus } from 'lucide-react';
+import { Maximize, Minus, Network, Plus } from 'lucide-react';
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -15,8 +15,12 @@ import {
   useState,
 } from 'react';
 
+import StatusMark from '../components/status-mark';
 import { Link } from '../lib/link';
+import { Chip } from '../tasks/chip';
 import { cx } from '../tasks/class-names';
+import { EmptyState } from '../tasks/notice';
+import { StateGlyph } from '../tasks/task-glyphs';
 import { blockerIndex, upstreamChain, waiterIndex } from './chain';
 import styles from './dependency-graph.module.css';
 import { layoutGraph } from './layout';
@@ -24,6 +28,7 @@ import type {
   DependencyGraphProps,
   GraphEdgeKind,
   GraphNodeData,
+  GraphNodeTone,
   LaidOutNode,
 } from './types';
 
@@ -83,6 +88,17 @@ const STATE_CLASS: Record<HighlightState, string | undefined> = {
   dim: styles.dim,
 };
 
+/** A status tone tints the card (data-tone gives the hue); muted quiets
+    it; default is the plain card. */
+const TONE_CLASS: Record<GraphNodeTone, string | undefined> = {
+  default: undefined,
+  muted: styles.toneMuted,
+  danger: styles.toneStatus,
+  warning: styles.toneStatus,
+  success: styles.toneStatus,
+  info: styles.toneStatus,
+};
+
 // useLayoutEffect warns nowhere in React 19, but it never runs on the
 // server; the alias keeps intent clear for hosts that render there.
 const useIsomorphicLayoutEffect =
@@ -104,9 +120,9 @@ function isTyping(target: EventTarget | null): boolean {
 }
 
 /**
- * The sentence a screen reader hears on a node: name, context, status,
- * flags, scope, how many open edges touch it, and last the focus words
- * when the graph is about this node.
+ * The sentence a screen reader hears on a node: name, key and context,
+ * status, flags, scope, how many open edges touch it, and last the focus
+ * words when the graph is about this node.
  */
 function nodeName(
   node: GraphNodeData,
@@ -115,14 +131,17 @@ function nodeName(
   focusWords: string | null
 ): string {
   const parts = [node.label];
-  if (node.sublabel !== undefined && node.sublabel !== '') {
-    parts.push(node.sublabel);
-  }
+  const context = [node.key, node.sublabel]
+    .filter((part) => part !== undefined && part !== '')
+    .join(' · ');
+  if (context !== '') parts.push(context);
   if (node.statusLabel !== undefined && node.statusLabel !== '') {
     parts.push(node.statusLabel);
   }
   const tags = node.tags ?? [];
-  if (tags.length > 0) parts.push(tags.map((t) => t.toLowerCase()).join(', '));
+  if (tags.length > 0) {
+    parts.push(tags.map((t) => t.label.toLowerCase()).join(', '));
+  }
   if (node.external === true) parts.push('outside this scope');
   parts.push(`waits on ${waitsOn}, blocks ${holdsUp}`);
   if (focusWords !== null && focusWords !== '') parts.push(focusWords);
@@ -191,27 +210,54 @@ function neighbour(
   return null;
 }
 
+/** The mark at a node's start: a task's workflow-state circle, else the
+    status diamond. Hidden from assistive tech: the node's name says it. */
+function NodeMark({ node }: { node: GraphNodeData }): ReactNode {
+  if (node.state !== undefined) {
+    return (
+      <span className={styles.mark} aria-hidden="true">
+        <StateGlyph kind={node.state} size={14} />
+      </span>
+    );
+  }
+  if (node.status === undefined) return null;
+  return (
+    <span className={styles.mark} aria-hidden="true">
+      <StatusMark
+        status={node.status}
+        label={node.statusLabel ?? ''}
+        muted={node.statusMuted === true}
+      />
+    </span>
+  );
+}
+
 /**
- * A dependency graph drawn as a technical figure: hairline boxes with mono
- * labels, blockers on the left (or top), 1px edges with small arrowheads,
- * accent for risk, dashes for cycles and project crossings, grey for what
- * is already resolved.
+ * A dependency graph in Gr8r's look: rounded cards on a recessed canvas
+ * (a status diamond or a workflow-state circle, a medium title, a quiet
+ * line, sentence-case chips), blockers on the left (or top), thin curved
+ * connectors with small arrowheads. Status and risk use the §8.2 tones
+ * (danger: overdue; warning: at risk, unassigned, a risk chain), never the
+ * accent, and each also differs by shape or weight (dashes for cycles,
+ * crossings and externals, dots for resolved, a heavier risk line).
  *
  * - Hover or focus a node: its upstream chain (everything it transitively
- *   waits on) stays lit and the rest dims. With nothing hovered, the
- *   selected node's chain stays lit.
+ *   waits on) is lit (an accent ring on its boxes, heavier lines) and the
+ *   rest steps back without dropping below its contrast minimum. With
+ *   nothing hovered, the selected node's chain stays lit.
  * - Nodes are buttons in rank order behind one Tab stop (a roving
  *   tabindex: the last node focused, else the selected one, else the
  *   first). Enter selects (onSelect); arrows move between neighbouring
  *   boxes, Home/End to the first/last.
- * - The frame is a hairline box that scrolls inside itself: drag the
- *   background to pan, ctrl/cmd + wheel or the −/+/FIT buttons (or the
- *   - + 0 keys) to zoom. A plain wheel scrolls as usual and the page never
- *   loses its scroll.
+ * - The frame is one panel (toolbar over the canvas) that scrolls inside
+ *   itself: drag the background to pan, ctrl/cmd + wheel or the − / + /
+ *   Fit buttons (or the - + 0 keys) to zoom. A plain wheel scrolls as
+ *   usual and the page never loses its scroll.
  * - Screen readers get the summary sentence on the drawing and a hidden
  *   table of every edge.
- * - `focusId` marks the node the graph is about with an inner ink rule
- *   (it lights nothing); the first paint scrolls the frame so that node,
+ * - `focusId` marks the node the graph is about with an accent ring that
+ *   stands off its box (it lights nothing; selection hugs the box
+ *   instead); the first paint scrolls the frame so that node,
  *   else the selected one, sits in the middle (of the part a host's open
  *   right-hand panel leaves uncovered, `coveredRight`).
  * - `layout` takes a layout the host already computed (e.g. on the
@@ -536,11 +582,14 @@ export function DependencyGraph({
     target?.focus();
   }
 
+  // Gr8r's empty state: the Graph nav item's icon over the honest copy.
   if (nodes.length === 0) {
     return (
-      <p className={cx('empty', styles.emptyState, className)}>
-        {emptyMessage}
-      </p>
+      <div className={cx(styles.emptyState, className)}>
+        <EmptyState icon={<Network size={22} strokeWidth={1.8} />}>
+          {emptyMessage}
+        </EmptyState>
+      </div>
     );
   }
 
@@ -569,7 +618,7 @@ export function DependencyGraph({
             aria-keyshortcuts="-"
             title="Zoom out (-)"
           >
-            <Minus size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Minus size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
           <output className={styles.zoomValue} aria-live="polite">
             <span className="srOnly">Zoom </span>
@@ -584,7 +633,7 @@ export function DependencyGraph({
             aria-keyshortcuts="+"
             title="Zoom in (+)"
           >
-            <Plus size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Plus size={14} strokeWidth={1.8} aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -594,7 +643,7 @@ export function DependencyGraph({
             aria-keyshortcuts="0"
             title="Fit (0)"
           >
-            <Maximize size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Maximize size={14} strokeWidth={1.8} aria-hidden="true" />
             <span aria-hidden="true">Fit</span>
           </button>
         </div>
@@ -676,6 +725,7 @@ export function DependencyGraph({
                           y={edge.label.y + 0.5}
                           width={edge.label.width - 1}
                           height={edge.label.height - 1}
+                          rx={4}
                         />
                         <text
                           x={edge.label.x + edge.label.width / 2}
@@ -696,8 +746,6 @@ export function DependencyGraph({
               const node = byId.get(box.id);
               if (node === undefined) return null;
               const tags = node.tags ?? [];
-              const overdue = tags.includes('OVERDUE');
-              const inCycle = tags.includes('CYCLE');
               const selected = box.id === selectedId;
               const focus = box.id === focusId;
               const state: HighlightState | undefined =
@@ -710,13 +758,9 @@ export function DependencyGraph({
                       : 'dim';
               const classes = cx(
                 styles.node,
-                node.tone === 'accent' && styles.toneAccent,
-                node.tone === 'muted' && styles.toneMuted,
+                TONE_CLASS[node.tone],
                 node.external === true && styles.external,
-                overdue && styles.overdueNode,
-                inCycle && styles.cycle,
                 selected && styles.selected,
-                focus && styles.focus,
                 state === undefined ? undefined : STATE_CLASS[state]
               );
               const position: CSSProperties = {
@@ -731,14 +775,12 @@ export function DependencyGraph({
                 waiters.get(box.id)?.length ?? 0,
                 focus ? focusLabel : null
               );
+              const hasLine =
+                (node.key !== undefined && node.key !== '') ||
+                box.sublabelLine !== '';
               const body = (
                 <>
-                  {node.status !== undefined ? (
-                    <span
-                      className={cx(styles.glyph, styles[node.status])}
-                      aria-hidden="true"
-                    />
-                  ) : null}
+                  <NodeMark node={node} />
                   <span className={styles.text}>
                     <span className={styles.label}>
                       {box.labelLines.map((line, i) => (
@@ -747,33 +789,43 @@ export function DependencyGraph({
                         </span>
                       ))}
                     </span>
-                    {box.sublabelLine !== '' ? (
+                    {hasLine ? (
                       <span className={styles.sublabel}>
+                        {node.key !== undefined && node.key !== '' ? (
+                          <span className={styles.key}>{node.key}</span>
+                        ) : null}
                         {box.sublabelLine}
                       </span>
                     ) : null}
                     {tags.length > 0 ? (
                       <span className={styles.tags}>
                         {tags.map((tag) => (
-                          <span
-                            key={tag}
-                            className={cx(
-                              styles.tag,
-                              tag === 'UNASSIGNED' && styles.tagAccent
-                            )}
-                          >
-                            {tag}
-                          </span>
+                          <Chip key={tag.label} tone={tag.tone ?? 'default'}>
+                            {tag.label}
+                          </Chip>
                         ))}
                       </span>
                     ) : null}
                   </span>
+                  {/* Rings drawn as boxes, not shadows, so they survive
+                      forced colours: the selection / lit-chain ring
+                      hugging the card, the chain's focus ring standing
+                      off it, the cycle's dashed outline outside both. */}
+                  <span className={styles.ring} aria-hidden="true" />
+                  {focus ? (
+                    <span className={styles.focusRing} aria-hidden="true" />
+                  ) : null}
+                  {node.inCycle === true ? (
+                    <span className={styles.cycleRing} aria-hidden="true" />
+                  ) : null}
                 </>
               );
               const handlers = {
                 'data-graph-node': box.id,
                 'data-state': state,
+                'data-tone': node.tone,
                 'data-focus': focus ? '' : undefined,
+                'data-cycle': node.inCycle === true ? '' : undefined,
                 ref: (el: HTMLElement | null) => {
                   if (el === null) nodeRefs.current.delete(box.id);
                   else nodeRefs.current.set(box.id, el);

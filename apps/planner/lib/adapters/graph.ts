@@ -35,7 +35,9 @@ import {
   layoutGraph,
   type NavTabItem,
   type ShellCrumb,
+  type TaskStateKind,
   type UiStatus,
+  type UiTone,
 } from '@better-tracker/ui';
 
 import { dueLabel, formatDate, plural } from '../format';
@@ -52,7 +54,7 @@ import {
   NARROW_MAX_ROWS,
 } from './graph-scope';
 import { withIssueParam } from './issue';
-import { allocationCell } from './projects';
+import { allocationCell, dueTone } from './projects';
 import { assessmentMark, uiStatus } from './status';
 
 // The /graph page (architecture §8.4 "Graph", §2.10): core's
@@ -99,8 +101,9 @@ export interface GraphLink {
 export interface GraphProperty {
   label: string;
   value: string;
-  /** Accent when the value is what needs action ("No lead", "Unassigned"). */
-  tone?: 'default' | 'accent';
+  /** The value's §8.2 tone: danger when it is overdue, warning when it
+      needs action ("No lead", "Unassigned", a risk reason). */
+  tone?: UiTone;
 }
 
 /** What the slide-over shows for a selected node. */
@@ -108,11 +111,11 @@ export interface GraphNodeDetail {
   id: string;
   kind: GraphLevel;
   title: string;
-  /** Mono crumb above the title: "ATLAS BILLING MIGRATION / DUAL-WRITE". */
+  /** Crumb above the title: "Atlas billing migration / Dual-write". */
   breadcrumb: string;
   status: UiStatus;
   statusLabel: string;
-  /** An accent strip at the top when the node is overdue. */
+  /** A danger alert at the top when the node is overdue. */
   alert: string | null;
   properties: GraphProperty[];
   /** Drill-down and elsewhere links, in panel order; never this page. */
@@ -130,6 +133,9 @@ export interface IsolatedRow {
   /** The issue identifier ("ENG-12"); null for the other kinds. */
   key: string | null;
   status: UiStatus;
+  /** An issue's workflow state (drawn as StateGlyph instead of the
+      status diamond); null for the other kinds. */
+  state: TaskStateKind | null;
   statusLabel: string;
   /** The mark in greys whatever the status: paused work is never loud
       (§2.8); the label still names the status. */
@@ -137,16 +143,21 @@ export interface IsolatedRow {
   /** Projects count (initiatives), lead (projects), project name
       (milestones) or assignee (issues). */
   context: string;
-  contextTone: 'default' | 'accent';
+  /** Warning when the context needs action ("No lead", "Unassigned"). */
+  contextTone: UiTone;
   /** "Oct 26 · in 5 days", "No target date", "No open milestone". */
   due: string;
-  dueTone: 'default' | 'accent';
+  /** dueTone's colour (danger overdue, warning undated or due within a
+      day); default for inactive work. */
+  dueTone: UiTone;
   /** The initiative's or project's graph, the milestone's timeline drawer,
       or the issue's slide-over on this graph (?issue=). */
   href: string;
   external: boolean;
   rowLabel: string;
-  tone: 'default' | 'accent' | 'muted';
+  /** The row's tone as data (a status tone, or muted for closed or
+      inactive work: its subject steps back). */
+  tone: UiTone;
 }
 
 /** The register of nodes left off the canvas (no edge in scope). */
@@ -324,12 +335,15 @@ export function edgeKind(
 }
 
 /**
- * The mono chips on a node, from core's flags, in this order: UNASSIGNED
- * (open issues and milestones only: a project or initiative always holds
- * some unassigned later work), OVERDUE (never for an inactive project's
- * work), CYCLE, CYCLE INSIDE (a box holding an issue loop), NO LEAD (an
- * active project), INACTIVE (a box with no active project) and +N MORE (a
- * chain issue leading on to issues the chain cap left out).
+ * The words on a node, as sentence-case chips in their §8.2 tones, in this
+ * order: Unassigned (open issues and milestones only: a project or
+ * initiative always holds some unassigned later work; warning on an
+ * active project's issue, neutral on a milestone, whose later unassigned
+ * issues are normal), Overdue (danger; never for an inactive project's
+ * work), Cycle (danger), Cycle inside (danger: a box holding an issue
+ * loop), No lead (warning; an active project), Inactive (muted: a box with
+ * no active project) and +N more (neutral: a chain issue leading on to
+ * issues the chain cap left out).
  */
 export function nodeTags(node: GraphNode): GraphNodeTag[] {
   const tags: GraphNodeTag[] = [];
@@ -339,47 +353,57 @@ export function nodeTags(node: GraphNode): GraphNodeTag[] {
     node.open &&
     node.unassigned
   ) {
-    tags.push('UNASSIGNED');
+    tags.push({
+      label: 'Unassigned',
+      tone: node.kind === 'issue' && node.active ? 'warning' : 'default',
+    });
   }
-  if (node.overdue && node.active) tags.push('OVERDUE');
-  if (node.inCycle) tags.push('CYCLE');
-  if (aggregate && node.holdsCycle) tags.push('CYCLE INSIDE');
+  if (node.overdue && node.active) {
+    tags.push({ label: 'Overdue', tone: 'danger' });
+  }
+  if (node.inCycle) tags.push({ label: 'Cycle', tone: 'danger' });
+  if (aggregate && node.holdsCycle) {
+    tags.push({ label: 'Cycle inside', tone: 'danger' });
+  }
   if (node.kind === 'project' && node.active && node.ownerId === null) {
-    tags.push('NO LEAD');
+    tags.push({ label: 'No lead', tone: 'warning' });
   }
-  if (aggregate && !node.active) tags.push('INACTIVE');
+  if (aggregate && !node.active)
+    tags.push({ label: 'Inactive', tone: 'muted' });
   if ((node.hiddenNeighbours ?? 0) > 0) {
-    tags.push(`+${node.hiddenNeighbours} MORE`);
+    tags.push({ label: `+${node.hiddenNeighbours} more`, tone: 'default' });
   }
   return tags;
 }
 
 /**
- * Node emphasis, first match wins: faint once closed (an issue done or
- * canceled, a milestone complete) or when its project is inactive (a box
- * of paused work is never loud, §2.8); the accent when it needs action;
- * ink otherwise. An issue needs action when it is open and nobody owns it
- * (or its milestone is overdue), in an active project; a milestone when it
- * is at risk or overdue; a project or an initiative when its next
- * milestone (the most severe of them) is. A later milestone's unassigned
- * issues are normal (allocation hands out only the next milestone), so
- * they keep their UNASSIGNED chip without flooding every milestone in the
- * accent.
+ * Node emphasis in the §8.2 tones, first match wins: muted once closed (an
+ * issue done or canceled, a milestone complete) or when its project is
+ * inactive (a box of paused work is never loud, §2.8); danger when it is
+ * overdue in an active project; warning when it needs action; neutral
+ * otherwise. An issue needs action when it is open and nobody owns it, in
+ * an active project; a milestone when it is at risk; a project or an
+ * initiative when its next milestone (the most severe of them) is at risk
+ * (danger when overdue). A later milestone's unassigned issues are normal
+ * (allocation hands out only the next milestone), so they keep their
+ * Unassigned chip without tinting every milestone.
  */
 export function nodeTone(node: GraphNode): GraphNodeTone {
   if (!node.open || node.status === 'complete') return 'muted';
   if (node.kind !== 'issue' && !node.active) return 'muted';
-  if (node.overdue && node.active) return 'accent';
+  if (node.overdue && node.active) return 'danger';
   switch (node.kind) {
     case 'issue':
-      return node.unassigned && node.active ? 'accent' : 'default';
+      return node.unassigned && node.active ? 'warning' : 'default';
     case 'milestone':
-      return node.status === 'at_risk' ? 'accent' : 'default';
+      return node.status === 'at_risk' ? 'warning' : 'default';
     case 'project':
     case 'initiative':
-      return node.status === 'at_risk' || node.status === 'overdue'
-        ? 'accent'
-        : 'default';
+      return node.status === 'overdue'
+        ? 'danger'
+        : node.status === 'at_risk'
+          ? 'warning'
+          : 'default';
     default: {
       const unreachable: never = node.kind;
       return unreachable;
@@ -393,23 +417,32 @@ interface Mark {
 }
 
 /**
- * The status mark of an issue node, in the same marks as milestones
- * (lib/adapters/status.ts): closed reads as complete (filled ink), open
- * and owned as on track (hollow ink), and open with nobody assigned as a
- * missing input (hatched). The label is the Linear state's own name.
+ * The status of an issue node in the milestone marks, for the slide-over
+ * and the register's fallback (the canvas and the register draw the
+ * workflow-state circle, issueState): closed reads as complete, open as on
+ * track. The label is the Linear state's own name; "Unassigned" is said by
+ * its chip or its assignee cell, not here.
  */
-export function issueMark(input: {
-  open: boolean;
-  unassigned: boolean;
-  stateName: string;
-}): Mark {
-  if (!input.open) {
-    return { status: uiStatus('complete'), label: input.stateName };
-  }
-  if (input.unassigned) {
-    return { status: 'missing', label: `${input.stateName}, unassigned` };
-  }
-  return { status: uiStatus('on_track'), label: input.stateName };
+export function issueMark(input: { open: boolean; stateName: string }): Mark {
+  return {
+    status: uiStatus(input.open ? 'on_track' : 'complete'),
+    label: input.stateName,
+  };
+}
+
+const STATE_KINDS: ReadonlySet<string> = new Set<TaskStateKind>([
+  'triage',
+  'backlog',
+  'unstarted',
+  'started',
+  'completed',
+  'canceled',
+]);
+
+/** An issue node's workflow state (core puts the state type in `status`),
+    for StateGlyph; null when it is not one Linear defines. */
+export function issueState(status: string): TaskStateKind | null {
+  return STATE_KINDS.has(status) ? (status as TaskStateKind) : null;
 }
 
 function statusMark(status: string): Mark {
@@ -630,6 +663,7 @@ function initiativeDetail(
     }
   }
   const atRisk: string[] = [];
+  let anyOverdue = false;
   for (const project of projects) {
     if (isInactive(ctx, project.id)) continue;
     const next = nextMilestoneOf(ctx, project.id);
@@ -637,6 +671,7 @@ function initiativeDetail(
     if (next === null || (status !== 'at_risk' && status !== 'overdue')) {
       continue;
     }
+    if (status === 'overdue') anyOverdue = true;
     atRisk.push(
       `${project.name} › ${next.milestone.name} (${status === 'overdue' ? 'overdue' : 'at risk'})`
     );
@@ -655,7 +690,7 @@ function initiativeDetail(
     {
       label: 'At risk',
       value: atRisk.length === 0 ? 'None' : atRisk.join('; '),
-      tone: atRisk.length === 0 ? 'default' : 'accent',
+      tone: atRisk.length === 0 ? 'default' : anyOverdue ? 'danger' : 'warning',
     },
   ];
   if (node.external) properties.push(outsideLine(ctx, 'project'));
@@ -702,7 +737,7 @@ function projectDetail(
     {
       label: 'Lead',
       value: lead ?? 'No lead',
-      tone: lead === null && active ? 'accent' : 'default',
+      tone: lead === null && active ? 'warning' : 'default',
     },
     {
       label: 'Next milestone',
@@ -711,7 +746,13 @@ function projectDetail(
           ? 'None'
           : `${next.milestone.name} · ${dueLabel(next.milestone.targetDate, next.assessment?.daysLeft ?? null, today, next.assessment?.status)}`,
       tone:
-        active && next?.assessment?.status === 'overdue' ? 'accent' : 'default',
+        next === null || !active
+          ? 'default'
+          : dueTone(
+              next.assessment?.status ?? null,
+              next.assessment?.daysLeft ?? null,
+              next.milestone.targetDate === null
+            ),
     },
   ];
   const progress = next?.assessment?.progress;
@@ -723,7 +764,7 @@ function projectDetail(
     properties.push({
       label: 'Progress',
       value: `${progress.completed}/${progress.scope} done${unassigned}`,
-      tone: active && progress.openUnassigned > 0 ? 'accent' : 'default',
+      tone: active && progress.openUnassigned > 0 ? 'warning' : 'default',
     });
   }
   const cell = allocationCell(ctx.plans.get(node.id) ?? null);
@@ -731,9 +772,9 @@ function projectDetail(
     label: 'Allocation',
     value:
       cell.detail === undefined ? cell.label : `${cell.label} · ${cell.detail}`,
-    // The register's chip is warning when allocation is blocked; the
-    // graph's older drawing (not restyled yet) still marks it in the accent.
-    tone: cell.tone === 'warning' ? 'accent' : 'default',
+    // The register's chip tone (§8.2): info allocating, warning blocked,
+    // muted inactive / no open milestone / not evaluated.
+    tone: cell.tone,
   });
   if (ctx.hasInitiatives && project !== undefined) {
     const first = homeOf(ctx, project.id);
@@ -797,7 +838,7 @@ function milestoneDetail(
   const progress = assessment?.progress;
   const lead = userName(snapshot, project?.leadId ?? null);
   // An inactive project's milestone is never loud (§2.8): the panel says
-  // the same facts without the accent, as its box and register row do.
+  // the same facts without a status tone, as its box and register row do.
   const loud = node.active;
   const properties: GraphProperty[] = [
     {
@@ -808,12 +849,18 @@ function milestoneDetail(
         today,
         assessment?.status
       ),
-      tone: loud && node.overdue ? 'accent' : 'default',
+      tone: loud
+        ? dueTone(
+            assessment?.status ?? null,
+            assessment?.daysLeft ?? null,
+            (milestone?.targetDate ?? null) === null
+          )
+        : 'default',
     },
     {
       label: 'Lead',
       value: lead ?? 'No lead',
-      tone: loud && lead === null ? 'accent' : 'default',
+      tone: loud && lead === null ? 'warning' : 'default',
     },
   ];
   if (progress !== undefined) {
@@ -824,21 +871,21 @@ function milestoneDetail(
     properties.push({
       label: 'Progress',
       value: `${progress.completed}/${progress.scope} done${unassigned}`,
-      tone: loud && progress.openUnassigned > 0 ? 'accent' : 'default',
+      tone: loud && progress.openUnassigned > 0 ? 'warning' : 'default',
     });
   }
   if (assessment !== undefined && assessment.reasons.length > 0) {
     properties.push({
       label: 'Risk reasons',
       value: assessment.reasons.map((r) => RISK_REASON_LABEL[r]).join('; '),
-      tone: loud ? 'accent' : 'default',
+      tone: loud ? 'warning' : 'default',
     });
   }
   if (assessment !== undefined && assessment.rubric.gaps.length > 0) {
     properties.push({
       label: 'Missing',
       value: assessment.rubric.gaps.map((g) => RUBRIC_GAP_LABEL[g]).join('; '),
-      tone: loud ? 'accent' : 'default',
+      tone: loud ? 'warning' : 'default',
     });
   }
   if (node.external) properties.push(outsideLine(ctx, 'milestone'));
@@ -903,7 +950,7 @@ function issueDetail(
     {
       label: 'Assignee',
       value: assignee ?? 'Unassigned',
-      tone: loud && assignee === null && node.open ? 'accent' : 'default',
+      tone: loud && assignee === null && node.open ? 'warning' : 'default',
     },
     {
       label: 'Priority',
@@ -916,7 +963,7 @@ function issueDetail(
         milestone === undefined
           ? 'No milestone'
           : `${milestone.name} · ${dueLabel(milestone.targetDate, assessment?.daysLeft ?? null, today, assessment?.status)}`,
-      tone: loud && node.overdue ? 'accent' : 'default',
+      tone: loud && node.overdue ? 'danger' : 'default',
     },
   ];
   if (node.external) {
@@ -959,9 +1006,12 @@ function issueDetail(
   };
 }
 
-/** What one node draws and says, per kind: mark, sublabel, cluster. */
+/** What one node draws and says, per kind: mark (and an issue's
+    workflow state and key), sublabel, cluster. */
 interface NodeFace {
   mark: Mark;
+  state: TaskStateKind | null;
+  key: string | null;
   sublabel: string;
   group: string | undefined;
 }
@@ -977,12 +1027,16 @@ function nodeFace(ctx: PageContext, node: GraphNode): NodeFace {
           node.id === NO_INITIATIVE_ID
             ? node.sublabel
             : `${node.sublabel} · ${target ?? 'no target date'}`,
+        state: null,
+        key: null,
         group: undefined,
       };
     }
     case 'project':
       return {
         mark: projectMark(ctx, node.id),
+        state: null,
+        key: null,
         sublabel: node.sublabel,
         group: ctx.hasInitiatives
           ? initiativeName(snapshot, node.initiativeId ?? NO_INITIATIVE_ID)
@@ -991,6 +1045,8 @@ function nodeFace(ctx: PageContext, node: GraphNode): NodeFace {
     case 'milestone':
       return {
         mark: milestoneMark(node, assessments.get(node.id)),
+        state: null,
+        key: null,
         sublabel: milestoneSublabel(snapshot, node.id, today),
         group: projectName(snapshot, node.projectId),
       };
@@ -1000,13 +1056,20 @@ function nodeFace(ctx: PageContext, node: GraphNode): NodeFace {
         issue === undefined
           ? node.status
           : (snapshot.states.get(issue.stateId)?.name ?? node.status);
+      // Core's sublabel is "ENG-12 · Ana": the key prints in mono before
+      // the assignee, and an open unassigned issue says "Unassigned" in
+      // its chip rather than twice.
+      const key = issue?.identifier ?? null;
+      const prefix = key === null ? null : `${key} · `;
+      const who =
+        prefix !== null && node.sublabel.startsWith(prefix)
+          ? node.sublabel.slice(prefix.length)
+          : node.sublabel;
       return {
-        mark: issueMark({
-          open: node.open,
-          unassigned: node.unassigned,
-          stateName,
-        }),
-        sublabel: node.sublabel,
+        mark: issueMark({ open: node.open, stateName }),
+        state: issueState(node.status),
+        key,
+        sublabel: node.open && node.unassigned ? '' : who,
         group: projectName(snapshot, node.projectId),
       };
     }
@@ -1074,10 +1137,36 @@ function detailClause(parts: readonly (string | null)[]): string {
 
 /* ---- legends -------------------------------------------------------------- */
 
+/**
+ * The status diamonds every aggregate level draws (a milestone's own
+ * status; a project's next milestone's; an initiative's most severe),
+ * worded as on the timeline's legend. Overdue and at-risk boxes are also
+ * tinted in the diamond's tone, so these two items explain the tinted
+ * cards too (no second swatch for them).
+ */
+function statusItems(overdueNote: string, atRiskNote: string) {
+  const items: GraphLegendItem[] = [
+    { mark: 'status', status: 'overdue', label: 'Overdue', note: overdueNote },
+    { mark: 'status', status: 'at_risk', label: 'At risk', note: atRiskNote },
+    { mark: 'status', status: 'on_track', label: 'On track' },
+    { mark: 'status', status: 'done', label: 'Complete' },
+    { mark: 'status', status: 'missing', label: 'Missing input' },
+  ];
+  return items;
+}
+
+/** The workflow-state circles issue boxes carry. */
+const STATE_ITEMS: GraphLegendItem[] = [
+  { mark: 'state', state: 'backlog', label: 'Backlog' },
+  { mark: 'state', state: 'unstarted', label: 'To do' },
+  { mark: 'state', state: 'started', label: 'In progress' },
+  { mark: 'state', state: 'completed', label: 'Done' },
+  { mark: 'state', state: 'canceled', label: 'Canceled' },
+];
+
 const MILESTONE_LEGEND: GraphLegendItem[] = [
+  ...statusItems('past its date', 'due soon and at risk'),
   { mark: 'node', label: 'Milestone', note: 'blockers sit left of what waits' },
-  { mark: 'node-overdue', label: 'Overdue', note: 'past its date' },
-  { mark: 'node-accent', label: 'At risk', note: 'due soon and at risk' },
   { mark: 'node-cycle', label: 'In a cycle', note: 'waits on itself' },
   {
     mark: 'node-muted',
@@ -1096,9 +1185,10 @@ const MILESTONE_LEGEND: GraphLegendItem[] = [
 ];
 
 const ISSUE_LEGEND: GraphLegendItem[] = [
+  ...STATE_ITEMS,
   { mark: 'node', label: 'Issue', note: 'blockers sit left of what waits' },
-  { mark: 'node-overdue', label: 'Overdue', note: 'its milestone is past due' },
-  { mark: 'node-accent', label: 'Needs action', note: 'open and unassigned' },
+  { mark: 'node-danger', label: 'Overdue', note: 'its milestone is past due' },
+  { mark: 'node-warning', label: 'Needs action', note: 'open and unassigned' },
   { mark: 'node-cycle', label: 'In a cycle', note: 'waits on itself' },
   { mark: 'node-external', label: 'External', note: 'outside this scope' },
   { mark: 'node-muted', label: 'Closed', note: 'done or canceled' },
@@ -1119,12 +1209,20 @@ const ISSUE_LEGEND_NO_EXTERNAL: GraphLegendItem[] = ISSUE_LEGEND.filter(
   (item) => item.mark !== 'node-external'
 );
 
-/** The issue legend for one issue's chain: no externals, plus the focus. */
-const CHAIN_LEGEND: GraphLegendItem[] = [
-  ...ISSUE_LEGEND_NO_EXTERNAL.slice(0, 1),
-  { mark: 'node-focus', label: 'Focus', note: 'the issue this chain is about' },
-  ...ISSUE_LEGEND_NO_EXTERNAL.slice(1),
-];
+/** The issue legend for one issue's chain: no externals, plus the focus
+    after the plain box. */
+const CHAIN_LEGEND: GraphLegendItem[] = (() => {
+  const at = ISSUE_LEGEND_NO_EXTERNAL.findIndex((item) => item.mark === 'node');
+  return [
+    ...ISSUE_LEGEND_NO_EXTERNAL.slice(0, at + 1),
+    {
+      mark: 'node-focus',
+      label: 'Focus',
+      note: 'the issue this chain is about',
+    },
+    ...ISSUE_LEGEND_NO_EXTERNAL.slice(at + 1),
+  ];
+})();
 
 /** Shared by the initiative and project legends. */
 const AGGREGATE_EDGES: GraphLegendItem[] = [
@@ -1149,17 +1247,11 @@ function aggregateLegend(
   cross: GraphLegendItem | null
 ): GraphLegendItem[] {
   return [
+    ...statusItems(
+      'a project’s milestone is past due',
+      'a project’s next milestone'
+    ),
     { mark: 'node', label: kind, note: 'blockers sit left of what waits' },
-    {
-      mark: 'node-overdue',
-      label: 'Overdue',
-      note: 'a project’s milestone is past due',
-    },
-    {
-      mark: 'node-accent',
-      label: 'At risk',
-      note: 'a project’s next milestone',
-    },
     {
       mark: 'node-cycle',
       label: 'In a cycle',
@@ -1283,12 +1375,10 @@ function quietLabel(node: GraphNode, label: string): string {
   return `${label} · ${node.kind === 'initiative' ? 'no active project' : 'inactive project'}`;
 }
 
-function rowTone(data: GraphNodeData): IsolatedRow['tone'] {
-  return data.tone === 'accent'
-    ? 'accent'
-    : data.tone === 'muted'
-      ? 'muted'
-      : 'default';
+/** A register row's tone: the box's own (a status tone, muted, or
+    neutral), as data on the row. */
+function rowTone(data: GraphNodeData): UiTone {
+  return data.tone;
 }
 
 /** An initiative left off the canvas: opens its own graph. */
@@ -1302,6 +1392,7 @@ function isolatedInitiativeRow(
     name: node.label,
     key: null,
     status: data.status ?? 'missing',
+    state: null,
     statusLabel: data.statusLabel ?? '',
     statusMuted: !node.active,
     context: node.sublabel,
@@ -1329,10 +1420,11 @@ function isolatedProjectRow(
     name: node.label,
     key: null,
     status: data.status ?? 'missing',
+    state: null,
     statusLabel: data.statusLabel ?? '',
     statusMuted: !node.active,
     context: lead ?? 'No lead',
-    contextTone: lead === null && node.active ? 'accent' : 'default',
+    contextTone: lead === null && node.active ? 'warning' : 'default',
     due:
       next === null
         ? 'No open milestone'
@@ -1343,9 +1435,13 @@ function isolatedProjectRow(
             next.assessment?.status
           ),
     dueTone:
-      node.active && next?.assessment?.status === 'overdue'
-        ? 'accent'
-        : 'default',
+      next === null || !node.active
+        ? 'default'
+        : dueTone(
+            next.assessment?.status ?? null,
+            next.assessment?.daysLeft ?? null,
+            next.milestone.targetDate === null
+          ),
     href: graphHref({ level: 'issue', projectId: node.id }),
     external: false,
     rowLabel: `${node.label}, ${lead ?? 'no lead'}: open its graph`,
@@ -1367,6 +1463,7 @@ function isolatedMilestoneRow(
     name: node.label,
     key: null,
     status: data.status ?? 'missing',
+    state: null,
     statusLabel: data.statusLabel ?? '',
     statusMuted: !node.active,
     context: projectName(snapshot, node.projectId),
@@ -1377,8 +1474,14 @@ function isolatedMilestoneRow(
       today,
       assessment?.status
     ),
-    // Paused work is never loud (§2.8): no accent date, a muted row.
-    dueTone: node.active && node.overdue ? 'accent' : 'default',
+    // Paused work is never loud (§2.8): no toned date, a muted row.
+    dueTone: node.active
+      ? dueTone(
+          assessment?.status ?? null,
+          assessment?.daysLeft ?? null,
+          (milestone?.targetDate ?? null) === null
+        )
+      : 'default',
     href: timelineMilestoneHref(node.id),
     external: false,
     rowLabel: `${node.label}, ${projectName(snapshot, node.projectId)}: open on the timeline`,
@@ -1406,12 +1509,13 @@ function isolatedIssueRow(
     name: node.label,
     key,
     status: data.status ?? 'missing',
+    state: data.state ?? null,
     statusLabel: data.statusLabel ?? '',
     statusMuted: false,
     context: assignee ?? 'Unassigned',
     // An inactive project's issue is never loud (§2.8), like its box.
     contextTone:
-      assignee === null && node.open && node.active ? 'accent' : 'default',
+      assignee === null && node.open && node.active ? 'warning' : 'default',
     // A closed issue is not late, whatever its milestone's countdown says.
     due:
       milestone === undefined
@@ -1423,7 +1527,7 @@ function isolatedIssueRow(
               : null,
             today
           ),
-    dueTone: node.active && node.overdue ? 'accent' : 'default',
+    dueTone: node.active && node.overdue ? 'danger' : 'default',
     href: withIssueParam(ctx.scopeHref, key ?? node.id),
     external: false,
     rowLabel: `${key === null ? '' : `${key} `}${node.label}`,
@@ -1932,6 +2036,11 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
             : quietLabel(node, face.mark.label),
         tags: nodeTags(node),
       };
+      if (face.key !== null) data.key = face.key;
+      if (face.state !== null) data.state = face.state;
+      // An aggregate box of paused work draws its diamond in greys (§2.8).
+      if (node.kind !== 'issue' && !node.active) data.statusMuted = true;
+      if (node.inCycle) data.inCycle = true;
       if (face.group !== undefined) data.group = face.group;
       if (node.external) data.external = true;
       details[node.id] = nodeDetail(ctx, node, face.mark);
@@ -2146,7 +2255,7 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
   if (graph.chain !== null && graph.chain.hidden > 0) {
     notices.push({
       id: 'chain-cut',
-      text: `Drawn: the nearest ${graph.nodes.length} issues; ${graph.chain.hidden} more are further out. Issues marked +N MORE lead on: open one and choose Graph to follow its chain.`,
+      text: `Drawn: the nearest ${graph.nodes.length} issues; ${graph.chain.hidden} more are further out. Issues marked “+N more” lead on: open one and choose Graph to follow its chain.`,
     });
   }
 

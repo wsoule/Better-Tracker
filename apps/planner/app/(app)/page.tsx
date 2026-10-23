@@ -1,5 +1,5 @@
 import type { Engine } from '@better-tracker/engine';
-import { Button, Chip, Notice } from '@better-tracker/ui';
+import { Button, Chip, InitialsAvatar, Notice } from '@better-tracker/ui';
 import {
   BellRing,
   CalendarCheck,
@@ -202,9 +202,7 @@ function DemoPerson({ row, returnTo }: { row: DemoUserRow; returnTo: string }) {
         <input type="hidden" name="returnTo" value={returnTo} />
       ) : null}
       <button type="submit" className={`button ${styles.person}`}>
-        <span className={styles.avatar} aria-hidden="true">
-          {row.initials}
-        </span>
+        <InitialsAvatar name={row.name} size="md" />
         <span className={styles.personText}>
           <span className={styles.personName}>
             <span className="srOnly">Sign in as </span>

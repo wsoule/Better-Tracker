@@ -1,13 +1,13 @@
 'use client';
 
-import { Check, Copy } from 'lucide-react';
+import { Check, ChevronRight, Copy, X } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { cx } from '../tasks/class-names';
 import styles from './mermaid-source.module.css';
 import type { MermaidSourceProps } from './types';
 
-/** How long the button says COPIED (DESIGN.md InstallBox: a 1600ms flash). */
+/** How long the button says Copied (a 1600ms confirmation). */
 export const COPIED_MS = 1600;
 
 type CopyState = 'idle' | 'copied' | 'failed';
@@ -30,10 +30,12 @@ async function writeClipboard(text: string): Promise<boolean> {
 }
 
 /**
- * "Copy Mermaid": a system .button that copies the graph's Mermaid text
- * and says COPIED for 1600ms, beside a <details> that shows the source in
- * mono with a line gutter. If the clipboard refuses, the source opens and
- * is selected, so Ctrl/Cmd + C still works.
+ * "Copy Mermaid": one panel with a secondary button that copies the
+ * graph's Mermaid text and says Copied (a green tick) for 1600ms, a quiet
+ * receipt, and a <details> that shows the source in mono with a line
+ * gutter on a recessed well. If the clipboard refuses, the button says so
+ * (a red cross) and the source opens selected, so Ctrl/Cmd + C still
+ * works.
  */
 export function MermaidSource({
   source,
@@ -95,9 +97,21 @@ export function MermaidSource({
           onClick={() => void copy()}
         >
           {state === 'copied' ? (
-            <Check size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Check
+              className={styles.copyIcon}
+              size={14}
+              strokeWidth={1.8}
+              aria-hidden="true"
+            />
+          ) : state === 'failed' ? (
+            <X
+              className={styles.copyIcon}
+              size={14}
+              strokeWidth={1.8}
+              aria-hidden="true"
+            />
           ) : (
-            <Copy size={14} strokeWidth={1.5} aria-hidden="true" />
+            <Copy size={14} strokeWidth={1.8} aria-hidden="true" />
           )}
           <span>{wording}</span>
         </button>
@@ -119,10 +133,13 @@ export function MermaidSource({
         onToggle={(event) => setOpen(event.currentTarget.open)}
       >
         <summary className={styles.summary}>
+          <ChevronRight
+            className={styles.chevron}
+            size={14}
+            strokeWidth={1.8}
+            aria-hidden="true"
+          />
           <span className={styles.summaryLabel}>{sourceLabel}</span>
-          <span className={styles.glyph} aria-hidden="true">
-            {open ? '−' : '+'}
-          </span>
         </summary>
         <pre className={styles.pre}>
           <code ref={codeRef} className={styles.code}>

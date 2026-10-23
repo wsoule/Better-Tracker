@@ -399,8 +399,8 @@ function Group({
   onOpenGroup,
   activeRowId,
 }: GroupProps) {
-  // The spoken name: a comma, not the visible "›", which screen readers
-  // read out as punctuation ("right angle quote").
+  // The spoken name: a comma, not the visible "/" between project and
+  // milestone, which screen readers read out as "slash".
   const name =
     group.eyebrow !== undefined && group.eyebrow !== ''
       ? `${group.eyebrow}, ${group.title}`
@@ -439,7 +439,7 @@ function Group({
 
   return (
     <div
-      className={cx(styles.group, collapsed ? styles.collapsed : undefined)}
+      className={styles.group}
       data-group-id={group.id}
       data-collapsed={collapsed}
     >
@@ -549,7 +549,7 @@ interface RowProps {
 
 function Row({ row, group, columns, labels, onOpenRow, active }: RowProps) {
   const external = row.external === true;
-  // Under a PROJECT › MILESTONE heading the project cell repeats the
+  // Under a "Project / Milestone" heading the project cell repeats the
   // heading; phones drop it so the meta fits one line.
   const projectRepeatsHeading =
     row.project !== undefined && row.project === group.eyebrow;

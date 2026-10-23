@@ -70,15 +70,29 @@
   display: inline-flex;
 }
 
-/* The due date: the bar's end diamond. */
+/* The due date: a short bar with the diamond at its end, in greys (the
+   diamond's shape and hue follow the status, as the marks beside it say). */
 .legendDiamond {
+  position: relative;
   display: block;
-  width: 8px;
+  width: 18px;
   height: 8px;
-  margin: 0 2px;
+  margin-right: 4px;
+  border: 1px solid var(--text-3);
   border-radius: 2px;
-  background: var(--text-3);
-  transform: rotate(45deg);
+}
+
+.legendDiamond::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: -4px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--text-3);
+  border-radius: 1.5px;
+  background: var(--surface);
+  transform: translateY(-50%) rotate(45deg);
 }
 
 .live {
@@ -112,10 +126,6 @@
 
 .liveError .liveKey {
   color: var(--red);
-}
-
-.empty {
-  margin-top: 0;
 }
 
 /* ---- the drawing ------------------------------------------------------ */
@@ -250,17 +260,28 @@
   cursor: pointer;
 }
 
-/* Gr8r's milestone: a 12px square, 2px radius, turned 45°, filled with the
-   most urgent status hue of the milestones due that day. */
+/* Gr8r's milestone: a 10px square, 2px radius, turned 45°, in the most
+   urgent status hue of the milestones due that day, shaped like the bars'
+   due-date diamonds (timeline-bar.module.css) so the status is never the
+   hue alone: overdue solid, at risk the lower half filled, on track
+   hollow, complete solid with a tick, missing dotted, inactive a grey
+   outline. --hollow is the open interior (Canvas in forced colours). */
 .pointMark {
   --c: var(--gray);
+  --hollow: var(--surface);
 
+  position: relative;
   flex: none;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
+  margin: 0 1px;
+  border: 2px solid var(--c);
   border-radius: 2px;
   background: var(--c);
-  transform: rotate(45deg) scale(0.83);
+  /* Turned, not scaled, with a 2px edge: a scaled or 1.5px edge falls to
+     a device pixel or less and its dashes and outline wash out (under
+     3:1). */
+  transform: rotate(45deg);
   transition:
     background-color var(--dur) ease,
     box-shadow var(--dur) ease;
@@ -271,23 +292,58 @@
   --c: var(--green);
 }
 
-.m_at_risk {
-  --c: var(--amber);
-}
-
 .m_overdue {
   --c: var(--red);
 }
 
+.m_on_track {
+  background: var(--hollow);
+}
+
+.m_at_risk {
+  --c: var(--amber);
+
+  background: linear-gradient(135deg, var(--hollow) 50%, var(--c) 50%);
+}
+
+/* The tick: the element is already turned 45°, so the L reads as a
+   check without a turn of its own. */
+.m_done::after {
+  content: '';
+  position: absolute;
+  top: 46%;
+  left: 54%;
+  width: 2.5px;
+  height: 4.5px;
+  border: solid var(--hollow);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(-50%, -50%);
+}
+
 .m_missing {
-  border: 1.5px dashed var(--text-3);
-  background: var(--surface);
+  --c: var(--text-3);
+
+  /* Dotted at 2px: a 2px dash is 6px long and closes up on a 10px side,
+     which would read as the inactive outline. */
+  border-style: dotted;
+  background: var(--hollow);
 }
 
 /* Only inactive (muted) lanes are due that day: greys, never loud. */
 .m_muted {
-  border: 1.5px solid var(--gray);
-  background: var(--surface);
+  --c: var(--gray);
+
+  background: var(--hollow);
+}
+
+/* Forced colours drop backgrounds: keep the shapes in system colours. */
+@media (forced-colors: active) {
+  .pointMark {
+    --c: CanvasText;
+    --hollow: Canvas;
+
+    forced-color-adjust: none;
+  }
 }
 
 .pointLabel {
@@ -465,8 +521,9 @@ a.laneName:focus-visible {
   gap: 6px;
 }
 
-/* No target date: a dashed 24px pill on the surface (the "missing" look),
-   the name and an amber "No date" (a missing input). */
+/* No target date: a dashed 24px pill on the surface (the "missing" look:
+   a --text-3 edge, 5.6:1, like a missing bar's), its status mark, the name
+   and an amber "No date" (a missing input). */
 .chip {
   scroll-margin: 60px 24px 12px calc(var(--timeline-lane-width, 264px) + 24px);
   display: inline-flex;
@@ -474,7 +531,7 @@ a.laneName:focus-visible {
   gap: 6px;
   height: 24px;
   padding: 0 8px;
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--text-3);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--text);
@@ -484,6 +541,11 @@ a.laneName:focus-visible {
   transition:
     border-color var(--dur) ease,
     box-shadow var(--dur) ease;
+}
+
+.chipMark {
+  display: inline-flex;
+  flex: none;
 }
 
 .chipNote {
@@ -497,9 +559,17 @@ a.laneName:focus-visible {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* Forced colours drop the selection ring's shadow: an outline instead. */
+@media (forced-colors: active) {
+  .chipSelected {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
+
 @media (hover: hover) and (width >= 901px) {
   .chip:hover {
-    border-color: var(--text-3);
+    border-color: var(--text-2);
   }
 
   .chipSelected:hover {
@@ -527,6 +597,11 @@ a.laneName:focus-visible {
   stroke-width: 1.3;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* The arrowhead chevron keeps a sharp tip where it meets the bar. */
+.edge .edgeHead {
+  stroke-linejoin: miter;
 }
 
 .edgeRisk path {

@@ -19,12 +19,12 @@ import type { SlideOverProps } from './types';
 const EXIT_MS = 260;
 
 /** The panel's width on a wide window, in px (slide-over.module.css
-    `min(560px, 100vw)`): what a page passes as DependencyGraph's
+    `min(620px, 100vw)`): what a page passes as DependencyGraph's
     `coveredRight` while a slide-over is open over the graph. */
-export const SLIDE_OVER_WIDTH = 560;
+export const SLIDE_OVER_WIDTH = 620;
 
 /**
- * Gr8r's slide-over drawer: a right-hand panel (min(560px, 100vw)) lifted
+ * Gr8r's slide-over drawer: a right-hand panel (min(620px, 100vw)) lifted
  * by a soft shadow and a 1px left edge, a 46px header bar (breadcrumb,
  * actions, close), and a scrolling body that opens with the title.
  *

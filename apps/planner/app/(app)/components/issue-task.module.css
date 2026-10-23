@@ -21,8 +21,8 @@
   min-width: 0;
 }
 
-/* Gr8r's .lbl, washed with a faint tint of Linear's colour (the same
-   chip LabelPicker draws for the editable value). */
+/* Gr8r's .lbl: a neutral bordered chip, Linear's colour only in the
+   small square (the same chip LabelPicker draws for the editable value). */
 .label {
   display: inline-flex;
   align-items: center;
@@ -30,14 +30,9 @@
   max-width: 100%;
   min-height: 20px;
   padding: 0 7px 0 6px;
-  border: 1px solid
-    color-mix(in srgb, var(--label-color, var(--border)) 24%, var(--border));
+  border: 1px solid var(--border);
   border-radius: var(--r-chip);
-  background: color-mix(
-    in srgb,
-    var(--label-color, var(--surface)) 8%,
-    var(--surface)
-  );
+  background: var(--surface);
   font-size: var(--fs-xs);
   line-height: 1.3;
   color: var(--text-2);

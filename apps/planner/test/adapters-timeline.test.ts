@@ -12,13 +12,15 @@ import type {
 } from '@better-tracker/core';
 import { describe, expect, test } from 'bun:test';
 
+// The one due-date and progress tone definition, shared by the drawer,
+// the projects register and My week.
+import { dueTone, progressTone } from '../lib/adapters/projects';
 import {
   barTags,
   buildMilestoneDrawer,
   buildTimelineBanners,
   buildTimelinePage,
   chartDependencies,
-  dueTone,
   DEFAULT_TIMELINE_STATE,
   GRANT_WRITE_HREF,
   filterTimelineGroups,
@@ -29,7 +31,6 @@ import {
   parseTimelineSearch,
   parseTimelineSelection,
   parseTimelineState,
-  progressTone,
   SHOW_OPTIONS,
   showFilters,
   timelineGraphHref,
@@ -1287,14 +1288,12 @@ describe('milestone drawer', () => {
 
   test('due-date and progress tones follow the status table (§8.2)', () => {
     // No target date is a missing input; due today or tomorrow is close.
-    expect(dueTone(null, 'unscheduled', null, false)).toBe('warning');
-    expect(dueTone('2026-10-21', 'at_risk', 0, false)).toBe('warning');
-    expect(dueTone('2026-10-22', 'on_track', 1, false)).toBe('warning');
-    expect(dueTone('2026-10-23', 'on_track', 2, false)).toBe('default');
-    expect(dueTone('2026-10-18', 'overdue', -3, false)).toBe('danger');
-    expect(dueTone('2026-10-21', 'complete', 0, false)).toBe('default');
-    // An inactive project is never loud.
-    expect(dueTone('2026-10-18', 'overdue', -3, true)).toBe('default');
+    expect(dueTone('unscheduled', null, true)).toBe('warning');
+    expect(dueTone('at_risk', 0, false)).toBe('warning');
+    expect(dueTone('on_track', 1, false)).toBe('warning');
+    expect(dueTone('on_track', 2, false)).toBe('default');
+    expect(dueTone('overdue', -3, false)).toBe('danger');
+    expect(dueTone('complete', 0, false)).toBe('default');
 
     expect(progressTone({ status: 'overdue', reasons: [] }, false)).toBe(
       'danger'

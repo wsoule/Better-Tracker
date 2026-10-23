@@ -129,24 +129,25 @@ export default async function RunPage({
   );
 }
 
-/* One project's part of the run: its heading and counts, the amber
-   "Blocked" callout when allocation stopped there, the issues as a
-   register panel, and the already-assigned skips as one quiet line. */
+/* One project's part of the run: its heading and counts (a warning
+   "Blocked" chip beside the name when allocation stopped there, the
+   reason and its gaps as plain sentences under it, never a stacked tinted
+   box), the issues as a register panel, and the already-assigned skips as
+   one quiet line. */
 function ProjectBlock({ group }: { group: RunProjectGroup }) {
   return (
     <section className={css.section} aria-label={group.name}>
-      <BlockBar title={group.name} meta={group.meta} />
+      <BlockBar title={group.name} meta={group.meta}>
+        {group.block !== null ? <Chip tone="warning">Blocked</Chip> : null}
+      </BlockBar>
       {group.block !== null ? (
-        <Notice
-          label="Blocked"
-          tone="warning"
-          action={
-            <Link href={group.href} className="accentLink">
+        <div className={css.blockText}>
+          <p>
+            {group.block.sentence} Nothing in this project was allocated.
+            <Link href={group.href} className={`accentLink ${css.blockLink}`}>
               Timeline lane
             </Link>
-          }
-        >
-          {group.block.sentence} Nothing in this project was allocated.
+          </p>
           {group.block.gapLines.length > 0 ? (
             <ul className={css.blockGaps}>
               {group.block.gapLines.map((line) => (
@@ -154,7 +155,7 @@ function ProjectBlock({ group }: { group: RunProjectGroup }) {
               ))}
             </ul>
           ) : null}
-        </Notice>
+        </div>
       ) : null}
       {group.rows.length > 0 ? (
         <Register

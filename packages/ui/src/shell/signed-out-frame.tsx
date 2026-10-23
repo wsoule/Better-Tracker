@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 
 import ThemeToggle from '../components/theme-toggle';
+import { initials } from '../edit/shared';
 import { Link } from '../lib/link';
-import { initials } from './render';
 import styles from './signed-out-frame.module.css';
 import type { SignedOutFrameProps } from './types';
 

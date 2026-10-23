@@ -205,8 +205,10 @@
   margin-left: auto;
 }
 
-/* The due date and days left; a tone (overdue danger, due today or
-   tomorrow or undated warning) colours both. */
+/* The due date and days left. A tone (overdue danger, due today or
+   tomorrow or undated warning) colours the date only: the days left stay
+   quiet beside it, so one fact is not coloured twice (the mark and the
+   progress fill already carry the status). */
 .groupDue {
   display: inline-flex;
   align-items: baseline;
@@ -229,15 +231,7 @@
   [data-tone='info'],
   [data-tone='success'],
   [data-tone='accent']
-),
-.groupDue:where(
-    [data-tone='danger'],
-    [data-tone='warning'],
-    [data-tone='info'],
-    [data-tone='success'],
-    [data-tone='accent']
-  )
-  .daysLeft {
+) {
   color: var(--tone-ink);
 }
 
@@ -482,8 +476,19 @@
   outline-offset: -2px;
 }
 
+/* The open row: the accent tint plus a 2px accent bar at its inner left
+   edge (4.1:1 on the tint in light, 3.4:1 in dark), so the state does not
+   rest on a 1.1:1 fill; forced colours (no shadows) get an outline. */
 .row[aria-current='true'] {
   background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+@media (forced-colors: active) {
+  .row[aria-current='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 
 .groupRow:has(.toggle:focus-visible) {

@@ -18,6 +18,7 @@ import {
   createFixtureWorkspace,
   FIXTURE_MILESTONE_META,
 } from '@better-tracker/linear';
+import type { GraphLegendItem, GraphNodeTag } from '@better-tracker/ui';
 import { describe, expect, test } from 'bun:test';
 
 import {
@@ -29,6 +30,7 @@ import {
   ISOLATED_COLLAPSE_AFTER,
   isolatedNodeIds,
   issueMark,
+  issueState,
   listPhrase,
   nodeTags,
   nodeTone,
@@ -197,69 +199,111 @@ describe('edgeKind', () => {
   });
 });
 
+/** A node's chips as "Label:tone" for one readable comparison. */
+function chips(tags: readonly GraphNodeTag[] | undefined): string[] {
+  return (tags ?? []).map((tag) => `${tag.label}:${tag.tone ?? 'default'}`);
+}
+
+/** A legend item as one line: "status overdue: Overdue — note". */
+function legendLine(item: GraphLegendItem): string {
+  const mark =
+    item.mark === 'status'
+      ? `status ${item.status ?? ''}: `
+      : item.mark === 'state'
+        ? `state ${item.state ?? ''}: `
+        : '';
+  return `${mark}${item.label}${item.note === undefined ? '' : ` — ${item.note}`}`;
+}
+
+/** A node's chip words only. */
+function words(tags: readonly GraphNodeTag[] | undefined): string[] {
+  return (tags ?? []).map((tag) => tag.label);
+}
+
 describe('node flags', () => {
-  test('tags come from core flags, UNASSIGNED only while open', () => {
+  test('tags come from core flags, Unassigned only while open', () => {
     expect(nodeTags(node())).toEqual([]);
     expect(
-      nodeTags(node({ unassigned: true, overdue: true, inCycle: true }))
-    ).toEqual(['UNASSIGNED', 'OVERDUE', 'CYCLE']);
+      chips(nodeTags(node({ unassigned: true, overdue: true, inCycle: true })))
+    ).toEqual(['Unassigned:warning', 'Overdue:danger', 'Cycle:danger']);
     expect(nodeTags(node({ open: false, unassigned: true }))).toEqual([]);
   });
 
-  test('tone: closed is muted, needs-action is accent', () => {
+  test('tone: closed is muted, overdue danger, needs action warning', () => {
     expect(nodeTone(node())).toBe('default');
     expect(nodeTone(node({ open: false }))).toBe('muted');
-    expect(nodeTone(node({ unassigned: true }))).toBe('accent');
-    expect(nodeTone(node({ overdue: true }))).toBe('accent');
+    expect(nodeTone(node({ unassigned: true }))).toBe('warning');
+    expect(nodeTone(node({ overdue: true }))).toBe('danger');
+    expect(nodeTone(node({ overdue: true, unassigned: true }))).toBe('danger');
     const milestone = node({ kind: 'milestone', status: 'on_track' });
-    // A later milestone's unassigned issues are normal: not the accent.
+    // A later milestone's unassigned issues are normal: no tint.
     expect(nodeTone({ ...milestone, unassigned: true })).toBe('default');
-    expect(nodeTone({ ...milestone, status: 'at_risk' })).toBe('accent');
+    expect(nodeTone({ ...milestone, status: 'at_risk' })).toBe('warning');
     expect(nodeTone({ ...milestone, status: 'complete' })).toBe('muted');
   });
 
-  test('tags at every kind, in order', () => {
+  test('tags at every kind, in order, in their tones', () => {
     const project = node({ kind: 'project', status: 'on_track' });
     // A project or initiative always holds unassigned later work: no chip.
     expect(nodeTags({ ...project, unassigned: true })).toEqual([]);
     expect(
-      nodeTags({ ...project, ownerId: null, holdsCycle: true, overdue: true })
-    ).toEqual(['OVERDUE', 'CYCLE INSIDE', 'NO LEAD']);
-    // Paused work is never loud: no OVERDUE, no NO LEAD, but INACTIVE.
+      chips(
+        nodeTags({ ...project, ownerId: null, holdsCycle: true, overdue: true })
+      )
+    ).toEqual(['Overdue:danger', 'Cycle inside:danger', 'No lead:warning']);
+    // Paused work is never loud: no Overdue, no No lead, but Inactive.
     expect(
-      nodeTags({ ...project, active: false, ownerId: null, overdue: true })
-    ).toEqual(['INACTIVE']);
+      chips(
+        nodeTags({ ...project, active: false, ownerId: null, overdue: true })
+      )
+    ).toEqual(['Inactive:muted']);
     const milestone = node({ kind: 'milestone', status: 'overdue' });
+    // A milestone's Unassigned is a neutral fact (later work is normal).
     expect(
-      nodeTags({
-        ...milestone,
-        unassigned: true,
-        overdue: true,
-        inCycle: true,
-        holdsCycle: true,
-      })
-    ).toEqual(['UNASSIGNED', 'OVERDUE', 'CYCLE', 'CYCLE INSIDE']);
+      chips(
+        nodeTags({
+          ...milestone,
+          unassigned: true,
+          overdue: true,
+          inCycle: true,
+          holdsCycle: true,
+        })
+      )
+    ).toEqual([
+      'Unassigned:default',
+      'Overdue:danger',
+      'Cycle:danger',
+      'Cycle inside:danger',
+    ]);
     expect(
-      nodeTags(node({ kind: 'initiative', holdsCycle: true, active: false }))
-    ).toEqual(['CYCLE INSIDE', 'INACTIVE']);
-    // An issue's own loop is CYCLE, never CYCLE INSIDE; +N MORE on a chain.
+      words(
+        nodeTags(node({ kind: 'initiative', holdsCycle: true, active: false }))
+      )
+    ).toEqual(['Cycle inside', 'Inactive']);
+    // An issue's own loop is Cycle, never Cycle inside; +N more on a chain.
     expect(
-      nodeTags(node({ inCycle: true, holdsCycle: true, hiddenNeighbours: 2 }))
-    ).toEqual(['CYCLE', '+2 MORE']);
+      chips(
+        nodeTags(node({ inCycle: true, holdsCycle: true, hiddenNeighbours: 2 }))
+      )
+    ).toEqual(['Cycle:danger', '+2 more:default']);
     expect(nodeTags(node({ overdue: true, active: false }))).toEqual([]);
+    // An inactive project's unassigned issue keeps its chip, untinted.
+    expect(chips(nodeTags(node({ unassigned: true, active: false })))).toEqual([
+      'Unassigned:default',
+    ]);
   });
 
   test('tone: inactive work is quiet, aggregate boxes follow their status', () => {
     const project = node({ kind: 'project', status: 'on_track' });
     expect(nodeTone(project)).toBe('default');
-    expect(nodeTone({ ...project, status: 'at_risk' })).toBe('accent');
-    expect(nodeTone({ ...project, status: 'overdue' })).toBe('accent');
+    expect(nodeTone({ ...project, status: 'at_risk' })).toBe('warning');
+    expect(nodeTone({ ...project, status: 'overdue' })).toBe('danger');
     expect(nodeTone({ ...project, unassigned: true })).toBe('default');
     expect(nodeTone({ ...project, active: false, overdue: true })).toBe(
       'muted'
     );
     const initiative = node({ kind: 'initiative', status: 'overdue' });
-    expect(nodeTone(initiative)).toBe('accent');
+    expect(nodeTone(initiative)).toBe('danger');
     expect(nodeTone({ ...initiative, active: false })).toBe('muted');
     const milestone = node({ kind: 'milestone', status: 'at_risk' });
     expect(nodeTone({ ...milestone, active: false })).toBe('muted');
@@ -268,16 +312,18 @@ describe('node flags', () => {
     expect(nodeTone(node({ overdue: true, active: false }))).toBe('default');
   });
 
-  test('issue marks: closed filled, unassigned hatched, owned hollow', () => {
-    expect(
-      issueMark({ open: false, unassigned: true, stateName: 'Done' })
-    ).toEqual({ status: 'done', label: 'Done' });
-    expect(
-      issueMark({ open: true, unassigned: true, stateName: 'Backlog' })
-    ).toEqual({ status: 'missing', label: 'Backlog, unassigned' });
-    expect(
-      issueMark({ open: true, unassigned: false, stateName: 'In Progress' })
-    ).toEqual({ status: 'on_track', label: 'In Progress' });
+  test('issue marks: closed complete, open on track, the state named', () => {
+    expect(issueMark({ open: false, stateName: 'Done' })).toEqual({
+      status: 'done',
+      label: 'Done',
+    });
+    expect(issueMark({ open: true, stateName: 'In Progress' })).toEqual({
+      status: 'on_track',
+      label: 'In Progress',
+    });
+    expect(issueState('started')).toBe('started');
+    expect(issueState('completed')).toBe('completed');
+    expect(issueState('somethingElse')).toBeNull();
   });
 });
 
@@ -332,15 +378,14 @@ describe('buildGraphPage on the demo workspace', () => {
     expect(model.legend.some((item) => item.mark === 'weight')).toBe(true);
   });
 
-  test('an overdue milestone floods, says so and names its project', () => {
+  test('an overdue milestone is tinted danger, says so and names its project', () => {
     const model = page({ level: 'milestone' });
-    const overdue = model.nodes.find(
-      (n) => n.tags?.includes('OVERDUE') === true
-    );
+    const overdue = model.nodes.find((n) => words(n.tags).includes('Overdue'));
     expect(overdue).toBeDefined();
     if (overdue === undefined) return;
     expect(overdue.status).toBe('overdue');
-    expect(overdue.tone).toBe('accent');
+    expect(overdue.tone).toBe('danger');
+    expect(chips(overdue.tags)).toContain('Overdue:danger');
     const milestone = snapshot.milestones.get(overdue.id);
     const project = snapshot.projects.get(milestone?.projectId ?? '');
     expect(overdue.sublabel?.startsWith(`${project?.name} · `)).toBe(true);
@@ -353,10 +398,17 @@ describe('buildGraphPage on the demo workspace', () => {
     expect(model.crumb).toBe('Issues in Juniper design system');
     expect(model.ariaSummary).toMatch(/1 cycle: .+ and .+ wait on each other/);
     expect(model.meta).toContain('1 cycle');
-    const cycleNodes = model.nodes.filter(
-      (n) => n.tags?.includes('CYCLE') === true
+    const cycleNodes = model.nodes.filter((n) =>
+      words(n.tags).includes('Cycle')
     );
     expect(cycleNodes).toHaveLength(2);
+    // The dashed danger outline is drawn from the flag, not the word.
+    expect(cycleNodes.every((n) => n.inCycle === true)).toBe(true);
+    // Issue boxes carry their workflow state and their key in mono.
+    for (const n of model.nodes) {
+      expect(n.state).toBeDefined();
+      expect(n.key).toMatch(/^[A-Z]+-\d+$/);
+    }
     expect(model.edges.some((e) => e.kind === 'cycle')).toBe(true);
   });
 
@@ -491,7 +543,7 @@ describe('nodes with no blocking relation', () => {
       if (closed) expect(row.due).not.toMatch(/overdue|in \d+ days/);
       if (issue?.assigneeId === null && !closed) {
         expect(row.context).toBe('Unassigned');
-        expect(row.contextTone).toBe('accent');
+        expect(row.contextTone).toBe('warning');
       }
     }
     const inside = model.nodes.filter((n) => n.external !== true).length;
@@ -526,7 +578,8 @@ describe('pages kept', () => {
       isolatedRows: m.isolated?.rows.map((r) => r.id) ?? [],
       tags: m.nodes.map((n) => [
         n.id,
-        (n.tags ?? []).filter((tag) => tag !== 'CYCLE INSIDE'),
+        n.tone,
+        chips(n.tags).filter((tag) => !tag.startsWith('Cycle inside')),
       ]),
     };
   };
@@ -556,11 +609,14 @@ describe('pages kept', () => {
         'ms-compass-2',
         'ms-compass-3',
       ],
+      // A milestone's Unassigned is neutral (later work is normal); the
+      // overdue Dual-write is tinted danger, the at-risk Search v2 beta
+      // warning.
       tags: [
-        ['ms-atlas-2', ['UNASSIGNED', 'OVERDUE']],
-        ['ms-juniper-1', []],
-        ['ms-beacon-1', []],
-        ['ms-atlas-3', ['UNASSIGNED']],
+        ['ms-atlas-2', 'danger', ['Unassigned:default', 'Overdue:danger']],
+        ['ms-juniper-1', 'default', []],
+        ['ms-beacon-1', 'warning', []],
+        ['ms-atlas-3', 'default', ['Unassigned:default']],
       ],
     });
   });
@@ -579,10 +635,10 @@ describe('pages kept', () => {
       isolatedTitle: '3 issues have no blocking relations',
       isolatedRows: ['iss-eng-11', 'iss-eng-13', 'iss-eng-14'],
       tags: [
-        ['iss-eng-10', ['OVERDUE']],
-        ['iss-eng-12', ['UNASSIGNED', 'OVERDUE']],
-        ['iss-eng-23', []],
-        ['iss-eng-16', []],
+        ['iss-eng-10', 'danger', ['Overdue:danger']],
+        ['iss-eng-12', 'danger', ['Unassigned:warning', 'Overdue:danger']],
+        ['iss-eng-23', 'default', []],
+        ['iss-eng-16', 'default', []],
       ],
     });
   });
@@ -602,10 +658,10 @@ describe('pages kept', () => {
       isolatedTitle: '2 issues have no blocking relations',
       isolatedRows: ['iss-eng-72', 'iss-eng-73'],
       tags: [
-        ['iss-eng-70', ['CYCLE']],
-        ['iss-eng-71', ['CYCLE']],
-        ['iss-ops-20', []],
-        ['iss-eng-23', []],
+        ['iss-eng-70', 'default', ['Cycle:danger']],
+        ['iss-eng-71', 'default', ['Cycle:danger']],
+        ['iss-ops-20', 'default', []],
+        ['iss-eng-23', 'default', []],
       ],
     });
   });
@@ -653,8 +709,13 @@ describe('every level on the demo workspace', () => {
     ]);
     const platform = model.nodes[0];
     expect(platform?.sublabel).toBe('5 projects · Dec 20');
-    expect(platform?.tags).toEqual(['OVERDUE', 'CYCLE', 'CYCLE INSIDE']);
-    expect(platform?.tone).toBe('accent');
+    expect(chips(platform?.tags)).toEqual([
+      'Overdue:danger',
+      'Cycle:danger',
+      'Cycle inside:danger',
+    ]);
+    expect(platform?.tone).toBe('danger');
+    expect(platform?.inCycle).toBe(true);
     expect(platform?.group).toBeUndefined();
     expect(model.isolated?.title).toBe(
       '1 initiative has no blocking relations'
@@ -665,6 +726,7 @@ describe('every level on the demo workspace', () => {
         name: 'No initiative',
         key: null,
         status: 'at_risk',
+        state: null,
         statusLabel: 'At risk',
         statusMuted: false,
         context: '1 project',
@@ -674,7 +736,7 @@ describe('every level on the demo workspace', () => {
         href: '/graph?initiative=none',
         external: false,
         rowLabel: 'No initiative, 1 project: open its graph',
-        tone: 'accent',
+        tone: 'warning',
       },
     ]);
     expect([
@@ -682,10 +744,13 @@ describe('every level on the demo workspace', () => {
       model.isolated?.contextLabel,
       model.isolated?.dueLabel,
     ]).toEqual(['Initiative', 'Projects', 'Target']);
-    expect(model.legend.map((item) => `${item.label} — ${item.note}`)).toEqual([
+    expect(model.legend.map(legendLine)).toEqual([
+      'status overdue: Overdue — a project’s milestone is past due',
+      'status at_risk: At risk — a project’s next milestone',
+      'status on_track: On track',
+      'status done: Complete',
+      'status missing: Missing input',
       'Initiative — blockers sit left of what waits',
-      'Overdue — a project’s milestone is past due',
-      'At risk — a project’s next milestone',
       'In a cycle — they wait on each other',
       'Inactive — no active project',
       'Blocks — an open issue blocks one',
@@ -736,13 +801,13 @@ describe('every level on the demo workspace', () => {
       ['proj-atlas', 'proj-beacon', 'risk', 1],
       ['proj-beacon', 'proj-juniper', 'risk', 1],
     ]);
-    expect(model.nodes.map((n) => [n.id, n.sublabel, n.tags, n.group])).toEqual(
-      [
-        ['proj-atlas', 'Chloe Diaz', ['OVERDUE'], 'Platform reliability'],
-        ['proj-juniper', 'Grace Lin', ['CYCLE INSIDE'], 'Platform reliability'],
-        ['proj-beacon', 'Dev Patel', [], 'Customer growth'],
-      ]
-    );
+    expect(
+      model.nodes.map((n) => [n.id, n.sublabel, words(n.tags), n.group])
+    ).toEqual([
+      ['proj-atlas', 'Chloe Diaz', ['Overdue'], 'Platform reliability'],
+      ['proj-juniper', 'Grace Lin', ['Cycle inside'], 'Platform reliability'],
+      ['proj-beacon', 'Dev Patel', [], 'Customer growth'],
+    ]);
     expect(model.isolated?.rows.map((r) => r.id)).toEqual([
       'proj-harbor',
       'proj-delta',
@@ -752,14 +817,14 @@ describe('every level on the demo workspace', () => {
     ]);
     const delta = model.isolated?.rows.find((r) => r.id === 'proj-delta');
     expect(delta?.context).toBe('No lead');
-    expect(delta?.contextTone).toBe('accent');
+    expect(delta?.contextTone).toBe('warning');
     expect(delta?.href).toBe('/graph?project=proj-delta');
     expect(model.isolated?.dueLabel).toBe('Next milestone');
     const deltaNode = graphOf({ level: 'project' }).nodes.find(
       (n) => n.id === 'proj-delta'
     );
-    expect(deltaNode === undefined ? [] : nodeTags(deltaNode)).toEqual([
-      'NO LEAD',
+    expect(deltaNode === undefined ? [] : chips(nodeTags(deltaNode))).toEqual([
+      'No lead:warning',
     ]);
     expect(model.legend.find((item) => item.mark === 'edge-cross')).toEqual({
       mark: 'edge-cross',
@@ -771,11 +836,11 @@ describe('every level on the demo workspace', () => {
     );
   });
 
-  test('/graph: CYCLE INSIDE on ms-juniper-1, the muted swatch names inactive', () => {
+  test('/graph: Cycle inside on ms-juniper-1, the muted swatch names inactive', () => {
     const model = page({ level: 'milestone' });
-    expect(model.nodes.find((n) => n.id === 'ms-juniper-1')?.tags).toEqual([
-      'CYCLE INSIDE',
-    ]);
+    expect(
+      chips(model.nodes.find((n) => n.id === 'ms-juniper-1')?.tags)
+    ).toEqual(['Cycle inside:danger']);
     expect(model.legend.find((item) => item.mark === 'node-muted')).toEqual({
       mark: 'node-muted',
       label: 'Complete or inactive',
@@ -786,15 +851,15 @@ describe('every level on the demo workspace', () => {
     );
   });
 
-  test('an inactive project’s milestone is INACTIVE and muted in its initiative', () => {
+  test('an inactive project’s milestone is Inactive and muted in its initiative', () => {
     const graph = graphOf({
       level: 'milestone',
       initiativeId: 'init-platform',
     });
     const fjord = graph.nodes.find((n) => n.id === 'ms-fjord-1');
-    expect(fjord === undefined ? null : nodeTags(fjord)).toEqual([
-      'UNASSIGNED',
-      'INACTIVE',
+    expect(fjord === undefined ? null : chips(nodeTags(fjord))).toEqual([
+      'Unassigned:default',
+      'Inactive:muted',
     ]);
     expect(fjord === undefined ? null : nodeTone(fjord)).toBe('muted');
     // Listed under the canvas, its mark is grey and says why.
@@ -865,14 +930,15 @@ describe('every level on the demo workspace', () => {
         {
           label: 'Next milestone',
           value: 'Dual-write · Oct 18 · 3 days overdue',
-          tone: 'accent',
+          tone: 'danger',
         },
         {
           label: 'Progress',
           value: '0/4 done · 2 open issues unassigned',
-          tone: 'accent',
+          tone: 'warning',
         },
-        { label: 'Allocation', value: 'Allocating 2', tone: 'default' },
+        // The register's allocation chip tone (§8.2): info allocating.
+        { label: 'Allocation', value: 'Allocating 2', tone: 'info' },
         {
           label: 'Scope',
           value:
@@ -929,7 +995,8 @@ describe('every level on the demo workspace', () => {
           label: 'At risk',
           value:
             'Atlas billing migration › Dual-write (overdue); Harbor API v3 › Public beta (at risk)',
-          tone: 'accent',
+          // Danger: one of them is overdue.
+          tone: 'danger',
         },
       ],
       links: [
@@ -1213,7 +1280,7 @@ describe('?node= on arrival', () => {
 describe('one issue’s chain', () => {
   const { graphOf, page, pageOf } = fixture();
 
-  test('/graph?chain=ENG-23: the focus is ruled and kept, nothing is selected', () => {
+  test('/graph?chain=ENG-23: the focus is ringed and kept, nothing is selected', () => {
     const model = page({ level: 'issue', issueId: 'ENG-23' });
     expect(model.heading).toBe('Blocking chain of ENG-23');
     expect(model.crumb).toBe('Chain of ENG-23');
@@ -1240,10 +1307,15 @@ describe('one issue’s chain', () => {
       { label: 'ENG-23' },
     ]);
     expect(model.legend.map((item) => item.mark)).toEqual([
+      'state',
+      'state',
+      'state',
+      'state',
+      'state',
       'node',
       'node-focus',
-      'node-overdue',
-      'node-accent',
+      'node-danger',
+      'node-warning',
       'node-cycle',
       'node-muted',
       'edge-default',
@@ -1251,6 +1323,25 @@ describe('one issue’s chain', () => {
       'edge-cycle',
       'edge-cross',
       'edge-resolved',
+    ]);
+    expect(model.legend.slice(0, 5).map(legendLine)).toEqual([
+      'state backlog: Backlog',
+      'state unstarted: To do',
+      'state started: In progress',
+      'state completed: Done',
+      'state canceled: Canceled',
+    ]);
+    // The focus's box: its state circle, its key, unassigned said once.
+    const focus = model.nodes[0];
+    expect(focus?.state).toBe('started');
+    expect(focus?.key).toBe('ENG-23');
+    expect(focus?.sublabel).toBe('Dev Patel');
+    const blocker = model.nodes[1];
+    expect(blocker?.key).toBe('ENG-12');
+    expect(blocker?.sublabel).toBe('');
+    expect(chips(blocker?.tags)).toEqual([
+      'Unassigned:warning',
+      'Overdue:danger',
     ]);
     expect(model.notices).toEqual([]);
   });
@@ -1292,13 +1383,13 @@ describe('one issue’s chain', () => {
       ),
     };
     const model = pageOf(cut);
-    expect(model.nodes.find((n) => n.id === 'iss-ops-20')?.tags).toEqual([
-      '+2 MORE',
-    ]);
+    expect(chips(model.nodes.find((n) => n.id === 'iss-ops-20')?.tags)).toEqual(
+      ['+2 more:default']
+    );
     expect(model.notices).toEqual([
       {
         id: 'chain-cut',
-        text: 'Drawn: the nearest 3 issues; 4 more are further out. Issues marked +N MORE lead on: open one and choose Graph to follow its chain.',
+        text: 'Drawn: the nearest 3 issues; 4 more are further out. Issues marked “+N more” lead on: open one and choose Graph to follow its chain.',
       },
     ]);
   });

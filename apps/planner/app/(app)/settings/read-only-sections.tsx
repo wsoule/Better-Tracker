@@ -1,4 +1,4 @@
-import { Chip } from '@better-tracker/ui';
+import { Chip, InitialsAvatar } from '@better-tracker/ui';
 
 import type {
   PersonRow,
@@ -88,9 +88,7 @@ export function ReadOnlyWatchers({
 export function PersonCell({ row }: { row: PersonRow }) {
   return (
     <>
-      <span className={css.avatar} aria-hidden="true">
-        {row.initials}
-      </span>
+      <InitialsAvatar name={row.name} size="md" />
       <span className={css.personText}>
         <span className={css.personName}>
           {row.name}

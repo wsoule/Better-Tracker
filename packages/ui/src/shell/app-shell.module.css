@@ -2,7 +2,8 @@
    (--bg-side, a --border right edge) beside the white main column, a 46px
    white topbar with sentence-case crumbs and a recessed search trigger,
    30px nav rows whose current item is a raised white pill (dark: a
-   --surface-3 fill), and on phones an off-canvas drawer over the --overlay
+   --surface-3 fill; both from the --nav-current-* tokens) with its icon
+   in the accent, and on phones an off-canvas drawer over the --overlay
    scrim plus a white bottom tab bar. The page scrolls the document, so
    position: sticky keeps working for every page under the topbar. */
 
@@ -66,7 +67,9 @@
   transition: background-color var(--dur) ease;
 }
 
-/* The 22px tile: Gr8r's dark brand square with the product's initials. */
+/* The 22px tile: Gr8r's dark brand square with the product's initials.
+   It stays dark in both themes (--brand-tile-*: ink on light, a recessed
+   tile with a ring on dark). */
 .logo {
   flex: 0 0 22px;
   display: grid;
@@ -74,8 +77,9 @@
   width: 22px;
   height: 22px;
   border-radius: var(--r-sm);
-  background: var(--text);
-  color: var(--text-inv);
+  background: var(--brand-tile-bg, var(--text));
+  box-shadow: inset 0 0 0 1px var(--brand-tile-edge, transparent);
+  color: var(--brand-tile-ink, var(--text-inv));
   font-size: 10px;
   font-weight: var(--fw-semibold);
   letter-spacing: 0.01em;
@@ -169,25 +173,17 @@
     color var(--dur) ease;
 }
 
-/* Current: the raised white pill on the grey sidebar (Gr8r). */
+/* Current: the raised white pill on the grey sidebar (Gr8r); dark: a
+   --surface-3 fill, no shadow. Both come from tokens (--nav-current-*),
+   so a light wrapper inside a dark page keeps the light pill. The pill
+   alone is a soft 1.1:1 against the sidebar, so the icon turns the
+   accent (4:1 or better on the pill) to mark the page beyond colour
+   weight. */
 .item[aria-current='page'] {
-  background: var(--surface);
+  background: var(--nav-current-bg, var(--surface));
   color: var(--text);
   font-weight: var(--fw-medium);
-  box-shadow: var(--shadow-raised);
-}
-
-/* Dark: a --surface-3 fill, no shadow (Gr8r's dark sidebar). */
-:global([data-theme='dark']) .item[aria-current='page'] {
-  background: var(--surface-3);
-  box-shadow: none;
-}
-
-@media (prefers-color-scheme: dark) {
-  :global([data-theme='system']) .item[aria-current='page'] {
-    background: var(--surface-3);
-    box-shadow: none;
-  }
+  box-shadow: var(--nav-current-shadow, var(--shadow-raised));
 }
 
 .icon {
@@ -201,7 +197,34 @@
 }
 
 .item[aria-current='page'] .icon {
-  color: var(--text-2);
+  color: var(--accent-ink);
+}
+
+/* A project row: Gr8r's quiet 18px tile with a folder, the name, and a
+   status mark on the right only when the next milestone needs attention
+   (overdue, at risk). The status is always in the accessible name. */
+.projectTile {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-chip);
+  background: var(--surface-3);
+  color: var(--text-3);
+}
+
+.projectTile svg {
+  width: 12px;
+  height: 12px;
+}
+
+.item[aria-current='page'] .projectTile {
+  color: var(--accent-ink);
+}
+
+.projectStatus {
+  flex: 0 0 auto;
+  display: flex;
 }
 
 .icon svg {
@@ -329,23 +352,6 @@
   border-radius: var(--r-sm);
 }
 
-/* Gr8r's avatar: a 22px circle, pastel neutral fill, a surface ring. */
-.avatar {
-  flex: 0 0 22px;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--surface-3);
-  box-shadow: 0 0 0 1.5px var(--surface);
-  color: var(--text-2);
-  font-size: 9px;
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.01em;
-  line-height: 1;
-}
-
 .userName {
   min-width: 0;
   overflow: hidden;
@@ -421,6 +427,8 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
+  margin: 0 -4px;
+  padding: 0 4px;
   overflow: hidden;
   font-size: var(--fs-sm);
   color: var(--text-2);
@@ -434,13 +442,21 @@
   min-width: 0;
 }
 
-/* No padding or fill: the first crumb starts on the gutter, hover is
-   colour only (Gr8r). */
+/* No fill: the text of the first crumb starts on the gutter, hover is
+   colour only (Gr8r). The 4px side padding (cancelled by the margins)
+   gives the focus ring room inside the list, whose overflow would clip a
+   ring drawn outside the link. */
 .crumbLink {
-  padding: 3px 0;
+  margin: 0 -4px;
+  padding: 3px 4px;
   border-radius: var(--r-xs);
   color: var(--text-2);
   transition: color var(--dur) ease;
+}
+
+.crumbLink:focus-visible {
+  outline-offset: -2px;
+  color: var(--text);
 }
 
 .crumbCurrent {
@@ -510,10 +526,24 @@
   outline: none;
 }
 
+/* Gr8r's offline-banner form: a thin full-bleed strip under the topbar
+   on --sunken with a --border bottom rule, its copy one --fs-sm line.
+   --shell-banner-h is its height when the copy is one line, for pages
+   that fill the viewport under it (settings). */
+.shell[data-shell-banner='true'] {
+  --shell-banner-h: 33px;
+}
+
 .banner {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 16px var(--shell-gutter) 0;
+  display: flex;
+  align-items: center;
+  min-height: var(--shell-banner-h, 33px);
+  padding: 6px var(--shell-gutter);
+  border-bottom: 1px solid var(--border);
+  background: var(--sunken);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
 }
 
 .scrim,
@@ -666,6 +696,19 @@
     background: var(--accent);
   }
 
+  /* A project's attention mark rides the tile's corner in the rail. */
+  :global(html[data-shell-collapsed='true']) .projectStatus {
+    position: absolute;
+    top: 3px;
+    right: 7px;
+  }
+
+  :global(html[data-shell-collapsed='true']) .projectStatus [role='img'] {
+    width: 9px;
+    height: 9px;
+    flex-basis: 9px;
+  }
+
   :global(html[data-shell-collapsed='true']) .item .hint,
   :global(html[data-shell-collapsed='true']) .badge,
   :global(html[data-shell-collapsed='true']) .sectionHead,
@@ -795,10 +838,6 @@
     display: none;
   }
 
-  .banner {
-    padding-top: 12px;
-  }
-
   /* Gr8r's bottom nav: a white bar on a --border rule; idle cells
      --text-3, the current one --text. */
   .tabbar {
@@ -882,8 +921,18 @@
     display: none;
   }
   .crumbList {
-    padding-left: 4px;
+    padding-left: 8px;
     font-size: var(--fs);
+  }
+}
+
+/* Forced colours drop the pill's fill and shadow: outline the current
+   item instead. */
+@media (forced-colors: active) {
+  .item[aria-current='page'],
+  .tab[aria-current='page'] {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
   }
 }
 

@@ -1,8 +1,8 @@
 /* Description and comment editing in Gr8r's composer idiom: the text in
    the reading voice with a small ghost Edit; the editor is one rounded box
-   (Gr8r's .cbox: the strong border, 8px radius, the accent edge and a 3px
-   --accent-soft halo while focused) holding a borderless textarea over its
-   bar (shortcut, count, Cancel and the primary Save). */
+   (Gr8r's .cbox: the --control-border edge, 8px radius, a 2px accent edge
+   and a soft halo while focus is anywhere in it) holding a borderless
+   textarea over its bar (shortcut, count, Cancel and the primary Save). */
 
 .root {
   display: flex;
@@ -16,7 +16,7 @@
 .root[data-text-editor='compose'] {
   gap: 6px;
   padding: 8px 10px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--r);
   background: var(--surface);
   transition:
@@ -24,9 +24,13 @@
     box-shadow var(--dur) ease;
 }
 
-.root[data-text-editor]:has(.input:focus-visible) {
+/* :focus-within, not :has(): every supported browser (Firefox 120 has no
+   :has) draws the ring while the textarea or the bar's buttons hold focus. */
+.root[data-text-editor]:focus-within {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 4px var(--accent-soft);
 }
 
 .root[data-text-editor]:has(.input[aria-invalid='true']) {
@@ -107,9 +111,11 @@
   unicode-bidi: plaintext;
 }
 
-/* The box draws the focus (its accent edge and halo). */
+/* The box draws the focus (its accent edge and halo); the transparent
+   outline is what forced-colours mode paints, as it drops shadows. */
 .input:focus-visible {
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
 }
 
 .input::placeholder {

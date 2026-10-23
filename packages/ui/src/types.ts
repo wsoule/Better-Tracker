@@ -5,10 +5,11 @@ import type { ComponentType, ReactNode } from 'react';
 // models onto these shapes in a thin adapter.
 
 /**
- * A milestone's status as drawn by StatusMark, in Gr8r's shapes and the
- * semantic hues: done = green disc with a tick, on_track = green ring,
- * at_risk = amber half-filled ring, overdue = red disc, missing (an input
- * is missing: no date, no issues, a rubric gap) = dashed grey ring.
+ * A milestone's status as drawn by StatusMark, a diamond in the semantic
+ * hues: done = solid green with a tick, on_track = green outline,
+ * at_risk = amber with the bottom half filled, overdue = solid red,
+ * missing (an input is missing: no date, no issues, a rubric gap) = dotted
+ * grey outline.
  */
 export type UiStatus = 'done' | 'on_track' | 'at_risk' | 'overdue' | 'missing';
 

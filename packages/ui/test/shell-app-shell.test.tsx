@@ -48,6 +48,13 @@ const PROPS: AppShellProps = {
           status: 'overdue',
           statusLabel: 'Overdue',
         },
+        {
+          id: 'beacon',
+          label: 'Beacon search',
+          href: '/timeline?project=beacon',
+          status: 'on_track',
+          statusLabel: 'On track',
+        },
       ],
     },
   ],
@@ -72,9 +79,19 @@ describe('AppShell', () => {
     const current = nav.querySelector('[aria-current="page"]');
     expect(current?.textContent).toContain('My week');
     expect(current?.textContent).toContain('4 issues this week');
+    // Project rows are quiet (a grey folder tile): the status mark shows
+    // only when the milestone needs attention, but every row's status is
+    // in its name.
+    const atlas = screen.getByRole('link', {
+      name: /Atlas migration.*Overdue/,
+    });
     expect(
-      screen.getByRole('link', { name: /Overdue.*Atlas migration/ })
-    ).toBeTruthy();
+      atlas.querySelector('[role="img"]')?.getAttribute('data-status')
+    ).toBe('overdue');
+    const beacon = screen.getByRole('link', {
+      name: /Beacon search.*On track/,
+    });
+    expect(beacon.querySelector('[role="img"]')).toBeNull();
     const crumbs = screen.getByRole('navigation', { name: 'Breadcrumb' });
     expect(crumbs.querySelector('[aria-current="page"]')?.textContent).toBe(
       'Atlas migration'

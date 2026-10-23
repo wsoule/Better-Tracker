@@ -23,6 +23,7 @@ export default function WeekLoading() {
         <div className={css.columns}>
           <div className={css.grid}>
             <div className={css.main}>
+              <BlockBar title="Your issues" />
               <SkeletonRows rows={9} label="Loading your issues" />
             </div>
             <aside className={css.side} aria-label="Deadlines and attention">

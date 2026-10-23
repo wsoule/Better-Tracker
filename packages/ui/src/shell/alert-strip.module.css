@@ -1,8 +1,9 @@
 /* Gr8r's alert, tinted by data-tone (the --tone-* variables come from
    primitives.css): a status tone fills an 8px box with its soft tint, no
-   border, and prints the lead-in word and the follow-up in the tone's
-   text colour; the sentence stays --text. default and muted are a
-   bordered neutral box, like the Notice's quiet tone. */
+   border, and prints the 14px icon in the tone's hue and the lead-in word
+   and the follow-up in the tone's text colour; the sentence stays --text.
+   default and muted are a bordered neutral box, like the Notice's quiet
+   tone. .plain is a row of a neutral alert list: no box at all. */
 .strip {
   display: flex;
   align-items: baseline;
@@ -21,8 +22,36 @@
   background: var(--surface);
 }
 
-.key {
+/* A row of a neutral list (TaskDetail's second and later alerts): the
+   list draws the box and the rules. Two classes, so it wins over the
+   tone rule above whatever the order. */
+.strip.plain {
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.strip.plain .text {
+  color: var(--text-2);
+}
+
+.lead {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  /* One line of the sentence tall, so icon and word sit on its line. */
+  min-height: calc(var(--fs-sm) * 1.5);
+}
+
+.icon {
+  flex: none;
+  color: var(--tone, var(--amber));
+}
+
+.key {
   font-weight: var(--fw-semibold);
   color: var(--tone-ink, var(--text));
   white-space: nowrap;
@@ -48,9 +77,14 @@
   transition: text-decoration-color var(--dur) ease;
 }
 
-.action:hover,
 .action:focus-visible {
   text-decoration-color: currentColor;
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .action:hover {
+    text-decoration-color: currentColor;
+  }
 }
 
 @media (width <= 640px) {

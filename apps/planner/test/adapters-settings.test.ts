@@ -130,8 +130,9 @@ describe('watchers', () => {
     expect(rows.find((r) => r.id === 'u-hugo')?.note).toBe(
       'Deactivated in Linear'
     );
-    // Each row carries its round avatar's initials.
-    expect(rows.map((r) => r.initials)).toEqual(['AM', 'BC', 'HL']);
+    // The round avatar takes its initials and hue from the name
+    // (InitialsAvatar), so the row carries no initials of its own.
+    expect(rows.every((r) => !('initials' in r))).toBe(true);
   });
 
   test('the list may be empty: then only leads are warned', () => {

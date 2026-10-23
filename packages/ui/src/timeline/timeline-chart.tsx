@@ -1,8 +1,9 @@
 'use client';
 
-import { Crosshair } from 'lucide-react';
+import { CalendarRange, Crosshair } from 'lucide-react';
 import {
   type CSSProperties,
+  type FocusEvent,
   memo,
   type ReactElement,
   useCallback,
@@ -17,6 +18,7 @@ import StatusMark from '../components/status-mark';
 import { Link } from '../lib/link';
 import { Button } from '../tasks/button';
 import { cx } from '../tasks/class-names';
+import { EmptyState } from '../tasks/notice';
 import { SegmentedControl } from '../tasks/segmented-control';
 import { Switch } from '../tasks/switch';
 import { formatDay, formatDayLong, type TimeScale } from './dates';
@@ -131,6 +133,37 @@ function scrollLaneIntoView(el: HTMLElement, lane: LaneRow): void {
   el.scrollTop = Math.max(0, lane.top + lane.height / 2 - visible / 2);
 }
 
+/* Keeps a keyboard-focused bar, handle or chip clear of the sticky lane
+   column and header (WCAG 2.4.11). The browser only scrolls a focused
+   element that is outside the scroll box, and one under the sticky column
+   is inside it, so it would stay hidden. Pointer focus (not
+   :focus-visible) is left alone, so a click never moves the chart, and
+   the sticky cells themselves (lane names, group links) only need the
+   vertical check. */
+function revealFocused(el: HTMLElement, target: HTMLElement): void {
+  if (target === el) return;
+  let keyboard = true;
+  try {
+    keyboard = target.matches(':focus-visible');
+  } catch {
+    // An engine without :focus-visible: treat focus as keyboard focus.
+  }
+  if (!keyboard) return;
+  const port = el.getBoundingClientRect();
+  const box = target.getBoundingClientRect();
+  const top = port.top + HEADER_HEIGHT + 8;
+  const bottom = port.top + el.clientHeight - 8;
+  if (box.top < top) el.scrollTop -= top - box.top;
+  else if (box.bottom > bottom) el.scrollTop += box.bottom - bottom;
+  if (target.closest('[data-timeline-sticky]') !== null) return;
+  const left = port.left + LANE_WIDTH + 12;
+  const right = port.left + el.clientWidth - 12;
+  if (box.left < left) el.scrollLeft -= left - box.left;
+  else if (box.right > right) {
+    el.scrollLeft += Math.min(box.right - right, box.left - left);
+  }
+}
+
 /* Brings the chart itself into the page's view (block: nearest, so a chart
    already on screen does not move), for a lane focused from outside
    (?project=). The chart's own scroll position is set separately. A
@@ -213,7 +246,10 @@ const GroupRowView = memo(function GroupRowView({
   const count = group.lanes.length;
   return (
     <div className={cx(styles.row, styles.groupRow)} style={{ height }}>
-      <div className={cx(styles.laneCell, styles.groupCell)}>
+      <div
+        className={cx(styles.laneCell, styles.groupCell)}
+        data-timeline-sticky=""
+      >
         {/* The title shows the whole name when the count and the link
             have ellipsized it. */}
         <h3 className={styles.groupLabel} title={group.label}>
@@ -302,14 +338,13 @@ const LaneRowView = memo(function LaneRowView({
       aria-label={groupName}
       className={cx(
         styles.row,
-        styles.laneRow,
         lane.muted === true ? styles.laneMuted : undefined,
         focused ? styles.laneFocus : undefined
       )}
       style={{ height: row.height }}
       data-lane-id={lane.id}
     >
-      <div className={styles.laneCell}>
+      <div className={styles.laneCell} data-timeline-sticky="">
         <div className={styles.laneText}>
           {lane.href !== undefined ? (
             <Link href={lane.href} className={styles.laneName}>
@@ -375,7 +410,15 @@ const LaneRowView = memo(function LaneRowView({
                 aria-current={chip.id === selectedBarId ? 'true' : undefined}
                 onClick={() => onOpen(chip.id)}
               >
-                <span className={styles.chipLabel}>{chip.label}</span>
+                {/* Drawing only: the chip's name says the status. */}
+                <span className={styles.chipMark} aria-hidden="true">
+                  <StatusMark
+                    status={chip.status}
+                    label={chip.statusLabel}
+                    muted={lane.muted === true}
+                  />
+                </span>
+                <span>{chip.label}</span>
                 <span className={styles.chipNote}>No date</span>
               </button>
             ))}
@@ -618,6 +661,13 @@ export function TimelineChart({
   const dayWidth = layout.scale.dayWidth;
   const dayWidthRef = useRef(dayWidth);
 
+  const onFocus = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    const el = scrollerRef.current;
+    if (el !== null && event.target instanceof HTMLElement) {
+      revealFocused(el, event.target);
+    }
+  }, []);
+
   const onScroll = useCallback(() => {
     const el = scrollerRef.current;
     if (el === null) return;
@@ -808,7 +858,10 @@ export function TimelineChart({
       </div>
 
       {laneCount === 0 ? (
-        <p className={cx('empty', styles.empty)}>{emptyLabel}</p>
+        // Gr8r's centred empty state (icon, sentence), as every list has.
+        <EmptyState icon={<CalendarRange size={22} strokeWidth={1.8} />}>
+          {emptyLabel}
+        </EmptyState>
       ) : (
         <>
           <div
@@ -818,6 +871,7 @@ export function TimelineChart({
             role="region"
             aria-label={`${label}, ${formatDayLong(scale.windowStart, today)} to ${formatDayLong(scale.windowEnd, today)}`}
             onScroll={onScroll}
+            onFocus={onFocus}
           >
             <div
               className={styles.canvas}

@@ -159,6 +159,33 @@ describe('bars', () => {
     );
   });
 
+  test('say their status by shape, not only by hue (WCAG 1.4.1)', () => {
+    // Each bar's name is led by the status mark, and its due-date diamond
+    // takes the status's shape (data-status); the mark is drawing only
+    // (the bar's name already says the status).
+    const { chart } = renderChart();
+    for (const [name, status] of [
+      [/^Cutover rehearsal/, 'overdue'],
+      [/^Cutover, On track/, 'on_track'],
+      [/^v2 endpoints/, 'missing'],
+    ] as const) {
+      const bar = chart.getByRole('button', { name });
+      const mark = bar.querySelector('[data-status]');
+      expect(mark?.getAttribute('data-status')).toBe(status);
+      expect(mark?.closest('[aria-hidden="true"]')).not.toBeNull();
+      const item = bar.closest('[data-bar-id]') as HTMLElement;
+      const diamond = item.querySelector(':scope > [data-status]');
+      expect(diamond?.getAttribute('data-status')).toBe(status);
+    }
+    // The undated chip carries its mark too.
+    const chip = chart.getByRole('button', {
+      name: 'Pricing page, No target date, no due date',
+    });
+    expect(
+      chip.querySelector('[data-status]')?.getAttribute('data-status')
+    ).toBe('missing');
+  });
+
   test('mark the selected bar as current', () => {
     const { chart } = renderChart({ selectedBarId: 'm-cutover' });
     const cutover = chart.getByRole('button', { name: /^Cutover, On track/ });

@@ -144,6 +144,9 @@ export interface NavTabItem {
   count?: number;
   /** Short muted note after the label ("select a milestone"). */
   note?: string;
+  /** A leading icon (a 16px Lucide element; 14px at size sm), decorative:
+      the label names the cell. Gr8r's settings sub-nav has one per item. */
+  icon?: ReactNode;
 }
 
 export interface NavTabsProps {
@@ -151,7 +154,7 @@ export interface NavTabsProps {
   /** Accessible name of the <nav> ("Graph level", "Settings sections"). */
   label: string;
   /** horizontal = a tab strip; vertical = a sub-nav column that becomes a
-      wrapping strip at 900px and below. */
+      sideways-scrolling strip at 900px and below. */
   orientation?: 'horizontal' | 'vertical';
   size?: 'sm' | 'md';
   /** Horizontal only: stretch the cells across the container. */
@@ -195,6 +198,9 @@ export interface EmptyStateProps {
   /** Dash the box's edge (an input is missing rather than nothing to
    * show). */
   hatched?: boolean;
+  /** The 22px decorative icon above the title (a Lucide element). Defaults
+   * to an empty tray, or a dashed circle when hatched; null for none. */
+  icon?: ReactNode;
 }
 
 export interface ChecklistItem {
@@ -227,6 +233,9 @@ export interface StatCell {
   tone?: UiTone;
   /** Makes the cell a link (Gr8r stat cards navigate to the filtered list). */
   href?: string;
+  /** Gr8r's key icon: a 14px glyph in --text-4 before the label (drawing
+   * only, hidden from assistive tech; the label says it). */
+  icon?: ReactNode;
 }
 
 export interface StatsStripProps {
@@ -393,7 +402,8 @@ export interface DeadlineListProps {
   groups: DeadlineGroup[];
   /** Items shown per group before "+N more". Default 4. */
   limit?: number;
-  /** Shown under a group with no items. */
+  /** Shown when every group is empty (empty groups are not drawn); one
+   * EmptyState stands for the whole list. */
   emptyLabel?: string;
   /** Accessible name. */
   label?: string;

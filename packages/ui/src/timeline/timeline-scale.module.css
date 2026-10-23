@@ -1,9 +1,11 @@
 /* Gr8r's two-row time header: month names (12px semibold, a --border rule
    at each month start) over day numbers (11px, tabular, --divider rules,
-   weekends sunken), today's number in an accent chip (or, with week
-   columns, a "Today" chip in the month row). The grid layer behind the
-   rows repeats the furniture quietly: sunken weekends, --divider week
-   rules, --border month rules and the 2px today line at 0.7. */
+   weekends sunken), today's number in the accent ink at 600 (or, with
+   week columns, the word "Today" in the month row). The grid layer
+   behind the rows repeats the furniture quietly: sunken weekends,
+   --divider week rules, --border month rules and the 2px accent today
+   line (full strength: 4.5:1 on the light surface). In forced colours the
+   line and today's marker take the Highlight colour, so they stay. */
 
 /* Fills the header's content box (52px less its 1px bottom border), so
    the tick row never paints over that border under the lane column. */
@@ -88,8 +90,8 @@
   font-weight: var(--fw-semibold);
 }
 
-/* Today's number as a small accent chip (Gr8r's calendar marks today
-   with an accent disc), right above where the today line starts. */
+/* Today's number, Gr8r's: the accent ink at 600 (.todayTick), no fill,
+   right above where the today line starts. */
 .todayNum {
   display: inline-flex;
   align-items: center;
@@ -98,12 +100,11 @@
   height: 18px;
   padding: 0 4px;
   border-radius: var(--r-chip);
-  background: var(--accent);
-  color: var(--on-accent);
 }
 
-/* The "Today" chip in the month row: the accent fill with its own text
-   colour, sentence case, centred over the today line. */
+/* "Today" in the month row (week columns have no day number): the accent
+   ink at 600, centred over the today line, on the header's own surface so
+   a month name under it never shows through. */
 .todayFlag {
   position: absolute;
   z-index: 1;
@@ -111,11 +112,11 @@
   display: inline-flex;
   align-items: center;
   height: 16px;
-  padding: 0 5px;
+  padding: 0 4px;
   transform: translateX(-50%);
   border-radius: var(--r-chip);
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--surface);
+  color: var(--accent-ink);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
   line-height: 1;
@@ -162,5 +163,14 @@
   width: 2px;
   margin-left: -1px;
   background: var(--accent);
-  opacity: 0.7;
+}
+
+@media (forced-colors: active) {
+  .todayLine,
+  .todayNum,
+  .todayFlag {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
 }

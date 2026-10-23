@@ -8,6 +8,13 @@ import {
   RegisterRow,
   StatsStrip,
 } from '@better-tracker/ui';
+import {
+  CalendarX,
+  CircleDot,
+  type LucideIcon,
+  Sparkles,
+  TriangleAlert,
+} from 'lucide-react';
 import type { Metadata } from 'next';
 
 import { parseIssueParam, withIssueParam } from '../../../lib/adapters/issue';
@@ -32,6 +39,14 @@ import WeekIssues from './week-issues';
 import WeekUserPicker from './week-user-picker';
 
 export const metadata: Metadata = { title: 'My week' };
+
+/** Gr8r's stat-card key icons (drawing only; the key says it). */
+const STAT_ICONS: Record<string, LucideIcon> = {
+  open: CircleDot,
+  overdue: CalendarX,
+  new: Sparkles,
+  risk: TriangleAlert,
+};
 
 /* /week (architecture §8.4 "My week"): the signed-in person's open issues
    grouped by milestone, with deadlines and the projects they lead that need
@@ -105,12 +120,20 @@ export default async function WeekPage({
 
       <div className={css.body}>
         <StatsStrip
-          cells={page.stats}
+          cells={page.stats.map((cell) => {
+            const Icon = STAT_ICONS[cell.id];
+            return Icon === undefined
+              ? cell
+              : { ...cell, icon: <Icon size={14} strokeWidth={1.8} /> };
+          })}
           label={page.isSelf ? 'Your week at a glance' : 'Week at a glance'}
         />
         <div className={css.columns}>
           <div className={css.grid}>
-            <div className={css.main}>
+            {/* A section title over each panel, so the three panels share
+                one top line. */}
+            <section className={css.main} aria-label={page.issuesTitle}>
+              <BlockBar title={page.issuesTitle} meta={page.issuesMeta} />
               <WeekIssues
                 sections={page.sections}
                 columns={WEEK_TASK_COLUMNS}
@@ -118,14 +141,17 @@ export default async function WeekPage({
                 emptyMessage={page.emptyMessage}
                 drawer={drawer}
               />
-            </div>
+            </section>
             <aside className={css.side} aria-label="Deadlines and attention">
               <section
                 className={css.sideSection}
                 aria-label="Upcoming deadlines"
               >
                 <BlockBar title="Upcoming deadlines" meta="Next 7 days" />
-                <DeadlineList groups={page.deadlines} />
+                <DeadlineList
+                  groups={page.deadlines}
+                  emptyLabel="Nothing due in the next 7 days."
+                />
               </section>
               <section className={css.sideSection} aria-label="Needs attention">
                 <BlockBar

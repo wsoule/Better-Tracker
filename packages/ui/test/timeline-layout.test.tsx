@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   applyOverrides,
-  BAR_HEIGHT,
   computeConnectors,
   computeLayout,
   GROUP_HEIGHT,
@@ -20,8 +19,10 @@ import type { UiStatus } from '../src/types';
 // Weeks zoom (32px a day) over Mon Oct 19 – Sun Nov 15 2026.
 const WINDOW = { windowStart: '2026-10-19', windowEnd: '2026-11-15' };
 const TODAY = '2026-10-21';
-// A dropped connector ends a pixel above the waiting bar's top edge.
-const TOP_EDGE = BAR_HEIGHT / 2 + 1;
+// A dropped connector ends a pixel above the waiting bar's top edge: half
+// the 24px bar plus one. A literal, so a change to the bar height or the
+// gap shows up here rather than being recomputed from the same formula.
+const TOP_EDGE = 13;
 
 function bar(
   id: string,

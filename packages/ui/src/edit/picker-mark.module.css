@@ -3,7 +3,8 @@
    among the decorative hues violet, teal, rose and orange)
    with the hue mixed into the ink, ringed in the surface so it sits
    cleanly on any row; nobody is a dashed empty circle. 20px in a picker
-   (Gr8r's small avatar), 26px beside a comment. A label's colour is
+   (Gr8r's small avatar), 22px in the sidebar, 26px beside a comment or a
+   person's name in a list, 36px as a header. A label's colour is
    a small rounded square: the only colour from data the package paints. */
 
 .avatar {
@@ -28,8 +29,16 @@
   user-select: none;
 }
 
+.avatar[data-size='base'] {
+  --sz: 22px;
+}
+
 .avatar[data-size='md'] {
   --sz: 26px;
+}
+
+.avatar[data-size='lg'] {
+  --sz: 36px;
 }
 
 .avatar[data-hue='violet'] {

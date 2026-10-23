@@ -279,9 +279,24 @@ describe('Notice and EmptyState', () => {
     // Not the global .label (12px grey): it has the module's specificity
     // and, loaded later, beat the title's own 14.5px semibold.
     expect(key.classList.contains('label')).toBe(false);
-    // One paragraph: the title, then the sentence.
+    // Gr8r's order: the icon, the title, then the sentence.
     expect(key.parentElement?.textContent).toBe(
       'No runsNo allocation runs yet. Runs appear here after the daily run.'
     );
+    const icon = key.parentElement?.firstElementChild;
+    expect(icon?.getAttribute('aria-hidden')).toBe('true');
+    expect(icon?.querySelector('svg')).not.toBeNull();
+  });
+
+  test('EmptyState takes its own icon, or none', () => {
+    const own = render(
+      <EmptyState label="No edits" icon={<svg data-testid="own" />}>
+        Nothing edited yet.
+      </EmptyState>
+    );
+    expect(own.getByTestId('own')).toBeTruthy();
+    own.unmount();
+    const bare = render(<EmptyState icon={null}>Nothing yet.</EmptyState>);
+    expect(bare.container.querySelector('svg')).toBeNull();
   });
 });

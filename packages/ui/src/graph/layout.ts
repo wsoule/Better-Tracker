@@ -7,46 +7,55 @@ import type {
   GraphLayout,
   GraphLayoutOptions,
   GraphNodeData,
+  GraphNodeTag,
   LaidOutEdge,
   LaidOutGroup,
   LaidOutNode,
 } from './types';
 
-// Pure layout for the dependency graph: node boxes sized from mono text
-// metrics, positions and edge routes from dagre (rankdir LR by default).
-// No DOM, no React, no randomness: the same input gives the same output on
-// the server and the client, so the SVG hydrates without a diff.
+// Pure layout for the dependency graph: node boxes sized from Geist text
+// metrics (a per-character width table, below), positions and edge routes
+// from dagre (rankdir LR by default). No DOM, no React, no randomness: the
+// same input gives the same output on the server and the client, so the
+// SVG hydrates without a diff.
 
 /**
- * Box metrics shared with dependency-graph.module.css. Mono fonts advance
- * 0.6em per glyph, so a label's width is its length times the advance (plus
- * letter-spacing). Change a size here and in the CSS together.
+ * Box metrics shared with dependency-graph.module.css (Gr8r's card: 10px
+ * by 12px padding, a 13.5px medium title, a 12px quiet line, chips under
+ * it). Text widths come from GEIST_500 below. Change a size here and in the
+ * CSS together.
  */
 export const GRAPH_METRICS = {
   /** The node's 1px border, counted inside its box. */
   border: 1,
   padX: 12,
   padY: 10,
-  /** Status glyph square and the gap after it. */
-  glyph: 11,
+  /** Mark slot (StatusMark's 12px diamond, StateGlyph's 14px circle) and
+      the gap after it. */
+  glyph: 14,
   glyphGap: 8,
-  /** Label: 11.5px mono, no tracking. */
-  labelAdvance: 11.5 * 0.6,
-  labelLine: 16,
-  /** Sublabel: 9px mono uppercase, 0.1em tracking. */
-  subAdvance: 9 * 0.7,
-  subLine: 13,
-  subGap: 3,
-  /** Tag chips: 8.5px mono uppercase, 0.1em tracking, 1px border. */
-  tagAdvance: 8.5 * 0.7,
-  tagPadX: 5,
-  tagHeight: 15,
+  /** Label: --fs (13.5px) Geist 500 on 18px lines. */
+  labelSize: 13.5,
+  labelLine: 18,
+  /** Key (an issue id): --fs-2xs (11px) Geist Mono, 0.6em per glyph, then
+      a gap before the sublabel. */
+  keyAdvance: 11 * 0.6,
+  keyGap: 6,
+  /** Sublabel: --fs-xs (12px) Geist on a 16px line, 2px under the label. */
+  subSize: 12,
+  subLine: 16,
+  subGap: 2,
+  /** Tag chips: the Chip atom (12px Geist 500, 7px padding, 1px border,
+      20px tall), 4px apart, 8px under the text. */
+  tagSize: 12,
+  tagPadX: 7,
+  tagHeight: 20,
   tagGap: 4,
-  tagsGap: 7,
-  minWidth: 168,
-  maxWidth: 248,
-  /** Weight label box. */
-  weightAdvance: 9.5 * 0.6,
+  tagsGap: 8,
+  minWidth: 176,
+  maxWidth: 264,
+  /** Weight pill: 11px Geist 500 tabular figures (0.62em each). */
+  weightAdvance: 11 * 0.62,
   weightPadX: 5,
   weightHeight: 16,
 } as const;
@@ -58,8 +67,63 @@ const GROUP_PREFIX = '__group__:';
 const ARROW_LENGTH = 6;
 const ARROW_HALF_WIDTH = 3;
 
-// Paint order: faint lines underneath, the accent on top so a risk chain
-// is never hidden under an ordinary edge where they cross.
+/**
+ * Geist's advance widths at weight 500, in thousandths of an em, for the
+ * printable ASCII characters (space to tilde), measured in the browser with
+ * the body's `ss01` / `cv11` features. Weight 400 runs about 2% narrower,
+ * so the same table sizes the 400 sublabel safely.
+ */
+const GEIST_500: readonly number[] = [
+  243, 228, 361, 515, 643, 810, 649, 186, 290, 290, 427, 562, 213, 418, 213,
+  391, 683, 368, 630, 625, 629, 641, 604, 550, 624, 606, 302, 302, 546, 544,
+  546, 570, 925, 689, 680, 713, 711, 602, 578, 713, 699, 263, 582, 638, 556,
+  873, 728, 751, 638, 745, 680, 654, 578, 696, 679, 959, 633, 613, 561, 361,
+  367, 361, 438, 558, 258, 564, 599, 554, 599, 567, 337, 598, 585, 239, 269,
+  562, 273, 868, 574, 579, 599, 599, 360, 528, 350, 586, 560, 829, 567, 553,
+  535, 395, 274, 395, 523,
+];
+
+/** A few common characters outside ASCII, same units. */
+const GEIST_500_EXTRA: Readonly<Record<string, number>> = {
+  '…': 612,
+  '·': 213,
+  '‘': 218,
+  '’': 218,
+  '“': 399,
+  '”': 399,
+  '—': 908,
+  '–': 592,
+  '›': 348,
+  '→': 954,
+};
+
+/** Anything else (accented letters, other scripts): a wide-ish guess. */
+const FALLBACK_ADVANCE = 640;
+
+/** Headroom for rounding and the fallback face before Geist loads. */
+const WIDTH_SAFETY = 1.04;
+
+/**
+ * The rendered width in px of `text` set in Geist at `size` px: the sum of
+ * each character's advance (no kerning), with a little headroom. Exact
+ * enough to wrap and clip labels on the server; CSS still ellipsizes a
+ * line that comes out wider.
+ */
+export function textWidth(text: string, size: number): number {
+  let units = 0;
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    units +=
+      code >= 32 && code < 127
+        ? GEIST_500[code - 32]
+        : (GEIST_500_EXTRA[ch] ?? FALLBACK_ADVANCE);
+  }
+  return (units * size * WIDTH_SAFETY) / 1000;
+}
+
+// Paint order: faint lines underneath, the warning and danger kinds on top
+// so a risk chain or a cycle is never hidden under an ordinary edge where
+// they cross.
 const KIND_ORDER: Record<GraphEdgeKind, number> = {
   resolved: 0,
   default: 1,
@@ -72,21 +136,49 @@ export function edgeKey(from: string, to: string): string {
   return `${from}->${to}`;
 }
 
-/** Cuts `text` to `max` characters, ending in an ellipsis when cut. */
-function clip(text: string, max: number): string {
-  if (text.length <= max) return text;
-  if (max <= 1) return ELLIPSIS;
-  return `${text.slice(0, max - 1).trimEnd()}${ELLIPSIS}`;
+/**
+ * Cuts `text` to fit `maxWidth` px at `size`, ending in an ellipsis when
+ * cut (the longest prefix that still fits with it).
+ */
+export function clipText(text: string, maxWidth: number, size: number): string {
+  if (textWidth(text, size) <= maxWidth) return text;
+  const chars = Array.from(text);
+  let lo = 0;
+  let hi = chars.length;
+  // Binary search on the prefix length: width grows with it.
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    const candidate = `${chars.slice(0, mid).join('').trimEnd()}${ELLIPSIS}`;
+    if (textWidth(candidate, size) <= maxWidth) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo === 0
+    ? ELLIPSIS
+    : `${chars.slice(0, lo).join('').trimEnd()}${ELLIPSIS}`;
+}
+
+/** The longest prefix of `word` (at least one character) that fits. */
+function fittingPrefix(word: string, maxWidth: number, size: number): string {
+  const chars = Array.from(word);
+  let n = 1;
+  while (
+    n < chars.length &&
+    textWidth(chars.slice(0, n + 1).join(''), size) <= maxWidth
+  ) {
+    n += 1;
+  }
+  return chars.slice(0, n).join('');
 }
 
 /**
- * Greedy word wrap by character count (exact for a mono face): at most
- * `maxLines` lines of `maxChars`; a word longer than a line is broken, and
+ * Greedy word wrap by measured width: at most `maxLines` lines no wider
+ * than `maxWidth` px at `size`; a word wider than a line is broken, and
  * whatever does not fit ends the last line with an ellipsis.
  */
-export function wrapMono(
+export function wrapText(
   text: string,
-  maxChars: number,
+  maxWidth: number,
+  size: number,
   maxLines: number
 ): string[] {
   const words = text.trim().split(/\s+/).filter(Boolean);
@@ -96,13 +188,14 @@ export function wrapMono(
   while (index < words.length && lines.length < maxLines) {
     const word = words[index];
     const candidate = current === '' ? word : `${current} ${word}`;
-    if (candidate.length <= maxChars) {
+    if (textWidth(candidate, size) <= maxWidth) {
       current = candidate;
       index += 1;
     } else if (current === '') {
       // A single word wider than the line: hard-break it.
-      lines.push(word.slice(0, maxChars));
-      words[index] = word.slice(maxChars);
+      const head = fittingPrefix(word, maxWidth, size);
+      lines.push(head);
+      words[index] = word.slice(head.length);
     } else {
       lines.push(current);
       current = '';
@@ -116,23 +209,23 @@ export function wrapMono(
     const rest = [lines[lines.length - 1] ?? '', ...words.slice(index)]
       .join(' ')
       .trim();
-    lines[lines.length - 1] = clip(rest, maxChars);
+    lines[lines.length - 1] = clipText(rest, maxWidth, size);
   }
   return lines.length > 0 ? lines : [''];
 }
 
 /** Width of one tag chip, border included. */
-function tagWidth(tag: string): number {
-  return Math.ceil(tag.length * M.tagAdvance + M.tagPadX * 2 + 2);
+function tagWidth(tag: GraphNodeTag): number {
+  return Math.ceil(textWidth(tag.label, M.tagSize) + M.tagPadX * 2 + 2);
 }
 
 /** Rows a flowed set of tag chips needs inside `width`. */
-function tagRows(tags: readonly string[], width: number): number {
+function tagRows(tags: readonly GraphNodeTag[], width: number): number {
   if (tags.length === 0) return 0;
   let rows = 1;
   let used = 0;
   for (const tag of tags) {
-    const w = tagWidth(tag);
+    const w = Math.min(tagWidth(tag), width);
     const next = used === 0 ? w : used + M.tagGap + w;
     if (next > width && used > 0) {
       rows += 1;
@@ -154,40 +247,43 @@ export interface NodeMeasure {
 /**
  * The box a node needs: wide enough for its label on one line (clamped to
  * the min/max width), the label wrapped to two lines beyond that, one line
- * of sublabel, and the tag chips flowed under it.
+ * of key + sublabel, and the tag chips flowed under it.
  */
 export function measureNode(node: GraphNodeData): NodeMeasure {
-  const lead = node.status !== undefined ? M.glyph + M.glyphGap : 0;
+  const marked = node.status !== undefined || node.state !== undefined;
+  const lead = marked ? M.glyph + M.glyphGap : 0;
   const chrome = (M.padX + M.border) * 2 + lead;
   const tags = node.tags ?? [];
   const sublabel = node.sublabel ?? '';
+  const key = node.key ?? '';
+  const keyWidth =
+    key === ''
+      ? 0
+      : key.length * M.keyAdvance + (sublabel === '' ? 0 : M.keyGap);
   let tagsRow = 0;
   for (const tag of tags) {
     tagsRow += (tagsRow === 0 ? 0 : M.tagGap) + tagWidth(tag);
   }
   const natural = Math.max(
-    node.label.length * M.labelAdvance,
-    sublabel.length * M.subAdvance,
+    textWidth(node.label, M.labelSize),
+    keyWidth + textWidth(sublabel, M.subSize),
     tagsRow
   );
   const width = Math.ceil(
     Math.min(M.maxWidth, Math.max(M.minWidth, natural + chrome))
   );
   const inner = width - chrome;
-  const labelLines = wrapMono(
-    node.label,
-    Math.max(1, Math.floor(inner / M.labelAdvance)),
-    MAX_LABEL_LINES
-  );
-  const sublabelLine = clip(
-    sublabel,
-    Math.max(1, Math.floor(inner / M.subAdvance))
-  );
+  const labelLines = wrapText(node.label, inner, M.labelSize, MAX_LABEL_LINES);
+  const sublabelLine =
+    sublabel === ''
+      ? ''
+      : clipText(sublabel, Math.max(0, inner - keyWidth), M.subSize);
+  const hasLine = key !== '' || sublabel !== '';
   const rows = tagRows(tags, inner);
   const height =
     (M.padY + M.border) * 2 +
     labelLines.length * M.labelLine +
-    (sublabel === '' ? 0 : M.subGap + M.subLine) +
+    (hasLine ? M.subGap + M.subLine : 0) +
     (rows === 0 ? 0 : M.tagsGap + rows * M.tagHeight + (rows - 1) * M.tagGap);
   return { width, height: Math.ceil(height), labelLines, sublabelLine };
 }
@@ -354,7 +450,8 @@ export function layoutGraph(
     const weight = edge.weight ?? 1;
     const text = weight > 1 ? String(weight) : '';
     g.setEdge(edge.from, edge.to, {
-      // Accent chains pull straighter: dagre shortens heavier edges first.
+      // Risk chains and cycles pull straighter: dagre shortens heavier
+      // edges first.
       weight: edge.kind === 'risk' || edge.kind === 'cycle' ? 2 : 1,
       minlen: 1,
       width:

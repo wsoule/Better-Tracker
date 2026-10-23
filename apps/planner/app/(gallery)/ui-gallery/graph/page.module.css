@@ -1,5 +1,6 @@
 /* Gallery-only composition for /ui-gallery/graph: page furniture and the
-   selection panel's lists, built from the same tokens as the package. */
+   selection panel's lists, built from the same tokens as the package, in
+   Gr8r's look (panels with --divider rows, sentence case, hover fills). */
 
 .page {
   padding-bottom: 96px;
@@ -9,6 +10,18 @@
   display: inline-flex;
   align-items: center;
   gap: 16px;
+}
+
+/* A section's blocks (title, legend, graph panel, Copy Mermaid), each its
+   own panel, 12px apart. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legend {
+  padding-bottom: 2px;
 }
 
 .panel {
@@ -23,6 +36,12 @@
   gap: 6px;
 }
 
+.stateValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .panelSection {
   display: flex;
   flex-direction: column;
@@ -30,82 +49,72 @@
 }
 
 .panelKey {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  color: var(--text);
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
 }
 
 .panelEmpty {
   padding: 12px 14px;
-  border: 1px solid var(--hairline-faint);
-  color: var(--grey-2-ink);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+/* One panel; rows split by --divider. */
+.nodeList {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
 }
 
 .nodeList > li + li {
-  margin-top: -1px;
+  border-top: 1px solid var(--divider);
 }
 
-/* Register rows: hover swaps paper and ink locally, like the roster. */
 .nodeRow {
   display: grid;
-  grid-template-columns: 13px minmax(0, 1fr) auto;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 10px;
   width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  min-height: var(--row-h);
+  padding: 8px 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
   text-align: left;
-  transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
+  transition: background-color var(--dur) var(--ease);
+}
+
+.nodeRow:focus-visible {
+  outline-offset: -2px;
 }
 
 .nodeRowName {
   overflow: hidden;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .nodeRowSub {
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
   white-space: nowrap;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .nodeRow:hover {
-    --background: var(--ink);
-    --foreground: var(--paper);
-    --accent-ink: var(--accent-ink-inverse);
-    --accent-ink-hover: var(--accent-ink-inverse);
-    --grey-2-ink: var(--muted-inverse);
-    --border: var(--paper);
-    --muted: var(--muted-inverse);
-
-    border-color: var(--ink);
+    background: var(--surface-2);
   }
 }
 
 @media (width <= 768px) {
   .nodeRow {
-    grid-template-columns: 13px minmax(0, 1fr);
+    grid-template-columns: 14px minmax(0, 1fr);
     row-gap: 4px;
   }
 

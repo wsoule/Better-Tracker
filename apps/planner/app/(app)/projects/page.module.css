@@ -61,7 +61,9 @@
   pointer-events: none;
 }
 
-.search {
+/* Scoped by the wrapper (0,2,0), so it beats the global .input (0,1,0)
+   whatever order the production build loads the stylesheets in. */
+.searchWrap > .search {
   width: 100%;
   padding-left: 30px;
 }
@@ -148,12 +150,12 @@
   }
 }
 
-/* Once the register stacks (stackWithin 1000), the end cell starts at the
-   left: the quiet buttons' text lines up with the other cells' text. */
-@container register (width < 1000px) {
+/* Once the register stacks (stackWithin 900), the end cell starts at the
+   left, its icon buttons' glyphs in line with the other cells' text. */
+@container register (width < 900px) {
   .links {
     justify-content: flex-start;
-    margin: 0 0 0 -8px;
+    margin: 0 0 0 -6px;
   }
 }
 

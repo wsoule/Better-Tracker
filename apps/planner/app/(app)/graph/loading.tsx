@@ -2,8 +2,9 @@ import { BlockBar, Skeleton, SkeletonBlock } from '@better-tracker/ui';
 
 import css from './page.module.css';
 
-/* /graph while the engine loads: hatched skeletons in the page's real
-   layout (header, the graph block with its legend strip and frame). */
+/* /graph while the engine loads: shimmering skeletons in the page's real
+   layout (header, the section title, the legend rows and the graph
+   panel). */
 export default function GraphLoading() {
   return (
     <>
@@ -15,8 +16,10 @@ export default function GraphLoading() {
       </header>
       <div className={css.body}>
         <div className={css.collapse}>
-          <BlockBar index="01" title="Dependencies" />
-          <SkeletonBlock height={56} label="Loading the legend" />
+          <div>
+            <BlockBar title="Dependencies" />
+            <SkeletonBlock height={48} label="Loading the legend" />
+          </div>
           <SkeletonBlock height={420} label="Loading the graph" />
         </div>
       </div>

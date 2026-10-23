@@ -1,6 +1,8 @@
 /* Gr8r's segmented control: a --surface-3 track with 2px padding and a
    6px radius; options are 5px-radius cells in 12px medium; the selected
-   one is a raised white thumb (--shadow-raised). Wraps when the strip is
+   one is a raised white thumb (--shadow-raised) ringed in the accent, so
+   the selection reaches 3:1 against the track (WCAG 1.4.11) and does not
+   rest on the soft white-on-grey step alone. Wraps when the strip is
    wider than its container. */
 
 .group {
@@ -58,7 +60,17 @@
 .option[aria-checked='true'] {
   background: var(--surface);
   color: var(--text);
-  box-shadow: var(--shadow-raised);
+  box-shadow:
+    inset 0 0 0 1.5px var(--accent),
+    var(--shadow-raised);
+}
+
+/* Forced colours drop the thumb's fill and shadow: outline it. */
+@media (forced-colors: active) {
+  .option[aria-checked='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 
 /* Focus sits inside the cell so the track does not clip it. */

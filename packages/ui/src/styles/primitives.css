@@ -119,13 +119,16 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* A text link in the accent ("Open in Linear", "Graph"): the underline
-   arrives on hover. */
+/* A text link in the accent ("Open in Linear", "Graph", "Settings →
+   Modes" inside a sentence). Underlined at rest, softly, so a link in
+   running text is not told apart by colour alone (WCAG 1.4.1); the
+   underline takes the full colour on hover and focus. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .accentLink {
   font-weight: var(--fw-medium);
   color: var(--accent-ink);
   text-decoration: underline;
-  text-decoration-color: transparent;
+  text-decoration-color: color-mix(in srgb, currentColor 50%, transparent);
+  text-decoration-thickness: 1px;
   text-underline-offset: 3px;
   white-space: nowrap;
   transition:
@@ -204,14 +207,17 @@
 }
 
 /* ---- fields --------------------------------------------------------------
-   Gr8r's inputs: 30px, 6px radius, strong border, sans. Focus swaps the
-   global ring for an accent border and a 3px soft halo. */
+   Gr8r's inputs: 30px, 6px radius, sans, with the --control-border edge
+   (3:1 on every surface, WCAG 1.4.11). Focus swaps the global ring for
+   Gr8r's: an accent border thickened to 2px by a 1px accent shadow, plus a
+   soft halo; the outline stays, transparent, so forced-colours mode (which
+   drops box-shadows) still draws a ring. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .input,
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .select,
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .textarea {
   min-height: var(--h-md);
   padding: 0 10px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--control-border);
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--text);
@@ -232,7 +238,7 @@
   :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .input:hover,
   :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .select:hover,
   :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .textarea:hover {
-    border-color: color-mix(in srgb, var(--border-strong) 60%, var(--text-3));
+    border-color: var(--text-3);
   }
 }
 
@@ -241,8 +247,11 @@
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .textarea:focus-visible {
   border-color: var(--accent);
   border-radius: var(--r-sm);
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+  box-shadow:
+    0 0 0 1px var(--accent),
+    0 0 0 4px var(--accent-soft);
 }
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .input:disabled,
@@ -261,16 +270,30 @@
   resize: vertical;
 }
 
-/* The chevron is two gradient strokes in the quiet text colour. */
+/* The chevron is Gr8r's thin stroke, not a solid triangle: two 5px tiles
+   side by side, each holding one 1.5px diagonal ("\" then "/") in the
+   quiet text colour, meeting at the point. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .select {
   appearance: none;
   padding-right: 28px;
   background-image:
-    linear-gradient(45deg, transparent 50%, var(--text-3) 50%),
-    linear-gradient(135deg, var(--text-3) 50%, transparent 50%);
+    linear-gradient(
+      45deg,
+      transparent calc(50% - 0.75px),
+      var(--text-3) calc(50% - 0.75px),
+      var(--text-3) calc(50% + 0.75px),
+      transparent calc(50% + 0.75px)
+    ),
+    linear-gradient(
+      -45deg,
+      transparent calc(50% - 0.75px),
+      var(--text-3) calc(50% - 0.75px),
+      var(--text-3) calc(50% + 0.75px),
+      transparent calc(50% + 0.75px)
+    );
   background-position:
-    calc(100% - 14px) 50%,
-    calc(100% - 9px) 50%;
+    calc(100% - 15px) 50%,
+    calc(100% - 10px) 50%;
   background-size: 5px 5px;
   background-repeat: no-repeat;
 }
@@ -333,10 +356,11 @@
   background: var(--tone-soft);
 }
 
-/* Empty states are honest copy in a soft box, not illustrations; the
-   optional key above the sentence is the title. */
+/* Gr8r's empty state (.empty-state.sm): honest copy centred in a soft
+   box, never an illustration. EmptyState adds the 22px icon, the title
+   and the action above and below the sentence. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .empty {
-  padding: 20px 18px;
+  padding: 28px 16px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   background: var(--surface);
@@ -345,6 +369,7 @@
   font-weight: var(--fw-regular);
   line-height: 1.5;
   color: var(--text-2);
+  text-align: center;
 }
 
 /* Something is missing (rather than nothing to show): a dashed edge, the

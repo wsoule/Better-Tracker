@@ -132,6 +132,10 @@ describe('barMark and progressTone', () => {
 
   test('progress is danger when overdue, warning when behind pace', () => {
     expect(progressTone(bar())).toBe('default');
+    // Complete reads as done; an inactive project's is muted whatever its
+    // status (the one definition, shared with the milestone drawer).
+    expect(progressTone(bar({ status: 'complete' }))).toBe('success');
+    expect(progressTone(bar({ status: 'overdue' }), true)).toBe('muted');
     expect(progressTone(bar({ status: 'overdue' }))).toBe('danger');
     expect(
       progressTone(
@@ -189,9 +193,10 @@ describe('allocationCell', () => {
         })
       )
     ).toEqual({ label: 'Allocating 2', tone: 'info' });
+    // Nothing for allocation to do is quiet text, not a filled chip.
     expect(allocationCell(plan())).toEqual({
       label: 'Nothing to do',
-      tone: 'default',
+      tone: 'muted',
     });
     expect(allocationCell(plan({ outcome: 'no_open_milestone' }))).toEqual({
       label: 'No open milestone',
@@ -357,10 +362,21 @@ describe('buildProjectsPage', () => {
     expect(row('proj-1').linearStatus).toBe('Building');
     expect(row('proj-2').linearStatus).toBe('In Progress');
     expect(row('proj-4').linearStatus).toBe('Paused');
-    // The Linear status as a dot pill (architecture §8.2): started info,
-    // paused warning.
+    // The Linear status as a dot pill (architecture §8.2): started info.
     expect(row('proj-1').linearStatusTone).toBe('info');
-    expect(row('proj-4').linearStatusTone).toBe('warning');
+    // An inactive project's row carries no status colour (§8.4): paused
+    // (inactive by default) is grey, not amber.
+    expect(row('proj-4').linearStatusTone).toBe('muted');
+  });
+
+  test('a paused project the workspace counts as active keeps its amber', () => {
+    const active = buildProjectsPage({
+      timeline: timeline([
+        [lane({ projectId: 'proj-p', statusType: 'paused', active: true })],
+      ]),
+      statusNames: new Map(),
+    });
+    expect(active.groups[0]?.rows[0]?.linearStatusTone).toBe('warning');
   });
 
   test('describes the next milestone with lib/format wording', () => {

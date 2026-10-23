@@ -281,6 +281,9 @@ export interface AlertStripProps {
    * data-tone, which gives the CSS --tone, --tone-ink, --tone-soft and
    * --tone-line. Default warning. */
   tone?: UiTone;
+  /** A row of a neutral list of alerts: no fill and no border (the list
+   * draws the box); only the icon and the lead-in carry the tone. */
+  plain?: boolean;
   /** The sentence. */
   children: ReactNode;
   /** Follow-up: a link when it has an href, a button when it acts in place. */

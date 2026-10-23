@@ -1,29 +1,33 @@
-/* /graph page furniture around the package components: the header, the
-   graph block, and the slide-over's sections (property list, links,
-   neighbour lists). Built only from the shared tokens. */
+/* /graph page furniture around the package components, in Gr8r's look:
+   the page header (trail, title, receipts, quiet notices), the blocks
+   under it 12px apart (section title + legend, the graph panel, the "no
+   blocking relations" register, Copy Mermaid), and the slide-over's
+   sections (property list, links, neighbour lists). Built only from the
+   shared tokens; colour by tone comes from data-tone (primitives.css). */
 
 .head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   max-width: 1440px;
   margin: 28px auto 0;
   padding: 0 48px;
 }
 
+/* Gr8r's page title and the quiet line under it. */
 .title {
-  font-family: var(--font-sans);
-  font-size: 26px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--ls-title);
+  line-height: 1.2;
 }
 
 .receipts {
   max-width: 96ch;
-  font-size: 14px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs);
+  line-height: var(--lh);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
 
 /* The drill-up trail above the h1 (TaskCrumbs: Workspace / initiative /
@@ -32,6 +36,7 @@
 .trail {
   min-width: 0;
   max-width: 100%;
+  margin-bottom: 4px;
 }
 
 /* Quiet one-line notes under the receipts: why the graph covers more
@@ -40,9 +45,9 @@
    chain. */
 .notice {
   max-width: 96ch;
-  font-size: 13px;
-  line-height: 1.45;
-  color: var(--muted);
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+  color: var(--text-2);
 }
 
 .body {
@@ -51,9 +56,26 @@
   padding: 0 48px 72px;
 }
 
-.collapse > * + * {
-  margin-top: -1px;
+/* The blocks of the page, each its own panel, 12px apart. */
+.collapse {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
+
+/* In the graph panel's toolbar the level tabs drop their own rule (the
+   toolbar draws one under them); the current tab keeps its underline. The
+   class is doubled to outrank NavTabs' own two-class rule for the bar. */
+.toolbarTabs.toolbarTabs > ul {
+  border-bottom-color: transparent;
+}
+
+/* The legend's key rows sit under the section title, over the panel. */
+.legend {
+  padding-bottom: 2px;
+}
+
+/* ---- the slide-over -------------------------------------------------- */
 
 .panel {
   display: flex;
@@ -67,13 +89,11 @@
   gap: 8px;
 }
 
+/* Gr8r's drawer section head: body size, semibold. */
 .panelKey {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .links {
@@ -85,7 +105,7 @@
 .neighbour {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -94,60 +114,86 @@
   overflow-wrap: anywhere;
 }
 
-.accentText {
-  color: var(--accent-ink);
+/* A property value in its tone's text colour (danger overdue, warning
+   needs action, info allocating, muted quiet). */
+.toneText {
+  color: var(--tone-ink, var(--text));
 }
 
-/* Nodes with no blocking relation, listed under the canvas: a hairline
-   bar (count, why, Show/Hide) over a small register. */
-.isolated > * + * {
-  margin-top: -1px;
+/* An issue's workflow-state circle in a row (its label names the state,
+   to assistive tech only), so the two light workflow hues are pulled
+   toward --text to clear 3:1, as on the graph's cards. */
+.rowGlyph {
+  display: inline-flex;
+  flex: none;
 }
 
+.rowGlyph svg[data-kind='backlog'] {
+  color: color-mix(in srgb, var(--st-backlog) 70%, var(--text));
+}
+
+.rowGlyph svg[data-kind='started'] {
+  color: color-mix(in srgb, var(--st-progress) 80%, var(--text));
+}
+
+/* ---- the "no blocking relations" register and the too-large state ---- */
+
+.isolated {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The heading row over the register: the count in semibold, why in
+   --text-2, and Show / Hide at the right. */
 .isolatedBar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  padding: 12px 18px;
-  border: 1px solid var(--border);
+  gap: 4px 16px;
+  min-height: 32px;
 }
 
 .isolatedText {
   flex: 1 1 320px;
   min-width: 0;
-  font-size: 13.5px;
-  line-height: 1.5;
+  font-size: var(--fs);
+  line-height: var(--lh);
 }
 
 .isolatedTitle {
-  font-weight: 600;
-  color: var(--foreground);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .isolatedNote {
-  color: var(--muted);
+  color: var(--text-2);
+}
+
+.chevron,
+.chevronOpen {
+  transition: transform var(--dur) var(--ease);
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
 }
 
 /* "Showing 100 of 240. Narrow the graph to see the rest." under a cut
    register. */
 .cutLine {
-  padding: 10px 18px;
-  border: 1px solid var(--border);
-  border-top: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  color: var(--muted);
+  margin-top: 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
-.isolatedKey {
+/* An issue key before its title: the one mono voice. */
+.rowKey {
   margin-right: 8px;
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  color: var(--muted);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-regular);
+  color: var(--text-3);
 }
 
 /* Loading skeleton: header lines. */
@@ -165,15 +211,18 @@
   }
 
   .title {
-    font-size: 22px;
+    font-size: var(--fs-xl);
   }
 
   .body {
     margin-top: 20px;
     padding: 0 16px 48px;
   }
+}
 
-  .isolatedBar {
-    padding: 12px 14px;
+@media (prefers-reduced-motion: reduce) {
+  .chevron,
+  .chevronOpen {
+    transition: none;
   }
 }

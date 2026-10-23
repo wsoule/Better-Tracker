@@ -284,7 +284,7 @@ export interface Span {
   width: number;
 }
 
-/** Contiguous Saturday–Sunday runs inside the window (shaded with --tint
+/** Contiguous Saturday–Sunday runs inside the window (shaded with --sunken
  * in the weeks zoom). */
 export function weekendSpans(scale: TimeScale): Span[] {
   const spans: Span[] = [];

@@ -7,7 +7,6 @@ import {
   DateField,
   EstimatePicker,
   InlineTextField,
-  isHexColor,
   LabelPicker,
   MilestonePicker,
   Notice,
@@ -43,12 +42,7 @@ import {
   User,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import {
-  type CSSProperties,
-  type ReactNode,
-  useCallback,
-  useMemo,
-} from 'react';
+import { type ReactNode, useCallback, useMemo } from 'react';
 
 import type {
   IssueFact,
@@ -209,9 +203,9 @@ const PROPERTY_ICONS: Record<string, ReactNode> = {
   'in-state': <Hourglass {...ICON} />,
 };
 
-/** Read-only labels as Gr8r's label chips: a small square in Linear's
-    colour (PickerMarkView paints hex values only) and the name, the chip
-    washed with a faint tint of the same colour. */
+/** Read-only labels as Gr8r's label chips: a neutral chip with a small
+    square in Linear's colour (PickerMarkView paints hex values only) and
+    the name. Keyed by position: two label groups may share a name. */
 function LabelChips({
   labels,
 }: {
@@ -219,16 +213,8 @@ function LabelChips({
 }): ReactNode {
   return (
     <span className={css.labels}>
-      {labels.map((label) => (
-        <span
-          key={label.name}
-          className={css.label}
-          style={
-            isHexColor(label.color)
-              ? ({ '--label-color': label.color } as CSSProperties)
-              : undefined
-          }
-        >
+      {labels.map((label, i) => (
+        <span key={`${i}-${label.name}`} className={css.label}>
           <PickerMarkView mark={{ kind: 'swatch', color: label.color }} />
           <span dir="auto">{label.name}</span>
         </span>
@@ -319,16 +305,31 @@ export function IssueHeaderActions({
   }
   return (
     <>
-      <Button
-        size="sm"
-        variant="quiet"
-        href={model.linearUrl}
-        external
-        title={`Open ${model.key} in Linear`}
-        iconAfter={<ArrowUpRight size={14} strokeWidth={1.8} />}
-      >
-        Linear
-      </Button>
+      {/* In a drawer, the shared header pattern (the milestone drawer's
+          too): ghost icon buttons for Open in Linear, Copy link and Open
+          as a page, beside the close. The page keeps the worded ones. */}
+      {compact ? (
+        <Button
+          size="sm"
+          variant="quiet"
+          href={model.linearUrl}
+          external
+          title={`Open ${model.key} in Linear`}
+          aria-label={`Open ${model.key} in Linear (opens in a new tab)`}
+          icon={<ArrowUpRight size={14} strokeWidth={1.8} />}
+        />
+      ) : (
+        <Button
+          size="sm"
+          variant="quiet"
+          href={model.linearUrl}
+          external
+          title={`Open ${model.key} in Linear`}
+          iconAfter={<ArrowUpRight size={14} strokeWidth={1.8} />}
+        >
+          Linear
+        </Button>
+      )}
       <Button
         size="sm"
         variant="quiet"

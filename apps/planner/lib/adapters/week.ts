@@ -82,6 +82,11 @@ export interface WeekPageModel {
   heading: string;
   receipts: string;
   stats: StatCell[];
+  /** The issue panel's section title ("Your issues", "Ana's issues") and
+      its quiet count ("3 open"), so the panel shares a top line with the
+      deadlines and attention panels beside it. */
+  issuesTitle: string;
+  issuesMeta: string;
   sections: TaskSectionData[];
   emptyMessage: string;
   deadlines: DeadlineGroup[];
@@ -942,6 +947,12 @@ export function buildWeekPage(input: WeekPageInput): WeekPageModel {
       input.newBadgeDays,
       leadsProjects
     ),
+    issuesTitle: isSelf
+      ? 'Your issues'
+      : week.userName === ''
+        ? 'Their issues'
+        : `${week.userName}'s issues`,
+    issuesMeta: `${week.totals.open} open`,
     sections: buildSections(week, bars, unplanned, copy),
     emptyMessage: isSelf
       ? "Nothing assigned to you is open. Work in your projects' next milestones lands here when the daily run assigns it."

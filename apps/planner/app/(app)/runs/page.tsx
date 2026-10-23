@@ -62,16 +62,15 @@ export default async function RunsPage() {
 
   return (
     <>
-      <header className={css.head}>
+      {/* The run controls sit top right in the header (Gr8r's header
+          actions), their note under the receipts. */}
+      <header className={`${css.head} ${css.headActions}`}>
         <h1 className={css.title}>Runs</h1>
         <p className={css.receipts}>{page.receipts}</p>
+        {actor.readOnly ? null : <RunActions liveRunsOn={page.liveRunsOn} />}
       </header>
       <div className={css.body}>
-        {actor.readOnly ? (
-          <ReadOnlyNotice />
-        ) : (
-          <RunActions liveRunsOn={page.liveRunsOn} />
-        )}
+        {actor.readOnly ? <ReadOnlyNotice /> : null}
         <section className={css.section} aria-label="Allocation runs">
           <BlockBar
             title="Allocation runs"

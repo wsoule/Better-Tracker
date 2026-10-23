@@ -70,7 +70,11 @@ describe('small helpers', () => {
     ['ana maría moreno', 'AM'],
     ['dev', 'D'],
     ['  ', '?'],
+    ['  Mary Ann  de la Cruz ', 'MC'],
     ['Élodie', 'É'],
+    ['élodie roux', 'ÉR'],
+    // Not locale-sensitive: a Turkish locale must not make "i" → "İ".
+    ['ivo ilic', 'II'],
     ['🙂 Smile', '🙂S'],
   ])('initials(%p) is %p', (name, expected) => {
     expect(initials(name)).toBe(expected);

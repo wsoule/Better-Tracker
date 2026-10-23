@@ -58,7 +58,7 @@ export default async function AppLayout({
     body = (
       <PlannerShell
         frame={frame}
-        banner={demo ? <DemoNotice /> : undefined}
+        banner={demo ? <DemoNotice variant="strip" /> : undefined}
         themeStorageKey={THEME_STORAGE_KEY}
       >
         {children}

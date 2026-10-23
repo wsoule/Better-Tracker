@@ -68,35 +68,75 @@
   background: var(--surface);
 }
 
-/* The run controls: buttons and one line on what they do, no box. */
-.actions {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
+/* /runs: the header as a grid, the run controls top right (Gr8r's header
+   actions) beside the title and receipts, their one-line note under the
+   receipts. One column on narrow screens. */
+.headActions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'title actions'
+    'receipts actions'
+    'note note';
+  column-gap: 24px;
+}
+
+.headActions > .title {
+  grid-area: title;
+}
+
+.headActions > .receipts {
+  grid-area: receipts;
 }
 
 .actionBar {
   display: flex;
+  grid-area: actions;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 12px;
+  align-self: start;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .actionNote {
-  flex: 1 1 280px;
-  max-width: 80ch;
+  grid-area: note;
+  max-width: 96ch;
+  margin-top: 6px;
   font-size: var(--fs-sm);
   line-height: 1.5;
+  color: var(--text-3);
+}
+
+.actionNote:empty {
+  display: none;
+}
+
+/* The run's properties: Gr8r's flat property list, no box around it, in
+   two columns where there is room. */
+.facts {
+  max-width: 760px;
+}
+
+@media (width >= 901px) {
+  .facts > dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 32px;
+  }
+}
+
+/* A blocked project: the reason as plain sentences under the section's
+   "Blocked" chip, with a quiet link to its timeline lane. */
+.blockText {
+  max-width: 96ch;
+  font-size: var(--fs);
+  line-height: var(--lh);
   color: var(--text-2);
 }
 
-/* The run's properties in a panel as wide as a settings column. */
-.facts {
-  max-width: 760px;
-  padding: 4px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface);
+.blockLink {
+  margin-left: 6px;
 }
 
 .issue {
@@ -123,7 +163,7 @@
 }
 
 .blockGaps {
-  margin-top: 6px;
+  margin-top: 4px;
   padding-left: 18px;
   list-style: disc;
 }
@@ -148,6 +188,21 @@
   .head {
     margin-top: 20px;
     padding: 0 16px;
+  }
+
+  .headActions {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'title'
+      'receipts'
+      'actions'
+      'note';
+    row-gap: 4px;
+  }
+
+  .actionBar {
+    justify-content: flex-start;
+    margin-top: 10px;
   }
 
   .body {

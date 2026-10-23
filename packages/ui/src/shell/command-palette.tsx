@@ -350,7 +350,8 @@ export function CommandPalette({
           <button
             type="button"
             className={styles.escButton}
-            aria-label="Close command palette"
+            // The visible "Esc" leads the name (WCAG 2.5.3, label in name).
+            aria-label="Esc, close command palette"
             onClick={onClose}
           >
             <Kbd>Esc</Kbd>

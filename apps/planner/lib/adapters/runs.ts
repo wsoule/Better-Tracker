@@ -492,7 +492,7 @@ function groupMeta(group: RunProjectGroup): string {
   const parts: string[] = [];
   const count = (outcome: RunIssueOutcome) =>
     group.rows.filter((row) => row.outcome === outcome).length;
-  if (group.block !== null) parts.push('Blocked');
+  // A blocked project says so with a chip beside its name, not here.
   if (count('applied') > 0) parts.push(`${count('applied')} assigned`);
   if (count('planned') > 0) parts.push(`${count('planned')} would assign`);
   if (count('failed') > 0) parts.push(`${count('failed')} failed`);

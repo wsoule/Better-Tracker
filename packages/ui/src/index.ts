@@ -268,7 +268,12 @@ export type {
 // error printed beside it. Props are typed in ./edit/types.
 export { DateField, isCompleteDate } from './edit/date-field';
 export { InlineTextField } from './edit/inline-text-field';
-export { PickerMarkView, type PickerMarkViewProps } from './edit/picker-mark';
+export {
+  InitialsAvatar,
+  type InitialsAvatarProps,
+  PickerMarkView,
+  type PickerMarkViewProps,
+} from './edit/picker-mark';
 export { PickerPopover } from './edit/picker-popover';
 export {
   type Placement,

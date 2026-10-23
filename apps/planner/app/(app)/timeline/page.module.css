@@ -43,28 +43,49 @@
   padding: 0 48px;
 }
 
-/* One tinted callout per banner (Gr8r's alert): the tone's soft fill, no
-   border, an 8px radius, the icon in the hue, the lead-in in the tone's
-   ink and the sentence in --text. The tone comes from the adapter
+/* The banners as one Gr8r panel (--border, --r-lg), a --divider row per
+   banner and no tint: the icon in the banner's hue, the lead-in in the
+   tone's ink, the sentence in --text. The tone comes from the adapter
    (warning: no lead, no date, blocked; info: unplanned) as data-tone,
    beside data-banner-id. */
+.bannerPanel {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
 .bannerRows {
   display: flex;
   flex-direction: column;
-  gap: 6px;
 }
 
-.banner {
-  border-radius: var(--r);
-  background: var(--tone-soft);
+.banner + .banner {
+  border-top: 1px solid var(--divider);
 }
 
-.bannerHead {
+.bannerHead,
+.bannerSummary {
   display: flex;
   align-items: center;
   gap: 4px 10px;
-  min-height: 36px;
-  padding: 4px 4px 4px 12px;
+  min-height: 38px;
+  padding: 4px 6px 4px 12px;
+}
+
+/* The folded panel's one row: phones only. */
+.bannerSummary {
+  display: none;
+}
+
+.bannerSummaryText {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .bannerIcon {
@@ -94,15 +115,14 @@
   margin-left: auto;
 }
 
-/* The expanded list sits inside the callout, on the surface, so each row
-   reads as plain content rather than more tint. */
+/* The expanded list, recessed under its row (a --sunken well with
+   --divider rows) and indented to the lead-in. */
 .bannerList {
   display: flex;
   flex-direction: column;
-  margin: 0 6px 6px;
-  padding: 2px 0;
+  margin: 0 8px 8px 37px;
   border-radius: var(--r-sm);
-  background: var(--surface);
+  background: var(--sunken);
 }
 
 .bannerList[hidden] {
@@ -160,7 +180,7 @@
 }
 
 /* Narrow: the key and the Show button share the first line, the sentence
-   wraps under them. */
+   wraps under them, and the list starts at the row's left edge. */
 @media (width <= 768px) {
   .bannerHead {
     flex-wrap: wrap;
@@ -174,6 +194,26 @@
   .bannerText {
     flex-basis: 100%;
     order: 1;
+  }
+
+  .bannerList {
+    margin-left: 8px;
+  }
+}
+
+/* Phone: the panel folds into its summary row until Show opens it. */
+@media (width <= 640px) {
+  .bannerSummary {
+    display: flex;
+    padding-left: 10px;
+  }
+
+  .bannerPanel:not([data-collapsed]) .bannerSummary {
+    border-bottom: 1px solid var(--divider);
+  }
+
+  .bannerPanel[data-collapsed] .bannerRows {
+    display: none;
   }
 }
 
@@ -220,8 +260,11 @@
 }
 
 /* Squeezed (a 1366px window, a long initiative in the select), the
-   placeholder ends in an ellipsis instead of being cut mid-letter. */
-.search {
+   placeholder ends in an ellipsis instead of being cut mid-letter. The
+   field selectors here are scoped by their wrapper (0,2,0) so they beat the
+   global .input / .select (0,1,0) whatever order the production build
+   loads the stylesheets in. */
+.searchWrap > .search {
   width: 100%;
   min-height: var(--h-sm);
   height: var(--h-sm);
@@ -230,7 +273,7 @@
   text-overflow: ellipsis;
 }
 
-.select {
+.filters > .select {
   min-height: var(--h-sm);
   height: var(--h-sm);
   max-width: 100%;
@@ -271,7 +314,7 @@
 
   /* Sized by its longest option ("All initiatives" here), capped: a longer
      initiative name is cut with an ellipsis instead of widening the row. */
-  .select {
+  .filters > .select {
     flex: none;
     max-width: 188px;
     text-overflow: ellipsis;
@@ -341,11 +384,17 @@
   width: 100%;
 }
 
-/* Edit fields sit in the property list's value column. */
+/* Edit fields sit in the property list's value column, in Gr8r's value
+   voice: each reads as its value and commits as it changes (no Save
+   buttons); the pill's padding is taken back by a negative margin, so the
+   text sits exactly where a read-only value's would. Field selectors are
+   scoped by their wrapper (0,2,0) so no global field rule (0,1,0) can win
+   on stylesheet order. */
 .field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 4px;
   width: 100%;
   min-width: 0;
 }
@@ -355,34 +404,213 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-}
-
-/* The fields shrink before their Save button wraps under them. */
-.dateInput {
-  flex: 0 1 160px;
   min-width: 0;
+  max-width: 100%;
 }
 
-.weightInput {
+/* The due date: the pill, and the native date field under it that opens
+   the browser's calendar (showPicker) without being seen. */
+.datePill {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.field .valuePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: calc(100% + 14px);
+  min-height: var(--h-sm);
+  margin: -3px -7px;
+  padding: 3px 7px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-align: start;
+  transition: background-color var(--dur) ease;
+}
+
+.valuePill[data-pending='true'] {
+  opacity: 0.55;
+}
+
+.pillIcon {
+  flex: none;
+  color: var(--text-4);
+}
+
+.field .dateNative {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Where showPicker is missing: the field itself, in the pill's place. */
+.field .dateField {
+  min-height: var(--h-sm);
+  margin: -3px -7px;
+  padding: 0 7px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.field .pillClear {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 6px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) ease,
+    color var(--dur) ease;
+}
+
+/* The weight: a compact 26px number field (no spin arrows; the arrow keys
+   still step it). Its edge is the controls' --control-border (3:1 on the
+   surface, WCAG 1.4.11), so it reads as a field before it is hovered. */
+.field .weightInput {
   width: 96px;
+  min-height: var(--h-sm);
+  margin: -3px 0;
+  padding: 2px 7px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  appearance: textfield;
+  transition:
+    background-color var(--dur) ease,
+    border-color var(--dur) ease,
+    box-shadow var(--dur) ease;
 }
 
-.leadSelect {
-  flex: 0 1 220px;
-  min-width: 0;
+.field .weightInput::-webkit-inner-spin-button,
+.field .weightInput::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
 }
 
-/* No lead: the field's edge in the warning tone. */
-.leadSelect[data-tone] {
-  border-color: var(--tone-line);
-}
-
-/* Grows with the text where the browser can (one line of up to 280
-   characters wraps to several on a phone), instead of scrolling inside
-   two rows. */
-.doneArea {
-  min-height: 60px;
+/* "Done means…": a text box growing with its text where the browser can
+   (one line of up to 280 characters wraps to several), with the controls'
+   --control-border edge (3:1) so it reads as a field at rest. */
+.field .doneArea {
+  width: 100%;
+  min-height: var(--h-sm);
+  margin: -3px 0 0;
+  padding: 3px 7px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: var(--lh);
+  resize: none;
   field-sizing: content;
+  transition:
+    background-color var(--dur) ease,
+    border-color var(--dur) ease,
+    box-shadow var(--dur) ease;
+}
+
+.weightInput::placeholder,
+.doneArea::placeholder {
+  color: var(--text-3);
+}
+
+/* Focus: the accent edge plus the app's 2px accent ring outside it (the
+   ring's pixels change from the surface to the accent, 4.5:1 light and
+   3.7:1 dark, where a halo over the grey edge changed only 2:1); an
+   outline, so forced colours keep it. */
+.field .weightInput:focus-visible,
+.field .doneArea:focus-visible,
+.field .dateField:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  background: var(--surface);
+}
+
+.field .weightInput[aria-invalid='true'],
+.field .doneArea[aria-invalid='true'] {
+  border-color: var(--red);
+}
+
+.weightInput[data-pending='true'],
+.doneArea[data-pending='true'] {
+  color: var(--text-3);
+}
+
+/* 16px type on touch screens (iOS zooms into smaller fields). */
+@media (width <= 640px), (pointer: coarse) {
+  .field .weightInput,
+  .field .doneArea,
+  .field .dateField {
+    font-size: 16px;
+  }
+}
+
+@media (hover: hover) and (width >= 901px) {
+  .field .valuePill:hover {
+    background: var(--surface-2);
+  }
+
+  .field .weightInput:not(:focus-visible, [aria-invalid='true']):hover,
+  .field .doneArea:not(:focus-visible, [aria-invalid='true']):hover {
+    border-color: var(--text-3);
+  }
+
+  .field .pillClear:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+}
+
+/* Save status (the edit family's): "Saving" in the meta voice beside the
+   value, a rejected save's red "Not saved" lead-in and its sentence under
+   the field. */
+.pending {
+  flex: none;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.saveError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.saveErrorKey {
+  flex: none;
+  font-weight: var(--fw-semibold);
+  color: var(--red);
+}
+
+.saveErrorText {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* Issues: one --r-lg panel, rows split by --divider; each row opens the
@@ -408,6 +636,12 @@
   padding: 9px 40px 9px 12px;
   color: var(--text);
   transition: background-color var(--dur) ease;
+}
+
+/* The issues panel clips its corners (overflow: hidden), so a row's focus
+   ring is drawn inside the row. */
+.issue:focus-visible {
+  outline-offset: -2px;
 }
 
 .issueKey {
@@ -591,8 +825,8 @@
 /* Phones and touch screens keep 16px fields (iOS zooms into smaller ones),
    over the toolbar's 12.5px. */
 @media (width <= 640px), (pointer: coarse) {
-  .search,
-  .select {
+  .searchWrap > .search,
+  .filters > .select {
     height: auto;
     min-height: var(--h-md);
     font-size: 16px;
@@ -600,6 +834,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .valuePill,
+  .pillClear,
+  .weightInput,
+  .doneArea,
   .issue,
   .issueOut,
   .waitLink,

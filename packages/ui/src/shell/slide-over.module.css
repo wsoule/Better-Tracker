@@ -10,27 +10,18 @@
   bottom: 0;
   z-index: 50;
   /* SLIDE_OVER_WIDTH in slide-over.tsx: keep the two in step. */
-  width: min(560px, 100vw);
+  width: min(620px, 100vw);
   display: flex;
   flex-direction: column;
   background: var(--surface);
   color: var(--text);
-  border-left: 1px solid var(--border);
+  /* --drawer-edge: --border in light; in dark the drawer and the page are
+     the same --surface and a black shadow barely shows, so the token is
+     --border-strong there (a token, not a dark-ancestor selector, so a
+     light wrapper inside a dark page keeps the light edge). */
+  border-left: 1px solid var(--drawer-edge, var(--border));
   box-shadow: var(--shadow-drawer);
   animation: drawer-in 0.34s var(--ease-drawer) both;
-}
-
-/* Dark: the drawer and the page are the same --surface and a black
-   shadow barely shows on it, so the left edge takes --border-strong to
-   stay visible (light keeps the softer --border). */
-:global([data-theme='dark']) .panel {
-  border-left-color: var(--border-strong);
-}
-
-@media (prefers-color-scheme: dark) {
-  :global([data-theme='system']) .panel {
-    border-left-color: var(--border-strong);
-  }
 }
 
 .panel:focus {

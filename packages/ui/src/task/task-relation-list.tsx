@@ -87,7 +87,7 @@ function RowBody({
           {context !== undefined && context !== '' ? (
             <>
               <Dot />
-              <span className={styles.context}>{context}</span>
+              <span>{context}</span>
             </>
           ) : null}
         </span>

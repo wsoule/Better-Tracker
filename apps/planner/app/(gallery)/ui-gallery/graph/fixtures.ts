@@ -1,6 +1,7 @@
 import type {
   GraphEdgeData,
   GraphNodeData,
+  GraphNodeTag,
   SegmentedOption,
 } from '@better-tracker/ui';
 
@@ -9,6 +10,11 @@ import type {
 // /graph page shows (architecture §2.10). Shapes are the UI package's own
 // GraphNodeData / GraphEdgeData, i.e. what the planner's adapter would
 // produce from core's DependencyGraph.
+
+// The words a node carries, in their §8.2 tones (the planner's nodeTags).
+const OVERDUE: GraphNodeTag = { label: 'Overdue', tone: 'danger' };
+const UNASSIGNED: GraphNodeTag = { label: 'Unassigned', tone: 'warning' };
+const CYCLE: GraphNodeTag = { label: 'Cycle', tone: 'danger' };
 
 export interface GraphFixture {
   id: string;
@@ -40,10 +46,10 @@ const milestoneNodes: GraphNodeData[] = [
     id: 'atlas-m3',
     label: 'M3 Cutover',
     sublabel: 'Atlas · due Oct 18 · 3d over',
-    tone: 'default',
+    tone: 'danger',
     status: 'overdue',
     statusLabel: 'Overdue',
-    tags: ['OVERDUE'],
+    tags: [OVERDUE],
     group: 'Atlas',
     href: '/timeline?milestone=atlas-m3',
   },
@@ -91,10 +97,10 @@ const milestoneNodes: GraphNodeData[] = [
     id: 'search-m1',
     label: 'Index rebuild',
     sublabel: 'Search · due Nov 2 · no lead',
-    tone: 'accent',
+    tone: 'warning',
     status: 'at_risk',
     statusLabel: 'At risk',
-    tags: ['UNASSIGNED'],
+    tags: [UNASSIGNED],
     group: 'Search',
     href: '/timeline?milestone=search-m1',
   },
@@ -135,7 +141,8 @@ const milestoneNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'On track',
-    tags: ['CYCLE'],
+    inCycle: true,
+    tags: [CYCLE],
     group: 'Identity',
     href: '/timeline?milestone=identity-m1',
   },
@@ -146,7 +153,8 @@ const milestoneNodes: GraphNodeData[] = [
     tone: 'default',
     status: 'on_track',
     statusLabel: 'On track',
-    tags: ['CYCLE'],
+    inCycle: true,
+    tags: [CYCLE],
     group: 'Identity',
     href: '/timeline?milestone=identity-m2',
   },
@@ -186,9 +194,10 @@ const issueNodes: GraphNodeData[] = [
   {
     id: 'ATL-41',
     label: 'Freeze writes on legacy DB',
-    sublabel: 'ATL-41 · Ana',
+    key: 'ATL-41',
+    sublabel: 'Ana',
     tone: 'muted',
-    status: 'done',
+    state: 'completed',
     statusLabel: 'Done',
     group: 'Atlas › M3 Cutover',
     href: 'https://linear.app/acme/issue/ATL-41',
@@ -196,76 +205,83 @@ const issueNodes: GraphNodeData[] = [
   {
     id: 'ATL-42',
     label: 'Dual-write shim',
-    sublabel: 'ATL-42 · Ben',
-    tone: 'default',
-    status: 'on_track',
+    key: 'ATL-42',
+    sublabel: 'Ben',
+    tone: 'danger',
+    state: 'started',
     statusLabel: 'In progress',
-    tags: ['OVERDUE'],
+    tags: [OVERDUE],
     group: 'Atlas › M3 Cutover',
     href: 'https://linear.app/acme/issue/ATL-42',
   },
   {
     id: 'ATL-43',
     label: 'Backfill orders table',
-    sublabel: 'ATL-43 · unassigned',
-    tone: 'accent',
-    status: 'missing',
+    key: 'ATL-43',
+    tone: 'danger',
+    state: 'unstarted',
     statusLabel: 'Todo',
-    tags: ['UNASSIGNED', 'OVERDUE'],
+    tags: [UNASSIGNED, OVERDUE],
     group: 'Atlas › M3 Cutover',
     href: 'https://linear.app/acme/issue/ATL-43',
   },
   {
     id: 'ATL-44',
     label: 'Switch read path to the new cluster',
-    sublabel: 'ATL-44 · Ana',
-    tone: 'default',
-    status: 'on_track',
+    key: 'ATL-44',
+    sublabel: 'Ana',
+    tone: 'danger',
+    state: 'unstarted',
     statusLabel: 'Todo',
-    tags: ['OVERDUE'],
+    tags: [OVERDUE],
     group: 'Atlas › M3 Cutover',
     href: 'https://linear.app/acme/issue/ATL-44',
   },
   {
     id: 'ATL-51',
     label: 'Cutover rehearsal',
-    sublabel: 'ATL-51 · Chi',
+    key: 'ATL-51',
+    sublabel: 'Chi',
     tone: 'default',
-    status: 'on_track',
+    state: 'unstarted',
     statusLabel: 'Todo',
-    tags: ['CYCLE'],
+    inCycle: true,
+    tags: [CYCLE],
     group: 'Atlas › M4 Decommission',
     href: 'https://linear.app/acme/issue/ATL-51',
   },
   {
     id: 'ATL-52',
     label: 'Archive legacy tables',
-    sublabel: 'ATL-52 · unassigned',
-    tone: 'accent',
-    status: 'missing',
+    key: 'ATL-52',
+    tone: 'warning',
+    state: 'backlog',
     statusLabel: 'Backlog',
-    tags: ['UNASSIGNED'],
+    tags: [UNASSIGNED],
     group: 'Atlas › M4 Decommission',
     href: 'https://linear.app/acme/issue/ATL-52',
   },
   {
     id: 'ATL-53',
     label: 'Update the cutover runbook',
-    sublabel: 'ATL-53 · Ana',
+    key: 'ATL-53',
+    sublabel: 'Ana',
     tone: 'default',
-    status: 'on_track',
+    state: 'started',
     statusLabel: 'In progress',
-    tags: ['CYCLE'],
+    inCycle: true,
+    tags: [CYCLE],
     group: 'Atlas › M4 Decommission',
     href: 'https://linear.app/acme/issue/ATL-53',
   },
   {
     id: 'PLT-7',
     label: 'Provision read replica',
-    sublabel: 'Platform · PLT-7 · done',
+    key: 'PLT-7',
+    sublabel: 'Platform',
     external: true,
     tone: 'muted',
-    status: 'done',
+    state: 'completed',
     statusLabel: 'Done',
     group: 'Platform',
     href: 'https://linear.app/acme/issue/PLT-7',
@@ -273,10 +289,11 @@ const issueNodes: GraphNodeData[] = [
   {
     id: 'BIL-12',
     label: 'Invoice ID migration',
-    sublabel: 'Billing · BIL-12 · Dana',
+    key: 'BIL-12',
+    sublabel: 'Billing · Dana',
     external: true,
     tone: 'default',
-    status: 'on_track',
+    state: 'started',
     statusLabel: 'In progress',
     group: 'Billing',
     href: 'https://linear.app/acme/issue/BIL-12',
@@ -284,10 +301,11 @@ const issueNodes: GraphNodeData[] = [
   {
     id: 'MOB-30',
     label: 'Offline cache schema',
-    sublabel: 'Mobile · MOB-30 · Eve',
+    key: 'MOB-30',
+    sublabel: 'Mobile · Eve',
     external: true,
     tone: 'default',
-    status: 'on_track',
+    state: 'unstarted',
     statusLabel: 'Todo',
     group: 'Mobile',
     href: 'https://linear.app/acme/issue/MOB-30',
@@ -334,28 +352,29 @@ export const GRAPHS: Record<string, GraphFixture> = {
 // ---- one issue's chain -----------------------------------------------------
 // What /graph?chain=ATL-43 draws: everything the unassigned backfill waits
 // on and everything waiting on it, through open issues. The focus carries
-// the 2px ink rule (DependencyGraph focusId); a closed direct blocker is a
-// resolved leaf; PLT-9 leads on to two issues the chain cap left out, so it
-// carries the +2 MORE chip.
+// the accent focus ring (DependencyGraph focusId); a closed direct blocker
+// is a resolved leaf; PLT-9 leads on to two issues the chain cap left out,
+// so it carries the "+2 more" chip.
 
 const chainNodes: GraphNodeData[] = [
   {
     id: 'ATL-43',
     label: 'Backfill orders table',
-    sublabel: 'ATL-43 · unassigned',
-    tone: 'accent',
-    status: 'missing',
+    key: 'ATL-43',
+    tone: 'warning',
+    state: 'unstarted',
     statusLabel: 'Todo',
-    tags: ['UNASSIGNED'],
+    tags: [UNASSIGNED],
     group: 'Atlas',
     href: 'https://linear.app/acme/issue/ATL-43',
   },
   {
     id: 'ATL-42',
     label: 'Dual-write shim',
-    sublabel: 'ATL-42 · Ben',
+    key: 'ATL-42',
+    sublabel: 'Ben',
     tone: 'default',
-    status: 'on_track',
+    state: 'started',
     statusLabel: 'In progress',
     group: 'Atlas',
     href: 'https://linear.app/acme/issue/ATL-42',
@@ -363,9 +382,10 @@ const chainNodes: GraphNodeData[] = [
   {
     id: 'ATL-40',
     label: 'Snapshot the legacy DB',
-    sublabel: 'ATL-40 · Ana',
+    key: 'ATL-40',
+    sublabel: 'Ana',
     tone: 'muted',
-    status: 'done',
+    state: 'completed',
     statusLabel: 'Done',
     group: 'Atlas',
     href: 'https://linear.app/acme/issue/ATL-40',
@@ -373,9 +393,10 @@ const chainNodes: GraphNodeData[] = [
   {
     id: 'BIL-12',
     label: 'Invoice ID migration',
-    sublabel: 'BIL-12 · Dana',
+    key: 'BIL-12',
+    sublabel: 'Dana',
     tone: 'default',
-    status: 'on_track',
+    state: 'started',
     statusLabel: 'In progress',
     group: 'Billing',
     href: 'https://linear.app/acme/issue/BIL-12',
@@ -383,9 +404,10 @@ const chainNodes: GraphNodeData[] = [
   {
     id: 'ATL-44',
     label: 'Switch read path to the new cluster',
-    sublabel: 'ATL-44 · Ana',
+    key: 'ATL-44',
+    sublabel: 'Ana',
     tone: 'default',
-    status: 'on_track',
+    state: 'unstarted',
     statusLabel: 'Todo',
     group: 'Atlas',
     href: 'https://linear.app/acme/issue/ATL-44',
@@ -393,9 +415,10 @@ const chainNodes: GraphNodeData[] = [
   {
     id: 'ATL-52',
     label: 'Archive legacy tables',
-    sublabel: 'ATL-52 · Chi',
+    key: 'ATL-52',
+    sublabel: 'Chi',
     tone: 'default',
-    status: 'on_track',
+    state: 'backlog',
     statusLabel: 'Backlog',
     group: 'Atlas',
     href: 'https://linear.app/acme/issue/ATL-52',
@@ -403,20 +426,22 @@ const chainNodes: GraphNodeData[] = [
   {
     id: 'PLT-9',
     label: 'Provision write replica',
-    sublabel: 'PLT-9 · Eve',
+    key: 'PLT-9',
+    sublabel: 'Eve',
     tone: 'default',
-    status: 'on_track',
+    state: 'started',
     statusLabel: 'In progress',
-    tags: ['+2 MORE'],
+    tags: [{ label: '+2 more' }],
     group: 'Platform',
     href: 'https://linear.app/acme/issue/PLT-9',
   },
   {
     id: 'MOB-30',
     label: 'Offline cache schema',
-    sublabel: 'MOB-30 · Eve',
+    key: 'MOB-30',
+    sublabel: 'Eve',
     tone: 'default',
-    status: 'on_track',
+    state: 'unstarted',
     statusLabel: 'Todo',
     group: 'Mobile',
     href: 'https://linear.app/acme/issue/MOB-30',
@@ -469,7 +494,7 @@ export const EPIC_NODES: GraphNodeData[] = [
     id: 't3',
     label: 'Client queue',
     sublabel: '#3 · needs you',
-    tone: 'accent',
+    tone: 'warning',
     status: 'at_risk',
     statusLabel: 'Needs you',
   },
@@ -533,9 +558,11 @@ export function toMermaid(fixture: GraphFixture): string {
     lines.push(`  ${ids.get(edge.from)} ${arrow}${count} ${ids.get(edge.to)}`);
     if (edge.kind === 'risk') risk.push(i);
   });
+  // Risk in the warning hue, cycles in the danger hue (light theme's
+  // text-safe values, as core's toMermaid), never the accent.
   lines.push(
-    '  classDef risk stroke:#9747ff,stroke-width:2px',
-    '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+    '  classDef risk stroke:#88590d,stroke-width:2px',
+    '  classDef cycle stroke:#b03b2f,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3'
   );
   const classed = (test: (node: GraphNodeData) => boolean) =>
@@ -544,17 +571,15 @@ export function toMermaid(fixture: GraphFixture): string {
       .map((node) => ids.get(node.id))
       .join(',');
   const riskNodes = classed(
-    (node) =>
-      node.tags?.includes('UNASSIGNED') === true ||
-      node.tags?.includes('OVERDUE') === true
+    (node) => node.tone === 'danger' || node.tone === 'warning'
   );
-  const cycleNodes = classed((node) => node.tags?.includes('CYCLE') === true);
+  const cycleNodes = classed((node) => node.inCycle === true);
   const externalNodes = classed((node) => node.external === true);
   if (riskNodes !== '') lines.push(`  class ${riskNodes} risk`);
   if (cycleNodes !== '') lines.push(`  class ${cycleNodes} cycle`);
   if (externalNodes !== '') lines.push(`  class ${externalNodes} external`);
   if (risk.length > 0) {
-    lines.push(`  linkStyle ${risk.join(',')} stroke:#9747ff`);
+    lines.push(`  linkStyle ${risk.join(',')} stroke:#88590d`);
   }
   return lines.join('\n');
 }

@@ -18,12 +18,15 @@ import {
   RegisterRow,
   SLIDE_OVER_WIDTH,
   SlideOver,
+  StateGlyph,
   StatusMark,
+  type TaskStateKind,
+  type UiStatus,
   upstreamChain,
   useToast,
   waiterIndex,
 } from '@better-tracker/ui';
-import { ExternalLink } from 'lucide-react';
+import { ChevronDown, ExternalLink } from 'lucide-react';
 import { useId, useMemo, useState } from 'react';
 
 import type {
@@ -40,11 +43,13 @@ import {
 } from '../components/issue-drawer';
 import css from './page.module.css';
 
-/* The graph's client island: level tabs (route links) in the graph's
-   toolbar, or in the block bar when nothing is drawn, the legend, the
-   pan/zoom DependencyGraph laid out by the server (a chain's issue ruled
-   as its focus), Copy Mermaid, the "no blocking relations" register, the
-   too-large state, and the slide-over for the selected node. An
+/* The graph's client island, in Gr8r's look (§8.4 Graph): the section
+   title with the level tabs (route links) in the graph's toolbar, or in
+   the title row when nothing is drawn, the legend's key rows, the pan/zoom
+   DependencyGraph panel laid out by the server (a chain's issue ringed as
+   its focus), the "no blocking relations" register, the too-large state,
+   Copy Mermaid, and the slide-over for the selected node. Blocks stand
+   12px apart, each its own panel. An
    initiative, project or milestone node shows what it is, its drill-down
    links, what it waits on and what it holds up (the same upstream chain
    the graph lights); an issue node opens the issue itself (§8.5,
@@ -88,7 +93,12 @@ export default function GraphScreen({
   const drawn = model.nodes.length > 0;
   const tabs =
     model.tabs.length > 0 ? (
-      <NavTabs label="Graph level" size="sm" items={model.tabs} />
+      <NavTabs
+        label="Graph level"
+        size="sm"
+        items={model.tabs}
+        className={drawn ? css.toolbarTabs : undefined}
+      />
     ) : null;
 
   // Issue nodes open the issue's slide-over; the other kinds the panel.
@@ -111,10 +121,14 @@ export default function GraphScreen({
             (no toolbar), so the level tabs move to the block bar then:
             they are the way to another level exactly when this one shows
             nothing. */}
-        <BlockBar index="01" title={model.blockTitle} meta={model.meta}>
-          {drawn ? null : tabs}
-        </BlockBar>
-        {drawn ? <GraphLegend items={model.legend} /> : null}
+        <div>
+          <BlockBar title={model.blockTitle} meta={model.meta}>
+            {drawn ? null : tabs}
+          </BlockBar>
+          {drawn ? (
+            <GraphLegend className={css.legend} items={model.legend} />
+          ) : null}
+        </div>
         {model.tooLarge !== null ? (
           <TooLargeBlock tooLarge={model.tooLarge} />
         ) : (
@@ -175,11 +189,34 @@ export default function GraphScreen({
   );
 }
 
+/* A row's mark: an issue's workflow-state circle, else the status
+   diamond (in greys for inactive work, still named by its label). */
+function RowMark({
+  state,
+  status,
+  label,
+  muted = false,
+}: {
+  state: TaskStateKind | null;
+  status: UiStatus;
+  label: string;
+  muted?: boolean;
+}) {
+  if (state !== null) {
+    return (
+      <span className={css.rowGlyph} role="img" aria-label={label}>
+        <StateGlyph kind={state} size={14} />
+      </span>
+    );
+  }
+  return <StatusMark status={status} label={label} muted={muted} />;
+}
+
 /* The nodes left off the canvas because they have no blocking relation:
-   one line saying how many and why, then a small register (mark, name,
-   project or assignee, due), each row opening the milestone on the
-   timeline or the issue in its slide-over. A long list starts collapsed
-   behind a Show button so the canvas stays the subject of the page. */
+   a heading row saying how many and why (with Show / Hide when long), then
+   a register panel (mark, name, project or assignee, due), each row
+   opening the milestone on the timeline or the issue in its slide-over. A
+   long list starts collapsed so the canvas stays the subject of the page. */
 function IsolatedRegister({
   list,
   onOpenIssue,
@@ -203,6 +240,13 @@ function IsolatedRegister({
             variant="quiet"
             aria-expanded={open}
             aria-controls={listId}
+            iconAfter={
+              <ChevronDown
+                className={open ? css.chevronOpen : css.chevron}
+                size={14}
+                strokeWidth={1.8}
+              />
+            }
             onClick={() => setOpen((was) => !was)}
           >
             {open ? 'Hide' : `Show ${count}`}
@@ -238,14 +282,15 @@ function IsolatedRegister({
               <RegisterRow key={row.id} {...target} tone={row.tone}>
                 <RegisterCell label={list.nameLabel} variant="name">
                   <span className={css.neighbour}>
-                    <StatusMark
+                    <RowMark
+                      state={row.state}
                       status={row.status}
                       label={row.statusLabel}
                       muted={row.statusMuted}
                     />
                     <span className={css.neighbourName}>
                       {row.key !== null ? (
-                        <span className={css.isolatedKey}>{row.key}</span>
+                        <span className={css.rowKey}>{row.key}</span>
                       ) : null}
                       {row.name}
                     </span>
@@ -273,12 +318,12 @@ function IsolatedRegister({
   );
 }
 
-/* Past the draw limits: one hairline notice saying how many boxes and
+/* Past the draw limits: one neutral notice saying how many boxes and
    arrows the graph would need and that it draws at most 200 and 300 (a
-   size limit, not a risk, so it keeps the accent for risk), then the
-   narrower graphs to open instead (each row a route link), or, inside a
-   milestone or a chain, the most connected issues, each opening its own
-   chain. It stands where the canvas would. */
+   size limit, not a risk, so no status tone), then the narrower graphs to
+   open instead (each row a route link), or, inside a milestone or a
+   chain, the most connected issues, each opening its own chain. It stands
+   where the canvas would. */
 function TooLargeBlock({ tooLarge }: { tooLarge: GraphTooLarge }) {
   return (
     <section className={css.isolated} aria-label="Too many to draw">
@@ -359,26 +404,33 @@ function NeighbourRows({
           columns="minmax(0, 1fr)"
           stackedColumns="minmax(0, 1fr)"
         >
-          {nodes.map((node) => (
-            <RegisterRow
-              key={node.id}
-              onActivate={() => onSelect(node.id)}
-              rowLabel={`Show ${node.label}`}
-              tone={node.tone === 'accent' ? 'accent' : 'default'}
-            >
-              <RegisterCell variant="name" sub={node.sublabel}>
-                <span className={css.neighbour}>
-                  {node.status !== undefined ? (
-                    <StatusMark
-                      status={node.status}
-                      label={node.statusLabel ?? ''}
-                    />
-                  ) : null}
-                  <span className={css.neighbourName}>{node.label}</span>
-                </span>
-              </RegisterCell>
-            </RegisterRow>
-          ))}
+          {nodes.map((node) => {
+            const sub = [node.key, node.sublabel]
+              .filter((part) => part !== undefined && part !== '')
+              .join(' · ');
+            return (
+              <RegisterRow
+                key={node.id}
+                onActivate={() => onSelect(node.id)}
+                rowLabel={`Show ${node.label}`}
+                tone={node.tone}
+              >
+                <RegisterCell variant="name" sub={sub === '' ? undefined : sub}>
+                  <span className={css.neighbour}>
+                    {node.status !== undefined || node.state !== undefined ? (
+                      <RowMark
+                        state={node.state ?? null}
+                        status={node.status ?? 'missing'}
+                        label={node.statusLabel ?? ''}
+                        muted={node.statusMuted === true}
+                      />
+                    ) : null}
+                    <span className={css.neighbourName}>{node.label}</span>
+                  </span>
+                </RegisterCell>
+              </RegisterRow>
+            );
+          })}
         </Register>
       )}
     </section>
@@ -406,7 +458,9 @@ function PanelBody({
   return (
     <div className={css.panel}>
       {detail.alert !== null ? (
-        <AlertStrip label="Overdue">{detail.alert}</AlertStrip>
+        <AlertStrip label="Overdue" tone="danger">
+          {detail.alert}
+        </AlertStrip>
       ) : null}
       <PropertyList
         label={DETAILS_LABEL[detail.kind]}
@@ -424,10 +478,12 @@ function PanelBody({
           ...detail.properties.map((property) => ({
             label: property.label,
             value:
-              property.tone === 'accent' ? (
-                <span className={css.accentText}>{property.value}</span>
-              ) : (
+              property.tone === undefined || property.tone === 'default' ? (
                 property.value
+              ) : (
+                <span className={css.toneText} data-tone={property.tone}>
+                  {property.value}
+                </span>
               ),
           })),
         ]}
@@ -441,7 +497,7 @@ function PanelBody({
             size="sm"
             iconAfter={
               link.external ? (
-                <ExternalLink size={14} strokeWidth={1.5} />
+                <ExternalLink size={14} strokeWidth={1.8} />
               ) : undefined
             }
           >

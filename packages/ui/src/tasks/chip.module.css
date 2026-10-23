@@ -37,9 +37,12 @@
   flex-basis: 10px;
 }
 
-/* Quieter neutral: inactive, nothing to do, not evaluated. */
+/* Quieter neutral: inactive, nothing to do, not evaluated. Plain quiet
+   text, no box (Gr8r prints these as meta, not as a badge). */
 .muted {
-  background: transparent;
+  padding-inline: 0;
+  border-color: transparent;
+  background: none;
   color: var(--text-3);
 }
 

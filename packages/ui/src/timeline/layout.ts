@@ -37,7 +37,9 @@ const LABEL_OUTSIDE_MIN_ROOM = 72;
 /** Text room (bar width less its 21px padding and the ◂ cue) below which
  * an inside label would be an ellipsis alone. */
 const LABEL_TEXT_MIN = 28;
-/** Half the diagonal of the 10px end diamond plus its 1.5px surface ring. */
+/** Half the diagonal of the 10px end diamond (7.07px), rounded up: a
+ * connector starts just past its tip. The 1.5px surface ring around the
+ * diamond is not included; it may cover the connector's first pixel. */
 const DIAMOND_REACH = 8;
 
 /** Most urgent first: decides a merged summary diamond's mark. */

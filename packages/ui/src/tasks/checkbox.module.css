@@ -1,5 +1,6 @@
-/* Gr8r's checkbox: a 15px, 4px-radius box with a 1.5px strong border;
-   checked fills the accent with an on-accent tick. The native input sits
+/* Gr8r's checkbox: a 15px, 4px-radius box with a 1.5px --control-border
+   edge (3:1 on every surface, WCAG 1.4.11); checked fills the accent with
+   an on-accent tick. The native input sits
    on top of the glyph, transparent, so it keeps focus and clicks. */
 
 .checkbox {
@@ -34,7 +35,7 @@
   pointer-events: none;
   width: 15px;
   height: 15px;
-  border: 1.5px solid var(--border-strong);
+  border: 1.5px solid var(--control-border);
   border-radius: var(--r-xs);
   background: var(--surface);
   transition:
@@ -80,7 +81,7 @@
 
 @media (hover: hover) and (width >= 901px) {
   .checkbox:not([data-disabled='true']):hover .input:not(:checked) + .glyph {
-    border-color: color-mix(in srgb, var(--border-strong) 60%, var(--text-3));
+    border-color: var(--text-3);
   }
 }
 
@@ -97,6 +98,29 @@
 .checkbox[data-disabled='true'] .input:checked + .glyph {
   border-color: var(--border-strong);
   background: var(--border-strong);
+}
+
+/* Forced colours drop the accent fill, which would leave a checked box
+   looking empty: draw the box and the tick in system colours. */
+@media (forced-colors: active) {
+  .glyph {
+    forced-color-adjust: none;
+    border-color: CanvasText;
+    background: Canvas;
+  }
+
+  .input:checked + .glyph {
+    border-color: Highlight;
+    background: Highlight;
+  }
+
+  .check {
+    stroke: HighlightText;
+  }
+
+  .checkbox[data-disabled='true'] .glyph {
+    border-color: GrayText;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

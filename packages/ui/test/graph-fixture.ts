@@ -1,10 +1,18 @@
-import type { GraphEdgeData, GraphNodeData } from '../src/graph/types';
+import type {
+  GraphEdgeData,
+  GraphNodeData,
+  GraphNodeTag,
+} from '../src/graph/types';
 
 // The gallery's milestone-level graph in miniature (the gallery lives in
 // the planner app, which the package tests cannot import): five projects,
 // an overdue cutover holding up two milestones, a risk chain from an
 // unassigned Search milestone, a 2-cycle in Identity, resolved edges and
 // aggregated weights.
+
+const OVERDUE: GraphNodeTag = { label: 'Overdue', tone: 'danger' };
+const UNASSIGNED: GraphNodeTag = { label: 'Unassigned', tone: 'warning' };
+const CYCLE: GraphNodeTag = { label: 'Cycle', tone: 'danger' };
 
 function node(
   id: string,
@@ -22,9 +30,10 @@ export const MILESTONES: GraphNodeData[] = [
     group: 'Atlas',
   }),
   node('atlas-m3', 'M3 Cutover', 'Atlas · due Oct 18 · 3d over', {
+    tone: 'danger',
     status: 'overdue',
     statusLabel: 'Overdue',
-    tags: ['OVERDUE'],
+    tags: [OVERDUE],
     group: 'Atlas',
   }),
   node('atlas-m4', 'M4 Decommission legacy', 'Atlas · due Nov 12', {
@@ -44,9 +53,9 @@ export const MILESTONES: GraphNodeData[] = [
     group: 'Billing',
   }),
   node('search-m1', 'Index rebuild', 'Search · due Nov 2 · no lead', {
-    tone: 'accent',
+    tone: 'warning',
     status: 'at_risk',
-    tags: ['UNASSIGNED'],
+    tags: [UNASSIGNED],
     group: 'Search',
   }),
   node('search-m2', 'Ranking v3', 'Search · no target date', {
@@ -61,11 +70,13 @@ export const MILESTONES: GraphNodeData[] = [
     group: 'Mobile',
   }),
   node('identity-m1', 'SSO rollout', 'Identity · due Nov 9', {
-    tags: ['CYCLE'],
+    inCycle: true,
+    tags: [CYCLE],
     group: 'Identity',
   }),
   node('identity-m2', 'Audit log export', 'Identity · due Nov 16', {
-    tags: ['CYCLE'],
+    inCycle: true,
+    tags: [CYCLE],
     group: 'Identity',
   }),
 ];
@@ -87,26 +98,40 @@ export const MILESTONE_EDGES: GraphEdgeData[] = [
 
 /** Issue level with external one-hop nodes and a long, wrapping title. */
 export const ISSUES: GraphNodeData[] = [
-  node('ATL-41', 'Freeze writes on legacy DB', 'ATL-41 · Ana', {
+  node('ATL-41', 'Freeze writes on legacy DB', 'Ana', {
+    key: 'ATL-41',
     tone: 'muted',
-    status: 'done',
+    status: undefined,
+    state: 'completed',
   }),
-  node('ATL-42', 'Dual-write shim', 'ATL-42 · Ben', { tags: ['OVERDUE'] }),
-  node('ATL-43', 'Backfill orders table', 'ATL-43 · unassigned', {
-    tone: 'accent',
-    tags: ['UNASSIGNED', 'OVERDUE'],
+  node('ATL-42', 'Dual-write shim', 'Ben', {
+    key: 'ATL-42',
+    tone: 'danger',
+    status: undefined,
+    state: 'started',
+    tags: [OVERDUE],
+  }),
+  node('ATL-43', 'Backfill orders table', '', {
+    key: 'ATL-43',
+    tone: 'danger',
+    status: undefined,
+    state: 'unstarted',
+    tags: [UNASSIGNED, OVERDUE],
   }),
   node(
     'ATL-44',
     'Switch the read path over to the new cluster and drain the old one',
-    'ATL-44 · Ana',
-    { tags: ['OVERDUE'] }
+    'Ana',
+    { key: 'ATL-44', tone: 'danger', tags: [OVERDUE] }
   ),
-  node('PLT-7', 'Provision read replica', 'Platform · PLT-7 · done', {
+  node('PLT-7', 'Provision read replica', 'Platform', {
+    key: 'PLT-7',
     external: true,
-    status: 'done',
+    status: undefined,
+    state: 'completed',
   }),
-  node('BIL-12', 'Invoice ID migration', 'Billing · BIL-12 · Dana', {
+  node('BIL-12', 'Invoice ID migration', 'Billing · Dana', {
+    key: 'BIL-12',
     external: true,
   }),
 ];

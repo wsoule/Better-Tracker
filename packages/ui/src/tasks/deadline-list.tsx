@@ -1,10 +1,12 @@
 'use client';
 
+import { CalendarCheck } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 
 import StatusMark from '../components/status-mark';
 import { Link } from '../lib/link';
 import styles from './deadline-list.module.css';
+import { EmptyState } from './notice';
 import type { DeadlineListProps } from './types';
 
 type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
@@ -12,9 +14,11 @@ type HeadingTag = 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
 /* Gr8r's "Upcoming deadlines" panel: groups (Overdue / Today / Tomorrow /
    This week) with a semibold label and a count, each item a linked row
    (status mark, milestone, a quiet line under it, due). The group's tone
-   (data-tone on the group) colours its label and dates. Long groups show
-   `limit` items and a "+N more" disclosure; opening it moves focus to the
-   first revealed item so keyboard users land on the new content. */
+   (data-tone on the group) colours its label and dates. Empty groups are
+   left out; when every group is empty the panel gives way to one
+   EmptyState saying `emptyLabel`. Long groups show `limit` items and a
+   "+N more" disclosure; opening it moves focus to the first revealed item
+   so keyboard users land on the new content. */
 export function DeadlineList({
   groups,
   limit = 4,
@@ -51,9 +55,20 @@ export function DeadlineList({
     setOpen(next);
   }
 
+  const filled = groups.filter((group) => group.items.length > 0);
+  if (filled.length === 0) {
+    return (
+      <div role="group" aria-label={label}>
+        <EmptyState icon={<CalendarCheck size={22} strokeWidth={1.8} />}>
+          {emptyLabel}
+        </EmptyState>
+      </div>
+    );
+  }
+
   return (
     <div ref={rootRef} className={styles.root} role="group" aria-label={label}>
-      {groups.map((group) => {
+      {filled.map((group) => {
         const expanded = open.has(group.id);
         const shown = expanded ? group.items : group.items.slice(0, limit);
         const hidden = group.items.length - limit;
@@ -74,33 +89,22 @@ export function DeadlineList({
                 {group.items.length}
               </span>
             </Heading>
-            {group.items.length === 0 ? (
-              <p className={styles.empty}>{emptyLabel}</p>
-            ) : (
-              <ul id={listId} className={styles.items}>
-                {shown.map((item) => (
-                  <li
-                    key={item.id}
-                    className={styles.item}
-                    data-deadline-item=""
-                  >
-                    <Link href={item.href} className={styles.link}>
-                      <StatusMark
-                        status={item.status}
-                        label={item.statusLabel}
-                      />
-                      <span className={styles.main}>
-                        <span className={styles.itemLabel}>{item.label}</span>
-                        {item.sublabel !== undefined && item.sublabel !== '' ? (
-                          <span className={styles.sub}>{item.sublabel}</span>
-                        ) : null}
-                      </span>
-                      <span className={styles.due}>{item.dueLabel}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul id={listId} className={styles.items}>
+              {shown.map((item) => (
+                <li key={item.id} data-deadline-item="">
+                  <Link href={item.href} className={styles.link}>
+                    <StatusMark status={item.status} label={item.statusLabel} />
+                    <span className={styles.main}>
+                      <span className={styles.itemLabel}>{item.label}</span>
+                      {item.sublabel !== undefined && item.sublabel !== '' ? (
+                        <span className={styles.sub}>{item.sublabel}</span>
+                      ) : null}
+                    </span>
+                    <span className={styles.due}>{item.dueLabel}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
             {hidden > 0 ? (
               <button
                 type="button"

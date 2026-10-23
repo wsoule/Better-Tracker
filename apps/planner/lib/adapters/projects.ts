@@ -1,7 +1,9 @@
 import {
+  type MilestoneStatus,
   NO_INITIATIVE_ID,
   type ProjectAllocationPlan,
   type ProjectStatusType,
+  type RiskReason,
   type TimelineBar,
   type TimelineLane,
   type TimelineView,
@@ -81,9 +83,9 @@ export interface ProjectAllocationCell {
       "Project has no lead" or "Next milestone is missing: done means…". */
   detail?: string;
   /** Chip tone (architecture §8.2): info = allocating, warning = blocked,
-      default = nothing to do, muted = nothing applies (no open milestone,
-      inactive, not evaluated). */
-  tone: 'default' | 'muted' | 'info' | 'warning';
+      muted = nothing for allocation to do here (nothing to do, no open
+      milestone, inactive, not evaluated): quiet text, not a filled chip. */
+  tone: 'muted' | 'info' | 'warning';
 }
 
 export interface ProjectRowModel {
@@ -92,7 +94,9 @@ export interface ProjectRowModel {
   initiative: string;
   linearStatus: string;
   /** The Linear status as a dot pill: muted backlog / planned / canceled,
-      info started, warning paused, success completed. */
+      info started, warning paused, success completed; always muted for an
+      inactive project, whose row carries no status colour (§8.4), so a
+      paused project (inactive by default) reads grey. */
   linearStatusTone: ChipTone;
   /** Allocation and warnings apply to this project. */
   active: boolean;
@@ -143,26 +147,39 @@ export function barMark(bar: TimelineBar): {
 }
 
 /** A progress fill's tone (ProgressRule): see progressTone. */
-export type ProgressTone = 'default' | 'danger' | 'warning' | 'muted';
+export type ProgressTone =
+  | 'default'
+  | 'danger'
+  | 'warning'
+  | 'success'
+  | 'muted';
 
 /**
  * The progress fill when the progress itself is a status (architecture
- * §8.2): danger when the milestone is overdue, warning when there is more
- * work left than time left (behind pace); otherwise the default accent.
+ * §8.2 "progress"): muted in an inactive project, success once complete,
+ * danger when overdue, warning when there is more work left than time
+ * left (behind pace); otherwise default (the accent fill). The one
+ * definition for every screen (the register, My week, the milestone
+ * drawer).
  */
-export function progressTone(bar: TimelineBar): ProgressTone {
-  if (bar.status === 'overdue') return 'danger';
-  return bar.reasons.includes('behind_pace') ? 'warning' : 'default';
+export function progressTone(
+  milestone: { status: MilestoneStatus; reasons: readonly RiskReason[] },
+  muted = false
+): ProgressTone {
+  if (muted) return 'muted';
+  if (milestone.status === 'complete') return 'success';
+  if (milestone.status === 'overdue') return 'danger';
+  return milestone.reasons.includes('behind_pace') ? 'warning' : 'default';
 }
 
 /**
- * A due date's colour (architecture §8.2): danger overdue, warning due
- * today or tomorrow, warning when undated (the date is a missing input),
- * default later or complete. Callers pass muted themselves for an inactive
- * project.
+ * A due date's colour (architecture §8.2 "due date"): danger overdue,
+ * warning due today or tomorrow, warning when undated (the date is a
+ * missing input), default later or complete. The one definition for every
+ * screen; callers quiet it themselves for an inactive project.
  */
 export function dueTone(
-  status: TimelineBar['status'] | null,
+  status: MilestoneStatus | null,
   daysLeft: number | null,
   undated: boolean
 ): 'default' | 'danger' | 'warning' {
@@ -173,7 +190,9 @@ export function dueTone(
   return 'default';
 }
 
-/** Linear's project status type as a dot pill's tone (architecture §8.2). */
+/** Linear's project status type as a dot pill's tone (architecture §8.2),
+    for an active project; an inactive one's pill is muted whatever its
+    status (see toRow). */
 const LINEAR_STATUS_TONE: Record<ProjectStatusType, ChipTone> = {
   backlog: 'muted',
   planned: 'muted',
@@ -202,7 +221,7 @@ export function allocationCell(
             tone: 'warning',
           };
     case 'nothing_to_do':
-      return { label: 'Nothing to do', tone: 'default' };
+      return { label: 'Nothing to do', tone: 'muted' };
     case 'no_open_milestone':
       return { label: 'No open milestone', tone: 'muted' };
     case 'inactive':
@@ -235,7 +254,7 @@ function nextMilestone(
     statusLabel: loud ? mark.label : `${mark.label} · inactive project`,
     done: bar.progress.completed,
     total: bar.progress.scope,
-    progressTone: loud ? progressTone(bar) : 'muted',
+    progressTone: progressTone(bar, !loud),
     muted: !loud,
   };
 }
@@ -264,7 +283,10 @@ function toRow(
     name: lane.name,
     initiative,
     linearStatus,
-    linearStatusTone: LINEAR_STATUS_TONE[lane.statusType],
+    // An inactive project's row carries no status colour (§8.4).
+    linearStatusTone: lane.active
+      ? LINEAR_STATUS_TONE[lane.statusType]
+      : 'muted',
     active: lane.active,
     next,
     lead: lane.leadName,

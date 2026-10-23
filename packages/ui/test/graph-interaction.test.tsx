@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
 } from '@testing-library/react';
 import { afterEach, describe, expect, mock, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
@@ -586,7 +587,7 @@ describe('DependencyGraph: a host layout and a focus node', () => {
     );
   });
 
-  test('the focus mark is a 2px rule in the local ink, inside the box', () => {
+  test('the focus is an accent ring standing off the box, never a status', () => {
     const css = readFileSync(
       path.join(
         import.meta.dir,
@@ -597,29 +598,95 @@ describe('DependencyGraph: a host layout and a focus node', () => {
       ),
       'utf8'
     );
-    const rule = /\.focus::after \{([^}]*)\}/.exec(css)?.[1] ?? '';
-    expect(rule).toContain('inset: 2px;');
-    expect(rule).toContain('border: 2px solid var(--foreground);');
-    expect(rule).not.toContain('radius');
-    expect(rule).not.toContain('shadow');
+    // A bordered box (forced colours keep borders, not shadows) 3px off
+    // the card's edge, in the accent; the selection ring hugs the card.
+    const focus = /\.focusRing \{(\s*inset[^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(focus).toContain('inset: -6px;');
+    expect(focus).toContain('border: 2px solid var(--accent);');
+    expect(focus).not.toContain('shadow');
+    const ring = /\.ring \{(\s*display[^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(ring).toContain('inset: -2px;');
+    expect(ring).toContain('border: 2px solid var(--accent);');
+    // Status and risk never use the accent: tones, edges and the cycle
+    // outline take the semantic hues.
+    const toneRule = /\.toneStatus \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(toneRule).toContain('border-color: var(--tone);');
+    expect(/\.edgeRisk \{([^}]*)\}/.exec(css)?.[1]).toContain('var(--amber)');
+    expect(/\.edgeCycle \{([^}]*)\}/.exec(css)?.[1]).toContain('var(--red)');
+    // (The rule that draws it, not the shared positioning one.)
+    expect(/\.cycleRing \{(\s*inset[^}]*)\}/.exec(css)?.[1]).toContain(
+      'dashed var(--red)'
+    );
+    // Forced colours repaint the rings in the system highlight.
+    expect(css).toContain('@media (forced-colors: active)');
   });
 
-  test('an overdue box outside the scope keeps its dashes on the flood', () => {
-    const css = readFileSync(
-      path.join(
-        import.meta.dir,
-        '..',
-        'src',
-        'graph',
-        'dependency-graph.module.css'
-      ),
-      'utf8'
+  test('nodes carry their tone, mark, key, chips and rings', () => {
+    const { container } = render(
+      <DependencyGraph
+        nodes={[
+          {
+            id: 'a',
+            label: 'Backfill',
+            key: 'ATL-43',
+            tone: 'danger',
+            state: 'unstarted',
+            statusLabel: 'Todo',
+            tags: [
+              { label: 'Unassigned', tone: 'warning' },
+              { label: 'Overdue', tone: 'danger' },
+            ],
+          },
+          {
+            id: 'b',
+            label: 'Cutover',
+            sublabel: 'Atlas · Oct 18',
+            tone: 'default',
+            status: 'on_track',
+            statusLabel: 'On track',
+            statusMuted: true,
+            external: true,
+            inCycle: true,
+            tags: [{ label: 'Cycle', tone: 'danger' }],
+          },
+        ]}
+        edges={[
+          { from: 'a', to: 'b', kind: 'cycle' },
+          { from: 'b', to: 'a', kind: 'cycle' },
+        ]}
+        ariaSummary="Two nodes."
+        emptyMessage="Nothing."
+        focusId="a"
+        onSelect={() => undefined}
+      />
     );
-    // The flood sets an accent border, which would hide accent dashes.
-    const rule = /\.node\.overdueNode\.external \{([^}]*)\}/.exec(css)?.[1];
-    expect(rule).toContain('border-color: var(--on-accent);');
-    expect(css.indexOf('.node.overdueNode.external')).toBeGreaterThan(
-      css.indexOf('.node.overdueNode {')
+    const a = nodeEl(container, 'a');
+    expect(a.dataset.tone).toBe('danger');
+    expect(a.getAttribute('aria-label')).toBe(
+      'Backfill. ATL-43. Todo. unassigned, overdue. waits on 1, blocks 1. focus.'
+    );
+    // The workflow-state circle, not a status diamond; hidden from AT.
+    expect(a.querySelector('svg[data-kind="unstarted"]')).not.toBeNull();
+    expect(a.querySelector('[data-status]')).toBeNull();
+    // Chips in their tones, sentence case.
+    const chips = [
+      ...a.querySelectorAll('[data-tone="warning"], [data-tone="danger"]'),
+    ]
+      .filter((el) => el !== a)
+      .map((el) => `${el.textContent}:${el.getAttribute('data-tone')}`);
+    expect(chips).toEqual(['Unassigned:warning', 'Overdue:danger']);
+    // The focus ring is drawn; the cycle outline is not (a is in no cycle
+    // by its data).
+    expect(a.hasAttribute('data-focus')).toBe(true);
+    expect(a.hasAttribute('data-cycle')).toBe(false);
+    const b = nodeEl(container, 'b');
+    expect(b.hasAttribute('data-cycle')).toBe(true);
+    // The status diamond, greyed when asked, still named by its label.
+    const mark = b.querySelector('[data-status="on_track"]');
+    expect(mark?.hasAttribute('data-muted')).toBe(true);
+    expect(mark?.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(b.getAttribute('aria-label')).toBe(
+      'Cutover. Atlas · Oct 18. On track. cycle. outside this scope. waits on 1, blocks 1.'
     );
   });
 
@@ -787,11 +854,12 @@ describe('DependencyGraph: a host layout and a focus node', () => {
 });
 
 describe('GraphLegend', () => {
-  test('lists node and edge marks in two labelled rows', () => {
+  test('lists box and arrow marks in two labelled rows', () => {
     render(<GraphLegend />);
     const legend = screen.getByRole('group', { name: 'Graph legend' });
-    expect(legend.textContent).toContain('Nodes');
-    expect(legend.textContent).toContain('Edges');
+    expect(legend.textContent).toContain('Boxes');
+    expect(legend.textContent).toContain('Arrows');
+    expect(legend.textContent).not.toContain('Status');
     expect(screen.getByText('Risk chain')).toBeTruthy();
     expect(screen.getAllByRole('listitem').length).toBeGreaterThan(8);
   });
@@ -804,7 +872,46 @@ describe('GraphLegend', () => {
       />
     );
     const legend = screen.getByRole('group', { name: 'Epic legend' });
-    expect(legend.textContent).not.toContain('Nodes');
+    expect(legend.textContent).not.toContain('Boxes');
     expect(screen.getByText('Waits on you')).toBeTruthy();
+  });
+
+  test('a Status row draws the diamonds and circles, hidden, before the boxes', () => {
+    render(
+      <GraphLegend
+        items={[
+          { mark: 'node', label: 'Issue' },
+          { mark: 'status', status: 'overdue', label: 'Overdue' },
+          { mark: 'state', state: 'started', label: 'In progress' },
+        ]}
+      />
+    );
+    const legend = screen.getByRole('group', { name: 'Graph legend' });
+    const [status, boxes] = within(legend).getAllByRole('list');
+    expect(status.textContent).toBe('OverdueIn progress');
+    expect(boxes.textContent).toBe('Issue');
+    const diamond = status.querySelector('[data-mark="status"]');
+    expect(diamond?.getAttribute('aria-hidden')).toBe('true');
+    expect(diamond?.querySelector('[data-status="overdue"]')).not.toBeNull();
+    expect(
+      status.querySelector('[data-mark="state"] svg[data-kind="started"]')
+    ).not.toBeNull();
+    // The marks are hidden, so no image is announced twice.
+    expect(within(legend).queryAllByRole('img')).toHaveLength(0);
+  });
+
+  test('the focus swatch repeats the graph’s accent ring', () => {
+    const css = readFileSync(
+      path.join(
+        import.meta.dir,
+        '..',
+        'src',
+        'graph',
+        'graph-legend.module.css'
+      ),
+      'utf8'
+    );
+    const rule = /\.nodeFocus::after \{([^}]*)\}/.exec(css)?.[1] ?? '';
+    expect(rule).toContain('border: 2px solid var(--accent);');
   });
 });

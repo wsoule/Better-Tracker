@@ -1,133 +1,150 @@
-/* The graph legend: Matrix's legend strip (one hairline box, swatch + bold
-   mono name + muted note), split into a NODES row and an EDGES row so the
-   two vocabularies never mix. Swatches reuse the graph's own marks. */
+/* The graph's key in Gr8r's quiet legend voice (the timeline's legend
+   line, grown into rows): no box, a sentence-case row name in --text-3,
+   then swatch + name (--text-2, medium) + note (--text-3) per item. The
+   swatches repeat the graph's own marks (StatusMark's diamonds,
+   StateGlyph's circles, the card looks, the connectors). */
 
 .legend {
-  margin-top: -1px;
-  border: 1px solid var(--border);
-  background: var(--background);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .row {
   display: flex;
-  align-items: baseline;
-  gap: 8px 18px;
-  padding: 11px 18px;
-}
-
-.row + .row {
-  border-top: 1px solid var(--hairline-faint);
+  align-items: flex-start;
+  gap: 4px 14px;
 }
 
 .rowKey {
-  flex: 0 0 52px;
-  color: var(--grey-2-ink);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
+  flex: 0 0 48px;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 22px;
+  color: var(--text-3);
 }
 
 .list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 22px;
+  gap: 0 18px;
   min-width: 0;
 }
 
 .item {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  min-height: 22px;
 }
 
 .label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
   white-space: nowrap;
 }
 
 .note {
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.3;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 
 /* ---- swatches ----------------------------------------------------------- */
 
+.mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+}
+
+/* A card in miniature: the edge in --border-strong so the neutral card
+   shows on the page surface; the others as the graph draws them. */
 .node {
   position: relative;
   flex: 0 0 22px;
   width: 22px;
-  height: 13px;
-  border: 1px solid var(--border);
-  background: var(--background);
+  height: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
 }
 
-.nodeAccent {
-  border: 2px solid var(--accent);
+.nodeDanger {
+  border-color: var(--red);
+  background: color-mix(in srgb, var(--red) 6%, var(--surface));
 }
 
-.nodeOverdue {
-  border-color: var(--accent);
-  background: var(--accent);
+.nodeWarning {
+  border-color: var(--amber);
+  background: color-mix(in srgb, var(--amber) 6%, var(--surface));
 }
 
 .nodeExternal {
   border-style: dashed;
-  border-color: var(--muted);
+  border-color: var(--text-4);
 }
 
 .nodeMuted {
-  border-color: var(--grey-3);
+  background: var(--sunken);
 }
 
-/* The focus mark (DependencyGraph focusId): the same inner 2px ink rule,
-   inset 2px, scaled to the swatch. */
+/* The chain's focus: the accent ring standing off the card. */
+.nodeFocus {
+  margin: 0 3px;
+}
+
 .nodeFocus::after {
   content: '';
   position: absolute;
-  inset: 2px;
-  border: 2px solid var(--foreground);
+  inset: -4px;
+  border: 2px solid var(--accent);
+  border-radius: 7px;
+}
+
+/* In a cycle: the danger hue's dashed outline around the card. */
+.nodeCycle {
+  margin: 0 3px;
 }
 
 .nodeCycle::before {
   content: '';
   position: absolute;
   inset: -4px;
-  border: 1px dashed var(--accent);
-}
-
-.nodeCycle {
-  margin: 0 3px;
+  border: 1.5px dashed var(--red);
+  border-radius: 7px;
 }
 
 .edge {
   flex: 0 0 28px;
-  color: var(--foreground);
+  color: var(--text-3);
 }
 
 .edgeLine {
   fill: none;
   stroke: currentcolor;
-  stroke-width: 1;
+  stroke-width: 1.25;
 }
 
 .edgeArrow {
   fill: currentcolor;
 }
 
-.edgeRisk,
+.edgeRisk {
+  color: var(--amber);
+}
+
+.edgeRisk .edgeLine {
+  stroke-width: 2;
+}
+
 .edgeCycle {
-  color: var(--accent);
+  color: var(--red);
 }
 
 .edgeCycle .edgeLine {
-  stroke-dasharray: 5 3;
+  stroke-dasharray: 6 3.5;
 }
 
 .edgeCross .edgeLine {
@@ -135,20 +152,38 @@
 }
 
 .edgeResolved {
-  color: var(--grey-3);
+  color: color-mix(in srgb, var(--text-4) 70%, var(--text-3));
+}
+
+.edgeResolved .edgeLine {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 4;
 }
 
 .weight {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
+  min-width: 18px;
   height: 16px;
   padding: 0 4px;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
+  border: 1px solid var(--text-3);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+@media (forced-colors: active) {
+  .nodeFocus::after {
+    border-color: Highlight;
+  }
+
+  .nodeCycle::before {
+    border-color: CanvasText;
+  }
 }
 
 @media (width <= 1200px) {
@@ -157,18 +192,13 @@
   }
 }
 
-@media (width <= 768px) {
+@media (width <= 640px) {
   .row {
     flex-direction: column;
-    gap: 8px;
-    padding: 12px 14px;
+    gap: 0;
   }
 
   .rowKey {
     flex-basis: auto;
-  }
-
-  .list {
-    gap: 8px 16px;
   }
 }

@@ -3,13 +3,16 @@ import type { ReactNode } from 'react';
 import type { UiStatus } from '../types';
 import styles from './status-mark.module.css';
 
-/* A milestone's status as a 12px round mark in Gr8r's status shapes and
-   the semantic hues (docs/architecture.md §8.2): done = green disc with a
-   tick, on track = green ring, at risk = amber half-filled ring, overdue =
-   red disc, missing input = dashed grey ring. The accent is never used.
-   The label is always available to assistive tech. `muted` draws any
-   status as a faint grey ring (an inactive project's milestone, which is
-   never loud), like the timeline's inactive lanes. */
+/* A milestone's status as a 12px diamond (the milestone symbol of the
+   timeline) in the semantic hues (docs/architecture.md §8.2): overdue =
+   solid red, at risk = amber with the bottom half filled, on track = green
+   outline, complete = solid green with a tick, missing input = dotted
+   grey outline. Issue states are circles (StateGlyph), so the two never look
+   alike; the shape differs per status, so colour is never the only cue.
+   The accent is never used. The label is always available to assistive
+   tech. `muted` draws any status as a grey outline diamond (an inactive
+   project's milestone, which is never loud), like the timeline's inactive
+   lanes. */
 export interface StatusMarkProps {
   status: UiStatus;
   /** Human wording, e.g. "At risk". */

@@ -54,7 +54,7 @@ async function click(el: HTMLElement) {
 }
 
 describe('MermaidSource', () => {
-  test('copies the source and says COPIED for 1600ms', async () => {
+  test('copies the source and says Copied for 1600ms', async () => {
     const writeText = mock((_text: string) => Promise.resolve());
     mockClipboard(writeText);
     const onCopy = mock((_ok: boolean) => undefined);

@@ -18,12 +18,14 @@ const STARTED: Record<Mode, string> = {
 
 const LABEL: Record<Mode, string> = { dry_run: 'Dry run', live: 'Live run' };
 
-/* The run controls above the log, for everyone signed in (owner decision
-   2026-10-22: no roles): "Preview (dry run)" always, "Run now" only while
-   allocation is live — behind a second click, since it writes to Linear.
-   The route enforces the live gate too. A run answers when it is
-   finished, so the buttons wait, then open the new run. Failures are
-   toasted. */
+/* The run controls in the page header, for everyone signed in (owner
+   decision 2026-10-22: no roles): "Preview (dry run)" always, "Run now"
+   only while allocation is live — behind a second click, since it writes
+   to Linear. The route enforces the live gate too. A run answers when it
+   is finished, so the buttons wait, then open the new run. Failures are
+   toasted. Two pieces for the header's grid: the buttons (top right, as
+   Gr8r puts header actions) and one line on what they do (under the
+   receipts). */
 export default function RunActions({ liveRunsOn }: { liveRunsOn: boolean }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -51,7 +53,7 @@ export default function RunActions({ liveRunsOn }: { liveRunsOn: boolean }) {
   }
 
   return (
-    <div className={css.actions}>
+    <>
       <div className={css.actionBar}>
         <Button
           variant={liveRunsOn ? 'secondary' : 'primary'}
@@ -91,24 +93,24 @@ export default function RunActions({ liveRunsOn }: { liveRunsOn: boolean }) {
             </Button>
           )
         ) : null}
-        <p className={css.actionNote} aria-live="polite">
-          {confirming
-            ? 'A live run assigns each project’s unassigned next-milestone issues to its lead in Linear, moves them Backlog → Todo and comments why.'
-            : liveRunsOn
-              ? 'A dry run only records what it would assign. Run now writes to Linear.'
-              : null}
-          {!liveRunsOn ? (
-            <>
-              Run now is off while allocation is in dry run. Anyone can switch
-              allocation to live in{' '}
-              <Link href="/settings" className="accentLink">
-                Settings → Modes
-              </Link>{' '}
-              (the switch is audited).
-            </>
-          ) : null}
-        </p>
       </div>
-    </div>
+      <p className={css.actionNote} aria-live="polite">
+        {confirming
+          ? 'A live run assigns each project’s unassigned next-milestone issues to its lead in Linear, moves them Backlog → Todo and comments why.'
+          : liveRunsOn
+            ? 'A dry run only records what it would assign. Run now writes to Linear.'
+            : null}
+        {!liveRunsOn ? (
+          <>
+            Run now is off while allocation is in dry run. Anyone can switch
+            allocation to live in{' '}
+            <Link href="/settings" className="accentLink">
+              Settings → Modes
+            </Link>{' '}
+            (the switch is audited).
+          </>
+        ) : null}
+      </p>
+    </>
   );
 }

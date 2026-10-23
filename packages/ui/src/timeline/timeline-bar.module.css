@@ -1,12 +1,17 @@
 /* A milestone bar, Gr8r's: a 24px bar with a 6px radius, filled with its
-   status hue at 16% over the surface and outlined at 45% (--c, set per
-   status below: overdue red, at risk amber, on track and complete green,
-   an inactive project grey; complete at 60% opacity). A missing input is a
-   dashed --border-strong outline on the surface. The name is --text; the
-   receipts are quiet, the tags small pills, the "Missing: …" line amber.
-   A 10px diamond in the hue marks the due date at the bar's end. Stacking
-   (inside the chart body): bars 2, diamonds and handle 3, the live tip 4;
-   the sticky lane column (5) and header (6) cover them while scrolling. */
+   status hue at 16% over the surface and outlined in the full hue (--c,
+   set per status below: overdue red, at risk amber, on track and complete
+   green, an inactive project grey), so its edge reads at 3:1 or more on
+   the surface (WCAG 1.4.11); a complete bar steps back by its content's
+   opacity, not its edge's. A missing input is a dashed --text-3 outline
+   on the surface. The status is never the hue alone (WCAG 1.4.1): the
+   bar's name is led by its StatusMark, and the 10px diamond at the due
+   date takes the same shapes (overdue solid, at risk half filled, on
+   track hollow, complete solid with a tick, missing a broken outline,
+   inactive a grey outline). The name is --text; the receipts are quiet,
+   the tags small pills, the "Missing: …" line amber. Stacking (inside
+   the chart body): bars 2, diamonds and handle 3, the live tip 4; the
+   sticky lane column (5) and header (6) cover them while scrolling. */
 
 .item {
   position: absolute;
@@ -30,7 +35,7 @@
   /* clip, not hidden: hidden would make the bar a scroll container and
      pin its sticky content to the bar instead of the chart. */
   overflow: clip;
-  border: 1px solid color-mix(in srgb, var(--c) 45%, transparent);
+  border: 1px solid var(--c);
   border-radius: var(--r-sm);
   background: color-mix(in srgb, var(--c) 16%, var(--surface));
   color: var(--text);
@@ -38,9 +43,9 @@
   text-align: left;
   white-space: nowrap;
   transition:
+    background-color var(--dur) ease,
     border-color var(--dur) ease,
-    box-shadow var(--dur) ease,
-    opacity var(--dur) ease;
+    box-shadow var(--dur) ease;
 }
 
 /* Shrink-wrapped so it can slide: sticky never leaves the bar, so the
@@ -70,6 +75,7 @@
   );
   height: 22px;
   overflow: hidden;
+  transition: opacity var(--dur) ease;
 }
 
 .label {
@@ -81,9 +87,17 @@
   line-height: 22px;
 }
 
-/* The ◂ before a name whose bar starts before the window. */
+/* The ◂ before a name whose bar starts before the window, then the
+   status mark (aria-hidden: the bar's name says the status). */
 .label .cue {
-  margin-right: 4px;
+  margin-right: 5px;
+}
+
+.mark {
+  display: inline-flex;
+  flex: none;
+  margin-right: 6px;
+  vertical-align: -2px;
 }
 
 .progress,
@@ -125,7 +139,7 @@
   flex: none;
   font-size: var(--fs-2xs);
   line-height: 1;
-  color: var(--text-3);
+  color: var(--text-2);
 }
 
 .cueEnd {
@@ -147,24 +161,28 @@
   --c: var(--red);
 }
 
-/* Finished: still green, stepped back like Gr8r's done bars. */
-.done {
+/* Finished: still green, its content stepped back like Gr8r's done bars;
+   the edge keeps the full hue so the bar stays visible. */
+.done .content {
   opacity: 0.6;
 }
 
-/* Missing input (rubric-invalid): no hue to claim, a dashed outline on the
-   plain surface, the "Missing: …" line saying what to add. */
+/* Missing input (rubric-invalid): no hue to claim, a dashed --text-3
+   outline (5.6:1) on the plain surface, the "Missing: …" line saying what
+   to add. */
 .missing {
   --c: var(--text-3);
 
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--text-3);
   background: var(--surface);
 }
 
-/* An inactive project: greys only, never loud. */
+/* An inactive project: greys only, never loud; a lighter fill (8%) so
+   its grey status mark keeps 3:1 on the bar. */
 .muted {
   --c: var(--gray);
 
+  background: color-mix(in srgb, var(--c) 8%, var(--surface));
   color: var(--text-2);
 }
 
@@ -178,28 +196,33 @@
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+/* Forced colours drop the ring's shadow: an outline instead. */
+@media (forced-colors: active) {
+  .selected {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
+
 .bar:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
 
-/* Hover firms the outline up to the full hue (Gr8r's .bar:hover). */
+/* Hover deepens the fill (the outline already has the full hue). */
 @media (hover: hover) and (width >= 901px) {
   .bar:hover {
-    border-color: var(--c);
+    background: color-mix(in srgb, var(--c) 24%, var(--surface));
   }
 
   .missing:hover {
-    border-color: var(--text-3);
+    border-color: var(--text-2);
+    background: var(--surface-2);
   }
 
-  .done:hover {
+  .done:hover .content {
     opacity: 0.8;
-  }
-
-  .selected:hover {
-    border-color: var(--accent);
   }
 
   .point:hover + .diamond {
@@ -223,9 +246,15 @@
 /* ---- the due-date diamond --------------------------------------------- */
 
 /* Gr8r's milestone diamond (a 2px-radius square turned 45°) in the bar's
-   hue, ringed in the surface so it sits cleanly on the bar's end. */
+   hue, ringed in the surface so it sits cleanly on the bar's end. Its
+   shape says the status as StatusMark's diamonds do (never the hue
+   alone): overdue solid, at risk the lower half filled, on track hollow,
+   complete solid with a tick, missing a dotted --text-3 outline, an
+   inactive lane a grey outline. --hollow is the open interior (the
+   surface; Canvas in forced colours). */
 .diamond {
   --c: var(--gray);
+  --hollow: var(--surface);
 
   position: absolute;
   z-index: 3;
@@ -233,9 +262,12 @@
   width: 10px;
   height: 10px;
   margin: -5px 0 0 -5px;
+  /* 2px, not 1.5: Chrome snaps a 1.5px border down to 1px at 1x, and a
+     1px outline turned 45° washes out below 3:1 in the greys. */
+  border: 2px solid var(--c);
   border-radius: 2px;
   background: var(--c);
-  box-shadow: 0 0 0 1.5px var(--surface);
+  box-shadow: 0 0 0 1.5px var(--hollow);
   transform: rotate(45deg);
   pointer-events: none;
   transition:
@@ -248,27 +280,63 @@
   --c: var(--green);
 }
 
-.d_done {
-  opacity: 0.6;
-}
-
-.d_at_risk {
-  --c: var(--amber);
-}
-
 .d_overdue {
   --c: var(--red);
 }
 
-/* Missing input: a hollow diamond with a dashed edge, like the bar. */
+/* On track: hollow. */
+.d_on_track {
+  background: var(--hollow);
+}
+
+/* At risk: the lower half filled. The square is turned 45° clockwise, so
+   its bottom-right half is the diamond's lower half. */
+.d_at_risk {
+  --c: var(--amber);
+
+  background: linear-gradient(135deg, var(--hollow) 50%, var(--c) 50%);
+}
+
+/* Complete: solid with a tick knocked out in the surface colour. The
+   element is already turned 45°, so the tick's L needs no turn of its
+   own to read as a check. */
+.d_done::after {
+  content: '';
+  position: absolute;
+  top: 46%;
+  left: 54%;
+  width: 2.5px;
+  height: 4.5px;
+  border: solid var(--hollow);
+  border-width: 0 1.5px 1.5px 0;
+  transform: translate(-50%, -50%);
+}
+
+/* Missing input: hollow with a broken (dotted) edge, like the bar. */
 .d_missing {
-  border: 1.5px dashed var(--text-3);
-  background: var(--surface);
+  --c: var(--text-3);
+
+  /* Dotted at 2px: a 2px dash is 6px long and closes up on a 10px side,
+     which would read as the inactive outline. */
+  border-style: dotted;
+  background: var(--hollow);
 }
 
 .d_muted {
-  border: 1.5px solid var(--gray);
-  background: var(--surface);
+  --c: var(--gray);
+
+  background: var(--hollow);
+}
+
+/* Forced colours drop backgrounds and shadows, which would erase the
+   solid and half fills: keep the shapes, drawn in the system colours. */
+@media (forced-colors: active) {
+  .diamond {
+    --c: CanvasText;
+    --hollow: Canvas;
+
+    forced-color-adjust: none;
+  }
 }
 
 /* ---- label outside a narrow bar --------------------------------------- */
@@ -287,6 +355,16 @@
   color: var(--text-2);
   white-space: nowrap;
   pointer-events: none;
+}
+
+.outside .mark {
+  margin-right: 0;
+}
+
+.outsideLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .outsideMeta {
@@ -406,6 +484,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .bar,
+  .content,
   .diamond,
   .handle::before {
     transition: none;

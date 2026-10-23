@@ -23,7 +23,6 @@ import {
   formatLongDate,
   plural,
 } from '../format';
-import { personInitials } from './landing';
 
 // /settings (architecture §8.4 "Settings", §7.1 validation): the section
 // sub-nav, each section's rows, and the bodies its form PATCHes. Everyone
@@ -197,9 +196,8 @@ export function modesSavedMessage(state: ModesState): string {
 
 export interface PersonRow {
   id: string;
+  /** Also the round avatar's initials and hue (InitialsAvatar). */
   name: string;
-  /** Two letters for the row's round avatar ("AM"). */
-  initials: string;
   email: string | null;
   active: boolean;
   /** Deactivated in Linear but still a watcher. */
@@ -221,7 +219,6 @@ export function watcherRows(
     .map((user) => ({
       id: user.id,
       name: user.name,
-      initials: personInitials(user.name),
       email: user.email,
       active: user.active,
       note: user.active ? null : 'Deactivated in Linear',

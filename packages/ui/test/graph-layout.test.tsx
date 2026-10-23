@@ -2,10 +2,12 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   basisPath,
+  clipText,
   GRAPH_METRICS,
   layoutGraph,
   measureNode,
-  wrapMono,
+  textWidth,
+  wrapText,
 } from '../src/graph/layout';
 import type { GraphLayout, LaidOutNode } from '../src/graph/types';
 import {
@@ -131,7 +133,7 @@ describe('layoutGraph', () => {
     expect(layout.nodes[0].rank).toBe(0);
   });
 
-  test('paints faint edges first and the accent last', () => {
+  test('paints faint edges first, risk and cycles last', () => {
     const layout = layoutGraph(MILESTONES, MILESTONE_EDGES);
     const kinds = layout.edges.map((e) => e.kind);
     const order = ['resolved', 'default', 'cross', 'risk', 'cycle'];
@@ -209,31 +211,96 @@ describe('layoutGraph', () => {
 });
 
 describe('node metrics', () => {
-  test('sizes a box from its mono label, within the clamp', () => {
+  const M = GRAPH_METRICS;
+
+  test('measures Geist proportionally: wide letters take more room', () => {
+    expect(textWidth('', 13.5)).toBe(0);
+    expect(textWidth('WWWW', 13.5)).toBeGreaterThan(
+      textWidth('iiii', 13.5) * 3
+    );
+    // Twice the size, twice the width; unknown characters still count.
+    expect(textWidth('Atlas', 27)).toBeCloseTo(textWidth('Atlas', 13.5) * 2);
+    expect(textWidth('日本', 12)).toBeGreaterThan(0);
+  });
+
+  test('sizes a box from its label, within the clamp', () => {
     const short = measureNode(MILESTONES[1]);
-    expect(short.width).toBeGreaterThanOrEqual(GRAPH_METRICS.minWidth);
+    expect(short.width).toBeGreaterThanOrEqual(M.minWidth);
     expect(short.labelLines).toEqual(['M3 Cutover']);
     const long = measureNode(ISSUES[3]);
-    expect(long.width).toBe(GRAPH_METRICS.maxWidth);
+    expect(long.width).toBe(M.maxWidth);
     expect(long.labelLines).toHaveLength(2);
     expect(long.labelLines[1].endsWith('…')).toBe(true);
     // Two label lines and a tag row make a taller box.
     expect(long.height).toBeGreaterThan(short.height);
   });
 
+  test('every wrapped line and sublabel fits inside its box', () => {
+    for (const node of [...MILESTONES, ...ISSUES]) {
+      const box = measureNode(node);
+      const marked = node.status !== undefined || node.state !== undefined;
+      const inner =
+        box.width -
+        (M.padX + M.border) * 2 -
+        (marked ? M.glyph + M.glyphGap : 0);
+      for (const line of box.labelLines) {
+        expect(textWidth(line, M.labelSize)).toBeLessThanOrEqual(inner);
+      }
+      const key = node.key ?? '';
+      const keyWidth =
+        key === ''
+          ? 0
+          : key.length * M.keyAdvance +
+            (box.sublabelLine === '' ? 0 : M.keyGap);
+      expect(
+        keyWidth + textWidth(box.sublabelLine, M.subSize)
+      ).toBeLessThanOrEqual(inner);
+    }
+  });
+
+  test('a key adds its mono line; tags add a chip row', () => {
+    const bare = measureNode({ id: 'a', label: 'A', tone: 'default' });
+    const keyed = measureNode({
+      id: 'a',
+      label: 'A',
+      key: 'ENG-1',
+      tone: 'default',
+    });
+    expect(keyed.height - bare.height).toBe(M.subGap + M.subLine);
+    const tagged = measureNode({
+      id: 'a',
+      label: 'A',
+      tone: 'default',
+      tags: [{ label: 'Overdue', tone: 'danger' }],
+    });
+    expect(tagged.height - bare.height).toBe(M.tagsGap + M.tagHeight);
+  });
+
   test('wraps by words and breaks a word wider than the line', () => {
-    expect(wrapMono('Switch read path', 10, 2)).toEqual([
+    const size = M.labelSize;
+    const fit = (text: string) => textWidth(text, size) + 0.5;
+    expect(wrapText('Switch read path', fit('read path'), size, 2)).toEqual([
       'Switch',
       'read path',
     ]);
-    expect(wrapMono('Supercalifragilistic', 8, 2)).toEqual([
-      'Supercal',
-      'ifragil…',
-    ]);
-    expect(wrapMono('one two three four five', 9, 2)).toEqual([
-      'one two',
-      'three fo…',
-    ]);
+    const broken = wrapText('Supercalifragilistic', fit('Supercal'), size, 2);
+    expect(broken[0]).toBe('Supercal');
+    expect(broken[1].endsWith('…')).toBe(true);
+    const cut = wrapText('one two three four five', fit('one two'), size, 2);
+    expect(cut[0]).toBe('one two');
+    expect(cut[1].startsWith('three')).toBe(true);
+    expect(cut[1].endsWith('…')).toBe(true);
+    for (const line of [...broken, ...cut]) {
+      expect(textWidth(line, size)).toBeLessThanOrEqual(fit('Supercal'));
+    }
+  });
+
+  test('clips to the longest prefix that fits with an ellipsis', () => {
+    expect(clipText('Atlas', 500, 12)).toBe('Atlas');
+    const clipped = clipText('Atlas billing migration', 60, 12);
+    expect(clipped.endsWith('…')).toBe(true);
+    expect(textWidth(clipped, 12)).toBeLessThanOrEqual(60);
+    expect(clipText('Atlas', 1, 12)).toBe('…');
   });
 
   test('basisPath draws straight two-point edges and curves the rest', () => {

@@ -1,52 +1,81 @@
 import type { ReactNode } from 'react';
 
-import type { UiStatus } from '../types';
+import type { TaskStateKind } from '../tasks/types';
+import type { SemanticTone, UiStatus, UiTone } from '../types';
 
 // Prop vocabulary of the graph family: a dependency graph as plain data.
 // Hosts map their own model (the planner's core DependencyGraph, Dispatch's
 // blockedBy tasks) onto these shapes in a thin adapter; nothing here knows
 // about Linear, milestones or issues.
 
-/** Node emphasis: ink hairline, the accent ("needs action"), or faint. */
-export type GraphNodeTone = 'default' | 'accent' | 'muted';
+/**
+ * Node emphasis in the §8.2 status tones (docs/architecture.md): a neutral
+ * card (default), a card tinted in a status tone (danger: overdue;
+ * warning: at risk, unassigned, needs action; success / info when a host
+ * wants them), or a quiet one (muted: closed, or inactive work). The
+ * accent is never a status: the graph keeps it for selection, keyboard
+ * focus, the lit chain and the chain's focus ring.
+ */
+export type GraphNodeTone = 'default' | 'muted' | SemanticTone;
 
 /**
- * Flags drawn on a node as mono chips. OVERDUE also floods the node with
- * the accent; CYCLE adds the dashed accent outline. Any other string is
- * shown as a plain chip.
+ * A word drawn on a node as a sentence-case Chip ("Overdue", "Unassigned",
+ * "Cycle", "+2 more"), in a §8.2 tone (default: neutral). The word is the
+ * meaning; the tone only repeats it, so it never relies on colour alone.
  */
-export type GraphNodeTag = 'UNASSIGNED' | 'OVERDUE' | 'CYCLE' | (string & {});
+export interface GraphNodeTag {
+  label: string;
+  tone?: UiTone;
+}
 
 export interface GraphNodeData {
   id: string;
   /** The name: a milestone or issue title. */
   label: string;
-  /** Mono second line: "ATLAS · DUE OCT 18", "ATL-41 · ANA". */
+  /** A short identifier printed in mono before the sublabel ("ATL-41"). */
+  key?: string;
+  /** Quiet second line: "Atlas · Oct 18", "Ana". */
   sublabel?: string;
   /** Where the node lives (open in Linear, the timeline drawer…). */
   href?: string;
-  /** Outside the requested scope (one hop away): dashed muted border. */
+  /** Outside the requested scope (one hop away): a dashed neutral edge. */
   external?: boolean;
   tone: GraphNodeTone;
+  /** A milestone-like status, drawn as StatusMark's diamond. */
   status?: UiStatus;
+  /**
+   * A task's workflow state (an issue), drawn as StateGlyph's circle
+   * instead of the status diamond, so the two never look alike.
+   */
+  state?: TaskStateKind;
+  /** Draw the status diamond in greys whatever the status (inactive
+      work is never loud); the label still names the status. */
+  statusMuted?: boolean;
   /** Human wording for the status mark ("Overdue", "In progress"). */
   statusLabel?: string;
   tags?: GraphNodeTag[];
   /**
+   * On a blocking cycle: a dashed outline in the danger tone around the
+   * box. Hosts also add a "Cycle" tag, so the word says it too.
+   */
+  inCycle?: boolean;
+  /**
    * Cluster key and label (the project). Nodes sharing a group are drawn
-   * inside one hatched frame when the graph is asked to cluster.
+   * inside one soft frame when the graph is asked to cluster.
    */
   group?: string;
 }
 
 /**
- * How an edge is drawn. One kind per edge; when several apply, hosts pick
- * in this precedence: resolved > cycle > risk > cross > default.
- * - default: 1px ink, the blocker blocks the waiting node
- * - risk: accent, part of a chain ending in an unassigned/overdue blocker
- * - cycle: dashed accent, both ends wait on each other
- * - cross: dashed ink, crosses a project (or owner) boundary
- * - resolved: --grey-3, the blocker is already closed
+ * How an edge is drawn (Gr8r's thin connectors). One kind per edge; when
+ * several apply, hosts pick in this precedence: resolved > cycle > risk >
+ * cross > default. Each kind differs by more than its colour.
+ * - default: a thin --text-3 curve, the blocker blocks the waiting node
+ * - risk: thicker, in the warning tone: part of a chain ending in an
+ *   unassigned or overdue blocker
+ * - cycle: long dashes in the danger tone: both ends wait on each other
+ * - cross: short dashes, --text-3: crosses a project (or initiative)
+ * - resolved: dotted and faint: the blocker is already closed
  */
 export type GraphEdgeKind = 'default' | 'risk' | 'cycle' | 'cross' | 'resolved';
 
@@ -56,7 +85,7 @@ export interface GraphEdgeData {
   /** The node that waits on it. */
   to: string;
   kind: GraphEdgeKind;
-  /** Relations this edge summarises; shown as a mono count when > 1. */
+  /** Relations this edge summarises; shown as a count when > 1. */
   weight?: number;
 }
 
@@ -66,7 +95,7 @@ export type GraphDirection = 'LR' | 'TB';
 export interface GraphLayoutOptions {
   direction?: GraphDirection;
   /**
-   * Draw groups as hatched frames (dagre compound clusters). Off by
+   * Draw groups as soft frames (dagre compound clusters). Off by
    * default: frames keep a project together but spread a graph with many
    * cross-group edges out, so hosts opt in where groups are few.
    */
@@ -84,7 +113,7 @@ export interface LaidOutNode {
   rank: number;
   /** The label broken into at most two lines that fit the box. */
   labelLines: string[];
-  /** The sublabel cut to fit one line. */
+  /** The sublabel cut to fit one line (after the key, when there is one). */
   sublabelLine: string;
 }
 
@@ -122,7 +151,7 @@ export interface GraphLayout {
   direction: GraphDirection;
   /** Nodes in focus order: by rank, then across the rank. */
   nodes: LaidOutNode[];
-  /** Edges in paint order: resolved first, accent kinds last (on top). */
+  /** Edges in paint order: resolved first, risk and cycle last (on top). */
   edges: LaidOutEdge[];
   groups: LaidOutGroup[];
 }
@@ -140,7 +169,8 @@ export interface UpstreamChain {
 export interface DependencyGraphProps {
   nodes: GraphNodeData[];
   edges: GraphEdgeData[];
-  /** Persistently marked node (ink fill); its chain shows when idle. */
+  /** Persistently marked node (the accent selection: a soft accent fill
+      inside an accent ring); its chain shows when idle. */
   selectedId?: string | null;
   /** Click / Enter on a node. Omit for a read-only graph. */
   onSelect?: (id: string) => void;
@@ -163,9 +193,10 @@ export interface DependencyGraphProps {
    */
   layout?: GraphLayout;
   /**
-   * The node the graph is about (one issue's chain): a 2px ink rule inside
-   * its box. It lights nothing, unlike selection; its accessible name ends
-   * with `focusLabel`. On the first paint the frame scrolls it (else the
+   * The node the graph is about (one issue's chain): a 2px accent ring
+   * standing a few px off its box (selection hugs the box instead). It
+   * lights nothing, unlike selection; its accessible name ends with
+   * `focusLabel`. On the first paint the frame scrolls it (else the
    * selected node) into the middle of the viewport.
    */
   focusId?: string | null;
@@ -188,11 +219,17 @@ export interface DependencyGraphProps {
   className?: string;
 }
 
-/** What a legend swatch draws. */
+/**
+ * What a legend swatch draws: a status diamond or a workflow-state circle
+ * (`status` / `state`, with the item's `status` / `state`), a node card in
+ * one of the graph's looks, an edge, or the count pill.
+ */
 export type GraphLegendMark =
+  | 'status'
+  | 'state'
   | 'node'
-  | 'node-accent'
-  | 'node-overdue'
+  | 'node-danger'
+  | 'node-warning'
   | 'node-external'
   | 'node-cycle'
   | 'node-muted'
@@ -206,9 +243,13 @@ export type GraphLegendMark =
 
 export interface GraphLegendItem {
   mark: GraphLegendMark;
-  /** Mono uppercase name ("RISK CHAIN"). */
+  /** For `status`: which diamond. */
+  status?: UiStatus;
+  /** For `state`: which workflow-state circle. */
+  state?: TaskStateKind;
+  /** Sentence-case name ("Risk chain"). */
   label: string;
-  /** Muted explanation ("waits on an unassigned or overdue blocker"). */
+  /** Quiet explanation ("ends in an unassigned or overdue blocker"). */
   note?: string;
 }
 
@@ -223,7 +264,7 @@ export interface GraphLegendProps {
 export interface MermaidSourceProps {
   /** The Mermaid text to copy and show. */
   source: string;
-  /** Button wording (uppercased by the style). */
+  /** Button wording. */
   copyLabel?: string;
   /** Wording during the 1600ms confirmation. */
   copiedLabel?: string;

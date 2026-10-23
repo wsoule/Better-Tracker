@@ -100,19 +100,11 @@ describe('alerts', () => {
   test('an overdue, stalled, unassigned next-milestone issue that holds others up', () => {
     const detail = detailOf('ENG-12');
     const alerts = issueAlerts(detail, TODAY, { closed: false, quiet: false });
-    expect(alerts.map((a) => a.label)).toEqual([
-      'Overdue',
-      'Holds up',
-      'Stalled',
-      'Unassigned',
-    ]);
+    // Stalled and unassigned are said once, by the toned "Time in state"
+    // and "Assignee" properties, not again as alerts.
+    expect(alerts.map((a) => a.label)).toEqual(['Overdue', 'Holds up']);
     // Status colours (architecture §8.2): overdue is danger, the rest warn.
-    expect(alerts.map((a) => a.tone)).toEqual([
-      'danger',
-      'warning',
-      'warning',
-      'warning',
-    ]);
+    expect(alerts.map((a) => a.tone)).toEqual(['danger', 'warning']);
     expect(alerts[0]?.message).toBe('Dual-write was due Oct 18, 3 days ago.');
     expect(alerts[1]?.message).toContain('Beacon search / Search v2 beta');
     // Holds up opens the issue's own blocking chain.
@@ -120,10 +112,19 @@ describe('alerts', () => {
       label: 'Graph',
       href: '/graph?chain=ENG-12',
     });
-    expect(alerts[2]?.message).toMatch(
-      /^Backlog for \d+ days with no change; Dual-write is due Oct 18, 3 days overdue\.$/
+    const facts = modelFor('ENG-12').facts;
+    expect(facts.inState).toMatchObject({
+      tone: 'warning',
+      noteTone: 'warning',
+    });
+    expect(facts.inState.note).toMatch(
+      /^Stalled: Backlog with no change since /
     );
-    expect(alerts[3]?.message).toMatch(
+    expect(facts.assignee).toMatchObject({
+      text: 'Unassigned',
+      tone: 'warning',
+    });
+    expect(facts.assignee.note).toMatch(
       /^In the next milestone, Dual-write \(due Oct 18, 3 days overdue\)/
     );
   });
@@ -191,10 +192,11 @@ describe('alerts', () => {
       project:
         detail.project === null ? null : { ...detail.project, lead: null },
     };
-    const alerts = issueAlerts(noLead, TODAY, { closed: false, quiet: false });
-    expect(alerts.find((a) => a.id === 'unassigned')?.message).toContain(
+    const assignee = modelFor('ENG-31', { detail: noLead }).facts.assignee;
+    expect(assignee.note).toContain(
       'has no lead, so nothing in it is allocated.'
     );
+    expect(assignee.noteTone).toBe('warning');
   });
 });
 
@@ -234,7 +236,7 @@ describe('buildIssueTaskModel', () => {
       text: 'Oct 19',
       tone: 'danger',
       note: '2 days overdue',
-      noteTone: 'danger',
+      noteTone: 'muted',
     });
     expect(model.facts.project.note).toBe('Lead Dev Patel');
     expect(model.facts.inState).toMatchObject({
@@ -261,7 +263,7 @@ describe('buildIssueTaskModel', () => {
     expect(due('2026-10-21')).toMatchObject({
       tone: 'warning',
       note: 'Due today',
-      noteTone: 'warning',
+      noteTone: 'muted',
     });
     expect(due('2026-10-22')).toMatchObject({
       tone: 'warning',

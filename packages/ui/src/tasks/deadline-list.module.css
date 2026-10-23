@@ -111,12 +111,6 @@
   }
 }
 
-.empty {
-  padding: 0 14px 6px;
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-
 /* "+N more": quiet, lined up with the milestone names. */
 .more {
   display: block;

@@ -15,6 +15,7 @@ import {
   PropertyList,
   SegmentedControl,
   SlideOver,
+  StateGlyph,
   StatusMark,
   Switch,
   ToastProvider,
@@ -81,6 +82,15 @@ function countCycles(fixture: GraphFixture): number {
   return fixture.edges.filter((edge) => edge.kind === 'cycle').length / 2;
 }
 
+/* A node's key and sublabel as one quiet line ("ATL-43 · Ana"), or a
+   dash when it has neither. */
+function contextOf(node: GraphNodeData): string {
+  const line = [node.key, node.sublabel]
+    .filter((part) => part !== undefined && part !== '')
+    .join(' · ');
+  return line === '' ? '—' : line;
+}
+
 /* One node in the slide-over's "Waits on" / "Blocks" lists: a row that
    re-selects that node, so the reader can walk the chain from the panel. */
 function NodeRow({
@@ -97,11 +107,21 @@ function NodeRow({
         className={styles.nodeRow}
         onClick={() => onSelect(node.id)}
       >
-        {node.status !== undefined ? (
+        {node.state !== undefined ? (
+          <span role="img" aria-label={node.statusLabel ?? ''}>
+            <StateGlyph kind={node.state} size={14} />
+          </span>
+        ) : node.status !== undefined ? (
           <StatusMark status={node.status} label={node.statusLabel ?? ''} />
-        ) : null}
+        ) : (
+          <span />
+        )}
         <span className={styles.nodeRowName}>{node.label}</span>
-        <span className={styles.nodeRowSub}>{node.sublabel}</span>
+        <span className={styles.nodeRowSub}>
+          {[node.key, node.sublabel]
+            .filter((part) => part !== undefined && part !== '')
+            .join(' · ')}
+        </span>
       </button>
     </li>
   );
@@ -162,8 +182,8 @@ function SelectionPanel({
     >
       {node === undefined ? null : (
         <div className={styles.panel}>
-          {tags.includes('OVERDUE') ? (
-            <AlertStrip label="Overdue">
+          {node.tone === 'danger' ? (
+            <AlertStrip label="Overdue" tone="danger">
               {holdsUp.length === 0
                 ? 'Past its date.'
                 : `Past its date, and ${holdsUp.length} ${holdsUp.length === 1 ? 'node waits' : 'nodes wait'} on it.`}
@@ -175,7 +195,12 @@ function SelectionPanel({
               {
                 label: 'Status',
                 value:
-                  node.status !== undefined ? (
+                  node.state !== undefined ? (
+                    <span className={styles.stateValue}>
+                      <StateGlyph kind={node.state} size={14} />
+                      {node.statusLabel ?? ''}
+                    </span>
+                  ) : node.status !== undefined ? (
                     <StatusMark
                       status={node.status}
                       label={node.statusLabel ?? ''}
@@ -185,7 +210,7 @@ function SelectionPanel({
                     '—'
                   ),
               },
-              { label: 'Context', value: node.sublabel ?? '—' },
+              { label: 'Context', value: contextOf(node) },
               {
                 label: 'Flags',
                 value:
@@ -194,11 +219,8 @@ function SelectionPanel({
                   ) : (
                     <span className={styles.chips}>
                       {tags.map((tag) => (
-                        <Chip
-                          key={tag}
-                          tone={tag === 'CYCLE' ? 'default' : 'accent'}
-                        >
-                          {tag}
+                        <Chip key={tag.label} tone={tag.tone ?? 'default'}>
+                          {tag.label}
                         </Chip>
                       ))}
                       {node.external === true ? (
@@ -246,7 +268,11 @@ function SelectionPanel({
 
 const EPIC_LEGEND: GraphLegendItem[] = [
   { mark: 'node', label: 'Task' },
-  { mark: 'node-accent', label: 'Needs you' },
+  { mark: 'status', status: 'done', label: 'Landed' },
+  { mark: 'status', status: 'on_track', label: 'Working, ready' },
+  { mark: 'status', status: 'at_risk', label: 'Needs you' },
+  { mark: 'status', status: 'missing', label: 'Draft' },
+  { mark: 'node-warning', label: 'Needs you' },
   { mark: 'node-muted', label: 'Landed' },
   { mark: 'edge-default', label: 'Blocks' },
   { mark: 'edge-risk', label: 'Waits on you' },
@@ -260,7 +286,7 @@ const CHAIN_LEGEND: GraphLegendItem[] = [
     label: 'Focus',
     note: 'the issue this chain is about',
   },
-  { mark: 'node-accent', label: 'Needs action', note: 'open and unassigned' },
+  { mark: 'node-warning', label: 'Needs action', note: 'open and unassigned' },
   { mark: 'edge-default', label: 'Blocks' },
   {
     mark: 'edge-risk',
@@ -289,7 +315,6 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
     <main className={`page ${styles.page}`}>
       <div className="block">
         <BlockBar
-          index="00"
           title="UI gallery · graph"
           meta={
             <span className={styles.barMeta}>
@@ -302,16 +327,15 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         />
       </div>
 
-      <section className="block" aria-labelledby="graph-page">
+      <section className={`block ${styles.stack}`} aria-labelledby="graph-page">
         <BlockBar
-          index="01"
           title="Dependencies"
           meta={`${fixture.nodes.length} nodes · ${fixture.edges.length} edges · ${countCycles(fixture)} cycle`}
         />
         <h2 id="graph-page" className="srOnly">
           Dependency graph, {fixture.title}
         </h2>
-        <GraphLegend />
+        <GraphLegend className={styles.legend} />
         <DependencyGraph
           nodes={fixture.nodes}
           edges={fixture.edges}
@@ -363,16 +387,19 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         />
       </section>
 
-      <section className="block" aria-labelledby="graph-epic">
+      <section className={`block ${styles.stack}`} aria-labelledby="graph-epic">
         <BlockBar
-          index="02"
-          title="Read-only · top to bottom"
+          title="Read-only, top to bottom"
           meta="Dispatch epic shape · no selection · focus still lights the chain"
         />
         <h2 id="graph-epic" className="srOnly">
           A read-only epic graph, top to bottom
         </h2>
-        <GraphLegend items={EPIC_LEGEND} label="Epic graph legend" />
+        <GraphLegend
+          className={styles.legend}
+          items={EPIC_LEGEND}
+          label="Epic graph legend"
+        />
         <DependencyGraph
           nodes={EPIC_NODES}
           edges={EPIC_EDGES}
@@ -383,16 +410,22 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         />
       </section>
 
-      <section className="block" aria-labelledby="graph-chain">
+      <section
+        className={`block ${styles.stack}`}
+        aria-labelledby="graph-chain"
+      >
         <BlockBar
-          index="03"
-          title="Chain · focus"
-          meta="One issue's chain · focusId ruled · +2 MORE leads on · precomputed layout"
+          title="Chain and focus"
+          meta="One issue’s chain · focusId ringed · “+2 more” leads on · precomputed layout"
         />
         <h2 id="graph-chain" className="srOnly">
           {CHAIN_GRAPH.title}
         </h2>
-        <GraphLegend items={CHAIN_LEGEND} label="Chain graph legend" />
+        <GraphLegend
+          className={styles.legend}
+          items={CHAIN_LEGEND}
+          label="Chain graph legend"
+        />
         <DependencyGraph
           nodes={CHAIN_GRAPH.nodes}
           edges={CHAIN_GRAPH.edges}
@@ -404,8 +437,11 @@ function Gallery({ themeToggle }: { themeToggle: ReactNode }) {
         />
       </section>
 
-      <section className="block" aria-labelledby="graph-empty">
-        <BlockBar index="04" title="Empty" meta="emptyMessage" />
+      <section
+        className={`block ${styles.stack}`}
+        aria-labelledby="graph-empty"
+      >
+        <BlockBar title="Empty" meta="emptyMessage" />
         <h2 id="graph-empty" className="srOnly">
           Empty graph
         </h2>

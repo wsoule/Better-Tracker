@@ -7,21 +7,27 @@ import styles from './picker-mark.module.css';
 import { avatarHue, initials, isHexColor } from './shared';
 import type { PickerMark } from './types';
 
+/* The person glyph inside an empty (nobody) avatar, per avatar size. */
+const EMPTY_ICON_SIZE = { sm: 11, base: 12, md: 14, lg: 18 } as const;
+
 /**
  * A person as Gr8r draws them: a round avatar with their initials on a
  * pastel tint of a hue picked from the name (decoration: the name is always
  * printed beside it). A blank name is nobody: a dashed empty circle, the
  * way an unassigned slot looks. `size` is 20px (sm) in a picker row or
- * trigger, 26px (md) beside a comment. Shared by the pickers and the
- * comment list.
+ * trigger, 22px (base) in the sidebar footer, 26px (md) beside a comment
+ * or in a list of people, 36px (lg) as a header. The one avatar of the
+ * package and its hosts, so a person reads the same colour everywhere.
  */
+export interface InitialsAvatarProps {
+  name: string;
+  size?: 'sm' | 'base' | 'md' | 'lg';
+}
+
 export function InitialsAvatar({
   name,
   size = 'sm',
-}: {
-  name: string;
-  size?: 'sm' | 'md';
-}): ReactNode {
+}: InitialsAvatarProps): ReactNode {
   const empty = name.trim() === '';
   return (
     <span
@@ -34,7 +40,7 @@ export function InitialsAvatar({
     >
       {empty ? (
         <User
-          size={size === 'md' ? 14 : 11}
+          size={EMPTY_ICON_SIZE[size]}
           strokeWidth={1.8}
           aria-hidden="true"
         />

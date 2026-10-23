@@ -4,6 +4,7 @@ import { Button, Link } from '@better-tracker/ui';
 import {
   CalendarX,
   ChevronDown,
+  CircleAlert,
   Inbox,
   type LucideIcon,
   OctagonPause,
@@ -27,14 +28,17 @@ const BANNER_ICON: Record<TimelineBannerId, LucideIcon> = {
 };
 
 /* The timeline's missing-input banners (architecture §8.4: no lead, no
-   date, unplanned issues, blocked projects) as Gr8r's tinted callouts,
-   one per banner, stacked close: the tone's soft fill (warning for a
-   missing input or a blocked project, info for unplanned issues, from the
-   adapter), an icon in the hue, the lead-in, one sentence with the count,
-   and a quiet Show / Hide that expands the list it counts. Rows open the
-   lane or the milestone drawer through `hrefFor`, which keeps the current
-   filters in the URL; issue keys open Linear in a new tab. Banners at zero
-   are not rendered (the adapter leaves them out). */
+   date, unplanned issues, blocked projects) as one Gr8r panel with a
+   divider row per banner, never a stack of tinted boxes: an icon in the
+   banner's hue (warning for a missing input or a blocked project, info for
+   unplanned issues, from the adapter, as data-tone), the lead-in in the
+   tone's ink, one sentence with the count, and a quiet Show / Hide that
+   expands the list it counts. On a phone (≤ 640px) the panel folds into
+   one row ("4 missing inputs", the lead-ins, Show) so the chart's cards
+   start on the first screen. Rows open the lane or the milestone drawer
+   through `hrefFor`, which keeps the current filters in the URL; issue
+   keys open Linear in a new tab. Banners at zero are not rendered (the
+   adapter leaves them out). */
 export default function TimelineBanners({
   banners,
   hrefFor,
@@ -42,10 +46,55 @@ export default function TimelineBanners({
   banners: TimelineBanner[];
   hrefFor: (selection: TimelineSelection) => string;
 }) {
+  const [phoneOpen, setPhoneOpen] = useState(false);
+  const rowsId = useId();
   if (banners.length === 0) return null;
+  // The phone row takes the loudest tone among the banners.
+  const tone = banners.some((banner) => banner.tone === 'warning')
+    ? 'warning'
+    : (banners[0]?.tone ?? 'warning');
   return (
-    <section className={css.banners} aria-label="Missing inputs">
-      <ul className={css.bannerRows}>
+    <section
+      className={css.bannerPanel}
+      aria-label="Missing inputs"
+      data-collapsed={phoneOpen ? undefined : 'true'}
+    >
+      {/* Phone only (CSS): the folded panel's one row. */}
+      <div className={css.bannerSummary} data-tone={tone}>
+        <CircleAlert
+          className={css.bannerIcon}
+          size={15}
+          strokeWidth={1.8}
+          aria-hidden="true"
+        />
+        <span className={css.bannerKey}>
+          {banners.length === 1
+            ? '1 missing input'
+            : `${banners.length} missing inputs`}
+        </span>
+        <span className={css.bannerSummaryText}>
+          {banners.map((banner) => banner.label).join(' · ')}
+        </span>
+        <span className={css.bannerAction}>
+          <Button
+            size="sm"
+            variant="quiet"
+            iconAfter={
+              <ChevronDown
+                size={14}
+                strokeWidth={1.8}
+                style={phoneOpen ? { transform: 'rotate(180deg)' } : undefined}
+              />
+            }
+            aria-expanded={phoneOpen}
+            aria-controls={rowsId}
+            onClick={() => setPhoneOpen((was) => !was)}
+          >
+            {phoneOpen ? 'Hide' : 'Show'}
+          </Button>
+        </span>
+      </div>
+      <ul id={rowsId} className={css.bannerRows}>
         {banners.map((banner) => (
           <BannerRow key={banner.id} banner={banner} hrefFor={hrefFor} />
         ))}

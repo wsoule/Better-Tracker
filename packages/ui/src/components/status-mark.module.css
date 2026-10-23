@@ -5,27 +5,75 @@
   vertical-align: middle;
 }
 
-/* A 12px round mark in the status hue, Gr8r's status-icon shapes: a ring
-   for open states, a filled disc for closed ones, half filled for "watch
-   it", dashed for "not planned yet". Shape and hue both carry the status,
-   so it survives colour blindness and greyscale. */
+/* A milestone's status as a 12px diamond (the milestone symbol the
+   timeline already draws), so it never reads as an issue's workflow glyph
+   (those are circles, task-glyphs). The shape carries the status as well
+   as the hue, so it survives colour blindness, greyscale and forced
+   colours:
+     overdue          solid diamond, red
+     at risk          bottom half filled, amber
+     on track         outline, green
+     complete         solid with a tick knocked out, green
+     missing input    dotted outline, --text-3
+     muted (inactive) outline, --gray
+   The box stays a 12px square for layout; `::before` is the diamond, a
+   square whose corners touch the box (inset = (1 - 1/√2) / 2 ≈ 14.6%)
+   turned 45°. Every size but the edge is relative, so a smaller box (10px
+   in a chip) shrinks the whole mark. The edge is 2px, as on the
+   timeline's diamonds (timeline-bar.module.css): Chrome snaps a 1.5px
+   border down to 1px at 1x, and a 1px outline turned 45° washes out
+   under 3:1 in the greys. */
 .mark {
   position: relative;
   display: block;
   flex: 0 0 12px;
   width: 12px;
   height: 12px;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
   color: var(--gray);
-  transition:
-    color var(--dur) ease,
-    background-color var(--dur) ease;
+  transition: color var(--dur) ease;
 }
 
-/* Complete: a green disc with a tick knocked out in the surface colour. */
+.mark::before {
+  content: '';
+  position: absolute;
+  inset: 14.6%;
+  border: 2px solid currentColor;
+  border-radius: 2px;
+  background: transparent;
+  transform: rotate(45deg);
+}
+
+/* Overdue: a solid red diamond. */
+.overdue {
+  color: var(--red);
+}
+
+.overdue::before {
+  background: currentColor;
+}
+
+/* At risk: amber, the bottom half filled. The square is turned 45°
+   clockwise, so its bottom-right half is the diamond's lower half. */
+.at_risk {
+  color: var(--amber);
+}
+
+.at_risk::before {
+  background: linear-gradient(135deg, transparent 50%, currentColor 50%);
+}
+
+/* On track: an open green diamond. */
+.on_track {
+  color: var(--green);
+}
+
+/* Complete: a solid green diamond with a tick knocked out in the surface
+   colour (the tick is what tells it from overdue without colour). */
 .done {
   color: var(--green);
+}
+
+.done::before {
   background: currentColor;
 }
 
@@ -34,41 +82,30 @@
   position: absolute;
   left: 50%;
   top: 45%;
-  width: 3px;
-  height: 5.5px;
+  width: 22%;
+  height: 42%;
   border: solid var(--surface);
   border-width: 0 1.5px 1.5px 0;
   transform: translate(-50%, -50%) rotate(45deg);
 }
 
-/* On track: an open green ring. */
-.on_track {
-  color: var(--green);
-}
-
-/* At risk: amber, right half filled (Gr8r's "in progress" shape). */
-.at_risk {
-  color: var(--amber);
-  background: linear-gradient(90deg, transparent 50%, currentColor 50%);
-}
-
-/* Overdue: a solid red disc. */
-.overdue {
-  color: var(--red);
-  background: currentColor;
-}
-
-/* An input is missing (no date, no issues, a rubric gap): a dashed grey
-   ring, like Gr8r's backlog. Not loud by itself; the copy says what is
-   missing (in the warning tone where it blocks something). */
+/* An input is missing (no date, no issues, a rubric gap): a dotted
+   outline, the timeline's missing diamond (a 2px dash closes up on a side
+   this short and reads as the muted outline). Not loud by itself; the
+   copy says what is missing (in the warning tone where it blocks
+   something). */
 .missing {
   color: var(--text-3);
-  border-style: dashed;
 }
 
-/* An inactive project: an open ring in the faint grey (never loud). */
+.missing::before {
+  border-style: dotted;
+}
+
+/* An inactive project's milestone (or any mark asked to be quiet): an
+   open grey diamond, never loud. --gray stays above 3:1 on every surface. */
 .muted {
-  color: var(--text-4);
+  color: var(--gray);
 }
 
 .text {
@@ -76,6 +113,19 @@
   font-weight: var(--fw-medium);
   color: var(--text);
   white-space: nowrap;
+}
+
+/* Forced colours drop backgrounds, which would erase the solid and half
+   fills: keep the shapes and draw them in the system text colour. */
+@media (forced-colors: active) {
+  .mark {
+    forced-color-adjust: none;
+    color: CanvasText;
+  }
+
+  .done::after {
+    border-color: Canvas;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

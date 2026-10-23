@@ -1,13 +1,26 @@
-/* The dependency graph as a technical figure (architecture §8.4 Graph):
-   a toolbar strip and a hairline frame that scrolls inside itself, both
-   collapsing into whatever sits above with -1px. Box metrics (padding,
-   font sizes, line heights) mirror GRAPH_METRICS in layout.ts: the layout
-   sizes every box from these numbers, so change them together. */
+/* The dependency graph in Gr8r's look (architecture §8.4 Graph): one
+   --r-lg panel holding a flat toolbar over a recessed canvas (--sunken,
+   Gr8r's board well) that scrolls inside itself. Nodes are rounded cards
+   on it; edges are thin curved connectors. Box metrics (padding, font
+   sizes, line heights) mirror GRAPH_METRICS in layout.ts: the layout
+   sizes every box from these numbers, so change them together.
+
+   Colour rules (§8.2): status and risk in the semantic tones (a card's
+   data-tone gives --tone: danger overdue, warning at risk / unassigned;
+   risk chains amber, cycles red), never the accent; the accent is the
+   selection, the lit chain, keyboard focus and the chain's focus ring.
+   Every mark, edge and ring stays at 3:1 or more against the canvas in
+   both themes, also while a chain is lit (the lit chain gains weight and
+   rings; nothing else loses contrast), and none relies on colour alone:
+   cycles, crossings and externals are dashed, resolved edges dotted, risk
+   lines heavier, and every node says its flags in words. */
 
 .graph {
   min-width: 0;
   max-width: 100%;
-  margin-top: -1px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 /* ---- toolbar ------------------------------------------------------------ */
@@ -16,11 +29,10 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px 16px;
-  min-height: 48px;
-  padding: 8px 8px 8px 18px;
-  border: 1px solid var(--border);
-  background: var(--background);
+  gap: 6px 16px;
+  min-height: 44px;
+  padding: 6px 8px 6px 12px;
+  border-bottom: 1px solid var(--border);
 }
 
 .toolbarStart {
@@ -33,16 +45,16 @@
 
 .hint {
   margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
   white-space: nowrap;
 }
 
+/* Gr8r's ghost icon buttons around a quiet percentage. */
 .zoom {
   display: flex;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
 }
 
@@ -55,77 +67,60 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 30px;
-  min-width: 30px;
-  margin-left: -1px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  gap: 5px;
+  height: var(--h-sm);
+  min-width: var(--h-sm);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
+  color: var(--text-2);
 }
 
 .zoomButton {
-  padding: 0 7px;
+  padding: 0 5px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease;
-}
-
-.zoomButton:first-child {
-  margin-left: 0;
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .zoomButton:disabled {
-  color: var(--grey-3);
+  color: var(--text-4);
   cursor: not-allowed;
 }
 
-/* The buttons overlap by 1px, so a later sibling would paint over the
-   focus ring's far edge; lift the focused one above its neighbours. */
-.zoomButton:focus-visible {
-  position: relative;
-  z-index: 1;
-}
-
 .zoomValue {
-  min-width: 54px;
-  padding: 0 8px;
-  letter-spacing: 0.06em;
+  min-width: 44px;
 }
 
 .fitButton {
-  padding: 0 10px 0 9px;
+  padding: 0 8px 0 6px;
 }
 
 @media (hover: hover) and (width >= 901px) {
   .zoomButton:not(:disabled):hover {
-    background: var(--accent);
-    color: var(--on-accent);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
-/* ---- the frame ---------------------------------------------------------- */
+/* ---- the canvas ----------------------------------------------------------- */
 
 /* Fixed footprint from the layout's height at 100% (plus room for a thin
    scrollbar), capped by the viewport: zooming changes what is inside the
-   frame, never the page around it. */
+   frame, never the page around it. The bottom corners follow the panel's. */
 .viewport {
   position: relative;
   display: grid;
   height: clamp(220px, calc(var(--graph-h) + 12px), min(70vh, 720px));
-  margin-top: -1px;
   overflow: auto;
-  border: 1px solid var(--border);
-  background: var(--background);
+  border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
+  background: var(--sunken);
   cursor: grab;
   scrollbar-width: thin;
-  scrollbar-color: var(--grey-3) transparent;
+  scrollbar-color: var(--border-strong) transparent;
 }
 
 .viewport[data-panning] {
@@ -151,36 +146,26 @@
 
 .group {
   position: absolute;
-  border: 1px solid var(--hairline-faint);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--hatch) 0,
-    var(--hatch) 1px,
-    transparent 1px,
-    transparent 9px
-  );
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   pointer-events: none;
 }
 
-/* The title sits on the frame's top rule like a drawing's sheet label. */
+/* The title interrupts the frame's top edge. */
 .groupTitle {
   position: absolute;
   top: 0;
   left: 10px;
   max-width: calc(100% - 20px);
-  padding: 2px 6px;
+  padding: 0 6px;
   overflow: hidden;
   transform: translateY(-50%);
-  border: 1px solid var(--hairline-faint);
-  background: var(--background);
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 12px;
-  letter-spacing: 0.14em;
+  background: var(--sunken);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  line-height: 16px;
   text-overflow: ellipsis;
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -194,15 +179,16 @@
   pointer-events: none;
 }
 
+/* Gr8r's connectors: a thin --text-3 curve (5.2:1 on the canvas). */
 .edge {
-  color: var(--foreground);
-  transition: opacity 0.15s ease;
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
 }
 
 .edgeLine {
   fill: none;
   stroke: currentcolor;
-  stroke-width: 1;
+  stroke-width: 1.25;
 }
 
 .edgeArrow {
@@ -210,48 +196,87 @@
   stroke: none;
 }
 
-.edgeRisk,
+/* A risk chain: the warning hue and a heavier line (weight, not only
+   colour, tells it from an ordinary edge). */
+.edgeRisk {
+  color: var(--amber);
+}
+
+.edgeRisk .edgeLine {
+  stroke-width: 2;
+}
+
+/* A cycle: long dashes in the danger hue. */
 .edgeCycle {
-  color: var(--accent);
+  color: var(--red);
 }
 
 .edgeCycle .edgeLine {
-  stroke-dasharray: 5 3;
+  stroke-dasharray: 6 3.5;
 }
 
+/* Across a project (or initiative): short dashes. */
 .edgeCross .edgeLine {
   stroke-dasharray: 3 3;
 }
 
+/* Resolved (the blocker is closed): faint and dotted, a step past
+   --text-4 toward --text-3 so the 2px dots still read 3:1 or more on the
+   canvas once antialiased. */
 .edgeResolved {
-  color: var(--grey-3);
+  color: color-mix(in srgb, var(--text-4) 70%, var(--text-3));
 }
 
+.edgeResolved .edgeLine {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 0.1 4;
+}
+
+/* The count of relations on an edge: a small surface pill outlined in the
+   edge's colour; the figure stays text-safe on every kind. */
 .weight rect {
-  fill: var(--background);
+  fill: var(--surface);
   stroke: currentcolor;
   stroke-width: 1;
 }
 
 .weight text {
-  fill: currentcolor;
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  font-weight: 700;
+  fill: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
 }
 
-/* 2px is emphasis: spent on the chain being read. */
+.edgeRisk .weight text,
+.edgeCycle .weight text {
+  fill: currentcolor;
+}
+
+/* The chain being read: heavier lines, ordinary ones in --text. */
 .edge.lit .edgeLine {
   stroke-width: 2;
 }
 
-.edge.dim {
-  opacity: 0.16;
+.edgeRisk.lit .edgeLine {
+  stroke-width: 2.75;
 }
+
+.edgeDefault.lit,
+.edgeCross.lit {
+  color: var(--text);
+}
+
+/* The rest keep their resting look (colour, weight, dashes): lighter or
+   thinner would drop an antialiased curve under 3:1 on the canvas, and a
+   risk chain or a cycle elsewhere stays one while another chain is read. */
 
 /* ---- nodes -------------------------------------------------------------- */
 
+/* Gr8r's card: --surface, a soft --border, --r-sm, 10px by 12px. The
+   card's edge is decoration (its words name it); everything that carries
+   a meaning (tone edge, dashes, rings, marks) clears 3:1. */
 .node {
   position: absolute;
   display: flex;
@@ -259,15 +284,15 @@
   gap: 8px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--foreground);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
   text-align: left;
   cursor: pointer;
   transition:
-    background-color 0.2s ease,
-    color 0.2s ease,
-    border-color 0.2s ease,
-    opacity 0.15s ease;
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
 
 div.node {
@@ -283,40 +308,40 @@ div.node {
   position: relative;
   width: 100%;
   height: 100%;
+  text-decoration: none;
 }
 
-/* Status in the Mark idiom (see components/status-mark), drawn here at
-   11px so it can follow a node's local token swap. */
-.glyph {
-  flex: 0 0 11px;
-  width: 11px;
-  height: 11px;
-  margin-top: 2.5px;
-  border: 1px solid var(--border);
+/* A status tone (data-tone on the node or its wrapper gives --tone):
+   the hue at 6% over the surface (light enough for a tinted Chip and
+   --text-3 to keep 4.5:1 on it) inside a 1px edge in the full hue. */
+.toneStatus {
+  border-color: var(--tone);
+  background: color-mix(in srgb, var(--tone) 6%, var(--surface));
 }
 
-.done {
-  background: var(--foreground);
+/* Closed, or inactive work: the title steps back to --text-2. */
+.toneMuted .label {
+  color: var(--text-2);
 }
 
-.at_risk {
-  border: 2px solid var(--accent);
+/* Outside the scope: a dashed neutral edge (a dashed tone edge when it
+   carries a status). */
+.external {
+  border-style: dashed;
 }
 
-.overdue {
-  border-color: var(--accent);
-  background: var(--accent);
+.external:not(.toneStatus) {
+  border-color: var(--text-4);
 }
 
-.missing {
-  border-color: var(--muted);
-  background-image: repeating-linear-gradient(
-    45deg,
-    var(--muted) 0,
-    var(--muted) 1px,
-    transparent 1px,
-    transparent 3px
-  );
+/* The status diamond or workflow-state circle, centred on the first
+   18px line of the title. */
+.mark {
+  display: inline-flex;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
 }
 
 .text {
@@ -329,10 +354,9 @@ div.node {
 .label {
   display: flex;
   flex-direction: column;
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 16px;
+  font-size: var(--fs);
+  font-weight: var(--fw-medium);
+  line-height: 18px;
 }
 
 .line,
@@ -343,190 +367,143 @@ div.node {
 }
 
 .sublabel {
-  margin-top: 3px;
-  color: var(--muted);
+  display: block;
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An issue key: the one mono voice. */
+.key {
+  margin-right: 6px;
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
-  line-height: 13px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--fs-2xs);
 }
 
 .tags {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
-  margin-top: 7px;
+  margin-top: 8px;
 }
 
-.tag {
-  padding: 0 5px;
-  border: 1px solid var(--border);
-  font-family: var(--font-mono);
-  font-size: 8.5px;
-  font-weight: 700;
-  line-height: 13px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  white-space: nowrap;
+/* ---- rings ----------------------------------------------------------------
+   Drawn as bordered boxes, not shadows, so forced colours keep them. */
+
+.ring,
+.focusRing,
+.cycleRing {
+  position: absolute;
+  pointer-events: none;
 }
 
-.tagAccent {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-/* ---- node marks ----------------------------------------------------------- */
-
-/* Accent tone: needs action (unassigned, at risk). 2px, so padding gives
-   the extra pixel back and the content never moves. */
-.toneAccent {
-  padding: 9px 11px;
+/* Selection and the lit chain: a 2px accent ring over the card's edge
+   (4.2:1 on the light canvas, 3.9:1 on the dark). */
+.ring {
+  display: none;
+  inset: -2px;
   border: 2px solid var(--accent);
+  border-radius: calc(var(--r-sm) + 1px);
 }
 
-.toneMuted {
-  border-color: var(--grey-3);
-  color: var(--muted);
+.selected .ring,
+.lit .ring,
+.active .ring {
+  display: block;
 }
 
-/* Outside the scope: present for context, drawn in a lighter hand. */
-.external {
-  border-style: dashed;
-  border-color: var(--muted);
-}
-
-/* Overdue floods the box with the accent. The tokens swap locally so the
-   glyph, sublabel and chips inside follow without per-element rules. */
-.node.overdueNode {
-  --foreground: var(--on-accent);
-  --border: var(--on-accent);
-  --muted: var(--on-accent);
-
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.node.overdueNode .glyph.overdue,
-.node.overdueNode .tagAccent {
-  border-color: var(--on-accent);
-  background: var(--on-accent);
-  color: var(--accent);
-}
-
-/* An overdue box outside the scope keeps its dashes: drawn in the paper
-   colour on the flood, where an accent dash would vanish. */
-.node.overdueNode.external {
-  border-color: var(--on-accent);
-}
-
-/* In a cycle: a dashed accent outline drawn just outside the box, so it
-   survives the focus ring and the hover flood. */
-.cycle::before {
-  content: '';
-  position: absolute;
-  inset: -5px;
-  border: 1px dashed var(--accent);
-  pointer-events: none;
-}
-
-/* The node the graph is about (focusId): a 2px ink rule drawn 2px inside
-   the box, a drawing's double frame. It reads apart from the accent tone
-   and the lit chain's 2px border, sits inside the cycle outline and the
-   focus ring, and follows the local --foreground swaps (selected, overdue,
-   hover), so it never disappears into a flood. */
-.focus::after {
-  content: '';
-  position: absolute;
-  inset: 2px;
-  border: 2px solid var(--foreground);
-  pointer-events: none;
-}
-
-/* Selected: the tab strip's ink fill, by swapping paper and ink locally. */
+/* Selected: Gr8r's selected-row tint inside the ring. */
 .node.selected {
-  --background: var(--ink);
-  --foreground: var(--paper);
-  --accent-ink: var(--accent-ink-inverse);
-  --accent-ink-hover: var(--accent-ink-inverse);
-  --grey-2-ink: var(--muted-inverse);
-  --border: var(--paper);
-  --muted: var(--muted-inverse);
-
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
 }
 
-/* On the ink fill the overdue mark and the accent chip go back to the
-   accent: the overdue flood's white-on-accent swap would read as a
-   paper square (invisible on dark ink). */
-.node.selected .glyph.overdue,
-.node.selected .tagAccent {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--on-accent);
+/* The node a chain is about (focusId): a 2px accent ring standing 3px
+   off the card, so it reads apart from the hugging selection ring and
+   lights nothing. Keyboard focus (the global outline, 1px out) fills
+   the gap, so focusing it still shows. */
+.focusRing {
+  inset: -6px;
+  border: 2px solid var(--accent);
+  border-radius: calc(var(--r-sm) + 5px);
 }
 
-/* The chain being read: 2px rules on its boxes, everything else recedes. */
-.node.lit,
-.node.active {
-  padding: 9px 11px;
-  border-width: 2px;
+/* On a blocking cycle: a dashed outline in the danger hue just outside
+   everything else (pushed out past a focus ring). */
+.cycleRing {
+  inset: -6px;
+  border: 1.5px dashed var(--red);
+  border-radius: calc(var(--r-sm) + 5px);
 }
 
-.node.dim {
-  opacity: 0.22;
+[data-focus] .cycleRing {
+  inset: -10px;
+  border-radius: calc(var(--r-sm) + 9px);
+}
+
+/* The rest of the graph while a chain is lit: the title steps back,
+   neutral edges soften; marks, tone edges and chips keep their meaning
+   and contrast. */
+.node.dim .label {
+  color: var(--text-2);
+}
+
+.node.dim:not(.toneStatus, .external) {
+  border-color: var(--divider);
 }
 
 @media (hover: hover) and (width >= 901px) {
-  .node:not(.selected):hover {
-    --foreground: var(--on-accent);
-    --border: var(--on-accent);
-    --muted: var(--on-accent);
-
-    border-color: var(--accent);
-    background: var(--accent);
-    color: var(--on-accent);
-  }
-
-  .node.overdueNode:not(.selected):hover {
-    border-color: var(--accent-hover);
-    background: var(--accent-hover);
-  }
-
-  .node:not(.selected):hover .glyph.overdue,
-  .node:not(.selected):hover .tagAccent {
-    border-color: var(--on-accent);
-    background: var(--on-accent);
-    color: var(--accent);
+  .node:not(.selected, .toneStatus):hover {
+    background: var(--surface-2);
   }
 }
 
 /* ---- empty -------------------------------------------------------------- */
 
 .emptyState {
-  margin-top: -1px;
+  margin: 0;
 }
 
 /* ---- phone -------------------------------------------------------------- */
 
 @media (width <= 900px) {
   .toolbar {
-    padding: 8px 8px 8px 14px;
+    padding: 6px 6px 6px 10px;
   }
 
-  /* Touch pans natively; the pointer hint would be wrong here. */
+  /* Touch pans natively; the pointer hint would be wrong here, and the
+     zoom group keeps to the right without it. */
   .hint {
     display: none;
+  }
+
+  .hint + .zoom {
+    margin-left: auto;
   }
 
   .viewport {
     height: clamp(220px, calc(var(--graph-h) + 12px), 64vh);
     cursor: auto;
+  }
+}
+
+/* Forced colours drop fills and shadows: the rings take the system
+   highlight, the cycle outline the text colour, and the selection a
+   heavier ring, so every state still shows. */
+@media (forced-colors: active) {
+  .ring,
+  .focusRing {
+    border-color: Highlight;
+  }
+
+  .cycleRing {
+    border-color: CanvasText;
+  }
+
+  .selected .ring {
+    inset: -3px;
+    border-width: 3px;
   }
 }
 

@@ -2,6 +2,7 @@
 
 import {
   Ellipsis,
+  Folder,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -24,6 +25,8 @@ import {
 
 import StatusMark from '../components/status-mark';
 import ThemeToggle from '../components/theme-toggle';
+import { InitialsAvatar } from '../edit/picker-mark';
+import { initials } from '../edit/shared';
 import { Link } from '../lib/link';
 import styles from './app-shell.module.css';
 import { useOptionalCommandPalette } from './command-palette';
@@ -39,8 +42,8 @@ import {
   useScrollLock,
   writeStorage,
 } from './dom';
-import { KbdKeys } from './kbd';
-import { cx, initials, renderIcon } from './render';
+import { Kbd, KbdKeys } from './kbd';
+import { cx, renderIcon } from './render';
 import type {
   AppShellProps,
   ShellNavItem,
@@ -87,7 +90,13 @@ function NavRow({ item }: { item: ShellNavItem }): ReactNode {
   );
 }
 
-/* A titled sidebar list (Projects): status mark + name per row. */
+/* A titled sidebar list (Projects), Gr8r's quiet project rows: a grey
+   tile with a folder, the name, and the status mark (a diamond) on the
+   right only for a milestone that needs attention (overdue, at risk), so
+   the chrome is not a column of coloured marks. Every row's status is in
+   its accessible name and its rail tooltip. */
+const LOUD_STATUSES: ReadonlySet<string> = new Set(['overdue', 'at_risk']);
+
 function SectionList({
   section,
   headingId,
@@ -120,13 +129,25 @@ function SectionList({
             <li key={item.id} data-tip={`${item.label} · ${item.statusLabel}`}>
               <Link
                 href={item.href}
-                className={cx(styles.item, styles.sectionItem)}
+                className={styles.item}
                 aria-current={item.current === true ? 'page' : undefined}
               >
                 <span className={styles.icon}>
-                  <StatusMark status={item.status} label={item.statusLabel} />
+                  <span className={styles.projectTile} aria-hidden="true">
+                    <Folder size={12} strokeWidth={1.8} aria-hidden="true" />
+                  </span>
                 </span>
-                <span className={styles.label}>{item.label}</span>
+                <span className={styles.label}>
+                  {item.label}
+                  {LOUD_STATUSES.has(item.status) ? null : (
+                    <span className="srOnly">{`, ${item.statusLabel}`}</span>
+                  )}
+                </span>
+                {LOUD_STATUSES.has(item.status) ? (
+                  <span className={styles.projectStatus}>
+                    <StatusMark status={item.status} label={item.statusLabel} />
+                  </span>
+                ) : null}
               </Link>
             </li>
           ))}
@@ -139,9 +160,7 @@ function SectionList({
 function UserBlock({ user }: { user: ShellUser }): ReactNode {
   const inner = (
     <>
-      <span className={styles.avatar} aria-hidden="true">
-        {initials(user.name)}
-      </span>
+      <InitialsAvatar name={user.name} size="base" />
       <span className={styles.userName}>{user.name}</span>
       {user.badge !== undefined && user.badge !== '' ? (
         <span className={styles.badge}>{user.badge}</span>
@@ -345,6 +364,9 @@ export default function AppShell({
       className={styles.shell}
       data-drawer={drawerOpen ? 'open' : 'closed'}
       data-shell-tabbar={hasTabs ? 'true' : undefined}
+      data-shell-banner={
+        banner !== undefined && banner !== null ? 'true' : undefined
+      }
     >
       <Link href={`#${mainId}`} className="skipLink">
         Skip to content
@@ -556,7 +578,10 @@ export default function AppShell({
             >
               <Search size={13} strokeWidth={1.8} aria-hidden="true" />
               <span className={styles.searchLabel}>{searchLabel}</span>
-              <KbdKeys keys={[mod, 'K']} className={styles.searchKeys} />
+              {/* One cap for the chord, as Gr8r prints it ("⌘K"). */}
+              <Kbd className={styles.searchKeys}>
+                {mod === '⌘' ? '⌘K' : `${mod} K`}
+              </Kbd>
             </button>
           ) : null}
           {topbarActions !== undefined && topbarActions !== null ? (

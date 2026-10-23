@@ -67,9 +67,22 @@
   color: var(--text-4);
 }
 
+/* The crumbs clip (overflow: hidden, for the ellipsis), so a ring drawn
+   outside a link would be cut away: the link gets 3px of side padding and
+   its focus ring is drawn inside it, with the text turning --text and
+   underlined as a second cue (WCAG 2.4.7). */
 .link {
+  padding: 1px 3px;
+  border-radius: var(--r-xs);
   color: var(--text-2);
   transition: color var(--dur) ease;
+}
+
+.link:focus-visible {
+  outline-offset: -2px;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 @media (hover: hover) and (width >= 901px) {

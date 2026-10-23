@@ -191,14 +191,14 @@ function shellSheet(name: string): string {
 }
 
 describe('drawer sheets', () => {
-  test('the drawer edge takes --border-strong in dark, where the shadow fades', () => {
+  test('the drawer edge comes from a token, not a dark-ancestor selector', () => {
+    // A light [data-bt-ui] wrapper inside a dark <html> must keep the light
+    // edge, so the dark look lives in the token blocks (--drawer-edge is
+    // --border-strong there), never in `[data-theme='dark'] .panel`.
     const css = shellSheet('slide-over.module.css');
-    expect(css).toMatch(
-      /:global\(\[data-theme='dark'\]\) \.panel \{\s*border-left-color: var\(--border-strong\);/
-    );
-    expect(css).toMatch(
-      /prefers-color-scheme: dark\) \{\s*:global\(\[data-theme='system'\]\) \.panel \{\s*border-left-color: var\(--border-strong\);/
-    );
+    expect(css).toContain('border-left: 1px solid var(--drawer-edge');
+    expect(css).not.toContain("[data-theme='dark']");
+    expect(css).toContain('width: min(620px, 100vw);');
   });
 
   test('a property label stays level with the first line of a tall value', () => {

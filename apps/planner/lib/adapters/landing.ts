@@ -71,8 +71,6 @@ export interface DemoUserRow {
   id: string;
   name: string;
   email: string | null;
-  /** Two letters for the round avatar on the person's button ("AM"). */
-  initials: string;
   /**
    * "Guest" for a Linear guest (Gus, in the demo), whom the planner shows
    * read-only (owner decision 2026-10-22, "Guests limited to read only");
@@ -101,30 +99,9 @@ export function demoUserRows(users: readonly User[]): DemoUserRow[] {
       id: user.id,
       name: user.name,
       email: user.email,
-      initials: personInitials(user.name),
       label: user.guest === true ? DEMO_GUEST_LABEL : null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name, 'en'));
-}
-
-/**
- * Up to two capital letters for a round initials avatar: the first and
- * last words' first letters ("Ana Moreno" → "AM"), one letter for a
- * one-word name, "?" for an empty one. Linear's displayName is a handle,
- * so the full name is used.
- */
-export function personInitials(name: string): string {
-  const words = name
-    .trim()
-    .split(/\s+/)
-    .filter((word) => word !== '');
-  const first = words[0];
-  if (first === undefined) return '?';
-  const last = words.length > 1 ? words[words.length - 1] : undefined;
-  const letters = [first, last]
-    .filter((word): word is string => word !== undefined)
-    .map((word) => Array.from(word)[0] ?? '');
-  return letters.join('').toLocaleUpperCase('en');
 }
 
 export interface LandingFeature {

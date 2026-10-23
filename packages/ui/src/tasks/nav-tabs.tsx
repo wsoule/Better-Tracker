@@ -9,8 +9,8 @@ import type { NavTabsProps } from './types';
    radio group that changes state in place) every cell is a destination:
    a level switch whose levels are routes, or a settings sub-nav.
    Horizontal cells sit on one hairline and wrap; vertical cells stack
-   into a column (Gr8r's settings sub-nav) and turn into a wrapping strip
-   on narrow screens. A cell without href cannot be followed yet: it is
+   into a column (Gr8r's settings sub-nav, each with an optional icon) and
+   turn into a sideways-scrolling strip on narrow screens. A cell without href cannot be followed yet: it is
    drawn dimmed, with its note saying why. */
 export function NavTabs({
   items,
@@ -35,6 +35,11 @@ export function NavTabs({
         {items.map((item) => {
           const body = (
             <>
+              {item.icon !== undefined && item.icon !== null ? (
+                <span className={styles.icon} aria-hidden="true">
+                  {item.icon}
+                </span>
+              ) : null}
               <span className={styles.text}>{item.label}</span>
               {item.count !== undefined ? (
                 <span className={styles.count}>{item.count}</span>

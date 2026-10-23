@@ -1,98 +1,102 @@
-/* "Copy Mermaid" (InstallBox behaviour, DESIGN.md §8.2): a hairline row
-   with the system .button and a mono receipt, over an Evidence-style
-   accordion holding the source in the code-surface idiom (mono, a faint
-   gutter rule, line numbers in --grey-3). */
+/* "Copy Mermaid" in Gr8r's look: one --r-lg panel. A row with the
+   secondary button and a quiet receipt, then a disclosure ("Mermaid
+   source", a turning chevron) that opens the source as code: Geist Mono
+   on a recessed --sunken well with a line-number gutter. The copy result
+   is a word plus an icon in its tone (green tick, red cross), never the
+   accent. */
 
 .wrap {
-  margin-top: -1px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
 }
 
 .bar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px 18px;
-  padding: 10px 18px;
-  border: 1px solid var(--border);
-  background: var(--background);
+  gap: 8px 16px;
+  padding: 8px 12px;
 }
 
-/* The confirmation is the accent at 2px: the one emphasised state. */
-.copy[data-state='copied'] {
-  border-color: var(--accent);
-  color: var(--accent-ink);
+.copyIcon {
+  flex: none;
 }
 
-.copy[data-state='failed'] {
-  border-color: var(--accent);
+.copy[data-state='copied'] .copyIcon {
+  color: var(--green);
+}
+
+.copy[data-state='failed'] .copyIcon {
+  color: var(--red);
 }
 
 .meta {
   margin-left: auto;
-  color: var(--muted);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
   white-space: nowrap;
 }
 
 .details {
-  margin-top: -1px;
-  border: 1px solid var(--border);
-  background: var(--background);
+  border-top: 1px solid var(--divider);
 }
 
 .summary {
   display: flex;
-  align-items: baseline;
-  gap: 16px;
-  padding: 12px 18px;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--text-2);
   cursor: pointer;
   list-style: none;
-  transition: background-color 0.15s ease;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 
 .summary::-webkit-details-marker {
   display: none;
 }
 
-.summaryLabel {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.details[open] .summary {
+  border-radius: 0;
+  color: var(--text);
 }
 
-.glyph {
-  margin-left: auto;
-  color: var(--accent-ink);
-  font-family: var(--font-mono);
-  font-size: 16px;
-  font-weight: 500;
-  line-height: 1;
+.chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease);
 }
 
-.details[open] .summaryLabel,
-.summary:focus-visible .summaryLabel {
-  color: var(--accent-ink);
+.details[open] .chevron {
+  transform: rotate(90deg);
 }
 
 @media (hover: hover) and (width >= 901px) {
   .summary:hover {
-    background: var(--tint);
+    background: var(--surface-2);
+    color: var(--text);
   }
 }
 
 .pre {
   margin: 0;
-  padding: 12px 0 14px;
+  padding: 10px 0 12px;
   overflow-x: auto;
-  border-top: 1px solid var(--hairline-faint);
+  border-top: 1px solid var(--divider);
+  border-radius: 0 0 calc(var(--r-lg) - 1px) calc(var(--r-lg) - 1px);
+  background: var(--sunken);
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.65;
+  color: var(--text);
 }
 
 .code {
@@ -105,7 +109,7 @@
    the source. */
 .line {
   display: block;
-  padding-right: 18px;
+  padding-right: 16px;
   white-space: pre;
 }
 
@@ -116,15 +120,15 @@
   width: 44px;
   margin-right: 14px;
   padding-right: 10px;
-  border-right: 1px solid var(--hairline-faint);
-  color: var(--grey-3);
+  border-right: 1px solid var(--border);
+  color: var(--text-3);
   text-align: right;
   user-select: none;
 }
 
 @media (width <= 768px) {
   .bar {
-    padding: 10px 14px;
+    padding: 8px 10px;
   }
 
   .meta {
@@ -133,7 +137,7 @@
   }
 
   .summary {
-    padding: 12px 14px;
+    padding: 0 10px;
   }
 
   .pre {
@@ -147,7 +151,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .summary {
+  .summary,
+  .chevron {
     transition: none;
   }
 }

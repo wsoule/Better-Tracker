@@ -20,7 +20,11 @@ import { TaskDescription } from './task-description';
 import styles from './task-detail.module.css';
 import { TaskRelationList } from './task-relation-list';
 import { TaskDetailSection } from './task-section';
-import type { TaskDetailLabels, TaskDetailProps } from './types';
+import type {
+  TaskDetailAlert,
+  TaskDetailLabels,
+  TaskDetailProps,
+} from './types';
 
 /** True when a slot was given something to draw. */
 function hasNode(node: ReactNode): boolean {
@@ -56,6 +60,57 @@ function TaskKey({
         </>
       ) : null}
     </Link>
+  );
+}
+
+/* How loud an alert's tone is: danger first, then warning, the rest
+   after (a stable sort keeps the host's order within one tone). */
+const TONE_RANK: Partial<Record<NonNullable<TaskDetailAlert['tone']>, number>> =
+  { danger: 0, warning: 1, info: 2, accent: 2, success: 3 };
+
+function toneRank(alert: TaskDetailAlert): number {
+  return TONE_RANK[alert.tone ?? 'warning'] ?? 4;
+}
+
+/* The issue's alerts without a stack of tinted boxes (Gr8r never stacks
+   them): the most severe one is the tinted AlertStrip, every other one a
+   row of one neutral bordered list below it (icon and lead-in in the
+   tone, the sentence quiet). */
+function TaskAlerts({
+  alerts,
+}: {
+  alerts: readonly TaskDetailAlert[];
+}): ReactNode {
+  const ordered = alerts
+    .map((alert, i) => ({ alert, key: alert.id ?? `${i}:${alert.label}` }))
+    .sort((a, b) => toneRank(a.alert) - toneRank(b.alert));
+  const [first, ...rest] = ordered;
+  if (first === undefined) return null;
+  return (
+    <div className={styles.alerts}>
+      <AlertStrip
+        label={first.alert.label}
+        tone={first.alert.tone}
+        action={first.alert.action}
+      >
+        {first.alert.message}
+      </AlertStrip>
+      {rest.length > 0 ? (
+        <div className={styles.alertList}>
+          {rest.map(({ alert, key }) => (
+            <AlertStrip
+              key={key}
+              label={alert.label}
+              tone={alert.tone}
+              action={alert.action}
+              plain
+            >
+              {alert.message}
+            </AlertStrip>
+          ))}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -162,18 +217,7 @@ export function TaskDetail({
         ) : null}
       </div>
       {alerts !== undefined && alerts.length > 0 ? (
-        <div className={styles.alerts}>
-          {alerts.map((alert, i) => (
-            <AlertStrip
-              key={alert.id ?? `${i}:${alert.label}`}
-              label={alert.label}
-              tone={alert.tone}
-              action={alert.action}
-            >
-              {alert.message}
-            </AlertStrip>
-          ))}
-        </div>
+        <TaskAlerts alerts={alerts} />
       ) : null}
     </div>
   );

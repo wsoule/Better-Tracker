@@ -7,7 +7,14 @@ import type { StatCell, StatsStripProps } from './types';
 function CellBody({ cell }: { cell: StatCell }) {
   return (
     <>
-      <span className={styles.label}>{cell.label}</span>
+      <span className={styles.label}>
+        {cell.icon !== undefined && cell.icon !== null ? (
+          <span className={styles.icon} aria-hidden="true">
+            {cell.icon}
+          </span>
+        ) : null}
+        {cell.label}
+      </span>
       <span className={styles.value}>{cell.value}</span>
       {cell.note !== undefined && cell.note !== '' ? (
         <span className={styles.note}>{cell.note}</span>
@@ -28,12 +35,16 @@ function lastCellSpan(count: number, columns: number): number {
 }
 
 /* Gr8r's stat strip: one rounded panel split into cells by soft rules,
-   each cell a key, a semibold tabular value and a note. The cell's tone
+   each cell a key (after an optional 14px icon), a semibold tabular value
+   and a note. The cell's tone
    (data-tone) colours the value and its note: danger for an overdue
    count, warning for at risk, accent for new; default stays --text. Four
    across, two on phones, with the last cell spanning the rest of its row
    so the panel closes. */
-export function StatsStrip({ cells, label = 'Summary' }: StatsStripProps) {
+export function StatsStrip({
+  cells,
+  label = 'Summary',
+}: StatsStripProps) {
   const columns = Math.max(1, Math.min(cells.length, MAX_COLUMNS));
   const span = lastCellSpan(cells.length, columns);
   return (

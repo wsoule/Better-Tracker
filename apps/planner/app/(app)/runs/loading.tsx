@@ -3,21 +3,20 @@ import { BlockBar, Skeleton, SkeletonRows } from '@better-tracker/ui';
 import css from './page.module.css';
 
 /* /runs while the engine loads: shimmer skeletons in the page's real
-   layout (header, the run controls, the register panel). */
+   layout (header with the run controls top right, the register panel). */
 export default function RunsLoading() {
   return (
     <>
-      <header className={css.head}>
+      <header className={`${css.head} ${css.headActions}`}>
         <div className={css.skeletonHead} aria-hidden="true">
           <Skeleton width="30%" height={20} />
           <Skeleton width="85%" height={10} />
         </div>
-      </header>
-      <div className={css.body}>
         <div className={css.actionBar} aria-hidden="true">
           <Skeleton width={150} height={30} />
-          <Skeleton width={320} height={10} />
         </div>
+      </header>
+      <div className={css.body}>
         <div className={css.section}>
           <BlockBar title="Allocation runs" />
           <div className={css.panel}>

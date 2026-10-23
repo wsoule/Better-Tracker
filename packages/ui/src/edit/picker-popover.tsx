@@ -2,7 +2,6 @@
 
 import { Check, Search } from 'lucide-react';
 import {
-  type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -25,7 +24,6 @@ import {
   editLabels,
   filterOptions,
   groupOptions,
-  isHexColor,
   optionMatches,
   queryWords,
   toggleValue,
@@ -58,15 +56,6 @@ function isList(value: PickerValue): value is readonly string[] {
 
 function optionKey(option: PickerOption): string {
   return `o:${option.value}`;
-}
-
-/** A label chip's tint: the label's own colour as --label-color, only when
-    the option's mark is a valid hex swatch (the stylesheet washes the chip
-    with a faint mix of it); anything else draws the neutral chip. */
-function tokenStyle(option: PickerOption): CSSProperties | undefined {
-  const mark = option.mark;
-  if (mark?.kind !== 'swatch' || !isHexColor(mark.color)) return undefined;
-  return { '--label-color': mark.color } as CSSProperties;
 }
 
 /** Puts the popover in the browser's top layer when the Popover API is
@@ -517,11 +506,7 @@ export function PickerPopover(props: PickerPopoverProps): ReactNode {
       chosenOptions.length > 0 ? (
         <span className={styles.tokens}>
           {chosenOptions.map((option) => (
-            <span
-              key={option.value}
-              className={styles.token}
-              style={tokenStyle(option)}
-            >
+            <span key={option.value} className={styles.token}>
               {option.mark !== undefined ? (
                 <PickerMarkView mark={option.mark} />
               ) : null}

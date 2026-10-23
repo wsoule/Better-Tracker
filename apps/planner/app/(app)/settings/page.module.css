@@ -6,12 +6,15 @@
    Watchers member list; the save bar; the inline digest preview. Built
    only from the shared tokens. */
 
-/* The two columns fill the space under the topbar, so the nav's rule runs
-   to the bottom of the window as Gr8r's does. */
+/* The two columns fill the space under the topbar (and the demo strip,
+   when the shell shows one: --shell-banner-h), so the nav's rule runs to
+   the bottom of the window as Gr8r's does, with no overflow. */
 .set {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  min-height: calc(100dvh - var(--topbar-h));
+  min-height: calc(
+    100dvh - var(--shell-topbar-h, var(--topbar-h)) - var(--shell-banner-h, 0px)
+  );
 }
 
 .setNav {
@@ -20,10 +23,11 @@
   background: var(--surface);
 }
 
-/* The sub-nav stays in view while a long section scrolls. */
-.setNav > nav {
+/* The sub-nav (inside CurrentIntoView's wrapper) stays in view while a
+   long section scrolls. */
+.navStick {
   position: sticky;
-  top: calc(var(--topbar-h) + 12px);
+  top: calc(var(--shell-topbar-h, var(--topbar-h)) + 12px);
 }
 
 .navHead {
@@ -282,22 +286,6 @@
   border-top: 1px solid var(--divider);
 }
 
-/* Round initials (Gr8r's avatar at 26px). */
-.avatar {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
-  background: var(--surface-3);
-  box-shadow: 0 0 0 1.5px var(--surface);
-  color: var(--text-2);
-  font-size: 10.5px;
-  font-weight: var(--fw-semibold);
-  letter-spacing: 0.01em;
-}
-
 .personText {
   display: flex;
   flex: 1 1 auto;
@@ -449,7 +437,7 @@
     border-bottom: 1px solid var(--border);
   }
 
-  .setNav > nav {
+  .navStick {
     position: static;
   }
 

@@ -6,7 +6,7 @@ import path from 'node:path';
 // smallest text is 11px), computed from tokens.css itself in both themes:
 // every text token on every surface it can sit on, every tone's text on
 // its own soft tint, and the text that sits on a fill. Plus a guard that
-// every hover flood that has not migrated yet swaps the text tokens.
+// the retired pre-Gr8r token names stay gone.
 
 const srcDir = path.join(import.meta.dir, '..', 'src');
 const tokensCss = readFileSync(
@@ -103,8 +103,7 @@ const SURFACES = [
   '--sunken',
 ];
 // Text tokens: three text steps (--text-4 is for glyphs, never words), the
-// accent's text step, the semantic hues, and the aliases old CSS still
-// reads.
+// accent's text step and the semantic hues.
 const TEXT = [
   '--text',
   '--text-2',
@@ -115,10 +114,6 @@ const TEXT = [
   '--amber',
   '--green',
   '--blue',
-  '--foreground',
-  '--muted',
-  '--ink-soft',
-  '--grey-2-ink',
 ];
 // Each tone's text on its own soft tint (a chip, a notice, a selected row),
 // over the surfaces a tinted thing sits on.
@@ -160,14 +155,11 @@ describe('text tokens meet 4.5:1 in both themes', () => {
       expect(failing).toEqual([]);
     });
 
-    test(`${theme}: text on fills and on an ink flood`, () => {
+    test(`${theme}: text on fills`, () => {
       const pairs: [string, string][] = [
         ['--on-accent', '--accent'],
         ['--on-danger', '--red'],
         ['--text-inv', '--text'],
-        ['--accent-ink-inverse', '--ink'],
-        ['--muted-inverse', '--ink'],
-        ['--ink-soft-inverse', '--ink'],
       ];
       for (const [text, fill] of pairs) {
         expect({
@@ -184,40 +176,160 @@ describe('text tokens meet 4.5:1 in both themes', () => {
     expect(hex(darkTokens, '--accent')).toBe('#9747ff');
   });
 
-  test('the blueprint hatch is retired', () => {
-    expect(lightTokens.get('--hatch')).toBe('transparent');
-    expect(darkTokens.get('--hatch')).toBe('transparent');
+});
+
+// Non-text contrast (WCAG 1.4.11, 3:1): what tells a control, its state
+// or a meaningful mark from what is around it. The soft lines (--border,
+// --border-strong, --divider) are decoration and are not checked; these
+// are the edges and marks a person must be able to see.
+const NON_TEXT_SURFACES = [
+  '--bg',
+  '--bg-side',
+  '--surface',
+  '--surface-2',
+  '--surface-3',
+  '--sunken',
+];
+const NON_TEXT: [mark: string, why: string][] = [
+  // the edge of a field, a checkbox, the switch's off track
+  ['--control-border', 'control boundary'],
+  // the focus ring, the active-option bar, the selected segment's ring,
+  // a checked box, the on switch
+  ['--accent', 'focus ring and selection'],
+  // the current nav item's icon
+  ['--accent-ink', 'current nav icon'],
+  // StatusMark's diamonds: the status hues and the muted grey
+  ['--red', 'status mark'],
+  ['--amber', 'status mark'],
+  ['--green', 'status mark'],
+  ['--gray', 'muted status mark'],
+  // StateGlyph's workflow colours (the state name sits beside them, but
+  // the glyph's shape and hue are what a scanning eye reads)
+  ['--st-triage', 'state glyph'],
+  ['--st-backlog', 'state glyph'],
+  ['--st-todo', 'state glyph'],
+  ['--st-progress', 'state glyph'],
+  ['--st-review', 'state glyph'],
+  ['--st-done', 'state glyph'],
+  ['--st-canceled', 'state glyph'],
+];
+
+describe('non-text marks meet 3:1 in both themes', () => {
+  for (const [theme, tokens] of [
+    ['light', lightTokens],
+    ['dark', darkTokens],
+  ] as const) {
+    test(`${theme}: control edges, focus and status marks on every surface`, () => {
+      const failing: string[] = [];
+      for (const [mark, why] of NON_TEXT) {
+        for (const surface of NON_TEXT_SURFACES) {
+          const ratio = contrast(hex(tokens, mark), hex(tokens, surface));
+          if (ratio < 3)
+            failing.push(`${mark} (${why}) on ${surface}: ${ratio}`);
+        }
+      }
+      expect(failing).toEqual([]);
+    });
+
+    test(`${theme}: the accent on its own soft tint (a selected row's bar)`, () => {
+      const share = tintShare(lightTokens, '--accent-soft');
+      const failing: string[] = [];
+      for (const base of TINT_BASES) {
+        const ground = over(hex(tokens, '--accent'), hex(tokens, base), share);
+        const ratio = contrast(hex(tokens, '--accent'), ground);
+        if (ratio < 3)
+          failing.push(`--accent on --accent-soft/${base}: ${ratio}`);
+      }
+      expect(failing).toEqual([]);
+    });
+
+    test(`${theme}: the switch knob on its track, off and on`, () => {
+      // The knob is --on-accent; off it sits on --control-border, on it
+      // sits on --accent.
+      for (const track of ['--control-border', '--accent']) {
+        const ratio = contrast(hex(tokens, '--on-accent'), hex(tokens, track));
+        expect({ track, ok: ratio >= 3 }).toEqual({ track, ok: true });
+      }
+    });
+  }
+
+  test('fields, checkboxes and the switch use the control edge, not the soft line', () => {
+    const read = (file: string) =>
+      readFileSync(path.join(srcDir, file), 'utf8').replace(
+        /\/\*[\s\S]*?\*\//g,
+        ''
+      );
+    expect(read('styles/primitives.css')).toContain(
+      'border: 1px solid var(--control-border);'
+    );
+    expect(read('tasks/checkbox.module.css')).toContain(
+      'border: 1.5px solid var(--control-border);'
+    );
+    expect(read('tasks/switch.module.css')).toContain(
+      'background: var(--control-border);'
+    );
   });
 });
 
-/** Every CSS file under src. */
-function cssFiles(dir: string): string[] {
+/** Every stylesheet and TypeScript source file under src. */
+function sourceFiles(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) return cssFiles(full);
-    return entry.name.endsWith('.css') ? [full] : [];
+    if (entry.isDirectory()) return sourceFiles(full);
+    return /\.(css|tsx?)$/.test(entry.name) ? [full] : [];
   });
 }
 
-describe('hover floods swap the text tokens', () => {
-  test('a block that floods with ink also swaps accent and dim text', () => {
-    const missing: string[] = [];
-    for (const file of cssFiles(srcDir)) {
-      const css = readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-      for (const match of css.matchAll(/\{([^{}]*)\}/g)) {
-        const body = match[1] ?? '';
-        if (!/--background:\s*var\(--ink\)/.test(body)) continue;
-        for (const name of [
-          '--accent-ink',
-          '--accent-ink-hover',
-          '--grey-2-ink',
-        ]) {
-          if (!new RegExp(`${name}:`).test(body)) {
-            missing.push(`${path.relative(srcDir, file)}: ${name}`);
-          }
+// The pre-Gr8r names (aliases onto the Gr8r tokens while the screens
+// migrated, and the text tokens of the old ink hover flood) were deleted
+// once the dependency graph, the last screen on them, was restyled
+// (docs/architecture.md §8.2). Nothing may declare or read them again.
+const RETIRED = [
+  '--paper',
+  '--ink',
+  '--background',
+  '--foreground',
+  '--muted',
+  '--ink-soft',
+  '--grey-2',
+  '--grey-2-ink',
+  '--grey-3',
+  '--grey-4',
+  '--tint',
+  '--hairline-faint',
+  '--hatch',
+  '--accent-ink-inverse',
+  '--muted-inverse',
+  '--ink-soft-inverse',
+  '--hairline-inverse',
+  '--ease-out-quint',
+  '--ease-out-expo',
+];
+
+describe('the retired token names are gone', () => {
+  test('tokens.css declares none of them, in either theme', () => {
+    const declared = RETIRED.filter(
+      (name) => lightTokens.has(name) || darkTokens.has(name)
+    );
+    expect(declared).toEqual([]);
+  });
+
+  test('no stylesheet or component reads or sets one', () => {
+    const found: string[] = [];
+    const files = sourceFiles(srcDir);
+    expect(files.some((file) => file.endsWith('tokens.css'))).toBe(true);
+    for (const file of files) {
+      const source = readFileSync(file, 'utf8').replace(
+        /\/\*[\s\S]*?\*\//g,
+        ''
+      );
+      for (const name of RETIRED) {
+        // the name as a whole custom property: not --muted inside --muted-x
+        if (new RegExp(`${name}(?![\\w-])`).test(source)) {
+          found.push(`${path.relative(srcDir, file)}: ${name}`);
         }
       }
     }
-    expect(missing).toEqual([]);
+    expect(found).toEqual([]);
   });
 });

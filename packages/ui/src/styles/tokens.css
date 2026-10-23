@@ -23,9 +23,9 @@
    Light is this block; dark redefines the colours (not an inversion) in the
    two blocks below, which must stay identical. Colours that text sits on or
    that are text are literal hex, so test/styles-contrast.test.ts can check
-   every text token at 4.5:1 on every surface. The second half of the block
-   keeps the pre-Gr8r names as aliases onto the new values; new code uses
-   the new names (docs/architecture.md §8.2).
+   every text token at 4.5:1 on every surface. The pre-Gr8r names (--paper,
+   --ink, --muted, --grey-*, --hatch, the -inverse flood tokens…) are gone;
+   docs/architecture.md §8.2 maps each one to its Gr8r name.
    ========================================================================== */
 
 :root:where(:not([data-bt-ui-scoped])),
@@ -41,8 +41,13 @@
 
   /* lines, by weight */
   --border: #e9e7e2; /* container edges and section rules */
-  --border-strong: #dad7d0; /* inputs, secondary buttons, hover outlines */
+  --border-strong: #dad7d0; /* secondary buttons, chips, hover outlines */
   --divider: #f0eeea; /* row separators inside a container */
+  /* The edge of a control you type in or toggle (input, select, textarea,
+     checkbox box, switch track when off): WCAG 1.4.11 wants 3:1 against
+     the surface, which the soft --border-strong is not. 3.0:1 or better on
+     every surface in this theme. */
+  --control-border: #8c8880;
 
   /* text, four steps (text-4 is for icons and glyphs, never words) */
   --text: #1d1c1a;
@@ -85,11 +90,12 @@
   --orange: #c0612b;
   --gray: #8a867e;
 
-  /* Linear workflow-state glyph colours (StateGlyph); glyphs only */
+  /* Linear workflow-state glyph colours (StateGlyph); glyphs only, each
+     3:1 or better on every surface (WCAG 1.4.11) */
   --st-triage: #c0612b;
-  --st-backlog: #a29e96;
+  --st-backlog: #8c8880;
   --st-todo: #7c7870;
-  --st-progress: #c88a14;
+  --st-progress: #b57e10;
   --st-review: #7652c2;
   --st-done: #2e8456;
   --st-canceled: #8c8880;
@@ -104,6 +110,19 @@
   --shadow-drag:
     0 16px 36px -10px rgba(28, 25, 20, 0.28), 0 0 0 1px var(--border-strong);
   --shadow-drawer: -18px 0 40px -24px rgba(0, 0, 0, 0.25);
+
+  /* theme-dependent looks of two components, as tokens so a light wrapper
+     inside a dark page (scoped mode) keeps its light look: the current
+     sidebar / sub-nav item (a raised white pill; dark: a --surface-3
+     fill), the slide-over's left edge (dark: stronger, the shadow barely
+     shows there) and the brand tile. */
+  --nav-current-bg: var(--surface);
+  --nav-current-shadow: var(--shadow-raised);
+  --drawer-edge: var(--border);
+  /* the 22px brand tile stays dark in both themes (Gr8r) */
+  --brand-tile-bg: var(--text);
+  --brand-tile-ink: var(--text-inv);
+  --brand-tile-edge: transparent;
 
   /* radius */
   --r-xs: 4px; /* kbd, checkbox, focus ring, tiny icon buttons */
@@ -171,32 +190,7 @@
   --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   --dur: 140ms;
-  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --nav-h: 80px;
-
-  /* ---- pre-Gr8r names, kept as aliases until every lane has migrated ----
-     (docs/architecture.md §8.2 maps each one; do not use them in new code) */
-  --paper: var(--surface);
-  --ink: var(--text);
-  --background: var(--surface);
-  --foreground: var(--text);
-  --muted: var(--text-2);
-  --ink-soft: var(--text);
-  --grey-2: var(--text-4);
-  --grey-2-ink: var(--text-3);
-  --grey-3: var(--border-strong);
-  --grey-4: var(--surface-3);
-  --hairline-faint: var(--divider);
-  --tint: var(--surface-2);
-  /* the blueprint hatch is retired: every hatch drawn with it is invisible */
-  --hatch: transparent;
-  /* text and rules ON an ink (--foreground) flood, for the floods that
-     have not migrated yet */
-  --accent-ink-inverse: #b385ff;
-  --muted-inverse: #b5b2ab;
-  --ink-soft-inverse: #d6d3cd;
-  --hairline-inverse: rgba(255, 255, 255, 0.22);
 
   color-scheme: light;
 }
@@ -217,6 +211,7 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
   --border: #2c2b29;
   --border-strong: #3a3936;
   --divider: #252523;
+  --control-border: #787570;
   --text: #eceae5;
   --text-2: #b5b2ab;
   --text-3: #9a968f;
@@ -235,12 +230,12 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
   --orange: #e3925f;
   --gray: #8f8b84;
   --st-triage: #e3925f;
-  --st-backlog: #6f6c66;
+  --st-backlog: #787570;
   --st-todo: #a6a39c;
   --st-progress: #d8a443;
   --st-review: #a98deb;
   --st-done: #5cba86;
-  --st-canceled: #6f6c66;
+  --st-canceled: #787570;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-strong);
   --shadow-card: 0 0 0 1px var(--border);
@@ -249,10 +244,12 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
   --shadow-drag:
     0 18px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-strong);
   --shadow-drawer: -18px 0 40px -24px rgba(0, 0, 0, 0.6);
-  --accent-ink-inverse: #6f2bd6;
-  --muted-inverse: #57544e;
-  --ink-soft-inverse: #33312d;
-  --hairline-inverse: rgba(0, 0, 0, 0.18);
+  --nav-current-bg: var(--surface-3);
+  --nav-current-shadow: none;
+  --drawer-edge: var(--border-strong);
+  --brand-tile-bg: var(--sunken);
+  --brand-tile-ink: var(--text);
+  --brand-tile-edge: var(--border-strong);
 
   color-scheme: dark;
 }
@@ -276,6 +273,7 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
     --border: #2c2b29;
     --border-strong: #3a3936;
     --divider: #252523;
+    --control-border: #787570;
     --text: #eceae5;
     --text-2: #b5b2ab;
     --text-3: #9a968f;
@@ -294,12 +292,12 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
     --orange: #e3925f;
     --gray: #8f8b84;
     --st-triage: #e3925f;
-    --st-backlog: #6f6c66;
+    --st-backlog: #787570;
     --st-todo: #a6a39c;
     --st-progress: #d8a443;
     --st-review: #a98deb;
     --st-done: #5cba86;
-    --st-canceled: #6f6c66;
+    --st-canceled: #787570;
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-raised:
       0 1px 2px rgba(0, 0, 0, 0.3), 0 0 0 1px var(--border-strong);
@@ -309,10 +307,12 @@ html[data-theme='dark']:where(:not([data-bt-ui-scoped])),
     --shadow-drag:
       0 18px 40px -10px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-strong);
     --shadow-drawer: -18px 0 40px -24px rgba(0, 0, 0, 0.6);
-    --accent-ink-inverse: #6f2bd6;
-    --muted-inverse: #57544e;
-    --ink-soft-inverse: #33312d;
-    --hairline-inverse: rgba(0, 0, 0, 0.18);
+    --nav-current-bg: var(--surface-3);
+    --nav-current-shadow: none;
+    --drawer-edge: var(--border-strong);
+    --brand-tile-bg: var(--sunken);
+    --brand-tile-ink: var(--text);
+    --brand-tile-edge: var(--border-strong);
 
     color-scheme: dark;
   }
@@ -419,7 +419,8 @@ html:where(:not([data-bt-ui-scoped])) {
 
 /* Gr8r's ring: 2px accent hugging the control. The 4px radius only shows on
    square elements; anything rounded keeps its own (this has no
-   specificity). Inputs replace it with a 3px --accent-soft halo. */
+   specificity). Fields draw their own (an accent border, a 1px accent
+   shadow and a soft halo) over a transparent outline. */
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
@@ -498,8 +499,7 @@ html:where(:not([data-bt-ui-scoped])) {
    BLOCK CHROME
    A page section: .block sets the column, .blockBar is its heading row
    (Gr8r's section title: 14.5px semibold, a quiet meta on the right). No
-   box, no texture and no section numbers: .blockKey stays hidden for any
-   markup that still renders one.
+   box, no texture and no section numbers.
    ========================================================================== */
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .block {
@@ -515,10 +515,6 @@ html:where(:not([data-bt-ui-scoped])) {
   gap: 8px 12px;
   min-height: 32px;
   padding: 0 0 8px;
-}
-
-:where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockKey {
-  display: none;
 }
 
 :where(html:not([data-bt-ui-scoped]), [data-bt-ui]) .blockTitle {

@@ -63,7 +63,8 @@ export function isRiskNode(node: GraphNode): boolean {
  * …) so they never depend on Linear ids; labels are quoted and escaped;
  * open edges use `-->`, resolved ones `-.->`, and edges summarising more
  * than one relation carry the count. Risk, cycle and external nodes get
- * classes, and risk-chain edges an accent link style. A chain also marks
+ * classes (risk in the warning hue, cycles in the danger hue), and
+ * risk-chain edges a warning-hue link style. A chain also marks
  * its focus (the `focus` class) and, when the chain was cut, says how many
  * of its issues are shown in a comment.
  */
@@ -99,9 +100,12 @@ export function toMermaid(graph: DependencyGraph): string {
       `  %% Showing the nearest ${kept} of ${kept + chain.hidden} issues on this chain`
     );
   }
+  // Risk in the warning hue and cycles in the danger hue (the light
+  // theme's text-safe --amber and --red, architecture §8.2), never the
+  // purple accent, which means selection, not status.
   lines.push(
-    '  classDef risk stroke:#9747ff,stroke-width:2px',
-    '  classDef cycle stroke:#9747ff,stroke-dasharray:5 3',
+    '  classDef risk stroke:#88590d,stroke-width:2px',
+    '  classDef cycle stroke:#b03b2f,stroke-dasharray:5 3',
     '  classDef external stroke-dasharray:3 3,opacity:0.7'
   );
   if (chain !== null) lines.push('  classDef focus stroke-width:3px');
@@ -120,7 +124,7 @@ export function toMermaid(graph: DependencyGraph): string {
     if (ids.length > 0) lines.push(`  class ${ids.join(',')} ${name}`);
   }
   if (riskEdges.length > 0) {
-    lines.push(`  linkStyle ${riskEdges.join(',')} stroke:#9747ff`);
+    lines.push(`  linkStyle ${riskEdges.join(',')} stroke:#88590d`);
   }
   return `${lines.join('\n')}\n`;
 }

@@ -143,13 +143,23 @@ describe('TaskDetail', () => {
     expect(key.textContent).toContain('opens in a new tab');
     expect(screen.getByText('Todo')).toBeTruthy();
 
-    // Alerts in order, each tinted by its tone (an alert without one is
-    // AlertStrip's default, warning), with the follow-up as a link.
+    // Alerts by tone (an alert without one is AlertStrip's default,
+    // warning), with the follow-up as a link. Only the most severe one is
+    // a tinted box; the rest are rows of one neutral list, in host order.
+    const strip = (label: string) =>
+      screen.getByText(label).closest('[data-tone]');
     const alertTone = (label: string) =>
-      screen.getByText(label).closest('[data-tone]')?.getAttribute('data-tone');
+      strip(label)?.getAttribute('data-tone');
     expect(alertTone('Blocked')).toBe('warning');
     expect(alertTone('Stalled')).toBe('warning');
     expect(alertTone('Overdue')).toBe('danger');
+    const overdue = strip('Overdue');
+    const blocked = strip('Blocked');
+    const stalled = strip('Stalled');
+    expect(overdue?.parentElement?.firstElementChild).toBe(overdue ?? null);
+    expect(blocked?.parentElement).toBe(stalled?.parentElement ?? null);
+    expect(blocked?.parentElement).not.toBe(overdue?.parentElement ?? null);
+    expect(blocked?.nextElementSibling).toBe(stalled ?? null);
     expect(
       screen.getByRole('link', { name: 'Graph' }).getAttribute('href')
     ).toBe('/graph?focus=ENG-24');

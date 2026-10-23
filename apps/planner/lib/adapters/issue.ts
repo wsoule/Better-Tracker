@@ -441,11 +441,14 @@ function relationModel(row: IssueRelationRow): IssueRelationModel {
 /* ---- alerts ---------------------------------------------------------------- */
 
 /**
- * The alert strips above the properties (only what needs action): the
- * milestone is overdue (danger), the issue waits on open blockers, it
- * holds up at-risk milestones, it has stalled in its state, and it is
- * unassigned in its project's next milestone and whether allocation will
- * pick it up (warning). Closed issues and issues of inactive projects get
+ * The alerts above the properties (only what needs action and is not
+ * already said by a property): the milestone is overdue (danger), the
+ * issue waits on open blockers, it holds up at-risk milestones (warning).
+ * Stalled and unassigned are not alerts: the "Time in state" and
+ * "Assignee" properties already carry them in the warning tone (with what
+ * allocation will do as the assignee's note), so the drawer says each
+ * fact once. TaskDetail draws the most severe alert tinted and the rest
+ * as a neutral list. Closed issues and issues of inactive projects get
  * none.
  */
 export function issueAlerts(
@@ -511,56 +514,44 @@ export function issueAlerts(
     });
   }
 
-  if (detail.timing.stalled && milestone !== null && project !== null) {
-    const stateName = detail.state?.name ?? 'its state';
-    const due =
-      milestone.targetDate === null || milestone.status === 'complete'
-        ? ''
-        : `; ${milestone.name} is ${whenDue(milestone.targetDate, milestone.daysLeft, today)}`;
-    alerts.push({
-      id: 'stalled',
-      label: 'Stalled',
-      tone: 'warning',
-      message: `${stateName} for ${plural(detail.timing.daysInState, 'day')} with no change${due}.`,
-    });
-  }
-
-  if (
-    detail.why.unassignedInNextMilestone &&
-    milestone !== null &&
-    project !== null
-  ) {
-    alerts.push({
-      id: 'unassigned',
-      label: 'Unassigned',
-      tone: 'warning',
-      message: unassignedMessage(milestone, project.lead, project.name, today),
-    });
-  }
   return alerts;
 }
 
-/** What allocation will do with an unassigned issue of the next milestone. */
-function unassignedMessage(
+/** What allocation will do with an unassigned issue of the next
+    milestone (the Assignee property's note), and whether that is stopped
+    (no lead, a deactivated lead, a rubric gap: the warning tone). */
+function unassignedNote(
   milestone: IssueDetailMilestone,
   lead: IssuePersonRef | null,
   projectName: string,
   today: string
-): string {
+): { text: string; stopped: boolean } {
   const where = `In the next milestone, ${milestone.name} (${whenDue(milestone.targetDate, milestone.daysLeft, today)})`;
   if (lead === null) {
-    return `${where}, but ${projectName} has no lead, so nothing in it is allocated.`;
+    return {
+      text: `${where}, but ${projectName} has no lead, so nothing in it is allocated.`,
+      stopped: true,
+    };
   }
   if (!lead.active) {
-    return `${where}, but its lead ${lead.name} is deactivated in Linear, so allocation is stopped.`;
+    return {
+      text: `${where}, but its lead ${lead.name} is deactivated in Linear, so allocation is stopped.`,
+      stopped: true,
+    };
   }
   if (!milestone.rubric.valid) {
     const gaps = milestone.rubric.gaps
       .map((gap) => RUBRIC_GAP_SHORT_LABEL[gap])
       .join(', ');
-    return `${where}, but the milestone is missing ${gaps}, so allocation is stopped.`;
+    return {
+      text: `${where}, but the milestone is missing ${gaps}, so allocation is stopped.`,
+      stopped: true,
+    };
   }
-  return `${where}: the next live allocation run gives it to ${lead.name}.`;
+  return {
+    text: `${where}: the next live allocation run gives it to ${lead.name}.`,
+    stopped: false,
+  };
 }
 
 /* ---- properties ---------------------------------------------------------- */
@@ -571,13 +562,31 @@ function assigneeFact(
   input: { today: string; timeZone: string; viewerId: string },
   loud: boolean
 ): IssueFact {
-  const { assignee } = detail;
+  const { assignee, milestone, project } = detail;
   if (assignee === null) {
-    return {
+    const fact: IssueFact = {
       text: 'Unassigned',
       tone: loud ? 'warning' : 'muted',
       avatar: '',
     };
+    // In the next milestone, the note says what allocation will do (this
+    // was an "Unassigned" alert; the property already says unassigned).
+    if (
+      loud &&
+      detail.why.unassignedInNextMilestone &&
+      milestone !== null &&
+      project !== null
+    ) {
+      const next = unassignedNote(
+        milestone,
+        project.lead,
+        project.name,
+        input.today
+      );
+      fact.note = next.text;
+      fact.noteTone = next.stopped ? 'warning' : 'default';
+    }
+    return fact;
   }
   const isViewer = assignee.id === input.viewerId;
   const fact: IssueFact = {
@@ -789,7 +798,9 @@ function dueDateFact(
           : left > 1
             ? `In ${left} days`
             : `${plural(-left, 'day')} overdue`,
-    noteTone: tone === 'default' ? 'muted' : tone,
+    // Only the date carries the tone; the note under it stays quiet, so
+    // one fact is coloured once.
+    noteTone: 'muted',
   };
 }
 

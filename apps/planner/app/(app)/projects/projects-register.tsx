@@ -29,12 +29,14 @@ import { plural } from '../../../lib/format';
 import css from './page.module.css';
 
 const COLUMNS =
-  'minmax(0, 1.2fr) 124px minmax(0, 1.5fr) 140px minmax(0, 0.8fr) minmax(0, 1.2fr) 132px';
+  'minmax(180px, 1.4fr) 112px minmax(0, 1.4fr) 120px minmax(0, 0.8fr) minmax(0, 1fr) 72px';
 
-/* The seven columns stay readable down to a register about 1000px wide
-   (1440 with the sidebar open). Narrower (1280 with the sidebar, a
-   tablet, a phone) each row becomes a card: the project on top, the other
-   cells in as many 150px columns as fit (two on a phone). */
+/* Gr8r keeps the table: the seven columns stay readable down to a
+   register 900px wide (a 1280px window with the sidebar open leaves 932),
+   the project name keeping at least 180px and the links two 26px icon
+   buttons. Narrower (a tablet, a phone) each row becomes a card: the
+   project on top, the other cells in as many 150px columns as fit (two on
+   a phone). */
 const STACKED_COLUMNS = 'repeat(auto-fill, minmax(150px, 1fr))';
 
 const HEADER = [
@@ -70,7 +72,7 @@ function syncUrl(query: string, filter: ProjectFilterId): string {
    then one panel per initiative under its section title, whose quiet
    Graph button opens the initiative's dependency graph. Rows open the
    project's timeline lane; the end cell links to its graph and to Linear
-   as quiet buttons. */
+   as 26px ghost icon buttons. */
 export default function ProjectsRegister({
   groups,
   filters,
@@ -216,7 +218,7 @@ export default function ProjectsRegister({
               label={`${group.name} projects`}
               columns={COLUMNS}
               header={HEADER}
-              stackWithin={1000}
+              stackWithin={900}
               stackedColumns={STACKED_COLUMNS}
             >
               {group.rows.map((row) => (
@@ -238,7 +240,8 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
       rowLabel={`${row.name} on the timeline`}
       tone={row.rowTone}
     >
-      <RegisterCell label="Project" variant="name" sub={row.initiative}>
+      {/* No initiative line: the panel's title already names it. */}
+      <RegisterCell label="Project" variant="name">
         {row.name}
       </RegisterCell>
       <RegisterCell label="Linear">
@@ -292,19 +295,23 @@ function ProjectRow({ row }: { row: ProjectRowModel }) {
       </RegisterCell>
       <RegisterCell align="end">
         <span className={css.links}>
-          <Button href={row.graphHref} variant="quiet" size="sm">
-            Graph
-          </Button>
+          <Button
+            href={row.graphHref}
+            variant="quiet"
+            size="sm"
+            icon={<Network size={14} strokeWidth={1.8} />}
+            title="Dependency graph"
+            aria-label={`Dependency graph of ${row.name}`}
+          />
           <Button
             href={row.linearUrl}
             external
             variant="quiet"
             size="sm"
-            iconAfter={<ArrowUpRight size={12} strokeWidth={1.8} />}
+            icon={<ArrowUpRight size={14} strokeWidth={1.8} />}
+            title="Open in Linear"
             aria-label={`${row.name} in Linear (opens in a new tab)`}
-          >
-            Linear
-          </Button>
+          />
         </span>
       </RegisterCell>
     </RegisterRow>

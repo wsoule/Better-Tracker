@@ -158,6 +158,21 @@
   gap: 8px;
 }
 
+/* The second and later alerts: one neutral panel, rows split by
+   --divider rules (AlertStrip plain draws no box of its own). */
+.alertList {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  background: var(--surface);
+}
+
+.alertList > * + * {
+  border-top: 1px solid var(--divider);
+}
+
 /* ---- drawer ------------------------------------------------------------ */
 
 /* Gr8r's drawer sections sit 26px apart. */

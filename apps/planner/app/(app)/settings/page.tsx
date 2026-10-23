@@ -6,6 +6,16 @@ import {
   RegisterCell,
   RegisterRow,
 } from '@better-tracker/ui';
+import {
+  Activity,
+  Bell,
+  CalendarClock,
+  Eye,
+  History,
+  Inbox,
+  ScrollText,
+  ToggleLeft,
+} from 'lucide-react';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 
@@ -30,6 +40,7 @@ import {
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import ReadOnlyNotice from '../components/read-only-notice';
+import CurrentIntoView from './current-into-view';
 import ModesForm from './modes-form';
 import css from './page.module.css';
 import { ReadOnlySettings, ReadOnlyWatchers } from './read-only-sections';
@@ -81,11 +92,16 @@ export default async function SettingsPage({
           <p className={`eyebrow ${css.navHead}`} aria-hidden="true">
             Settings
           </p>
-          <NavTabs
-            label="Settings sections"
-            orientation="vertical"
-            items={sectionTabs(section.id)}
-          />
+          <CurrentIntoView className={css.navStick}>
+            <NavTabs
+              label="Settings sections"
+              orientation="vertical"
+              items={sectionTabs(section.id).map((tab) => ({
+                ...tab,
+                icon: SECTION_ICONS[tab.id as SettingsSectionId],
+              }))}
+            />
+          </CurrentIntoView>
         </div>
         <div
           className={css.setIn}
@@ -110,6 +126,18 @@ export default async function SettingsPage({
     </>
   );
 }
+
+/* Gr8r's settings sub-nav has a 16px icon on every item (decorative: the
+   label names it). */
+const NAV_ICON = { size: 16, strokeWidth: 1.8, 'aria-hidden': true } as const;
+const SECTION_ICONS: Record<SettingsSectionId, ReactNode> = {
+  modes: <ToggleLeft {...NAV_ICON} />,
+  watchers: <Eye {...NAV_ICON} />,
+  schedule: <CalendarClock {...NAV_ICON} />,
+  status: <Activity {...NAV_ICON} />,
+  notifications: <Bell {...NAV_ICON} />,
+  audit: <ScrollText {...NAV_ICON} />,
+};
 
 /* The chip beside a section's title: what its saves do, or what it lists.
    Every section is editable by everyone signed in; none names a role. */
@@ -230,7 +258,10 @@ async function renderSection(
       const rows = notificationRows(records, snapshot.users);
       if (rows.length === 0) {
         return (
-          <EmptyState label="No digests yet">
+          <EmptyState
+            label="No digests yet"
+            icon={<Inbox size={22} strokeWidth={1.8} />}
+          >
             The daily run records at most one per person per day; Status →
             Preview today’s digests shows what it would send now.
           </EmptyState>
@@ -283,7 +314,10 @@ async function renderSection(
       const rows = auditRows(entries, snapshot, timeZone);
       if (rows.length === 0) {
         return (
-          <EmptyState label="No edits yet">
+          <EmptyState
+            label="No edits yet"
+            icon={<History size={22} strokeWidth={1.8} />}
+          >
             Re-dated milestones, leads, weights, “done means…”, issue edits and
             settings changes appear here, with who made them.
           </EmptyState>

@@ -141,7 +141,8 @@ const VARIANT_CLASS: Record<
   string | undefined
 > = {
   name: styles.variantName,
-  value: styles.variantValue,
+  // The body voice is the cell's own: no class of its own.
+  value: undefined,
   mono: styles.variantMono,
 };
 

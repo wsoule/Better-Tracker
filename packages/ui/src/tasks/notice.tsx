@@ -1,3 +1,5 @@
+import { CircleDashed, Inbox } from 'lucide-react';
+
 import { cx } from './class-names';
 import styles from './notice.module.css';
 import type { EmptyStateProps, NoticeProps } from './types';
@@ -35,25 +37,41 @@ export function Notice({
   );
 }
 
-/* Empty states are honest copy (.empty), never an illustration: an
-   optional title, then the sentence; a dashed edge (.hatched) when the
-   emptiness is a missing input. The title is styled by the module alone:
-   the global .label has the same specificity and would make it 12px
-   grey wherever primitives.css loads after this module. */
+/* Gr8r's empty state: a centred column of a 22px icon in --text-4 (no
+   tile behind it), the title, the sentence and the action, inside the
+   soft .empty box; a dashed edge (.hatched) when the emptiness is a
+   missing input. The icon defaults to an empty tray (a dashed circle when
+   hatched); pass `icon={null}` for none. The title is styled by the
+   module alone: the global .label has the same specificity and would make
+   it 12px grey wherever primitives.css loads after this module. */
 export function EmptyState({
   children,
   label,
   action,
   hatched = false,
+  icon,
 }: EmptyStateProps) {
+  const glyph =
+    icon === undefined ? (
+      hatched ? (
+        <CircleDashed size={22} strokeWidth={1.8} />
+      ) : (
+        <Inbox size={22} strokeWidth={1.8} />
+      )
+    ) : (
+      icon
+    );
   return (
     <div className={cx('empty', hatched ? 'hatched' : undefined, styles.empty)}>
-      <p className={styles.emptyText}>
-        {label !== undefined && label !== '' ? (
-          <span className={styles.emptyKey}>{label}</span>
-        ) : null}
-        {children}
-      </p>
+      {glyph !== null && glyph !== false ? (
+        <span className={styles.emptyIcon} aria-hidden="true">
+          {glyph}
+        </span>
+      ) : null}
+      {label !== undefined && label !== '' ? (
+        <p className={styles.emptyKey}>{label}</p>
+      ) : null}
+      <p className={styles.emptyText}>{children}</p>
       {action !== undefined ? (
         <div className={styles.emptyAction}>{action}</div>
       ) : null}

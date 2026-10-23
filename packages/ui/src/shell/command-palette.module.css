@@ -79,7 +79,9 @@
   min-width: 0;
   height: 100%;
   border: 0;
-  outline: 0;
+  /* Transparent, not none: forced-colours mode paints it, so the field
+     keeps a visible focus there (the palette is the ring otherwise). */
+  outline: 2px solid transparent;
   background: transparent;
   color: var(--text);
   font-family: var(--font-body);
@@ -90,7 +92,8 @@
 }
 
 .input:focus-visible {
-  outline: 0;
+  outline: 2px solid transparent;
+  outline-offset: -2px;
 }
 
 .input::placeholder {
@@ -171,9 +174,20 @@
   user-select: none;
 }
 
-/* Active row (keyboard or pointer): Gr8r's soft highlight. */
+/* Active row (keyboard or pointer): Gr8r's soft highlight plus a 2px
+   accent bar on the left edge. Focus stays in the input
+   (aria-activedescendant), so this row is the only focus cue, and the
+   fill alone is 1.1:1; the bar is 3.4:1 or better (WCAG 2.4.7, 1.4.11). */
 .option[aria-selected='true'] {
   background: var(--surface-2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+@media (forced-colors: active) {
+  .option[aria-selected='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
 }
 
 .optionIcon {

@@ -6,7 +6,6 @@ import {
   demoUserRows,
   firstParam,
   LANDING_FEATURES,
-  personInitials,
 } from '../lib/adapters/landing';
 
 function user(id: string, name: string): User {
@@ -65,7 +64,6 @@ describe('landing', () => {
       id: 'u-ben',
       name: 'Ben Carter',
       email: 'u-ben@example.com',
-      initials: 'BC',
       label: null,
     });
   });
@@ -106,14 +104,6 @@ describe('landing', () => {
 
   // The sign-in list draws each person as a round initials avatar
   // (Gr8r's account rows), from the full name.
-  test('initials: first and last word, one letter for one word', () => {
-    expect(personInitials('Ana Moreno')).toBe('AM');
-    expect(personInitials('  Mary Ann  de la Cruz ')).toBe('MC');
-    expect(personInitials('Cher')).toBe('C');
-    expect(personInitials('élodie roux')).toBe('ÉR');
-    expect(personInitials('   ')).toBe('?');
-  });
-
   // The Gr8r restyle (2026-10-22) shows no section or row numbers: the
   // features are cards keyed by a stable id that picks each card's icon.
   test('lists the design goals in order, each with a stable id', () => {

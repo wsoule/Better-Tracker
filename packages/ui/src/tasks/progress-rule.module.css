@@ -40,6 +40,8 @@
   background: var(--tone);
 }
 
+/* The count stays quiet whatever the tone (Gr8r tones only the fill):
+   the fill and the row's own date or chip already say the status. */
 .label {
   flex: none;
   min-width: 4ch;
@@ -47,17 +49,7 @@
   font-weight: var(--fw-medium);
   font-variant-numeric: tabular-nums;
   text-align: right;
-  color: var(--text-2);
-}
-
-.wrap:where(
-    [data-tone='danger'],
-    [data-tone='warning'],
-    [data-tone='success'],
-    [data-tone='info']
-  )
-  .label {
-  color: var(--tone-ink);
+  color: var(--text-3);
 }
 
 @media (prefers-reduced-motion: reduce) {

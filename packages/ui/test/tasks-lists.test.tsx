@@ -50,6 +50,27 @@ describe('StatsStrip', () => {
     expect(cells[1].textContent).toBe('Overdue milestones1Atlas');
   });
 
+  test('an optional key icon is drawing only, before the key', () => {
+    const { getAllByRole } = render(
+      <StatsStrip
+        cells={[
+          {
+            id: 'open',
+            label: 'Open issues',
+            value: 3,
+            icon: <svg data-testid="key-icon" />,
+          },
+          { id: 'plain', label: 'Plain', value: 1 },
+        ]}
+      />
+    );
+    const [withIcon, plain] = getAllByRole('listitem');
+    const icon = withIcon?.querySelector('[data-testid="key-icon"]');
+    expect(icon?.parentElement?.getAttribute('aria-hidden')).toBe('true');
+    expect(withIcon?.textContent).toBe('Open issues3');
+    expect(plain?.querySelector('[aria-hidden="true"]')).toBeNull();
+  });
+
   test('linked cells route through the host link', () => {
     const { getByRole } = render(
       <UiLinkProvider link={HostLink}>
@@ -96,12 +117,14 @@ describe('DeadlineList', () => {
     );
     expect(view.getByRole('heading', { name: /Overdue.*1/ })).toBeTruthy();
     expect(view.getByRole('heading', { name: /This week.*6/ })).toBeTruthy();
-    expect(view.getByText('Nothing due')).toBeTruthy();
+    // An empty group is left out, not printed as "Nothing due".
+    expect(view.queryByRole('heading', { name: /Today/ })).toBeNull();
+    expect(view.queryByText('Nothing due')).toBeNull();
     // The group carries its tone, so its label and dates take the colour.
     const tones = [
       ...view.container.querySelectorAll('[data-deadline-group]'),
     ].map((g) => g.getAttribute('data-tone'));
-    expect(tones).toEqual(['danger', 'default', 'default']);
+    expect(tones).toEqual(['danger', 'default']);
     const link = view.getByRole('link', { name: /Milestone m0/ });
     expect(link.getAttribute('href')).toBe('/timeline?milestone=m0');
     expect(link.hasAttribute('data-host-link')).toBe(true);
@@ -110,6 +133,21 @@ describe('DeadlineList', () => {
     expect(
       view.getAllByRole('img', { name: 'On track' }).length
     ).toBeGreaterThan(0);
+  });
+
+  test('with every group empty, one empty state says so', () => {
+    const view = render(
+      <DeadlineList
+        emptyLabel="Nothing due in the next 7 days."
+        groups={[
+          { id: 'over', label: 'Overdue', tone: 'danger', items: [] },
+          { id: 'today', label: 'Today', items: [] },
+        ]}
+      />
+    );
+    expect(view.queryAllByRole('heading')).toHaveLength(0);
+    const group = view.getByRole('group', { name: 'Upcoming deadlines' });
+    expect(group.textContent).toBe('Nothing due in the next 7 days.');
   });
 
   test('"+N more" reveals the rest and moves focus to the first new item', () => {
@@ -260,7 +298,7 @@ describe('review additions', () => {
     expect(spanOf(6)).toEqual({ cols: '4', span: '3' });
   });
 
-  test('DeadlineList: "Show fewer" folds the overflow back; empty groups say so', () => {
+  test('DeadlineList: "Show fewer" folds the overflow back; empty groups are left out', () => {
     const items = Array.from({ length: 6 }, (_, i) => ({
       id: `d${i}`,
       label: `Milestone ${i}`,
@@ -279,7 +317,8 @@ describe('review additions', () => {
         ]}
       />
     );
-    expect(view.getByText('Nothing due')).toBeTruthy();
+    expect(view.queryByText('Nothing due')).toBeNull();
+    expect(view.queryByRole('heading', { name: /Today/ })).toBeNull();
     const more = view.getByRole('button', { name: '+4 more' });
     fireEvent.click(more);
     expect(view.getAllByRole('link')).toHaveLength(6);
