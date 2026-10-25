@@ -4,6 +4,7 @@ import type {
   ShellNavItem,
   ShellSection,
   ShellTab,
+  ShellWorkspace,
   UiStatus,
 } from '@better-tracker/ui';
 import type { ReactNode } from 'react';
@@ -93,7 +94,33 @@ export const icons = {
       <path d="M8 2.5a5.5 5.5 0 0 1 0 11Z" fill="currentColor" />
     </Glyph>
   ),
+  // The palette's Workspaces section: switch (arrows both ways, Gr8r's
+  // arrow-left-right) and connect another (a plus).
+  switchWorkspace: (
+    <Glyph>
+      <path d="M2.5 5.5h11M11 3l2.5 2.5L11 8M13.5 10.5h-11M5 8l-2.5 2.5L5 13" />
+    </Glyph>
+  ),
+  plus: (
+    <Glyph>
+      <path d="M8 3v10M3 8h10" />
+    </Glyph>
+  ),
 } as const;
+
+/** The switcher example's workspaces (/ui-gallery/shell?switcher=1): the
+    one the page shows, one where Pat is a guest, and one whose app needs
+    a reinstall (its switch fails, to show "Not switched …"). The host
+    passes them in any order; the menu lists them by name. */
+export const workspaces: ShellWorkspace[] = [
+  { id: 'org-northwind', name: 'Northwind', hint: 'linear.app/northwind' },
+  { id: 'org-initech', name: 'Initech', hint: 'Reinstall needed' },
+  { id: 'org-globex', name: 'Globex', hint: 'Guest' },
+];
+
+/** Where the switcher's connect row goes in the gallery (the planner's
+    is /setup/connect): the sign-in card, a real page here. */
+export const CONNECT_HREF = '/ui-gallery/shell/signed-out';
 
 export const nav: ShellNavItem[] = [
   {

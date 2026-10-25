@@ -13,6 +13,7 @@ import {
   type PaletteItem,
   ProgressRule,
   PropertyList,
+  type ShellWorkspaceSwitcher,
   SkeletonBlock,
   SkeletonRows,
   SkeletonText,
@@ -27,6 +28,7 @@ import {
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react';
 
 import {
+  CONNECT_HREF,
   crumbs,
   type FixtureMilestone,
   icons,
@@ -38,6 +40,7 @@ import {
   sections,
   SIDEBAR_STORAGE_KEY,
   tabs,
+  workspaces,
 } from './fixtures';
 import styles from './page.module.css';
 
@@ -63,6 +66,36 @@ function GalleryLink({ href, children, onClick, ...rest }: UiLinkProps) {
       {children}
     </a>
   );
+}
+
+/** The switcher example's state: which workspace the page shows. Held
+    above the palette and the shell, which both switch. */
+interface GallerySwitch {
+  workspaceId: string;
+  setWorkspaceId: (id: string) => void;
+}
+
+/** Stands in for POST /api/auth/switch: settles after a beat so the
+    "Switching" note shows; Initech refuses, so "Not switched …" can be
+    seen (the planner would reload the page on success). */
+function fakeSwitch(id: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    setTimeout(() => {
+      if (id === 'org-initech') {
+        reject(
+          new Error(
+            'Linear refused the app for Initech. Ask an admin to reinstall it.'
+          )
+        );
+      } else {
+        resolve();
+      }
+    }, 900);
+  });
+}
+
+function workspaceName(id: string): string {
+  return workspaces.find((w) => w.id === id)?.name ?? id;
 }
 
 /** Flips html[data-theme] like ThemeToggle does (palette "Switch theme"). */
@@ -108,7 +141,13 @@ function MilestoneRow({
   );
 }
 
-function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
+function GalleryBody({
+  themeStorageKey,
+  switcher,
+}: {
+  themeStorageKey: string;
+  switcher: GallerySwitch | null;
+}) {
   const palette = useCommandPalette();
   const { toast } = useToast();
   const [detailId, setDetailId] = useState('atlas-3');
@@ -159,11 +198,35 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
     }));
   }, [detail]);
 
+  const workspaceSwitcher = useMemo<ShellWorkspaceSwitcher | undefined>(
+    () =>
+      switcher === null
+        ? undefined
+        : {
+            workspaces: workspaces.map((w) => ({
+              ...w,
+              current: w.id === switcher.workspaceId,
+            })),
+            onSwitch: async (id) => {
+              await fakeSwitch(id);
+              switcher.setWorkspaceId(id);
+              toast({
+                kind: 'info',
+                label: 'Switched',
+                message: `Now in ${workspaceName(id)}; the planner reloads the page here.`,
+              });
+            },
+            connect: { label: 'Connect another workspace', href: CONNECT_HREF },
+          },
+    [switcher, toast]
+  );
+
   return (
     <AppShell
       appName="Milestone Planner"
       workspaceName="Northwind"
       brandHref="/week"
+      workspaceSwitcher={workspaceSwitcher}
       nav={nav}
       sections={sections}
       settings={{ href: '/settings' }}
@@ -261,10 +324,22 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
             <Link href="/ui-gallery/shell/signed-out" className="accentLink">
               Signed-out frame
             </Link>
+            {switcher === null ? (
+              <Link href="/ui-gallery/shell?switcher=1" className="accentLink">
+                Workspace switcher
+              </Link>
+            ) : (
+              <Link href="/ui-gallery/shell" className="accentLink">
+                One workspace
+              </Link>
+            )}
           </div>
           <p className={styles.note}>
             Ctrl/⌘ K palette · ? shortcuts · [ collapse the sidebar · G then W,
             T, P, G, R or S to navigate · Esc closes
+            {switcher === null
+              ? ''
+              : ' · the brand row switches workspace (Initech refuses)'}
           </p>
         </section>
 
@@ -396,9 +471,18 @@ function GalleryBody({ themeStorageKey }: { themeStorageKey: string }) {
     slide-over with the property list and alert strip. */
 export default function ShellGallery({
   themeStorageKey,
+  switcher = false,
 }: {
   themeStorageKey: string;
+  /** Draw the brand row as the workspace switcher (?switcher=1), with
+      the palette's Workspaces section. */
+  switcher?: boolean;
 }) {
+  const [workspaceId, setWorkspaceId] = useState('org-northwind');
+  const switching = useMemo<GallerySwitch | null>(
+    () => (switcher ? { workspaceId, setWorkspaceId } : null),
+    [switcher, workspaceId]
+  );
   const staticItems = useMemo<PaletteItem[]>(
     () => [
       {
@@ -442,8 +526,12 @@ export default function ShellGallery({
   return (
     <ToastProvider>
       <UiLinkProvider link={GalleryLink}>
-        <PaletteWithToasts items={staticItems} loadItems={loadItems}>
-          <GalleryBody themeStorageKey={themeStorageKey} />
+        <PaletteWithToasts
+          items={staticItems}
+          loadItems={loadItems}
+          switcher={switching}
+        >
+          <GalleryBody themeStorageKey={themeStorageKey} switcher={switching} />
         </PaletteWithToasts>
       </UiLinkProvider>
     </ToastProvider>
@@ -455,16 +543,61 @@ export default function ShellGallery({
 function PaletteWithToasts({
   items,
   loadItems,
+  switcher,
   children,
 }: {
   items: PaletteItem[];
   loadItems: () => Promise<PaletteItem[]>;
+  switcher: GallerySwitch | null;
   children: ReactNode;
 }) {
   const { toast } = useToast();
+  // The Workspaces section (right after Suggestions): "Switch to <name>"
+  // for each other workspace, then "Connect another workspace".
+  const workspaceItems = useMemo<PaletteItem[]>(() => {
+    if (switcher === null) return [];
+    const others = workspaces
+      .filter((w) => w.id !== switcher.workspaceId)
+      .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+      .map((w): PaletteItem => ({
+        id: `workspace-${w.id}`,
+        label: `Switch to ${w.name}`,
+        hint: w.hint,
+        section: 'Workspaces',
+        icon: icons.switchWorkspace,
+        onSelect: () =>
+          void fakeSwitch(w.id).then(
+            () => {
+              switcher.setWorkspaceId(w.id);
+              toast({
+                kind: 'info',
+                label: 'Switched',
+                message: `Now in ${w.name}; the planner reloads the page here.`,
+              });
+            },
+            (error: unknown) =>
+              toast({
+                kind: 'error',
+                label: 'Not switched',
+                message: error instanceof Error ? error.message : 'Try again.',
+              })
+          ),
+      }));
+    return [
+      ...others,
+      {
+        id: 'workspace-connect',
+        label: 'Connect another workspace',
+        hint: 'Sign in with Linear',
+        section: 'Workspaces',
+        icon: icons.plus,
+        href: CONNECT_HREF,
+      },
+    ];
+  }, [switcher, toast]);
   const withToasts = useMemo(
     () =>
-      items.map((item) =>
+      [...items, ...workspaceItems].map((item) =>
         item.id === 's-dry' || item.id === 's-sync'
           ? {
               ...item,
@@ -480,13 +613,13 @@ function PaletteWithToasts({
             }
           : item
       ),
-    [items, toast]
+    [items, workspaceItems, toast]
   );
   return (
     <CommandPaletteProvider
       items={withToasts}
       loadItems={loadItems}
-      sectionOrder={['Suggestions', 'Jump to', 'Navigation']}
+      sectionOrder={['Suggestions', 'Workspaces', 'Jump to', 'Navigation']}
       navigate={(href) =>
         toast({
           kind: 'info',

@@ -50,6 +50,7 @@ import type {
   ShellSection,
   ShellUser,
 } from './types';
+import { switcherTip, WorkspaceSwitcher } from './workspace-switcher';
 
 /* One primary-nav row: icon, label, count; the shortcut shows on hover.
    `data-tip` feeds the rail tooltip when the sidebar is collapsed. A count
@@ -220,7 +221,8 @@ interface RailTip {
  * warm grey sidebar — brand row (a 22px tile, the product and workspace
  * names), primary nav, titled sections, footer (settings, user, theme,
  * sign out) — beside a 46px white topbar (breadcrumb, search trigger) and
- * the content.
+ * the content. With `workspaceSwitcher` the brand row is Gr8r's workspace
+ * switcher (a menu of the workspaces) instead of a link to `brandHref`.
  *
  * Desktop: "[" (or the brand-row button) collapses the sidebar to a 52px
  * icon rail, remembered under `storageKey`. Phone (≤ 900px): the sidebar is
@@ -232,6 +234,7 @@ export default function AppShell({
   appName,
   workspaceName,
   brandHref,
+  workspaceSwitcher,
   nav,
   sections = [],
   settings,
@@ -269,6 +272,10 @@ export default function AppShell({
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [tip, setTip] = useState<RailTip | null>(null);
+  // The workspace menu is open: no rail tooltip beside it. A ref, set by
+  // the picker's open callback, so the focus coming back to its trigger on
+  // close already sees it shut.
+  const switcherOpen = useRef(false);
   // Widening past the phone breakpoint closes the drawer (set during
   // render: it is derived from the media query, not an effect's job).
   if (drawerOpen && !isPhone) setDrawerOpen(false);
@@ -296,12 +303,19 @@ export default function AppShell({
     rerender();
   }, [storageKey, defaultCollapsed]);
 
-  // "[" toggles the rail on desktop, never while typing or under a modal.
+  // "[" toggles the rail on desktop, never while typing, under a modal or
+  // from inside an open picker or menu (its keys are its own).
   useEffect(() => {
     function onKey(event: KeyboardEvent): void {
       if (event.defaultPrevented || event.key !== '[') return;
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (isTypingTarget(event.target) || modalIsOpen()) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[data-picker-popup]') !== null
+      ) {
+        return;
+      }
       if (
         typeof window.matchMedia === 'function' &&
         window.matchMedia(PHONE_QUERY).matches
@@ -339,9 +353,17 @@ export default function AppShell({
     return () => document.removeEventListener('keydown', onKey);
   }, [drawerActive]);
 
-  /** Shows the rail tooltip beside the hovered or focused row. */
+  /** Shows the rail tooltip beside the hovered or focused row (none for
+      the open workspace menu, which is drawn inside the sidebar). */
   function showTip(target: EventTarget): void {
     if (!railActive || !(target instanceof Element)) return;
+    if (
+      switcherOpen.current ||
+      target.closest('[data-picker-popup]') !== null
+    ) {
+      setTip(null);
+      return;
+    }
     const host = target.closest<HTMLElement>('[data-tip]');
     if (host === null) {
       setTip(null);
@@ -404,26 +426,46 @@ export default function AppShell({
         onFocus={(event) => showTip(event.target)}
         onBlur={() => setTip(null)}
       >
-        <div className={styles.brand} data-tip={appName}>
-          <Link
-            href={brandHref}
-            className={styles.brandLink}
-            aria-label={
-              workspaceName !== undefined && workspaceName !== ''
-                ? `${appName} ${workspaceName}`
-                : appName
-            }
-          >
-            <span className={styles.logo} aria-hidden="true">
-              {initials(appName)}
-            </span>
-            <span className={styles.brandText} aria-hidden="true">
-              <span className={styles.appName}>{appName}</span>
-              {workspaceName !== undefined && workspaceName !== '' ? (
-                <span className={styles.workspace}>{workspaceName}</span>
-              ) : null}
-            </span>
-          </Link>
+        <div
+          className={styles.brand}
+          data-tip={
+            workspaceSwitcher === undefined
+              ? appName
+              : switcherTip(workspaceSwitcher, workspaceName)
+          }
+        >
+          {workspaceSwitcher === undefined ? (
+            <Link
+              href={brandHref}
+              className={styles.brandLink}
+              aria-label={
+                workspaceName !== undefined && workspaceName !== ''
+                  ? `${appName} ${workspaceName}`
+                  : appName
+              }
+            >
+              <span className={styles.logo} aria-hidden="true">
+                {initials(appName)}
+              </span>
+              <span className={styles.brandText} aria-hidden="true">
+                <span className={styles.appName}>{appName}</span>
+                {workspaceName !== undefined && workspaceName !== '' ? (
+                  <span className={styles.workspace}>{workspaceName}</span>
+                ) : null}
+              </span>
+            </Link>
+          ) : (
+            <WorkspaceSwitcher
+              switcher={workspaceSwitcher}
+              appName={appName}
+              workspaceName={workspaceName}
+              railActive={railActive}
+              onOpenChange={(open) => {
+                switcherOpen.current = open;
+                if (open) setTip(null);
+              }}
+            />
+          )}
           <span className={styles.collapseWrap} data-tip={collapseLabel}>
             <button
               type="button"

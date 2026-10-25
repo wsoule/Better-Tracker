@@ -3384,18 +3384,19 @@ links and follow-ups, new or unread, progress and the timeline's today.
   22px dark tile with the product's initials, "Milestone Planner" at `--fs` 600
   over the workspace name in `--text-3`, the collapse icon button; the brand
   link is named "Milestone Planner <workspace>", as on main, so the rail keeps
-  it), primary nav (My week with a count of this-week issues, Issues, Timeline,
-  Projects, Graph, Runs: 30px rows at `--fs` / 450 in `--text-2` with 16px
-  Lucide icons in `--text-4`, hover `--surface-3`; the current item the raised
-  pill, `--nav-current-bg` + `--nav-current-shadow` at 500 with its icon in
-  `--accent-ink`, in dark a `--surface-3` fill), a `Projects` section (an
-  uppercase eyebrow header with an "All" link) listing active projects as Gr8r's
-  quiet rows (an 18px folder tile, the name, and the status diamond of the
-  project's next milestone on the right only when it is overdue or at risk;
-  every row's status is in its accessible name and rail tooltip: one explicit
-  name, the visible name first, "Delta exports, Missing input", the mark on a
-  loud row hidden beside it so it is not read twice; click →
-  `/timeline?project=<id>`), and a footer with Settings, the signed-in user (a
+  it; it is the workspace switcher below when the planner passes
+  `workspaceSwitcher`), primary nav (My week with a count of this-week issues,
+  Issues, Timeline, Projects, Graph, Runs: 30px rows at `--fs` / 450 in
+  `--text-2` with 16px Lucide icons in `--text-4`, hover `--surface-3`; the
+  current item the raised pill, `--nav-current-bg` + `--nav-current-shadow` at
+  500 with its icon in `--accent-ink`, in dark a `--surface-3` fill), a
+  `Projects` section (an uppercase eyebrow header with an "All" link) listing
+  active projects as Gr8r's quiet rows (an 18px folder tile, the name, and the
+  status diamond of the project's next milestone on the right only when it is
+  overdue or at risk; every row's status is in its accessible name and rail
+  tooltip: one explicit name, the visible name first, "Delta exports, Missing
+  input", the mark on a loud row hidden beside it so it is not read twice; click
+  → `/timeline?project=<id>`), and a footer with Settings, the signed-in user (a
   22px round `InitialsAvatar`; no role chip: there are no roles since the owner
   decision of 2026-10-22; a Linear guest's line carries a `Guest` badge,
   `GUEST_BADGE`, and someone read-only for another reason a `Read only` badge,
@@ -3413,7 +3414,39 @@ links and follow-ups, new or unread, progress and the timeline's today.
   key cap). A `banner` (the demo-data line) is a thin full-bleed strip under the
   topbar (`--sunken`, `--border` bottom, one `--fs-sm` line; a `Notice` placed
   there loses its box). `[` collapses the sidebar to a 52px icon rail (choice
-  remembered in localStorage) with inverted tooltips.
+  remembered in localStorage) with inverted tooltips; it does nothing while
+  focus is inside an open picker or menu (`[data-picker-popup]`), whose keys are
+  its own.
+- **Workspace switcher** (`AppShellProps.workspaceSwitcher`, multi-workspace
+  owner requests of 2026-10-25): when the planner passes it, the brand row is
+  Gr8r's workspace switcher instead of a link to `/week`. It is passed in OAuth
+  mode only: API-key mode is pinned to one workspace and demo mode serves one
+  fictional workspace, so both (and the gallery's default shell) keep the brand
+  link unchanged. The row is a `PickerPopover` trigger (`searchable={false}`,
+  single choice, the `brand` appearance: the brand link's padding and radius,
+  `--surface-3` on hover and while open, a 1px `CanvasText` outline in forced
+  colours while open) with the same face, the product's initials tile ("MP") and
+  the product name over the current workspace's, plus a 13px chevrons-up-down
+  pushed right in `--text-4` (`--text-3` on the hover and open fill, where
+  `--text-4` would be under 3:1 in dark). Its name puts the visible words first,
+  "Milestone Planner <workspace>, switch workspace" (WCAG 2.5.3);
+  `aria-haspopup="dialog"` and `aria-expanded` as every picker. On the rail only
+  the tile shows and its tooltip reads "<workspace> · Switch workspace". The
+  menu (280px, a bottom sheet at 640px and below) opens on the current
+  workspace: a "Workspaces" group of the browser's workspaces sorted by name,
+  each a 20px initials tile (the current one in the `--brand-tile-*` colours,
+  the others `--surface-3` / `--text-2`), the name and a hint ("Guest", "Not
+  installed", "Reinstall needed" or `linear.app/<urlKey>`), the accent tick on
+  the current one; then, under a bare divider, "Connect another workspace" (a
+  plus icon), a full page load of `/setup/connect` that never shows a pending
+  note. Picking another workspace calls `onSwitch` through the edit family's
+  save contract: the workspace line reads "Switching to <name>" while it runs
+  (the picker's own "Switching" note is not drawn there, where it would squeeze
+  the names), success is a full page load, and a refusal rolls back and prints
+  "Not switched <message>" under the row (on the collapsed rail, where there is
+  no room, also as a toast). Picking the current workspace does nothing.
+  Switching changes which of the browser's own sessions is active; it is not a
+  write, so a guest may switch.
 - **Phone (≤ 900px)**: the sidebar becomes a 280px off-canvas drawer
   (`--shadow-pop`, over the `--overlay` scrim) opened from a topbar menu button;
   a fixed white bottom **tab bar** (`--border` top; 19px icons over 11px labels,
@@ -3433,18 +3466,23 @@ links and follow-ups, new or unread, progress and the timeline's today.
   run)", "Resync from Linear", "Switch theme"; a Linear guest gets only "Switch
   theme", `paletteSuggestions(readOnly)`), _Jump to_ (projects, milestones, the
   user's open issues by identifier — fetched from `/api/palette` on first open),
-  and _Navigation_ with two-key shortcuts (G W My week, G I Issues, G T
-  Timeline, G P Projects, G G Graph, G R Runs, G S Settings; a nav target's
-  optional `hint` is its item's hint, so "tasks" finds Issues, hinted "All
-  tasks"). ↑/↓ move, ↵ selects, Tab cycles sections, Esc closes; fuzzy match on
-  label + identifier (a hint matches only as a substring or a run of word
-  starts, "eng24" → `ENG-24`, so a project's "Project · <lead>" hint never pulls
-  it in by scattered letters). On a phone the hint ellipsizes before the label.
-  `?` opens a shortcuts sheet (the same card). The palette API's
+  _Workspaces_ right after Suggestions while the switcher is shown ("Switch to
+  <name>" per other workspace the browser holds, running the same switch, a
+  toast if it is refused since the palette has closed; "Connect another
+  workspace" → `/setup/connect`; plain items, not filtered for read-only people,
+  no shortcuts), and _Navigation_ with two-key shortcuts (G W My week, G I
+  Issues, G T Timeline, G P Projects, G G Graph, G R Runs, G S Settings; a nav
+  target's optional `hint` is its item's hint, so "tasks" finds Issues, hinted
+  "All tasks"). ↑/↓ move, ↵ selects, Tab cycles sections, Esc closes; fuzzy
+  match on label + identifier (a hint matches only as a substring or a run of
+  word starts, "eng24" → `ENG-24`, so a project's "Project · <lead>" hint never
+  pulls it in by scattered letters). On a phone the hint ellipsizes before the
+  label. `?` opens a shortcuts sheet (the same card). The palette API's
   `isSequencePending()` is true between a sequence's first key and its second
   (1.2 s); a page's own single-key commands (the issue list's `m`, `a`, `s`, `p`
   on a focused row) yield while it is true, so G S and G P still navigate with a
-  row focused.
+  row focused. No palette key (Ctrl/⌘ K included) fires from inside an open
+  picker or menu: its popover sits in the top layer, over the palette.
 - **Acting on lists** (`packages/ui`, for the Issues page; Gr8r's list view):
   `TaskGroupTable` takes optional `selection` (a checkbox per row: Gr8r's 15px
   rounded box in `--control-border`, the accent fill with an on-accent check
@@ -3477,7 +3515,11 @@ links and follow-ups, new or unread, progress and the timeline's today.
   mounted while nothing is selected so the first selection is heard; the host's
   ghost actions, ✕, an inline confirm strip, busy and limit notes, focus back on
   the action after a busy spell, Esc clears) complete it; menus are
-  `PickerPopover` with `searchable={false}`. Details in `packages/ui/README.md`.
+  `PickerPopover` with `searchable={false}` (↑/↓, Home / End, ↵ and Space; a
+  `PickerOption.href` row is a link out, `groupTitleHidden` a group under a bare
+  divider). Its trigger appearances are `value`, `mono`, `quiet`, `cell`, `bar`
+  and `brand` (the shell's brand row, the workspace switcher). Details in
+  `packages/ui/README.md`.
 - **Toasts**: a bottom-right stack (full width above the tab bar on phones) of
   Gr8r's inverted cards (`--text` fill, `--text-inv` ink, `--r`,
   `--shadow-pop`): a 15px icon (an error's in `--red-ink-inverse`), the semibold
@@ -3538,11 +3580,14 @@ links and follow-ups, new or unread, progress and the timeline's today.
   the mark moved to the right and shows only on overdue and at-risk rows, so the
   visible name leads; the 404 and landing pages print their small labels ("Not
   found", "Sign in") as text, not as an h2 above the page's h1; My week's issue
-  list is a region headed "Your issues" (h2, with its "N open"); Setup's
-  "Installed" is a chip's words, no longer a status image beside the same word
-  (it was read twice); the landing page's feature cards are an unordered list
-  (they are no longer numbered); the digest preview's recipients are h4 under
-  its h3 title (main had them at h2, above the preview's own h3).
+  list is a region headed "Your issues" (h2, with its "N open"); with the
+  workspace switcher the brand row is a button named "Milestone Planner
+  <workspace>, switch workspace" that opens a menu, no longer a link to `/week`
+  (OAuth mode only; elsewhere the link is unchanged); Setup's "Installed" is a
+  chip's words, no longer a status image beside the same word (it was read
+  twice); the landing page's feature cards are an unordered list (they are no
+  longer numbered); the digest preview's recipients are h4 under its h3 title
+  (main had them at h2, above the preview's own h3).
 
 ### 8.4 Pages
 
