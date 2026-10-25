@@ -110,8 +110,7 @@ async function revokeExpiredSessions(
  * OAuth mode only (refusedInstalledWorkspaces is empty otherwise).
  */
 export async function revokeRefusedInstallations(
-  rt: EngineRuntime,
-  now: Date
+  rt: EngineRuntime
 ): Promise<string[]> {
   const revoked: string[] = [];
   for (const { workspaceId, verdict } of await refusedInstalledWorkspaces(rt)) {
@@ -255,7 +254,7 @@ export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
     oldNotifications: 0,
     oldJobClaims: 0,
   };
-  await revokeRefusedInstallations(rt, now);
+  await revokeRefusedInstallations(rt);
   const oauth = rt.config.oauth;
   if (
     rt.linear.mode === 'fixture' ||

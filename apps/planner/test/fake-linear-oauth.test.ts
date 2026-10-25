@@ -1078,6 +1078,9 @@ describe('a real OAuth engine over the fake', () => {
         TOKEN_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
         LINEAR_CLIENT_ID: E2E_OAUTH_CLIENT.clientId,
         LINEAR_CLIENT_SECRET: E2E_OAUTH_CLIENT.clientSecret,
+        // Both fake workspaces are new to this planner, and an unset list is
+        // closed to new workspaces (admission, owner decision 2026-10-25).
+        LINEAR_WORKSPACES: 'acme,globex',
         PGLITE_DIR: join(dir, 'pglite'),
       },
       {
