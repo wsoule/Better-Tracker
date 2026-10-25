@@ -40,6 +40,10 @@ export const DEFAULT_SESSION_DAYS = 30;
 export const DEFAULT_DAILY_LEASE_MINUTES = 45;
 /** Path of the OAuth callback route, appended to `APP_URL`. */
 export const OAUTH_CALLBACK_PATH = '/api/auth/linear/callback';
+/** Workspaces whose indexed mirror one process keeps (MIRROR_CACHE_WORKSPACES). */
+export const DEFAULT_MIRROR_CACHE_WORKSPACES = 16;
+/** The largest MIRROR_CACHE_WORKSPACES accepted (each holds a whole mirror). */
+export const MAX_MIRROR_CACHE_WORKSPACES = 64;
 
 const MAX_SESSION_DAYS = 365;
 /** Minutes between background syncs in api_key mode (SYNC_INTERVAL_MINUTES). */
@@ -382,6 +386,21 @@ function parseEmails(
   return emails;
 }
 
+// MIRROR_CACHE_WORKSPACES: a whole number from 1 to
+// MAX_MIRROR_CACHE_WORKSPACES, else the default (a problem when invalid).
+function readMirrorCacheWorkspaces(env: EngineEnv, problems: string[]): number {
+  const raw = read(env, 'MIRROR_CACHE_WORKSPACES');
+  if (raw === null) return DEFAULT_MIRROR_CACHE_WORKSPACES;
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || value < 1 || value > MAX_MIRROR_CACHE_WORKSPACES) {
+    problems.push(
+      `MIRROR_CACHE_WORKSPACES must be a whole number from 1 to ${MAX_MIRROR_CACHE_WORKSPACES}`
+    );
+    return DEFAULT_MIRROR_CACHE_WORKSPACES;
+  }
+  return value;
+}
+
 /**
  * The retired variables (RETIRED_ENV_VARIABLES) this environment still
  * sets to a non-blank value, in a stable order, so boot can log one
@@ -531,6 +550,7 @@ export function loadEngineConfigFromEnv(
     : undefined;
   const operator = readOperator(env, problems);
   const demoUrl = readPublicUrl(env, 'DEMO_URL', problems);
+  const mirrorCacheWorkspaces = readMirrorCacheWorkspaces(env, problems);
 
   let apiKey: EngineConfig['apiKey'] = null;
   if (apiKeyMode && !fixture) {
@@ -553,6 +573,7 @@ export function loadEngineConfigFromEnv(
     apiKey,
     appName,
     appUrl,
+    mirrorCacheWorkspaces,
     defaultTimezone,
     bootstrapWatcherEmails,
     oauth:

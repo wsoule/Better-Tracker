@@ -16,6 +16,10 @@ import type { Logger } from '@better-tracker/logger';
 import type { Installation, Store, SyncState } from '@better-tracker/store';
 
 import {
+  DEFAULT_MIRROR_CACHE_WORKSPACES,
+  MAX_MIRROR_CACHE_WORKSPACES,
+} from './config';
+import {
   type ApiKeyDeps,
   EngineAuthError,
   type EngineConfig,
@@ -39,7 +43,8 @@ export interface MirrorView extends MirrorSnapshot {
 export interface MirrorCache {
   /**
    * The workspace's indexed mirror, re-indexed only when the store's mirror
-   * version moved. Null when nothing has been mirrored yet.
+   * version (or its last successful sync) changed. Null when nothing has
+   * been mirrored yet.
    */
   current(workspaceId: string): Promise<MirrorView | null>;
   /** Drops the cached snapshot (e.g. after the installation is revoked). */
@@ -101,29 +106,61 @@ export function createKeyedSerializer(): EngineRuntime['serialize'] {
   };
 }
 
+/** A cached snapshot plus the sync generation it was loaded under. */
+interface CachedMirror extends MirrorSnapshot {
+  /** syncState.lastSuccessAt when it was loaded (null: none recorded). */
+  generation: IsoDateTime | null;
+}
+
 /**
  * The snapshot cache behind load(). It keeps one indexed snapshot per
- * workspace keyed by the store's mirror version, so repeated page loads
- * re-index only after a sync or webhook changed the mirror. Concurrent
- * misses for the same version share one loadMirror + indexWorkspace.
+ * workspace, used only while the store's mirror version AND its last
+ * successful sync time both equal the ones it was loaded under, so
+ * repeated page loads re-index only after a sync or webhook changed the
+ * mirror. Any difference is stale, lower or higher: a purged workspace's
+ * versions start again at 1 after a reinstall, and the sync time keeps an
+ * old snapshot from matching once the new versions reach its number.
+ * Concurrent misses for the same version share one loadMirror +
+ * indexWorkspace. At most `capacity` workspaces are kept
+ * (MIRROR_CACHE_WORKSPACES, clamped to 1–64): the least recently read is
+ * dropped first, so one process serving many workspaces stays bounded.
  */
-export function createMirrorCache(store: Store): MirrorCache {
-  const entries = new Map<string, MirrorSnapshot>();
-  const pending = new Map<string, Promise<MirrorSnapshot | null>>();
+export function createMirrorCache(
+  store: Store,
+  options: { capacity?: number } = {}
+): MirrorCache {
+  const capacity = Math.min(
+    MAX_MIRROR_CACHE_WORKSPACES,
+    Math.max(1, Math.floor(options.capacity ?? DEFAULT_MIRROR_CACHE_WORKSPACES))
+  );
+  // Map order is recency: the first key is the least recently read.
+  const entries = new Map<string, CachedMirror>();
+  const pending = new Map<string, Promise<CachedMirror | null>>();
+
+  function remember(workspaceId: string, entry: CachedMirror): void {
+    entries.delete(workspaceId);
+    entries.set(workspaceId, entry);
+    while (entries.size > capacity) {
+      const oldest = entries.keys().next();
+      if (oldest.done === true) break;
+      entries.delete(oldest.value);
+    }
+  }
 
   async function loadAndIndex(
-    workspaceId: string
-  ): Promise<MirrorSnapshot | null> {
+    workspaceId: string,
+    generation: IsoDateTime | null
+  ): Promise<CachedMirror | null> {
     const mirror = await store.loadMirror(workspaceId);
     if (mirror === null) return null;
-    const entry: MirrorSnapshot = {
+    const entry: CachedMirror = {
       version: mirror.version,
       snapshot: indexWorkspace(mirror.data),
+      generation,
     };
-    const existing = entries.get(workspaceId);
-    if (existing === undefined || existing.version <= entry.version) {
-      entries.set(workspaceId, entry);
-    }
+    // Last load wins: a slower load of an older version may land after a
+    // newer one, and the next read then sees the mismatch and reloads.
+    remember(workspaceId, entry);
     return entry;
   }
 
@@ -131,20 +168,32 @@ export function createMirrorCache(store: Store): MirrorCache {
     async current(workspaceId: string): Promise<MirrorView | null> {
       const syncState = await store.getSyncState(workspaceId);
       if (syncState === null || syncState.version === 0) return null;
+      const generation = syncState.lastSuccessAt ?? null;
       const cached = entries.get(workspaceId);
-      if (cached !== undefined && cached.version === syncState.version) {
-        return { ...cached, syncState };
+      if (
+        cached !== undefined &&
+        cached.version === syncState.version &&
+        cached.generation === generation
+      ) {
+        remember(workspaceId, cached);
+        return {
+          version: cached.version,
+          snapshot: cached.snapshot,
+          syncState,
+        };
       }
-      const key = `${workspaceId}\u0000${syncState.version}`;
+      const key = `${workspaceId}\u0000${syncState.version}\u0000${generation ?? ''}`;
       let promise = pending.get(key);
       if (promise === undefined) {
-        promise = loadAndIndex(workspaceId).finally(() => {
+        promise = loadAndIndex(workspaceId, generation).finally(() => {
           pending.delete(key);
         });
         pending.set(key, promise);
       }
       const fresh = await promise;
-      return fresh === null ? null : { ...fresh, syncState };
+      return fresh === null
+        ? null
+        : { version: fresh.version, snapshot: fresh.snapshot, syncState };
     },
     forget(workspaceId: string): void {
       entries.delete(workspaceId);
@@ -164,7 +213,9 @@ export function createRuntime(deps: EngineDeps): EngineRuntime {
     clock,
     nowIso: (): IsoDateTime => clock().toISOString(),
     fetch: deps.fetch,
-    mirror: createMirrorCache(deps.store),
+    mirror: createMirrorCache(deps.store, {
+      capacity: deps.config.mirrorCacheWorkspaces,
+    }),
     serialize: createKeyedSerializer(),
     syncs: new Map(),
     keys: deps.keys ?? null,

@@ -82,6 +82,7 @@ export async function POST(request: Request): Promise<Response> {
         action: event.action,
         entityId: event.entityId,
         updatedFrom: event.updatedFrom,
+        createdAt: event.createdAt,
       });
     } catch (error) {
       logger.error('webhook processing failed', {

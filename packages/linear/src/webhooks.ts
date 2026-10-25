@@ -80,6 +80,14 @@ export interface LinearWebhookEvent {
   webhookTimestamp: number;
   /** Previous values of changed fields on update events. */
   updatedFrom: Record<string, unknown> | null;
+  /**
+   * Payload `createdAt` ("The time the payload was created" in Linear's
+   * schema; webhookTimestamp is when this delivery was sent), as an ISO
+   * instant; null when absent or not a date. The engine ignores an
+   * OAuthApp revoked event created before the installation's last update
+   * (a reinstall since), architecture §7.
+   */
+  createdAt: string | null;
 }
 
 export type WebhookParseResult =
@@ -147,6 +155,15 @@ export function parseWebhookEvent(
       entityId: isEntity ? entityId : null,
       webhookTimestamp,
       updatedFrom: optionalObject(body, 'updatedFrom'),
+      createdAt: isoInstant(optionalString(body, 'createdAt')),
     },
   };
+}
+
+// A date string as a normalised ISO instant, or null when it does not
+// parse (an absent or malformed createdAt).
+function isoInstant(value: string | null): string | null {
+  if (value === null) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
 }

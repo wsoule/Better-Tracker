@@ -77,6 +77,14 @@ import {
 } from './visibility';
 import { runWarnings } from './warning-run';
 import { handleWebhook } from './webhooks';
+import {
+  blockWorkspace,
+  OPERATOR_OFF_MESSAGE,
+  purgeWorkspaceNow,
+  removeWorkspace,
+  revokeWorkspace,
+  unblockWorkspace,
+} from './workspaces';
 
 /**
  * Wraps a mutating method whose first argument is the person making the
@@ -273,6 +281,23 @@ export function createEngine(deps: EngineDeps): Engine {
     updateIssues: writable((actor, issueIds, patch) =>
       updateIssues(rt, actor, issueIds, patch)
     ),
+
+    // Workspace lifecycle and the operator's commands (workspaces.ts): for
+    // the worker's CLI only, never a planner route.
+    listWorkspaceStatus: () => deps.store.listWorkspaceStatus(rt.nowIso()),
+    revokeWorkspace: async (workspaceId, reason, options) => {
+      if (apiKeyMode) {
+        throw new EngineInputError('invalid', OPERATOR_OFF_MESSAGE);
+      }
+      return revokeWorkspace(rt, workspaceId, reason, options);
+    },
+    removeWorkspace: (idOrUrlKey) => removeWorkspace(rt, idOrUrlKey),
+    purgeWorkspaceNow: (idOrUrlKey, options) =>
+      purgeWorkspaceNow(rt, idOrUrlKey, options),
+    blockWorkspace: (idOrUrlKey, reason) =>
+      blockWorkspace(rt, idOrUrlKey, reason),
+    unblockWorkspace: (idOrUrlKey) => unblockWorkspace(rt, idOrUrlKey),
+    listBlockedWorkspaces: () => deps.store.listBlockedWorkspaces(),
 
     cleanup: async () => {
       // Personal keys: forget expired ones too (the scheduler also does).

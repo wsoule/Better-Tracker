@@ -1183,8 +1183,13 @@ The allocation comment (§7.4) is exactly:
   the store's row lock, which must not be held for undici's 300 s default.
 - `webhooks.ts`: `verifyWebhookSignature(rawBody, header, secret)` (constant
   time) and `parseWebhookEvent(json, nowMs)` → normalized
-  `{ workspaceId, type, action, entityId, webhookTimestamp }` or a typed
-  rejection (bad JSON, stale timestamp, unsupported type).
+  `{ workspaceId, type, action, entityId, webhookTimestamp, updatedFrom, createdAt }`
+  or a typed rejection (bad JSON, stale timestamp, unsupported type).
+  `createdAt` (additive) is the payload's own (`createdAt: DateTime!`, "The time
+  the payload was created", on `EntityWebhookPayload`, `OAuthAppWebhookPayload`
+  and `OAuthAuthorizationWebhookPayload` in the schema; the delivery's send time
+  is `webhookTimestamp`) as an ISO instant, null when absent or not a date: the
+  engine's stale-revoke guard (§7).
 - `fixture.ts`: `createFixtureWorkspace(today: IsoDate): WorkspaceData` — a
   deterministic fictional workspace (generic names, nothing from the real team)
   dated relative to `today`, exercising every state: overdue, at risk for each
@@ -1520,8 +1525,9 @@ every workspace that installs it, routed by `organizationId`)
   documented; treat `remove` and an update with `archivedAt` set the same way:
   refetch, which returns null for archived entities). Two non-entity payloads
   exist in the schema: `OAuthAppWebhookPayload` (type `OAuthApp`,
-  `oauthClientId`, no `data`) — the app was revoked for the workspace → mark the
-  installation revoked; and `OAuthAuthorizationWebhookPayload` (type
+  `oauthClientId`, `createdAt`, no `data`) — the app was revoked for the
+  workspace → revoke the installation as `uninstalled` unless the event predates
+  its last update (§7); and `OAuthAuthorizationWebhookPayload` (type
   `OAuthAuthorization`, `userId`, `activeTokensForUser`) — a user's
   authorization changed → log only (a dead user token surfaces as a failed
   refresh and the person signs in again).
@@ -1817,11 +1823,12 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 
 `createEngine(deps: EngineDeps): Engine` (contract in `src/types.ts`).
 
-- **load(workspaceId)**: reads `sync_state.version`; if it equals the cached
-  version, reuses the indexed snapshot; otherwise loads the mirror and
-  re-indexes. Settings + milestone meta are read every call (small). Computes
-  `today` (workspace tz), assessments, allocation plan. No mirror yet → runs
-  `fullSync` first (if installed).
+- **load(workspaceId)**: reads `sync_state`; if its version and its last
+  successful sync both equal the cached ones, reuses the indexed snapshot;
+  otherwise loads the mirror and re-indexes (the mirror cache, below).
+  Settings + milestone meta are read every call (small). Computes `today`
+  (workspace tz), assessments, allocation plan. No mirror yet → runs the first
+  sync first (if installed), with the first-sync backoff below.
 - **Per-viewer visibility** (§2.13; `visibility.ts`, the one place views apply
   it): `load`, `getWeekView`, `getTimelineView`, `getGraph`,
   `getMilestoneDetail`, `getIssueList`, `getIssueListOptions`, `getRun`,
@@ -1931,13 +1938,14 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   its project; `Project` → `fetchProject` (upsert project + all its milestones,
   delete mirrored milestones of that project that are gone); `Initiative` →
   `fetchInitiative`; `User` → `fetchUser`; `OAuthApp` with action `revoked` →
-  `markInstallationRevoked`. Fetch returning null or action `remove` → delete
-  from the mirror (a removed project also drops its milestones). Anything else →
-  `'ignored'`. A refetched issue keeps the mirror's `lastStateChangeAt` when
-  that is later (`withMirroredStateTime`: `fetchIssue` knows only the timestamp
-  approximation, the sync's value may be history-refined), unless its state
-  moved (`updatedFrom.stateId`, or a state other than the mirror's): then the
-  issue's `updatedAt`. When an Issue or Project event brings a project the
+  `revokeWorkspace(ws, 'uninstalled')`, ignored when created before the
+  installation's last update (below). Fetch returning null or action `remove` →
+  delete from the mirror (a removed project also drops its milestones). Anything
+  else → `'ignored'`. A refetched issue keeps the mirror's `lastStateChangeAt`
+  when that is later (`withMirroredStateTime`: `fetchIssue` knows only the
+  timestamp approximation, the sync's value may be history-refined), unless its
+  state moved (`updatedFrom.stateId`, or a state other than the mirror's): then
+  the issue's `updatedAt`. When an Issue or Project event brings a project the
   mirror did not have (reopened, or newly visible), its milestones come with it
   but its issues cannot (there is no per-project issue read), so a `fullSync`
   follows at once (its failure is logged; the webhook's own change stays
@@ -2090,8 +2098,8 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   session-only and revoked ones are left out, refused ones logged at info, never
   failures), webhooks (above) and `cleanup()`, whose
   `revokeRefusedInstallations` revokes every installed workspace admission now
-  refuses as `'removed'` (`store.revokeInstallation`, credentials wiped, its
-  cached mirror forgotten, logged at warn), so a workspace taken out of
+  refuses as `'removed'` (`revokeWorkspace`: credentials wiped, its cached
+  mirror forgotten; logged at warn), so a workspace taken out of
   `LINEAR_WORKSPACES` or blocked keeps no live app token.
   `refusedWorkspaces(rt)` (every workspace the store knows, installed or
   session-only, that admission refuses, with its `WorkspaceStatus`) and
@@ -2128,6 +2136,103 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   while it is unset, when exactly one workspace is installed (today's
   single-workspace behaviour); never under `*`. Elsewhere the installer is the
   first watcher (logged at info).
+- **Several workspaces: revoking, the mirror cache, the first sync** (owner
+  decision 2026-10-25; `workspaces.ts`, `runtime.ts`, `sync.ts`):
+  - `revokeWorkspace(ws, reason, { ifUpdatedBefore? })` =
+    `store.revokeInstallation` (revoked_at and reason set, credentials wiped
+    with the blank sentinel) + forgetting this process's cached mirror of the
+    workspace. Idempotent, true when the row changed; no Linear call and no
+    session ended (it runs inside a webhook's `after()`). Reads of a revoked
+    workspace are already refused (`requireInstallation`), so cleanup ending the
+    sessions later (§9) leaks nothing. The three revoke paths:
+    - **uninstalled**: Linear's `OAuthApp` revoked webhook →
+      `revokeWorkspace(ws, 'uninstalled', { ifUpdatedBefore: event.createdAt })`.
+      `createdAt` is the payload's ("The time the payload was created", parsed
+      into `LinearWebhookEvent.createdAt`, null when absent or not a date; the
+      planner's route passes it on). A revoke created before the installation's
+      last update (a reinstall since: a delayed or retried delivery) changes
+      nothing and is logged at info ("stale OAuthApp revoked ignored"), so it
+      never wipes the new grant; one for a row already revoked, or no row, is
+      logged at info too. Without a `createdAt` the revoke applies. A fresh one
+      logs the existing error ("must be reinstalled").
+    - **grant_dead**: the provider's dead-grant path (`markDeadInstallation`, a
+      refresh `invalid_grant` or an expired token without a refresh token) calls
+      `store.revokeInstallation(ws, 'grant_dead', now, { ifUpdatedBefore: <the dead row's updatedAt> })`
+      itself (the provider is built before the engine), after re-reading the row
+      as before. `grant_dead` **keeps member sessions** (their grants do not
+      depend on the app's; they reach /setup's "Reinstall needed"), is **never
+      purged automatically**, and stays a failed worker outcome (§9).
+    - **removed**: the operator's `remove` (below), and (admission) `cleanup()`
+      for an installed workspace admission now refuses.
+  - **Operator commands** (`Engine` additive, for the worker's CLI only, §9;
+    **no planner route may call them**: there is no operator role in the
+    planner, and they act across sessions; with personal API keys all but the
+    two listings refuse with `invalid`, `OPERATOR_OFF_MESSAGE`). A workspace is
+    named by org id or URL key (`findWorkspace` over `listWorkspaceStatus`: the
+    id first, else the installation's URL key, else the newest session's, both
+    without case); unknown → `EngineInputError('not_found')`, a URL key two
+    workspaces share → `conflict`, a malformed name (not letters, digits and
+    dashes, ≤ 64) → `invalid`. None returns a credential.
+    - `listWorkspaceStatus()` → the store's `WorkspaceStatus[]` (unexpired
+      sessions counted); `listBlockedWorkspaces()` → the blocks.
+    - `removeWorkspace(name)` →
+      `WorkspaceRemoval { workspaceId, revoked, appTokenRevoked, endedSessions, revokedTokens, revokeFailures }`:
+      revokes the app's token with Linear (`revokeGrant`, best effort, under the
+      installation's row lock so no refresh rotates it meanwhile;
+      `appTokenRevoked` null when there is no active token), then
+      `revokeWorkspace(ws, 'removed')` (a `grant_dead` row becomes `removed`; an
+      uninstalled one stays), then ends every session created up to now
+      (`takeSessionsForWorkspace` in batches of 50, each grant revoked best
+      effort, `SESSION_REVOKE_CONCURRENCY` = 4 at a time, failures logged
+      without tokens). A workspace only signed in to (no installation) just has
+      its sessions ended. A reinstall stays allowed.
+    - `purgeWorkspaceNow(name, { now? })` → `WorkspacePurge`: refuses
+      (`{ purged: false, reason }`) `not_installed`, `not_revoked` ("run remove
+      first") and `too_recent` (revoked less than `OPERATOR_PURGE_MIN_MINUTES` =
+      15 minutes before `now`, default the engine clock: a tick or a sync join
+      may still be writing); else ends the remaining sessions (grants revoked)
+      and runs
+      `store.purgeWorkspace(ws, { revokedBefore: now − 15 min, allowGrantDead: true })`,
+      returning `{ purged: true, endedSessions, counts }`. Logs
+      `workspace purged` with the id only.
+    - `blockWorkspace(name, reason?)` →
+      `WorkspaceBlock { key, kind, workspaceId, removal }`: the reason is
+      trimmed (≤ 500 characters, empty → none). A name that resolves is blocked
+      by its org id; one that does not is blocked by id when it has a Linear org
+      id's shape (a UUID), else by URL key (pinned to the org id on its first
+      admission match). The block is stored first, then a resolved workspace is
+      removed (`removeWorkspace`'s steps: with an installation the app token and
+      the revoke, and its sessions ended either way). Unlike `remove`, a block
+      keeps the workspace out until `unblockWorkspace(name)`, which deletes the
+      block on the name and on the org id it resolves to (true when one existed)
+      and leaves the workspace revoked.
+  - **The mirror cache** (`createMirrorCache`): one indexed snapshot per
+    workspace, used only while the store's mirror version **and** its
+    `lastSuccessAt` both equal the ones it was loaded under. Any difference is
+    stale, lower as well as higher: a purge deletes `sync_state`, so a
+    reinstall's versions start again at 1, and the sync time keeps an old
+    snapshot from matching once the new versions reach its number (a process
+    that read nothing in between). The last load wins (a slower load of an older
+    version is replaced at the next read). It keeps at most
+    `MIRROR_CACHE_WORKSPACES` workspaces (`EngineConfig.mirrorCacheWorkspaces`,
+    1–64, default 16, `DEFAULT_MIRROR_CACHE_WORKSPACES`/
+    `MAX_MIRROR_CACHE_WORKSPACES`), dropping the least recently read first.
+  - **First-sync backoff** (`firstSync`, the one helper `authenticate`'s
+    `mirrorForPerson` and `loadWorkspace` both use for a workspace with no
+    mirror): a sync already running in this process is joined as `fullSync`
+    always does (`SYNC_JOIN_WAIT_MS`); otherwise, when the last full sync
+    attempt failed, none starts before `firstSyncRetryAt(syncState)` =
+    `lastFullSyncAt` + min(15 min, 1 min × 2^(consecutiveFailures − 1))
+    (`FIRST_SYNC_RETRY_MIN_MS`, `FIRST_SYNC_RETRY_MAX_MS`). While it waits,
+    `authenticate` places nobody (`not_synced`, logged at debug) and `load`
+    throws `EngineInputError('rate_limited', …, { retryAt })` (a 429 with
+    `Retry-After` in the web layer; pages show the first-sync state). The
+    worker, the Resync route, runs and a connect call `fullSync` directly and
+    never wait. With personal API keys there is no backoff (a sync reads with a
+    member's own key, and none at all with nobody connected).
+  - `fullSync` records its duration and the mirrored issue count
+    (`recordFullSync(…, { durationMs, issueCount })`) on success, for the
+    worker's budget and the operator's listing.
 
 ### 7.1 Engine exports and boot
 
@@ -2180,6 +2285,21 @@ reads as `installed`), `operator` (`OperatorContact` `{ name, email, url }`,
 absent reads as all null) and `demoUrl`; the index exports `ADMISSION_CACHE_MS`,
 `AdmissionVerdict`, `SLACK_SHARED_OFF`, `MAX_DESCRIBED_SESSIONS`,
 `MAX_WORKSPACE_ENTRIES`, `isDeployedEnv` and the `SessionDescription` type.
+Several workspaces (additive, owner decision 2026-10-25; §7 above, §9): the
+constants `PURGE_AFTER_DAYS` (30), `NOTIFICATION_RETENTION_DAYS` (90),
+`JOB_CLAIM_RETENTION_DAYS` (30), `OPERATOR_PURGE_MIN_MINUTES` (15),
+`SESSION_REVOKE_CONCURRENCY` (4), `FIRST_SYNC_RETRY_MIN_MS` (1 minute),
+`FIRST_SYNC_RETRY_MAX_MS` (15 minutes), `DEFAULT_MIRROR_CACHE_WORKSPACES` (16)
+and `MAX_MIRROR_CACHE_WORKSPACES` (64), `OPERATOR_OFF_MESSAGE`, the pure
+`firstSyncRetryAt(syncState)` and the types `WorkspaceRemoval`, `WorkspacePurge`
+and `WorkspaceBlock`. The `Engine` contract gains `listWorkspaceStatus()`,
+`revokeWorkspace(ws, reason, { ifUpdatedBefore? })`, `removeWorkspace(name)`,
+`purgeWorkspaceNow(name, { now? })`, `blockWorkspace(name, reason?)`,
+`unblockWorkspace(name)` and `listBlockedWorkspaces()` (operator commands: the
+worker's CLI only, never a planner route); `handleWebhook`'s event gains
+optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
+`CleanupResult` gains optional `endedWorkspaceSessions`, `purgedWorkspaces`,
+`oldNotifications` and `oldJobClaims`.
 
 `createEngineFromEnv`:
 
@@ -2251,11 +2371,13 @@ absent reads as all null) and `demoUrl`; the index exports `ADMISSION_CACHE_MS`,
   workspace yet." (no row) and "… lost its access to this Linear workspace …; an
   admin must install it again." (revoked, or a grant Linear rejects). A dead
   installation grant (`invalid_grant`, or an expired token without a refresh
-  token) is also recorded with `markInstallationRevoked(workspaceId, now)` once
-  the row lock is released, after re-reading the row: a reinstall saved in
-  between (different tokens) is left alone. From then on Settings and `/setup`
-  see `revokedAt`, `listWorkspaceIds` skips the workspace (the worker stops
-  retrying it every tick) and `forApp` fails fast without calling Linear.
+  token) is also recorded with
+  `revokeInstallation(workspaceId, 'grant_dead', now, { ifUpdatedBefore })`
+  (credentials wiped) once the row lock is released, after re-reading the row: a
+  reinstall saved in between (different tokens, or a later `updated_at`) is left
+  alone. Member sessions are kept. From then on Settings and `/setup` see
+  `revokedAt`, `listWorkspaceIds` skips the workspace (the worker stops retrying
+  it every tick) and `forApp` fails fast without calling Linear.
   `listRevokedWorkspaceIds()` (additive) lists those workspaces, and the worker
   reports each as a failed workspace on every run (§9), so allocation and
   warnings never stop silently. A session or installation row missing at lock
@@ -2315,7 +2437,9 @@ Engine decisions made while building it (binding for callers):
   and a reinstall clears it, so no migration or second flag is needed.
   `revokedAt` therefore means "the app has no working Linear grant", whether
   Linear revoked it or a refresh was rejected; the rejection is in the error
-  logs.
+  logs. Since migration 5 the store also keeps why (`revoked_reason`:
+  `uninstalled`, `grant_dead`, `removed`; §5), which decides whether cleanup
+  ends the sessions and purges (§9).
 - `handleWebhook` treats a blank `deliveryId` as none (no dedupe), and the
   public `runAllocation` always syncs first (only `runDaily` reuses its sync).
 - `runDaily` syncs once: its allocation run reuses that sync.
@@ -2375,6 +2499,10 @@ Engine decisions made while building it (binding for callers):
   (`deleteExpiredSessions`). Webhook delivery records older than 30 days
   (`WEBHOOK_RETENTION_DAYS`) are pruned: dedupe needs only Linear's ~6 h retry
   window, the rest keeps each delivery's processing error around to investigate.
+  Additive (several workspaces, §9): `endedWorkspaceSessions`,
+  `purgedWorkspaces`, `oldNotifications` and `oldJobClaims` (always set,
+  optional in the type), and `revokedTokens`/`revokeFailures` count every
+  session the pass ended.
 
 ### 7.2 Issue page (owner decision 2026-10-21)
 
@@ -5354,7 +5482,46 @@ Worker decisions made while building it (binding):
   failed, or the hard timeout fired; `2` usage error (unknown command/option,
   missing `--dry-run|--live`, an option that does not apply). Undelivered
   digests do not fail a run (they include people with no Slack account); they
-  are counted in the summary.
+  are counted in the summary. A workspace revoked as `grant_dead` (Linear
+  refused the app's token, §7) stays a failed workspace on every run: nobody
+  asked for it, cleanup never purges it, so the cron must show it until an admin
+  reinstalls (or the operator purges it).
+- **Cleanup** (`engine.cleanup()`, after every tick; each step bounded per call
+  so a backlog never stretches a tick past its timeout, the rest waiting for the
+  next tick; nothing of this runs with personal API keys):
+  1. Expired sessions are taken in batches of 50 (at most 500) and their Linear
+     grants revoked, best effort (unchanged).
+  2. Webhook delivery records older than `WEBHOOK_RETENTION_DAYS` (30) are
+     deleted (unchanged).
+  3. Retention: notifications (digests, the outbox) older than
+     `NOTIFICATION_RETENTION_DAYS` (90) and daily job claims older than
+     `JOB_CLAIM_RETENTION_DAYS` (30), oldest first, at most 2,000 of each per
+     call (`oldNotifications`, `oldJobClaims`). The audit log and the run log
+     are never pruned (kept for good, 2026-10-22): only the purge deletes them.
+  4. Sessions of workspaces revoked as `uninstalled` or `removed` that were
+     **created before `revoked_at`** are ended
+     (`takeSessionsForWorkspace(ws, { createdBefore: revokedAt })`, at most 500
+     per call), each grant revoked best effort, 4 at a time, failures logged at
+     warn without tokens and counted (`endedWorkspaceSessions`; the revocations
+     count into `revokedTokens`/`revokeFailures`). A session created after the
+     revoke (an admin signing in to reinstall) is kept. `grant_dead` keeps every
+     session.
+  5. Purge: workspaces revoked as `uninstalled` or `removed` more than
+     `PURGE_AFTER_DAYS` (30, an engine constant so the privacy page and the
+     worker agree) ago, oldest revoke first, at most 3 per call. Each first has
+     its remaining sessions ended (grants revoked: the purge deletes session
+     rows without revoking anything), then
+     `store.purgeWorkspace(ws, { revokedBefore: now − 30 days })` re-checks the
+     revoke under the installation's row lock (a reinstall racing it wins) and
+     deletes every workspace-keyed table; the process's cached mirror is
+     forgotten and `workspace purged` is logged with the **id only** (a name
+     must not outlive its data in the host's logs). `grant_dead` is never purged
+     here; the operator's `purge` may.
+- **Operator commands** use the engine's `listWorkspaceStatus`,
+  `removeWorkspace`, `purgeWorkspaceNow` (refuses a workspace that is not
+  revoked, or was revoked less than 15 minutes ago; `grant_dead` allowed),
+  `blockWorkspace`, `unblockWorkspace` and `listBlockedWorkspaces` (§7 "Several
+  workspaces"); they are the only callers of those methods.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
   `TICK_TIMEOUT_MINUTES`. The manual one-shot commands (`sync`, `daily`,
@@ -5424,6 +5591,7 @@ Worker decisions made while building it (binding):
 | `SYNC_INTERVAL_MINUTES`                     | worker serve; planner in api_key mode | minutes between ticks (default 15); in api_key mode, minutes between the planner's background syncs while a member is connected (1–1440, default 15)                                                                                                        |
 | `PGLITE_DIR`                                | all                                   | PGlite directory when `DATABASE_URL` is unset (local dev only; a deployed api_key planner without `DATABASE_URL` logs a warning at boot)                                                                                                                    |
 | `SESSION_DAYS`                              | engine                                | session lifetime in days (default 30); unused in api_key mode (2 h idle, 12 h at most)                                                                                                                                                                      |
+| `MIRROR_CACHE_WORKSPACES`                   | engine                                | how many workspaces' indexed mirrors one process keeps in memory, least recently read dropped first (1–64, default 16)                                                                                                                                      |
 | `LOG_LEVEL`                                 | all                                   | debug/info/warn/error                                                                                                                                                                                                                                       |
 
 `packages/engine` exports `loadEngineConfigFromEnv(env)` and
@@ -5522,7 +5690,18 @@ not read; a deploy that still sets it boots normally and logs one warning
   status change write nothing; `LINEAR_FIXTURE`'s values and a boot with
   `showcase` (`test/showcase-boot.test.ts`: seeded like the base demo with the
   showcase's meta, every view and graph level for a member, the guest's
-  Operations-only, read-only view).
+  Operations-only, read-only view); several workspaces
+  (`test/workspace-lifecycle.test.ts`: an `OAuthApp` revoke applied fresh and
+  ignored when created before a reinstall or without effect, a dead app grant
+  kept as `grant_dead` with its sessions and never purged by cleanup, cleanup
+  ending only the sessions created before an uninstall, purging uninstalled and
+  removed workspaces after 30 days but not at 29, three per call, never
+  `grant_dead`, a reinstall within the grace kept, the retention limits, and the
+  operator's remove, purge, block and unblock with their names, refusals,
+  sessions and app token revocation; `test/mirror-cache.test.ts`: a lower or a
+  coinciding version after a purge and reinstall is never served stale, LRU
+  eviction, `MIRROR_CACHE_WORKSPACES`; `test/first-sync.test.ts`: the doubling
+  wait and its cap at both call sites, and a running sync joined).
 - core (issue list): the matcher (`test/issue-search.test.ts`); the list
   (`test/issue-list.test.ts`): every filter with `none` and `me`, OR within and
   AND across fields, the first-initiative rule and `alsoIn`, the quick filters,

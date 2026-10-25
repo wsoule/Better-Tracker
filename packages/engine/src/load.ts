@@ -17,7 +17,7 @@ import {
   readSettings,
   requireInstallation,
 } from './runtime';
-import { fullSync } from './sync';
+import { firstSync, firstSyncWaitError, fullSync } from './sync';
 import type { Actor, LoadedWorkspace } from './types';
 import { viewerSnapshot } from './visibility';
 
@@ -44,7 +44,9 @@ function predatesVisibility(snapshot: Snapshot): boolean {
 /**
  * Loads a workspace for reading. Not installed (or revoked) →
  * EngineAuthError('not_installed'); installed but never mirrored → a full
- * sync first (and a mirror written before team visibility was mirrored is
+ * sync first (firstSync: after a failed attempt the next one waits, and
+ * until then this throws EngineInputError('rate_limited') with the
+ * retry time; a mirror written before team visibility was mirrored is
  * synced first too; if that sync fails it is read as it is, which shows
  * people nothing rather than too much). `today` defaults to the date in
  * the workspace timezone; runWarnings passes an explicit day.
@@ -62,7 +64,8 @@ export async function loadWorkspace(
   await requireInstallation(rt, workspaceId);
   let view = await rt.mirror.current(workspaceId);
   if (view === null) {
-    await fullSync(rt, workspaceId);
+    const outcome = await firstSync(rt, workspaceId);
+    if (outcome.kind === 'waiting') throw firstSyncWaitError(outcome.retryAt);
     view = await rt.mirror.current(workspaceId);
     if (view === null) {
       throw new Error(

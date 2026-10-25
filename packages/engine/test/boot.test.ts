@@ -37,6 +37,7 @@ describe('loadEngineConfigFromEnv', () => {
       apiKey: null,
       appName: 'Milestone Planner',
       appUrl: 'http://localhost:3000',
+      mirrorCacheWorkspaces: 16,
       defaultTimezone: 'UTC',
       bootstrapWatcherEmails: [],
       oauth: null,

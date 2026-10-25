@@ -53,7 +53,7 @@ import {
 } from './admission';
 import { needsRefresh } from './providers';
 import type { EngineRuntime, MirrorView } from './runtime';
-import { fullSync } from './sync';
+import { firstSync } from './sync';
 import {
   type Actor,
   EngineAuthError,
@@ -333,8 +333,10 @@ export function readOnlyReasonFor(
  * An installed workspace without a mirror has not had its first sync land
  * (the minutes after an install): that sync runs here, joined with the one
  * the install started (fullSync is single-flight), as load() would run it
- * for the page anyway. A failed sync leaves the mirror null and is logged;
- * readOnlyReasonFor then fails closed (`not_synced`).
+ * for the page anyway. After a failed attempt the next one waits
+ * (firstSync's backoff, shared with load()). A failed or waiting sync
+ * leaves the mirror null (a failure is logged); readOnlyReasonFor then
+ * fails closed (`not_synced`).
  */
 export async function mirrorForPerson(
   rt: EngineRuntime,
@@ -346,7 +348,14 @@ export async function mirrorForPerson(
     return { view: null, installed: false };
   }
   try {
-    await fullSync(rt, workspaceId);
+    const outcome = await firstSync(rt, workspaceId);
+    if (outcome.kind === 'waiting') {
+      rt.logger.debug('the first sync failed recently; waiting to retry', {
+        workspaceId,
+        retryAt: outcome.retryAt,
+      });
+      return { view: null, installed: true };
+    }
   } catch (error) {
     // api_key mode with no member connected: expected, not a failure.
     const noReader =

@@ -27,6 +27,7 @@ import { admission, installationRow } from './admission';
 import { type EngineRuntime, errorMessage } from './runtime';
 import { fullSync } from './sync';
 import { EngineAuthError, type Engine } from './types';
+import { revokeWorkspace } from './workspaces';
 
 export type WebhookEvent = Parameters<Engine['handleWebhook']>[0];
 type WebhookOutcome = 'processed' | 'ignored';
@@ -335,6 +336,48 @@ async function simpleChanges<K extends 'initiative' | 'user'>(
     : { upsert: [{ kind: 'user', entity }], remove: [] };
 }
 
+// An admin uninstalled the app in Linear (OAuthApp revoked): the
+// installation is revoked as 'uninstalled' (credentials wiped, purged
+// PURGE_AFTER_DAYS later unless someone reinstalls), with no Linear call
+// and no session ended here (cleanup ends them). An event created before
+// the installation's last update came from before a reinstall (a delayed
+// or retried delivery) and is ignored, logged at info, so it never wipes
+// the new grant; without a createdAt (or with one that is not a date)
+// the revoke always applies.
+async function applyAppRevoked(
+  rt: EngineRuntime,
+  event: WebhookEvent,
+  log: Logger
+): Promise<void> {
+  // Not a date (a caller other than the route's parser): no guard.
+  const raw = event.createdAt ?? null;
+  const createdAt = raw === null || Number.isNaN(Date.parse(raw)) ? null : raw;
+  const changed = await revokeWorkspace(
+    rt,
+    event.workspaceId,
+    'uninstalled',
+    createdAt === null ? {} : { ifUpdatedBefore: createdAt }
+  );
+  if (changed) {
+    log.error('the app was revoked for this workspace; it must be reinstalled');
+    return;
+  }
+  const installation = await rt.store.getInstallation(event.workspaceId);
+  if (installation === null) {
+    log.info('OAuthApp revoked for a workspace with no installation; ignored');
+  } else if (installation.revokedAt !== null) {
+    log.info('OAuthApp revoked for an installation already revoked; ignored');
+  } else {
+    log.info(
+      'stale OAuthApp revoked ignored: the app was reinstalled after it',
+      {
+        createdAt,
+        installationUpdatedAt: installation.updatedAt,
+      }
+    );
+  }
+}
+
 // Routes one recorded delivery. Returns 'ignored' for types and actions
 // the mirror does not track.
 async function applyWebhook(
@@ -348,9 +391,7 @@ async function applyWebhook(
       log.warn('unexpected OAuthApp webhook action; ignored');
       return 'ignored';
     }
-    await rt.store.markInstallationRevoked(workspaceId, rt.nowIso());
-    rt.mirror.forget(workspaceId);
-    log.error('the app was revoked for this workspace; it must be reinstalled');
+    await applyAppRevoked(rt, event, log);
     return 'processed';
   }
   if (event.type === 'OAuthAuthorization') {

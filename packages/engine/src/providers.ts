@@ -6,8 +6,10 @@
 // row lock, and re-reads the tokens inside the lock: when another process
 // already refreshed, its tokens are used instead of refreshing again. A
 // grant Linear rejects (invalid_grant) is dead for good: a session must
-// sign in again, and the installation is marked revoked so it shows as
-// needing a reinstall and the worker stops trying it.
+// sign in again, and the installation is revoked as 'grant_dead' (its
+// credentials wiped) so it shows as needing a reinstall and the worker
+// stops trying it. Members keep their sessions: their own grants do not
+// depend on the app's, and /setup tells them a reinstall is needed.
 //
 // The fixture provider serves in-memory gateways over one shared
 // FixtureStore, so demo-mode writes from the app actor and from signed-in
@@ -25,6 +27,7 @@ import {
 } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 import {
+  type Installation,
   isStoreNotFoundError,
   type Session,
   type Store,
@@ -159,16 +162,20 @@ export function createLinearProvider(
     }
   }
 
-  // Records a dead installation grant as revoked, so Settings and /setup
-  // show that a reinstall is needed and the worker (listWorkspaceIds skips
-  // revoked installations) stops retrying it every tick. Runs after the
-  // row lock is released (the lock's transaction owns PGlite's only
-  // connection), so it re-reads the row first: when a reinstall saved a
-  // new grant in between, that grant is left alone. Never throws: the
-  // caller's EngineAuthError is what matters.
+  // Records a dead installation grant as revoked ('grant_dead', the
+  // credentials wiped), so Settings and /setup show that a reinstall is
+  // needed and the worker (listWorkspaceIds skips revoked installations)
+  // stops retrying it every tick. 'grant_dead' keeps member sessions and
+  // is never purged automatically: no admin asked for anything. Runs
+  // after the row lock is released (the lock's transaction owns PGlite's
+  // only connection), so it re-reads the row first: when a reinstall saved
+  // a new grant in between, that grant is left alone; and the revoke only
+  // applies while the row's last update is still the dead grant's (a
+  // reinstall racing the re-read moves it). Never throws: the caller's
+  // EngineAuthError is what matters.
   async function markDeadInstallation(
     workspaceId: string,
-    dead: StoredTokens,
+    dead: Installation,
     log: Logger
   ): Promise<void> {
     try {
@@ -176,14 +183,17 @@ export function createLinearProvider(
       if (
         current === null ||
         current.revokedAt !== null ||
-        !sameGrant(current.tokens, dead)
+        !sameGrant(current.tokens, dead.tokens)
       ) {
         return;
       }
-      await options.store.markInstallationRevoked(
+      const revoked = await options.store.revokeInstallation(
         workspaceId,
-        clock().toISOString()
+        'grant_dead',
+        clock().toISOString(),
+        { ifUpdatedBefore: dead.updatedAt }
       );
+      if (!revoked) return;
       log.error(
         'linear installation grant is dead; marked for reinstall and skipped until then'
       );
@@ -221,9 +231,9 @@ export function createLinearProvider(
       }
       let tokens = installation.tokens;
       if (needsRefresh(tokens, clock(), marginMs)) {
-        // The grant the refresh tried, when Linear said it is dead (a
-        // holder, since the lock callback sets it).
-        const failed: { dead: StoredTokens | null } = { dead: null };
+        // The row whose grant the refresh tried, when Linear said it is
+        // dead (a holder, since the lock callback sets it).
+        const failed: { dead: Installation | null } = { dead: null };
         try {
           tokens = await options.store.withInstallationLock(
             workspaceId,
@@ -240,7 +250,7 @@ export function createLinearProvider(
                 return { result: fresh, tokens: fresh };
               } catch (error) {
                 if (error instanceof DeadGrantError) {
-                  failed.dead = locked.tokens;
+                  failed.dead = locked;
                 }
                 throw error;
               }
