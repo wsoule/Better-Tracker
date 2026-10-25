@@ -43,14 +43,19 @@ import type { NotificationChannel } from '@better-tracker/notify';
 import type {
   AllocationRun,
   AuditEntry,
+  BlockedWorkspace,
+  BlockKind,
   Installation,
   IssueRunEntry,
   NotificationRecord,
+  RevokedReason,
   RunEntry,
   RunTrigger,
   Session,
   Store,
   SyncState,
+  WorkspaceStatus,
+  WorkspaceTable,
 } from '@better-tracker/store';
 
 import type { KeySyncScheduler } from './key-sync';
@@ -401,13 +406,84 @@ export interface CleanupResult {
   /** Expired sessions deleted. */
   expiredSessions: number;
   /**
-   * Of those, sessions whose Linear grant was revoked, and revocations
-   * that failed (best effort; always 0 in demo mode, which has no grants).
+   * Of the sessions this pass ended (expired ones, and those of
+   * workspaces uninstalled or removed), the ones whose Linear grant was
+   * revoked, and revocations that failed (best effort; always 0 in demo
+   * mode, which has no grants).
    */
   revokedTokens: number;
   revokeFailures: number;
   /** Webhook delivery records older than the retention window, deleted. */
   oldDeliveries: number;
+  // Additive (several workspaces, owner decision 2026-10-25), always set
+  // by cleanup(); optional only so results built by hand elsewhere keep
+  // compiling (read them with `?? 0`).
+  /**
+   * Sessions of workspaces uninstalled or removed that were created
+   * before the revoke, ended (an admin who signed in afterwards to
+   * reinstall keeps theirs).
+   */
+  endedWorkspaceSessions?: number;
+  /** Workspaces purged PURGE_AFTER_DAYS after their uninstall or removal. */
+  purgedWorkspaces?: number;
+  /** Notifications older than NOTIFICATION_RETENTION_DAYS, deleted. */
+  oldNotifications?: number;
+  /** Daily job claims older than JOB_CLAIM_RETENTION_DAYS, deleted. */
+  oldJobClaims?: number;
+}
+
+/**
+ * What removeWorkspace did (the operator's `remove`, §9). Holds no
+ * Linear credential.
+ */
+export interface WorkspaceRemoval {
+  workspaceId: string;
+  /**
+   * This call revoked the installation as 'removed' (false: there is no
+   * installation row, or it was uninstalled or removed already).
+   */
+  revoked: boolean;
+  /**
+   * Linear accepted the revocation of the app's token; null when there
+   * was no app token to revoke (no active installation, or demo mode).
+   */
+  appTokenRevoked: boolean | null;
+  /** The workspace's sessions ended now, and their grant revocations. */
+  endedSessions: number;
+  revokedTokens: number;
+  revokeFailures: number;
+}
+
+/**
+ * What purgeWorkspaceNow did (the operator's `purge`, §9): the rows
+ * deleted per table, or why nothing was: `not_installed` (no installation
+ * row: nothing to purge but sessions, which removeWorkspace ends),
+ * `not_revoked` (run remove first) or `too_recent` (revoked less than
+ * OPERATOR_PURGE_MIN_MINUTES ago: a sync may still be finishing).
+ */
+export type WorkspacePurge =
+  | {
+      purged: true;
+      workspaceId: string;
+      /** Sessions ended (their grants revoked) just before the purge. */
+      endedSessions: number;
+      counts: Record<WorkspaceTable, number>;
+    }
+  | {
+      purged: false;
+      workspaceId: string;
+      reason: 'not_installed' | 'not_revoked' | 'too_recent';
+    };
+
+/** What blockWorkspace stored and did (the operator's `block`, §9). */
+export interface WorkspaceBlock {
+  /** The stored key (lower-cased): the org id, or a URL key nobody here knows yet. */
+  key: string;
+  kind: BlockKind;
+  /** The workspace the name resolved to; null for an unknown URL key. */
+  workspaceId: string | null;
+  /** Removing the resolved workspace (revoke, sessions); null when unresolved. */
+  removal: WorkspaceRemoval | null;
 }
 
 export type OAuthIntent = 'signin' | 'install' | 'grant_write';
@@ -654,6 +730,13 @@ export interface Engine {
     entityId: string | null;
     /** Previous values of updated fields, when Linear sends them. */
     updatedFrom: Record<string, unknown> | null;
+    /**
+     * Additive: the payload's `createdAt` (LinearWebhookEvent.createdAt).
+     * An OAuthApp revoked event created before the installation's last
+     * update (a reinstall since) is ignored as stale; without it the
+     * revoke always applies.
+     */
+    createdAt?: string | null;
   }): Promise<'processed' | 'duplicate' | 'ignored'>;
   /**
    * A person's run (`actor` set) refuses a read-only actor (a Linear
@@ -780,10 +863,87 @@ export interface Engine {
     patch: IssueBulkPatch
   ): Promise<IssueBulkResult>;
 
+  // --- workspaces: lifecycle and operator commands (additive, §7, §9) ------
+  // Several workspaces share one deployment (owner decision 2026-10-25).
+  // These act on whole workspaces, across sessions: they are for the
+  // worker and its operator CLI only, and no planner route may call them
+  // (there is no operator role in the planner; the planner reads its own
+  // workspace's state through getInstallation and authenticate). None
+  // returns a Linear credential. With personal API keys every one but the
+  // two listings refuses (EngineInputError 'invalid'). A workspace is
+  // named by its org id or URL key (matched without case; the
+  // installation's URL key, else the newest session's): unknown →
+  // EngineInputError 'not_found', a URL key two workspaces share →
+  // 'conflict', a malformed name → 'invalid'.
+
+  /**
+   * Every workspace the store knows (installed, or only signed in to),
+   * ordered by last full sync attempt (never attempted first), with its
+   * installation summary, sync state and unexpired session count. No
+   * tokens, no emails.
+   */
+  listWorkspaceStatus(): Promise<WorkspaceStatus[]>;
+  /**
+   * Revokes the installation as `reason` (wiping its credentials) and
+   * forgets this process's cached mirror of it; true when the row changed
+   * (store.revokeInstallation's rules: `ifUpdatedBefore` ignores a stale
+   * revoke, an existing revoke is kept, 'grant_dead' may become
+   * 'uninstalled' or 'removed'). No Linear call, no session ended (cleanup
+   * ends them).
+   */
+  revokeWorkspace(
+    workspaceId: string,
+    reason: RevokedReason,
+    options?: { ifUpdatedBefore?: IsoDateTime }
+  ): Promise<boolean>;
+  /**
+   * The operator's `remove`: revokes the app's token with Linear (best
+   * effort), revokes the installation as 'removed' (purged
+   * PURGE_AFTER_DAYS later unless someone reinstalls, which stays
+   * allowed), and ends every session of the workspace now, revoking
+   * each grant (best effort).
+   */
+  removeWorkspace(idOrUrlKey: string): Promise<WorkspaceRemoval>;
+  /**
+   * The operator's `purge`: deletes everything the workspace holds now
+   * (store.purgeWorkspace, 'grant_dead' allowed), after ending its
+   * remaining sessions. Refuses a workspace that is not revoked, or was
+   * revoked less than OPERATOR_PURGE_MIN_MINUTES before `now` (default:
+   * the engine clock).
+   */
+  purgeWorkspaceNow(
+    idOrUrlKey: string,
+    options?: { now?: IsoDateTime }
+  ): Promise<WorkspacePurge>;
+  /**
+   * The operator's `block`: stores a block by org id when the name
+   * resolves to a workspace here (an unknown org-id-shaped name too),
+   * else by URL key (pinned to the org id on its first match). Then a
+   * resolved workspace is removed (removeWorkspace) when it has an
+   * installation, and its sessions are ended either way. A blocked
+   * workspace cannot sign in or reinstall until unblocked.
+   */
+  blockWorkspace(
+    idOrUrlKey: string,
+    reason?: string | null
+  ): Promise<WorkspaceBlock>;
+  /**
+   * Removes the block on the name and on the org id it resolves to; true
+   * when one existed. The workspace stays revoked: an admin reinstalls.
+   */
+  unblockWorkspace(idOrUrlKey: string): Promise<boolean>;
+  /** Every block, ordered by key. */
+  listBlockedWorkspaces(): Promise<BlockedWorkspace[]>;
+
   /**
    * Housekeeping for the worker: deletes expired sessions (revoking their
    * Linear grants, best effort) and webhook delivery records older than
-   * 30 days. Additive: resolves with the counts.
+   * 30 days. Additive: resolves with the counts. Additive (several
+   * workspaces): ends the sessions of workspaces uninstalled or removed
+   * that predate the revoke, purges such workspaces PURGE_AFTER_DAYS after
+   * the revoke (a few per call; never 'grant_dead'), and prunes
+   * notifications and job claims past their retention (bounded per call).
+   * The audit log and the run log are never pruned.
    */
   cleanup(): Promise<CleanupResult>;
   now(): IsoDateTime;

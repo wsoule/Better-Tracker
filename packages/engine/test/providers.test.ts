@@ -189,11 +189,18 @@ describe('real provider: installation tokens', () => {
           l.includes('"workspaceId":"org-acme"')
       )
     ).toBe(true);
-    // Recorded as revoked (what Settings and /setup show); the stored
-    // tokens themselves are untouched.
+    // Recorded as revoked (what Settings and /setup show) as grant_dead,
+    // with the dead credentials wiped: never purged automatically, and
+    // members keep their sessions.
     const saved = await store.getInstallation('org-acme');
     expect(saved?.revokedAt).toBe(START);
-    expect(saved?.tokens.accessToken).toBe('a-current');
+    expect(saved?.tokens).toMatchObject({
+      accessToken: '',
+      refreshToken: null,
+      expiresAt: null,
+    });
+    const [status] = await store.listWorkspaceStatus();
+    expect(status?.installation?.revokedReason).toBe('grant_dead');
 
     // Later calls fail fast without asking Linear again, and the worker
     // no longer lists the workspace.

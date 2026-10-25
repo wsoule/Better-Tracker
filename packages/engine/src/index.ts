@@ -52,7 +52,19 @@ export {
   type StaleReason,
 } from './allocation-run';
 export { SLACK_NOT_CONFIGURED } from './warning-run';
-export { WEBHOOK_RETENTION_DAYS } from './cleanup';
+export {
+  JOB_CLAIM_RETENTION_DAYS,
+  NOTIFICATION_RETENTION_DAYS,
+  PURGE_AFTER_DAYS,
+  WEBHOOK_RETENTION_DAYS,
+} from './cleanup';
+// Several workspaces (owner decision 2026-10-25): the operator commands'
+// limits.
+export {
+  OPERATOR_OFF_MESSAGE,
+  OPERATOR_PURGE_MIN_MINUTES,
+  SESSION_REVOKE_CONCURRENCY,
+} from './workspaces';
 export {
   DONE_MEANS_MAX_LENGTH,
   WEIGHT_MAX,
