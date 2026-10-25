@@ -6,17 +6,20 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   DEFAULT_TICK_TIMEOUT_MINUTES,
+  DEFAULT_WORKER_CONCURRENCY,
   loadWorkerConfig,
   MAX_TICK_TIMEOUT_MINUTES,
+  MAX_WORKER_CONCURRENCY,
 } from '../src/config';
 
 describe('loadWorkerConfig', () => {
-  test('defaults: 08:00, 10-minute timeout, 15-minute interval', () => {
+  test('defaults: 08:00, 10-minute timeout, 15-minute interval, 3 at once', () => {
     expect(loadWorkerConfig({})).toEqual({
       dailyAt: '08:00',
       dailyTime: { hour: 8, minute: 0 },
       tickTimeoutMinutes: 10,
       syncIntervalMinutes: 15,
+      concurrency: 3,
     });
   });
 
@@ -26,8 +29,9 @@ describe('loadWorkerConfig', () => {
         DAILY_RUN_AT: ' ',
         TICK_TIMEOUT_MINUTES: '',
         SYNC_INTERVAL_MINUTES: '  ',
-      }).dailyAt
-    ).toBe('08:00');
+        WORKER_CONCURRENCY: ' ',
+      })
+    ).toMatchObject({ dailyAt: '08:00', concurrency: 3 });
   });
 
   test('reads every variable', () => {
@@ -36,12 +40,14 @@ describe('loadWorkerConfig', () => {
         DAILY_RUN_AT: '06:30',
         TICK_TIMEOUT_MINUTES: '12',
         SYNC_INTERVAL_MINUTES: '5',
+        WORKER_CONCURRENCY: '8',
       })
     ).toEqual({
       dailyAt: '06:30',
       dailyTime: { hour: 6, minute: 30 },
       tickTimeoutMinutes: 12,
       syncIntervalMinutes: 5,
+      concurrency: 8,
     });
   });
 
@@ -52,6 +58,7 @@ describe('loadWorkerConfig', () => {
         DAILY_RUN_AT: '8am',
         TICK_TIMEOUT_MINUTES: '0',
         SYNC_INTERVAL_MINUTES: '1.5',
+        WORKER_CONCURRENCY: '9',
       });
     } catch (caught) {
       message = (caught as Error).message;
@@ -61,6 +68,9 @@ describe('loadWorkerConfig', () => {
     expect(message).toContain('"8am"');
     expect(message).toContain('TICK_TIMEOUT_MINUTES must be a whole number');
     expect(message).toContain('SYNC_INTERVAL_MINUTES must be a whole number');
+    expect(message).toContain(
+      'WORKER_CONCURRENCY must be a whole number from 1 to 8'
+    );
   });
 
   test.each(['24:00', '7:30', '-5', 'abc'])(
@@ -108,4 +118,19 @@ describe('loadWorkerConfig', () => {
       );
     }
   );
+
+  test.each(['0', '9', '2.5', 'three', '-1'])(
+    'rejects WORKER_CONCURRENCY=%p',
+    (value) => {
+      expect(() => loadWorkerConfig({ WORKER_CONCURRENCY: value })).toThrow(
+        'WORKER_CONCURRENCY must be a whole number from 1 to 8'
+      );
+    }
+  );
+
+  test('WORKER_CONCURRENCY stays below the store pool of 10 connections', () => {
+    expect(DEFAULT_WORKER_CONCURRENCY).toBe(3);
+    expect(MAX_WORKER_CONCURRENCY).toBeLessThan(10);
+    expect(loadWorkerConfig({ WORKER_CONCURRENCY: '1' }).concurrency).toBe(1);
+  });
 });
