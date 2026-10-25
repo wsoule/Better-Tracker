@@ -549,6 +549,16 @@ export default function AppShell({
                     className={styles.signOut}
                     data-tip={signOutLabel}
                   >
+                    {Object.entries(signOut.fields ?? {}).map(
+                      ([name, value]) => (
+                        <input
+                          key={name}
+                          type="hidden"
+                          name={name}
+                          value={value}
+                        />
+                      )
+                    )}
                     <button
                       type="submit"
                       className={styles.iconButton}
