@@ -11,13 +11,20 @@ export const metadata = { title: 'UI gallery · shell' };
    props — AppShell around a dummy project page, the command palette (static
    items + a lazily loaded "Jump to" list), toasts, and a slide-over with
    the property list and alert strip. No engine; links toast where they
-   would have gone. /ui-gallery/shell/signed-out shows the SignedOutFrame.
+   would have gone. /ui-gallery/shell/signed-out shows the SignedOutFrame;
+   ?switcher=1 draws the brand row as the workspace switcher (three
+   workspaces, one a guest's) with the palette's Workspaces section.
 
    The inline script applies a remembered collapsed rail before first paint,
    as a host layout would next to themeScript(), with the request's CSP
    nonce (proxy.ts, api_key mode only). */
-export default async function ShellGalleryPage() {
+export default async function ShellGalleryPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const nonce = (await headers()).get('x-nonce') ?? undefined;
+  const switcher = (await searchParams).switcher === '1';
   return (
     <>
       <script
@@ -27,7 +34,7 @@ export default async function ShellGalleryPage() {
           __html: sidebarCollapseScript(SIDEBAR_STORAGE_KEY),
         }}
       />
-      <ShellGallery themeStorageKey={THEME_STORAGE_KEY} />
+      <ShellGallery themeStorageKey={THEME_STORAGE_KEY} switcher={switcher} />
     </>
   );
 }
