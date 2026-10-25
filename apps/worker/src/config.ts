@@ -40,6 +40,18 @@ export const MAX_TICK_TIMEOUT_MINUTES: number =
   DEFAULT_DAILY_LEASE_MINUTES - ALLOCATION_RUN_STALE_MINUTES - 1;
 const MAX_SYNC_INTERVAL_MINUTES = 1440;
 
+/** Default `WORKER_CONCURRENCY`: workspaces a run works on at once. */
+export const DEFAULT_WORKER_CONCURRENCY = 3;
+/**
+ * The largest `WORKER_CONCURRENCY`. Each workspace in flight holds at most
+ * one of the store's pooled Postgres connections at a time (a write
+ * transaction, or the installation's lock while a token refreshes), and
+ * the pool has node-postgres' default of 10, where a caller waits at most
+ * PG_CONNECT_TIMEOUT_MS (10 s) for a free one. Eight leaves two for the
+ * daily claims, cleanup and the listings between them.
+ */
+export const MAX_WORKER_CONCURRENCY = 8;
+
 export interface WorkerConfig {
   /** `DAILY_RUN_AT` as given (`HH:MM`), validated. */
   dailyAt: string;
@@ -52,6 +64,8 @@ export interface WorkerConfig {
   tickTimeoutMinutes: number;
   /** serve: minutes between tick starts. */
   syncIntervalMinutes: number;
+  /** `WORKER_CONCURRENCY`: workspaces one run works on at once (1–8). */
+  concurrency: number;
 }
 
 // A variable's value with surrounding whitespace removed; empty means unset.
@@ -60,9 +74,28 @@ function read(env: WorkerEnv, name: string): string | null {
   return value === undefined || value === '' ? null : value;
 }
 
-// A whole number of minutes within [1, max]; the default when unset. An
-// invalid value records a problem (and returns the default so the caller
-// can keep collecting problems).
+// A whole number within [1, max]; the default when unset. An invalid value
+// records a problem (and returns the default so the caller can keep
+// collecting problems). `unit` names what is counted ("of minutes "), or ''.
+function readWhole(
+  env: WorkerEnv,
+  name: string,
+  fallback: number,
+  max: number,
+  problems: string[],
+  unit: string
+): number {
+  const raw = read(env, name);
+  if (raw === null) return fallback;
+  const value = Number(raw);
+  if (!/^\d+$/.test(raw) || value < 1 || value > max) {
+    problems.push(`${name} must be a whole number ${unit}from 1 to ${max}`);
+    return fallback;
+  }
+  return value;
+}
+
+// readWhole for a number of minutes.
 function readMinutes(
   env: WorkerEnv,
   name: string,
@@ -70,20 +103,14 @@ function readMinutes(
   max: number,
   problems: string[]
 ): number {
-  const raw = read(env, name);
-  if (raw === null) return fallback;
-  const value = Number(raw);
-  if (!/^\d+$/.test(raw) || value < 1 || value > max) {
-    problems.push(`${name} must be a whole number of minutes from 1 to ${max}`);
-    return fallback;
-  }
-  return value;
+  return readWhole(env, name, fallback, max, problems, 'of minutes ');
 }
 
 /**
  * Reads `DAILY_RUN_AT` (default 08:00, strict `HH:MM`),
- * `TICK_TIMEOUT_MINUTES` (default 10, at most MAX_TICK_TIMEOUT_MINUTES) and
- * `SYNC_INTERVAL_MINUTES` (default 15). Throws one Error listing every
+ * `TICK_TIMEOUT_MINUTES` (default 10, at most MAX_TICK_TIMEOUT_MINUTES),
+ * `SYNC_INTERVAL_MINUTES` (default 15) and `WORKER_CONCURRENCY` (default
+ * 3, at most MAX_WORKER_CONCURRENCY). Throws one Error listing every
  * invalid variable.
  */
 export function loadWorkerConfig(env: WorkerEnv): WorkerConfig {
@@ -109,10 +136,24 @@ export function loadWorkerConfig(env: WorkerEnv): WorkerConfig {
     MAX_SYNC_INTERVAL_MINUTES,
     problems
   );
+  const concurrency = readWhole(
+    env,
+    'WORKER_CONCURRENCY',
+    DEFAULT_WORKER_CONCURRENCY,
+    MAX_WORKER_CONCURRENCY,
+    problems,
+    ''
+  );
   if (problems.length > 0 || dailyTime === null) {
     throw new Error(
       `Invalid worker environment:\n${problems.map((p) => `- ${p}`).join('\n')}`
     );
   }
-  return { dailyAt, dailyTime, tickTimeoutMinutes, syncIntervalMinutes };
+  return {
+    dailyAt,
+    dailyTime,
+    tickTimeoutMinutes,
+    syncIntervalMinutes,
+    concurrency,
+  };
 }

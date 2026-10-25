@@ -1,8 +1,12 @@
-// The worker's commands (architecture §9) over the engine. Every command
-// that touches workspaces runs them one after another; a failure in one is
-// logged and recorded, and the others still run. The result carries one
-// outcome per workspace, from which the exit code and the one-line human
-// summary are derived.
+// The worker's commands (architecture §9) over the engine. A command over
+// every workspace plans them from the engine's overview (scaling.ts): the
+// active, admitted ones run, WORKER_CONCURRENCY at a time, least recently
+// synced first, each only when there is time left to finish it; the rest
+// are skipped (uninstalled, removed, blocked, not admitted) or failed (a
+// dead app grant). A failure in one is logged and recorded, and the others
+// still run. The result carries one outcome per workspace, from which the
+// exit code and the one-line human summary are derived. The operator's
+// workspace commands are in operator.ts.
 
 import { isValidTimeZone } from '@better-tracker/core';
 import type {
@@ -11,11 +15,27 @@ import type {
   Engine,
   SyncResult,
   WarningRunResult,
+  WorkspaceOverview,
 } from '@better-tracker/engine';
 import type { Logger } from '@better-tracker/logger';
 
-import type { CliCommand, CommandName } from './cli';
+import {
+  type CliCommand,
+  type CommandName,
+  isOperatorCommandName,
+  type OperatorCommand,
+} from './cli';
 import type { WorkerConfig } from './config';
+import {
+  dailyStartNeedMs,
+  formatDuration,
+  isChronic,
+  planWorkspaces,
+  recentSyncAgeMs,
+  startNeedMs,
+  startWantedMs,
+  type WorkspacePlan,
+} from './scaling';
 import { decideDailyRun } from './schedule';
 
 /** An allocation run as the engine returns it. */
@@ -25,13 +45,16 @@ export type AllocationRunResult = Awaited<ReturnType<Engine['runAllocation']>>;
  * The slice of the engine the worker uses. `workspaceTimezone` resolves a
  * workspace's saved timezone (falling back to DEFAULT_TIMEZONE when the
  * saved one is invalid, as the engine itself does), so the schedule
- * decision and the engine's "today" agree.
+ * decision and the engine's "today" agree. The workspace lifecycle methods
+ * are the operator commands' (operator.ts); nothing else calls them.
  */
 export interface WorkerEngine {
   readonly mode: 'linear' | 'fixture';
-  listWorkspaceIds(): Promise<string[]>;
-  /** Installed workspaces whose app grant is dead (need a reinstall). */
-  listRevokedWorkspaceIds(): Promise<string[]>;
+  /**
+   * Every workspace the store knows, least recently synced first, with
+   * its installation, sync state, sessions and admission's verdict.
+   */
+  listWorkspaceStatus(): Promise<WorkspaceOverview[]>;
   workspaceTimezone(workspaceId: string): Promise<string>;
   fullSync(workspaceId: string): Promise<SyncResult>;
   runDaily(input: {
@@ -43,6 +66,11 @@ export interface WorkerEngine {
   runAllocation: Engine['runAllocation'];
   runWarnings(input: { workspaceId: string }): Promise<WarningRunResult>;
   cleanup(): Promise<CleanupResult>;
+  removeWorkspace: Engine['removeWorkspace'];
+  purgeWorkspaceNow: Engine['purgeWorkspaceNow'];
+  blockWorkspace: Engine['blockWorkspace'];
+  unblockWorkspace: Engine['unblockWorkspace'];
+  listBlockedWorkspaces: Engine['listBlockedWorkspaces'];
   close(): Promise<void>;
 }
 
@@ -50,8 +78,7 @@ export interface WorkerEngine {
 export function workerEngineFrom(engine: Engine): WorkerEngine {
   return {
     mode: engine.mode,
-    listWorkspaceIds: () => engine.listWorkspaceIds(),
-    listRevokedWorkspaceIds: () => engine.listRevokedWorkspaceIds(),
+    listWorkspaceStatus: () => engine.listWorkspaceStatus(),
     // getSettings, not load(): load syncs a workspace that was never
     // mirrored, and the tick decides on its own whether to sync.
     workspaceTimezone: async (workspaceId) => {
@@ -65,13 +92,35 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
     runAllocation: (input) => engine.runAllocation(input),
     runWarnings: (input) => engine.runWarnings(input),
     cleanup: () => engine.cleanup(),
+    removeWorkspace: (name) => engine.removeWorkspace(name),
+    purgeWorkspaceNow: (name, options) =>
+      engine.purgeWorkspaceNow(name, options),
+    blockWorkspace: (name, reason) => engine.blockWorkspace(name, reason),
+    unblockWorkspace: (name) => engine.unblockWorkspace(name),
+    listBlockedWorkspaces: () => engine.listBlockedWorkspaces(),
     close: () => engine.close(),
   };
 }
 
+/**
+ * How one workspace ended up: `done`; `failed` (fails the command);
+ * `chronic` (a tick's failure in a workspace that has had no successful
+ * full sync for 24 hours: warned about, does not fail it); `skipped`
+ * (uninstalled, removed, blocked or not admitted); `deferred` (not
+ * started: too little time left; the next tick picks it up first).
+ */
+export type OutcomeKind =
+  | 'done'
+  | 'failed'
+  | 'chronic'
+  | 'skipped'
+  | 'deferred';
+
 /** What one command did for one workspace. */
 export interface WorkspaceOutcome {
   workspaceId: string;
+  kind: OutcomeKind;
+  /** false when it failed (`failed` or `chronic`). */
   ok: boolean;
   /** A short human phrase for the summary line ('' when it threw). */
   detail: string;
@@ -95,6 +144,12 @@ export interface CommandContext {
   config: WorkerConfig;
   /** The clock the schedule decision uses (the engine gets the same one). */
   now: () => Date;
+  /**
+   * When the run's hard deadline (TICK_TIMEOUT_MINUTES from its start)
+   * passes, on the `now` clock; null for none (migrate). A workspace or a
+   * daily job starts only with enough time left before it.
+   */
+  deadlineAt: Date | null;
 }
 
 /** Exit codes: 0 ok, 1 something failed, 2 usage error (cli.ts). */
@@ -108,8 +163,9 @@ export const EXIT_USAGE = 2;
  * engine is built. Personal API keys live only in the planner's memory,
  * so nothing here could read or write Linear. `tick` and `serve` exit 0
  * with a note (a leftover Railway cron stays quiet); `sync`, `daily`,
- * `allocate` and `warn` exit 1 with a sentence. Null for `migrate`, which
- * boots as always (it only opens the store and migrates).
+ * `allocate`, `warn` and the operator's workspace commands exit 1 with a
+ * sentence. Null for `migrate`, which boots as always (it only opens the
+ * store and migrates).
  */
 export function apiKeyModeOutcome(
   command: CommandName
@@ -121,6 +177,12 @@ export function apiKeyModeOutcome(
       line: "api-key mode: no scheduled sync, allocation or digests (keys live only in the planner's memory)",
     };
   }
+  if (isOperatorCommandName(command)) {
+    return {
+      code: EXIT_FAILED,
+      line: `${command}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge or block`,
+    };
+  }
   return {
     code: EXIT_FAILED,
     line: `${command}: off when LINEAR_AUTH=api_key: keys live only in the planner's memory; start a run or a resync from the planner`,
@@ -128,15 +190,18 @@ export function apiKeyModeOutcome(
 }
 
 /**
- * The process exit code for a command: 1 when any workspace failed or a
- * workspace-independent step (listing workspaces, cleanup) failed, so cron
- * failures are loud; otherwise 0. No workspaces at all is not a failure.
+ * The process exit code for a command: 1 when any workspace failed (not
+ * chronic, skipped or deferred ones) or a workspace-independent step
+ * (listing workspaces, cleanup) failed, so cron failures are loud;
+ * otherwise 0. No workspaces at all is not a failure.
  */
 export function exitCodeFor(
   result: Pick<CommandResult, 'outcomes' | 'problems'>
 ): 0 | 1 {
   if (result.problems.length > 0) return EXIT_FAILED;
-  return result.outcomes.some((outcome) => !outcome.ok) ? EXIT_FAILED : EXIT_OK;
+  return result.outcomes.some((outcome) => outcome.kind === 'failed')
+    ? EXIT_FAILED
+    : EXIT_OK;
 }
 
 const MAX_ERROR_CHARS = 300;
@@ -151,7 +216,8 @@ export function oneLine(error: unknown): string {
     : text;
 }
 
-function plural(count: number, noun: string): string {
+/** `1 issue`, `2 issues`. */
+export function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`;
 }
 
@@ -160,10 +226,13 @@ function plural(count: number, noun: string): string {
  * `tick ok — ws-1: synced (mirror v4, 120 issues, 812 ms); cleanup: …`.
  */
 export function summaryLine(result: CommandResult): string {
-  const failed = result.outcomes.filter((outcome) => !outcome.ok).length;
+  const failed = result.outcomes.filter((o) => o.kind === 'failed').length;
+  const chronic = result.outcomes.filter((o) => o.kind === 'chronic').length;
   const status =
     exitCodeFor(result) === EXIT_OK
-      ? 'ok'
+      ? chronic > 0
+        ? `ok (${chronic} chronic)`
+        : 'ok'
       : failed > 0
         ? `FAILED (${failed} of ${plural(result.outcomes.length, 'workspace')})`
         : 'FAILED';
@@ -178,7 +247,8 @@ export function summaryLine(result: CommandResult): string {
     }
     const detail = outcome.detail === '' ? '' : ` ${outcome.detail}`;
     const error = outcome.error === null ? '' : ` (${outcome.error})`;
-    parts.push(`${outcome.workspaceId}: FAILED${detail}${error}`);
+    const label = outcome.kind === 'chronic' ? 'chronic failure' : 'FAILED';
+    parts.push(`${outcome.workspaceId}: ${label}${detail}${error}`);
   }
   parts.push(...result.notes);
   parts.push(...result.problems.map((problem) => `FAILED ${problem}`));
@@ -230,16 +300,11 @@ function describeWarnings(warnings: WarningRunResult): string {
   return `warnings ${warnings.mode}: ${parts.join(', ')}`;
 }
 
-function describeDaily(daily: DailyResult): {
-  ok: boolean;
-  detail: string;
-  error: string | null;
-} {
+function describeDaily(daily: DailyResult): StepResult {
   if (!daily.ran) {
     return {
       ok: true,
       detail: `daily already ran for ${daily.day} (use --force to run it again)`,
-      error: null,
     };
   }
   const parts = [`daily ran for ${daily.day}`];
@@ -252,61 +317,199 @@ function describeDaily(daily: DailyResult): {
     error = allocation.error;
   }
   if (daily.warnings !== null) parts.push(describeWarnings(daily.warnings));
-  return { ok, detail: parts.join(', '), error };
+  return { ok, detail: parts.join(', '), error, synced: daily.sync !== null };
 }
 
-type Step = (workspaceId: string) => Promise<{
+/** What one step did for one workspace. */
+interface StepResult {
   ok: boolean;
   detail: string;
   error?: string | null;
-}>;
+  /** Not started for lack of time (ok, not a failure). */
+  deferred?: boolean;
+  /** This step's own full sync succeeded (a later failure is not chronic). */
+  synced?: boolean;
+}
 
-// Runs `step` for each workspace in turn. A thrown error becomes a failed
-// outcome (logged at error) and the loop continues with the next one.
-async function forEachWorkspace(
+/**
+ * One workspace's work in a command. `status` is the overview read when
+ * the run started, or null for a workspace named with --workspace (which
+ * is not listed).
+ */
+type Step = (
+  workspaceId: string,
+  status: WorkspaceOverview | null
+) => Promise<StepResult>;
+
+/** A workspace a command runs, with its overview when it was listed. */
+interface RunTarget {
+  workspaceId: string;
+  status: WorkspaceOverview | null;
+}
+
+/**
+ * Milliseconds left before the run's deadline on the context's clock;
+ * Infinity without a deadline.
+ */
+export function timeLeftMs(ctx: CommandContext): number {
+  return ctx.deadlineAt === null
+    ? Number.POSITIVE_INFINITY
+    : ctx.deadlineAt.getTime() - ctx.now().getTime();
+}
+
+// The whole budget a run gets (TICK_TIMEOUT_MINUTES), for the start caps.
+function budgetMs(ctx: CommandContext): number {
+  return ctx.config.tickTimeoutMinutes * 60_000;
+}
+
+// The phrase for something not started for lack of time.
+function deferredPhrase(
+  command: CommandName,
+  what: string,
+  leftMs: number,
+  neededMs: number
+): string {
+  const times = `${formatDuration(leftMs)} left, needs ${formatDuration(neededMs)}`;
+  return command === 'tick'
+    ? `${what} deferred to the next tick (${times})`
+    : `${what} not started (${times}); run it again`;
+}
+
+// Runs one workspace's step: deferred when the time left is below what it
+// needs (startNeedMs); a thrown error becomes a failed outcome (logged at
+// error), or a chronic one (warn) in a tick when the workspace has had no
+// successful full sync for 24 hours.
+async function runOne(
   ctx: CommandContext,
   command: CommandName,
-  workspaceIds: readonly string[],
+  target: RunTarget,
+  step: Step
+): Promise<WorkspaceOutcome> {
+  const { workspaceId, status } = target;
+  const log = ctx.logger.child({ command, workspaceId });
+  const lastFullSyncMs = status?.sync?.lastFullSyncMs ?? null;
+  const deferredMessage =
+    command === 'tick'
+      ? 'workspace deferred to the next tick'
+      : 'workspace not started: not enough time left';
+  const left = timeLeftMs(ctx);
+  const needed = startNeedMs(lastFullSyncMs, budgetMs(ctx));
+  if (left < needed) {
+    log.info(deferredMessage, {
+      timeLeftMs: left,
+      neededMs: needed,
+      lastFullSyncMs,
+    });
+    return {
+      workspaceId,
+      kind: 'deferred',
+      ok: true,
+      detail: deferredPhrase(command, 'workspace', left, needed),
+      error: null,
+    };
+  }
+  if (ctx.deadlineAt !== null && startWantedMs(lastFullSyncMs) > needed) {
+    log.warn(
+      'workspace syncs too slowly to start with twice its last sync time left; it starts only at the beginning of a run',
+      { lastFullSyncMs, tickTimeoutMinutes: ctx.config.tickTimeoutMinutes }
+    );
+  }
+
+  let done: StepResult;
+  let thrown: unknown = null;
+  try {
+    done = await step(workspaceId, status);
+  } catch (error) {
+    thrown = error;
+    done = { ok: false, detail: '', error: oneLine(error) };
+  }
+  const outcome = (kind: OutcomeKind): WorkspaceOutcome => ({
+    workspaceId,
+    kind,
+    ok: kind !== 'failed' && kind !== 'chronic',
+    detail: done.detail,
+    error:
+      kind === 'failed' || kind === 'chronic' ? (done.error ?? null) : null,
+  });
+  if (done.ok) {
+    if (done.deferred === true) {
+      log.info(deferredMessage, { detail: done.detail });
+      return outcome('deferred');
+    }
+    log.info('workspace done', { detail: done.detail });
+    return outcome('done');
+  }
+  // The thrown error itself (with its stack) when there is one.
+  const why = thrown === null ? { detail: done.error } : { error: thrown };
+  if (chronicFailure(ctx, command, status, done)) {
+    log.warn(
+      'workspace failed again (chronic: no successful full sync for 24 hours)',
+      { ...why, lastSuccessAt: status?.sync?.lastSuccessAt ?? null }
+    );
+    return outcome('chronic');
+  }
+  log.error('workspace failed', why);
+  return outcome('failed');
+}
+
+// Whether a failed step is chronic: only in a tick over listed workspaces
+// (the cron; a command run by hand always reports its failures), and only
+// when the step's own sync did not succeed (scaling.ts isChronic).
+function chronicFailure(
+  ctx: CommandContext,
+  command: CommandName,
+  status: WorkspaceOverview | null,
+  done: StepResult
+): boolean {
+  return (
+    command === 'tick' &&
+    status !== null &&
+    done.synced !== true &&
+    isChronic(status, ctx.now())
+  );
+}
+
+/**
+ * Runs `step` for each target, at most WORKER_CONCURRENCY at once, in the
+ * targets' order (each free lane takes the next one). Outcomes keep the
+ * targets' order whatever order they finish in.
+ */
+async function runTargets(
+  ctx: CommandContext,
+  command: CommandName,
+  targets: readonly RunTarget[],
   step: Step
 ): Promise<WorkspaceOutcome[]> {
-  const outcomes: WorkspaceOutcome[] = [];
-  for (const workspaceId of workspaceIds) {
-    const log = ctx.logger.child({ command, workspaceId });
-    try {
-      const done = await step(workspaceId);
-      const outcome: WorkspaceOutcome = {
-        workspaceId,
-        ok: done.ok,
-        detail: done.detail,
-        error: done.ok ? null : (done.error ?? null),
-      };
-      if (outcome.ok) log.info('workspace done', { detail: outcome.detail });
-      else log.error('workspace failed', { detail: outcome.error });
-      outcomes.push(outcome);
-    } catch (error) {
-      log.error('workspace failed', { error });
-      outcomes.push({
-        workspaceId,
-        ok: false,
-        detail: '',
-        error: oneLine(error),
-      });
+  const outcomes: WorkspaceOutcome[] = Array.from({ length: targets.length });
+  let next = 0;
+  const lane = async (): Promise<void> => {
+    for (;;) {
+      const index = next;
+      next += 1;
+      const target = targets[index];
+      if (target === undefined) return;
+      outcomes[index] = await runOne(ctx, command, target, step);
     }
-  }
+  };
+  const lanes = Math.max(1, Math.min(ctx.config.concurrency, targets.length));
+  await Promise.all(Array.from({ length: lanes }, lane));
   return outcomes;
 }
 
 /**
  * One tick for one workspace: the daily run when it is due in the
- * workspace's timezone (the engine's claim makes it once per local day);
- * otherwise, or when today's run already happened, a plain full resync —
- * the periodic one that heals milestone and relation drift (Linear sends no
- * webhooks for those).
+ * workspace's timezone (the engine's claim makes it once per local day)
+ * and at least 5 minutes are left; otherwise, or when today's run already
+ * happened, a plain full resync — the periodic one that heals milestone
+ * and relation drift (Linear sends no webhooks for those) — unless a
+ * successful one finished less than 10 minutes ago. The daily job's own
+ * sync is never skipped.
  */
 async function tickWorkspace(
   ctx: CommandContext,
-  workspaceId: string
-): Promise<{ ok: boolean; detail: string; error: string | null }> {
+  workspaceId: string,
+  status: WorkspaceOverview | null
+): Promise<StepResult> {
   const timezone = await ctx.engine.workspaceTimezone(workspaceId);
   const decision = decideDailyRun(ctx.now(), timezone, ctx.config.dailyAt);
   ctx.logger.info('daily schedule checked', {
@@ -315,32 +518,64 @@ async function tickWorkspace(
     dailyAt: ctx.config.dailyAt,
     ...decision,
   });
+  let after = `daily due at ${ctx.config.dailyAt} ${timezone}`;
   if (decision.due) {
-    // The day decided above, not whatever day it is once runDaily starts:
-    // a tick deciding at 23:59:59 local must not claim tomorrow early.
-    const daily = await ctx.engine.runDaily({
-      workspaceId,
-      day: decision.localDate,
-    });
-    if (daily.ran) return describeDaily(daily);
-    const sync = await ctx.engine.fullSync(workspaceId);
+    const left = timeLeftMs(ctx);
+    const needed = dailyStartNeedMs(budgetMs(ctx));
+    if (left >= needed) {
+      // The day decided above, not whatever day it is once runDaily
+      // starts: a tick deciding at 23:59:59 local must not claim
+      // tomorrow early.
+      const daily = await ctx.engine.runDaily({
+        workspaceId,
+        day: decision.localDate,
+      });
+      if (daily.ran) return describeDaily(daily);
+      after = `daily already ran for ${daily.day}`;
+    } else {
+      after = deferredPhrase('tick', 'daily', left, needed);
+      ctx.logger.info('daily job deferred to the next tick', {
+        workspaceId,
+        timeLeftMs: left,
+        neededMs: needed,
+      });
+    }
+  }
+  const recent = recentSyncAgeMs(status, ctx.now());
+  if (recent !== null) {
     return {
       ok: true,
-      detail: `${describeSync(sync)}, daily already ran for ${daily.day}`,
-      error: null,
+      detail: `sync skipped (the last full sync finished ${formatDuration(recent)} ago), ${after}`,
     };
   }
   const sync = await ctx.engine.fullSync(workspaceId);
-  return {
-    ok: true,
-    detail: `${describeSync(sync)}, daily due at ${ctx.config.dailyAt} ${timezone}`,
-    error: null,
-  };
+  return { ok: true, detail: `${describeSync(sync)}, ${after}`, synced: true };
 }
 
-// Housekeeping after a tick: expired sessions (their Linear grants revoked)
-// and webhook delivery records older than 30 days (the engine's
-// WEBHOOK_RETENTION_DAYS, pruned inside cleanup()).
+// The daily command for one workspace: deferred with less than 5 minutes
+// left, so a run close to its deadline never starts allocation.
+async function dailyWorkspace(
+  ctx: CommandContext,
+  workspaceId: string,
+  force: boolean
+): Promise<StepResult> {
+  const left = timeLeftMs(ctx);
+  const needed = dailyStartNeedMs(budgetMs(ctx));
+  if (left < needed) {
+    return {
+      ok: true,
+      deferred: true,
+      detail: deferredPhrase('daily', 'daily', left, needed),
+    };
+  }
+  return describeDaily(await ctx.engine.runDaily({ workspaceId, force }));
+}
+
+// Housekeeping after a tick (engine.cleanup(), arch §9 "Cleanup"): expired
+// sessions and those of uninstalled or removed workspaces (their Linear
+// grants revoked), purges 30 days after an uninstall or removal, and
+// retention for webhook deliveries, notifications and job claims. The
+// counts added for several workspaces are listed only when not zero.
 async function runCleanup(
   ctx: CommandContext,
   result: CommandResult
@@ -351,23 +586,103 @@ async function runCleanup(
       cleaned.revokeFailures > 0
         ? ` (${plural(cleaned.revokeFailures, 'revocation')} failed)`
         : '';
-    result.notes.push(
-      `cleanup: ${plural(cleaned.expiredSessions, 'expired session')}${revoked}, ${plural(cleaned.oldDeliveries, 'old webhook delivery record')}`
-    );
+    const parts = [
+      `${plural(cleaned.expiredSessions, 'expired session')}${revoked}`,
+      plural(cleaned.oldDeliveries, 'old webhook delivery record'),
+    ];
+    const extra: Array<[number | undefined, string, string]> = [
+      [
+        cleaned.endedWorkspaceSessions,
+        'session of an uninstalled or removed workspace',
+        'sessions of uninstalled or removed workspaces',
+      ],
+      [cleaned.purgedWorkspaces, 'workspace purged', 'workspaces purged'],
+      [cleaned.oldNotifications, 'old notification', 'old notifications'],
+      [cleaned.oldJobClaims, 'old job claim', 'old job claims'],
+    ];
+    for (const [count = 0, one, many] of extra) {
+      if (count > 0) parts.push(`${count} ${count === 1 ? one : many}`);
+    }
+    result.notes.push(`cleanup: ${parts.join(', ')}`);
   } catch (error) {
     ctx.logger.error('cleanup failed', { error });
     result.problems.push(`cleanup: ${oneLine(error)}`);
   }
 }
 
+/** Why a workspace revoked as grant_dead fails every command (§9). */
+export const REVOKED_INSTALLATION_ERROR =
+  "Linear refused the app's token (its authorization stopped working); an admin must install it again from /setup";
+
+/** The summary phrase for a workspace a run leaves out. */
+const SKIPPED_DETAIL: Record<
+  Extract<WorkspacePlan, { kind: 'skip' }>['reason'],
+  string
+> = {
+  blocked: 'skipped (blocked by the operator)',
+  'not admitted': 'skipped (LINEAR_WORKSPACES does not admit it)',
+  uninstalled: 'skipped (uninstalled in Linear)',
+  removed: 'skipped (removed by the operator)',
+};
+
+// The outcomes of the workspaces a run does not work on: skipped ones
+// (info) and, for a dead app grant, a failure with an error log naming the
+// reinstall, so the cron turns red instead of quietly doing nothing while
+// allocation and warnings have stopped there.
+function plannedOutcomes(
+  ctx: CommandContext,
+  command: CommandName,
+  plans: readonly WorkspacePlan[]
+): WorkspaceOutcome[] {
+  const outcomes: WorkspaceOutcome[] = [];
+  for (const plan of plans) {
+    const { workspaceId } = plan;
+    if (plan.kind === 'skip') {
+      ctx.logger.info('workspace skipped', {
+        command,
+        workspaceId,
+        reason: plan.reason,
+      });
+      outcomes.push({
+        workspaceId,
+        kind: 'skipped',
+        ok: true,
+        detail: SKIPPED_DETAIL[plan.reason],
+        error: null,
+      });
+    } else if (plan.kind === 'grant_dead') {
+      ctx.logger.error('workspace skipped: its installation is revoked', {
+        command,
+        workspaceId,
+        reason: 'grant_dead',
+        remedy: 'an admin must install the app again from /setup',
+      });
+      outcomes.push({
+        workspaceId,
+        kind: 'failed',
+        ok: false,
+        detail: '',
+        error: REVOKED_INSTALLATION_ERROR,
+      });
+    }
+  }
+  return outcomes;
+}
+
+/** A command runCommand runs (not serve, which loops over tick in run.ts). */
+export type WorkspaceCommand = Exclude<
+  CliCommand,
+  { name: 'serve' } | OperatorCommand
+>;
+
 /**
  * Runs one parsed command (except serve, which loops over tick in
- * run.ts). Never throws: failures end up in the result's outcomes or
- * problems.
+ * run.ts, and the operator commands in operator.ts). Never throws:
+ * failures end up in the result's outcomes or problems.
  */
 export async function runCommand(
   ctx: CommandContext,
-  command: Exclude<CliCommand, { name: 'serve' }>
+  command: WorkspaceCommand
 ): Promise<CommandResult> {
   const result: CommandResult = {
     command: command.name,
@@ -381,118 +696,72 @@ export async function runCommand(
     return result;
   }
 
-  let workspaceIds: string[];
-  let revokedIds: string[] = [];
+  let targets: RunTarget[];
+  let others: WorkspacePlan[] = [];
   try {
     if (command.workspaceId === null) {
-      [workspaceIds, revokedIds] = await Promise.all([
-        ctx.engine.listWorkspaceIds(),
-        ctx.engine.listRevokedWorkspaceIds(),
-      ]);
+      const plans = planWorkspaces(await ctx.engine.listWorkspaceStatus());
+      targets = plans.flatMap((plan) =>
+        plan.kind === 'run'
+          ? [{ workspaceId: plan.workspaceId, status: plan.status }]
+          : []
+      );
+      others = plans.filter((plan) => plan.kind !== 'run');
     } else {
-      workspaceIds = [command.workspaceId];
+      targets = [{ workspaceId: command.workspaceId, status: null }];
     }
   } catch (error) {
     ctx.logger.error('could not list installed workspaces', { error });
     result.problems.push(`listing workspaces: ${oneLine(error)}`);
     return result;
   }
-  if (workspaceIds.length === 0 && revokedIds.length === 0) {
+  if (targets.length === 0 && others.length === 0) {
     ctx.logger.warn('no installed workspaces; nothing to do', {
       command: command.name,
     });
   }
 
   const { engine } = ctx;
+  const run = (step: Step): Promise<WorkspaceOutcome[]> =>
+    runTargets(ctx, command.name, targets, step);
   switch (command.name) {
     case 'sync':
-      result.outcomes = await forEachWorkspace(
-        ctx,
-        command.name,
-        workspaceIds,
-        async (id) => ({
-          ok: true,
-          detail: describeSync(await engine.fullSync(id)),
-        })
-      );
+      result.outcomes = await run(async (id) => ({
+        ok: true,
+        detail: describeSync(await engine.fullSync(id)),
+        synced: true,
+      }));
       break;
     case 'daily':
-      result.outcomes = await forEachWorkspace(
-        ctx,
-        command.name,
-        workspaceIds,
-        async (id) =>
-          describeDaily(
-            await engine.runDaily({ workspaceId: id, force: command.force })
-          )
+      result.outcomes = await run((id) =>
+        dailyWorkspace(ctx, id, command.force)
       );
       break;
     case 'allocate':
-      result.outcomes = await forEachWorkspace(
-        ctx,
-        command.name,
-        workspaceIds,
-        async (id) =>
-          describeAllocation(
-            await engine.runAllocation({
-              workspaceId: id,
-              mode: command.mode,
-              trigger: 'manual',
-              actor: null,
-            })
-          )
+      result.outcomes = await run(async (id) =>
+        describeAllocation(
+          await engine.runAllocation({
+            workspaceId: id,
+            mode: command.mode,
+            trigger: 'manual',
+            actor: null,
+          })
+        )
       );
       break;
     case 'warn':
-      result.outcomes = await forEachWorkspace(
-        ctx,
-        command.name,
-        workspaceIds,
-        async (id) => ({
-          ok: true,
-          detail: describeWarnings(
-            await engine.runWarnings({ workspaceId: id })
-          ),
-        })
-      );
+      result.outcomes = await run(async (id) => ({
+        ok: true,
+        detail: describeWarnings(await engine.runWarnings({ workspaceId: id })),
+      }));
       break;
     case 'tick':
-      result.outcomes = await forEachWorkspace(
-        ctx,
-        command.name,
-        workspaceIds,
-        (id) => tickWorkspace(ctx, id)
+      result.outcomes = await run((id, status) =>
+        tickWorkspace(ctx, id, status)
       );
       await runCleanup(ctx, result);
       break;
   }
-  result.outcomes.push(...revokedOutcomes(ctx, command.name, revokedIds));
+  result.outcomes.push(...plannedOutcomes(ctx, command.name, others));
   return result;
-}
-
-/** Why a revoked workspace fails every command (architecture §9). */
-export const REVOKED_INSTALLATION_ERROR =
-  'the app lost its Linear access (uninstalled, or its authorization stopped working); an admin must install it again from /setup';
-
-// One failed outcome per workspace whose installation lost its Linear
-// grant: listWorkspaceIds leaves them out, and without this the worker
-// would exit 0 while allocation and every warning have stopped there.
-function revokedOutcomes(
-  ctx: CommandContext,
-  command: CommandName,
-  revokedIds: readonly string[]
-): WorkspaceOutcome[] {
-  return revokedIds.map((workspaceId) => {
-    ctx.logger.error('workspace skipped: its installation is revoked', {
-      command,
-      workspaceId,
-      remedy: 'an admin must install the app again from /setup',
-    });
-    return {
-      workspaceId,
-      ok: false,
-      detail: '',
-      error: REVOKED_INSTALLATION_ERROR,
-    };
-  });
 }

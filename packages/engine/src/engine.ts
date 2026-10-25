@@ -13,7 +13,7 @@
 // decision 2026-10-25, admission.ts): admission gates workspaces, never
 // people, so it adds no permission distinction.
 
-import { admittedInstalledWorkspaceIds } from './admission';
+import { admittedInstalledWorkspaceIds, workspaceOverview } from './admission';
 import { runAllocation } from './allocation-run';
 import {
   authenticate,
@@ -284,7 +284,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
     // Workspace lifecycle and the operator's commands (workspaces.ts): for
     // the worker's CLI only, never a planner route.
-    listWorkspaceStatus: () => deps.store.listWorkspaceStatus(rt.nowIso()),
+    listWorkspaceStatus: () => workspaceOverview(rt),
     revokeWorkspace: async (workspaceId, reason, options) => {
       if (apiKeyMode) {
         throw new EngineInputError('invalid', OPERATOR_OFF_MESSAGE);

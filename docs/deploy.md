@@ -324,6 +324,8 @@ PR environments (research: Railway deployment, "Variable reference syntax").
 | `DEFAULT_TIMEZONE`        |  ✓  |   ✓    | IANA zone for new workspaces, e.g. `America/Chicago` (default `UTC`). Anyone can change it later in Settings.                                                                                                                                                                                            |
 | `WATCHER_EMAILS`          |  ✓  |   ✓    | comma-separated. The first watchers, saved on the first full sync after the install; if none match, the installer is the first watcher. Watchers get every warning (design §5: the project owner plus the configured watchers).                                                                          |
 | `DAILY_RUN_AT`            |     |   ✓    | `HH:MM` in each workspace's timezone (default `08:00`)                                                                                                                                                                                                                                                   |
+| `WORKER_CONCURRENCY`      |     |   ✓    | optional: how many workspaces one tick works on at once (default `3`, `1` to `8`). Each workspace in flight uses at most one of the worker's 10 Postgres connections at a time, so the cap leaves room for the rest of the tick (arch §9 "Scaling").                                                     |
+| `MIRROR_CACHE_WORKSPACES` |  ✓  |        | optional: how many workspaces' mirrors the web service keeps in memory, least recently read dropped first (default `16`, `1` to `64`). Raise it when more workspaces are in use at the same time; lower it when memory is tight. The worker exits after each tick, so it does not need it.               |
 | `PORT`                    |  ✓  |        | `3000`                                                                                                                                                                                                                                                                                                   |
 | `RAILWAY_DOCKERFILE_PATH` |  ✓  |   ✓    | `deploy/Dockerfile` (a Railway build setting, not read by the app)                                                                                                                                                                                                                                       |
 
@@ -544,6 +546,109 @@ everyone to sign in again.
 **PGlite** (the embedded database used when `DATABASE_URL` is unset) is for
 local development only. Two processes must never share one PGlite directory, so
 production always uses `DATABASE_URL`.
+
+### Operating several workspaces
+
+One OAuth deployment can serve several Linear workspaces (design §12,
+2026-10-25). Personal API keys (section 7) and demo mode stay one workspace.
+
+**Set `LINEAR_WORKSPACES` on both services.** The web service decides which
+workspaces may sign in and install. The worker decides which ones it syncs, and
+its housekeeping removes an installed workspace the value no longer admits. Give
+both the same value, most simply as one Railway shared variable referenced from
+each service as `${{shared.LINEAR_WORKSPACES}}`. Otherwise the worker keeps
+syncing, and never removes, a workspace the web refuses.
+
+**How a tick handles many workspaces** (arch §9 "Scaling"):
+
+- It works on `WORKER_CONCURRENCY` workspaces at once (default 3), least
+  recently synced first, so the workspaces a tick could not reach run first on
+  the next one.
+- It starts a workspace only with at least 3 minutes, or twice that workspace's
+  last full sync time, left before `TICK_TIMEOUT_MINUTES`, and a daily job only
+  with at least 5 minutes left. Anything it cannot start is logged as
+  `deferred to the next tick` at info and runs first on the next tick. This is
+  not a failure.
+- It skips the plain resync of a workspace whose last successful full sync
+  finished less than 10 minutes ago. The daily job always syncs.
+- Workspaces uninstalled in Linear, removed or blocked by you, or not admitted
+  by `LINEAR_WORKSPACES` are skipped (info), never failures.
+
+```
+tick ok — org-1: synced (mirror v9, 412 issues, 2310 ms), daily due at 08:00 UTC; org-2: sync skipped (the last full sync finished 4 min ago), daily due at 08:00 UTC; org-3: skipped (removed by the operator); org-4: workspace deferred to the next tick (2 min left, needs 3 min); cleanup: 0 expired sessions, 0 old webhook delivery records
+tick ok (1 chronic) — …; org-5: chronic failure (…)
+```
+
+Which outcomes turn the cron red (exit 1):
+
+- a workspace whose job failed, unless the failure is **chronic**: in a tick, a
+  workspace with no successful full sync for 24 hours (or none since it was
+  installed more than 24 hours ago) is logged at warn and shown as
+  `chronic failure`, and the tick still exits 0. The cron turns red when a
+  workspace starts failing, not every 15 minutes after that; `workspaces` shows
+  `chronic` until it recovers;
+- a workspace whose app grant Linear refused (`revoked:grant_dead`), on every
+  tick, until an admin reinstalls or you remove or purge it;
+- housekeeping, the database, the configuration or the time limit, as before.
+
+**Operator commands.** These list and manage the workspaces this deployment
+holds. They run from the worker's command line only; nothing in the planner
+offers them. Their output holds no Linear tokens and no email addresses.
+`<name>` is a workspace's organization id or its URL key (ids are safer: an
+admin can rename a URL key). They are refused with personal API keys.
+
+| command                                      | what it does                                                                                                                                                                                  |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspaces [--json]`                        | every workspace: id, URL key, name, status (`active`, `revoked:<reason>`, `blocked`, `not admitted`, `not installed`), install date, purge date, last sync, issues, sessions; then the blocks |
+| `remove --workspace <name>`                  | revokes the app's Linear token, marks the install removed and ends its sessions now. Its data is deleted 30 days later unless an admin installs the app again, which stays allowed            |
+| `purge --workspace <name> --yes`             | deletes everything the planner keeps for a revoked workspace now (mirror, settings, run log, audit log). Run `remove` first and wait 15 minutes. Without `--yes` it does nothing              |
+| `block --workspace <name> [--reason <text>]` | refuses the workspace from now on (sign-in, install, webhooks, the worker); removes it when installed and ends its sessions                                                                   |
+| `unblock --workspace <name>`                 | lifts a block. The workspace stays removed until an admin installs the app again                                                                                                              |
+
+Typical uses:
+
+- **Someone asks for their workspace's data to be deleted now**: `remove`, then
+  15 minutes later `purge --workspace <id> --yes`. After an uninstall in Linear
+  the purge happens by itself 30 days later.
+- **Stop serving a workspace**: take it out of `LINEAR_WORKSPACES` on both
+  services (the next tick removes it), or `block` it, which also keeps it from
+  coming back while `LINEAR_WORKSPACES` is `*`.
+
+**Running them on Railway.** The worker service is a cron job: its container
+runs only while a tick does, so there is normally nothing to connect to. Run the
+commands in the `web` service instead: its image is the same Dockerfile, so it
+contains the worker (`apps/worker/dist`), and it has the variables the commands
+need (`DATABASE_URL`, `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
+`LINEAR_CLIENT_SECRET`, `LINEAR_WORKSPACES`). With the Railway CLI linked to the
+project (`railway link`):
+
+```bash
+railway ssh --service web -- node /app/apps/worker/dist/index.js workspaces
+railway ssh --service web -- node /app/apps/worker/dist/index.js workspaces --json > workspaces.json
+railway ssh --service web -- node /app/apps/worker/dist/index.js remove --workspace <org id>
+railway ssh --service web -- node /app/apps/worker/dist/index.js purge --workspace <org id> --yes
+railway ssh --service web -- node /app/apps/worker/dist/index.js block --workspace <org id or URL key> --reason "<why>"
+railway ssh --service web -- node /app/apps/worker/dist/index.js unblock --workspace <org id or URL key>
+```
+
+From Railway's documentation of `railway ssh`: it runs one command in the
+service's container when one follows `--` (`railway ssh -- ls -la`), or opens a
+shell without one; `--service` picks the service and `--environment` the
+environment (both default to the linked ones); output that is piped runs without
+a terminal, so `--json` stays clean; and it needs an SSH key registered with
+Railway, which the CLI offers to register the first time. The image's working
+directory is `/app` (`deploy/Dockerfile`); the absolute path does not depend on
+where the shell starts. The commands write their JSON logs to stderr, so stdout
+holds only the table or the JSON.
+
+**Verify this in your workspace** once: that the session sees the service's
+variables. Check one that is not a secret,
+`railway ssh --service web -- printenv APP_URL`, which must print your
+`APP_URL`. If it prints nothing, run the command the documented way instead:
+temporarily set the worker's start command to it (for example
+`node apps/worker/dist/index.js workspaces`), run `railway cron run`, read the
+output in the worker's logs, and set the start command back to
+`node apps/worker/dist/index.js tick`.
 
 ## 6. Open questions that need a live test
 

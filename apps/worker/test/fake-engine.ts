@@ -1,8 +1,11 @@
 // A scriptable stand-in for the engine slice the worker uses. Every call is
 // recorded as a string (`fullSync:ws-a`, `runDaily:ws-a@2026-10-21`,
-// `runDaily:ws-a:force`), daily claims are tracked per (workspace, day) like
-// the real store (the given day, else today in the workspace timezone), and
-// any method can be replaced per test.
+// `runDaily:ws-a:force`, `removeWorkspace:acme`), daily claims are tracked
+// per (workspace, day) like the real store (the given day, else today in
+// the workspace timezone), and any method can be replaced per test. The
+// workspace overview comes from `workspaces` (active, admitted, never
+// synced), `revoked` (grant_dead) and `statuses` (anything else, built with
+// overview()).
 
 import { todayIn } from '@better-tracker/core';
 import type { AllocationMode } from '@better-tracker/core';
@@ -11,6 +14,7 @@ import type {
   DailyResult,
   SyncResult,
   WarningRunResult,
+  WorkspaceOverview,
 } from '@better-tracker/engine';
 
 import type { AllocationRunResult, WorkerEngine } from '../src/commands';
@@ -81,11 +85,99 @@ export const NO_CLEANUP: CleanupResult = {
   oldDeliveries: 0,
 };
 
+type InstallationSummary = NonNullable<WorkspaceOverview['installation']>;
+type SyncSummary = NonNullable<WorkspaceOverview['sync']>;
+
+/**
+ * When the fake workspaces were installed: hours before most test clocks,
+ * so a never-synced workspace that fails is not chronic yet.
+ */
+export const INSTALLED_AT = '2026-10-21T00:00:00.000Z';
+
+/**
+ * A workspace as listWorkspaceStatus reports it: installed (active),
+ * admitted, never synced, no sessions, unless overridden. `installation`
+ * and `sync` merge into the defaults; pass null for none.
+ */
+export function overview(
+  workspaceId: string,
+  overrides: {
+    installation?: Partial<InstallationSummary> | null;
+    sync?: Partial<SyncSummary> | null;
+    admission?: WorkspaceOverview['admission'];
+    sessionCount?: number;
+    workspaceName?: string | null;
+    urlKey?: string | null;
+  } = {}
+): WorkspaceOverview {
+  const urlKey =
+    overrides.urlKey === undefined
+      ? workspaceId.replace(/^org-/, '')
+      : overrides.urlKey;
+  const name =
+    overrides.workspaceName === undefined
+      ? `Workspace ${workspaceId}`
+      : overrides.workspaceName;
+  const installation: InstallationSummary | null =
+    overrides.installation === null
+      ? null
+      : {
+          workspaceName: name ?? workspaceId,
+          urlKey: urlKey ?? workspaceId,
+          appUserId: `app-${workspaceId}`,
+          installedByUserId: 'u-admin',
+          createdAt: INSTALLED_AT,
+          updatedAt: INSTALLED_AT,
+          revokedAt: null,
+          revokedReason: null,
+          ...overrides.installation,
+        };
+  const sync: SyncSummary | null =
+    overrides.sync === undefined || overrides.sync === null
+      ? null
+      : {
+          workspaceId,
+          version: 3,
+          lastFullSyncAt: null,
+          lastFullSyncStatus: null,
+          lastFullSyncError: null,
+          lastWebhookAt: null,
+          consecutiveFailures: 0,
+          lastFullSyncMs: null,
+          lastSuccessAt: null,
+          mirrorIssueCount: null,
+          ...overrides.sync,
+        };
+  return {
+    workspaceId,
+    workspaceName: name,
+    urlKey,
+    installation,
+    sync,
+    sessionCount: overrides.sessionCount ?? 0,
+    admission: overrides.admission ?? 'ok',
+  };
+}
+
+/** A workspace revoked as `reason` (default grant_dead) at `at`. */
+export function revokedOverview(
+  workspaceId: string,
+  reason: 'uninstalled' | 'removed' | 'grant_dead' = 'grant_dead',
+  at = '2026-10-20T00:00:00.000Z'
+): WorkspaceOverview {
+  return overview(workspaceId, {
+    installation: { revokedAt: at, revokedReason: reason },
+  });
+}
+
 export function fakeEngine(
   options: {
+    /** Active, admitted, never-synced workspaces, in this order. */
     workspaces?: string[];
-    /** Installed workspaces whose grant is dead (not recorded in calls). */
+    /** Installed workspaces whose grant is dead (listed after). */
     revoked?: string[];
+    /** The whole overview instead of `workspaces` and `revoked`. */
+    statuses?: WorkspaceOverview[];
     timezones?: Record<string, string>;
     now?: () => Date;
     overrides?: Partial<WorkerEngine>;
@@ -98,11 +190,15 @@ export function fakeEngine(
     mode: 'fixture',
     calls,
     closed: false,
-    listWorkspaceIds: () => {
-      calls.push('listWorkspaceIds');
-      return Promise.resolve(options.workspaces ?? ['ws-a', 'ws-b']);
+    listWorkspaceStatus: () => {
+      calls.push('listWorkspaceStatus');
+      return Promise.resolve(
+        options.statuses ?? [
+          ...(options.workspaces ?? ['ws-a', 'ws-b']).map((id) => overview(id)),
+          ...(options.revoked ?? []).map((id) => revokedOverview(id)),
+        ]
+      );
     },
-    listRevokedWorkspaceIds: () => Promise.resolve(options.revoked ?? []),
     workspaceTimezone: (id) => {
       calls.push(`workspaceTimezone:${id}`);
       return Promise.resolve(options.timezones?.[id] ?? 'UTC');
@@ -154,6 +250,42 @@ export function fakeEngine(
     cleanup: () => {
       calls.push('cleanup');
       return Promise.resolve(NO_CLEANUP);
+    },
+    removeWorkspace: (name) => {
+      calls.push(`removeWorkspace:${name}`);
+      return Promise.resolve({
+        workspaceId: `org-${name}`,
+        revoked: true,
+        appTokenRevoked: true,
+        endedSessions: 2,
+        revokedTokens: 2,
+        revokeFailures: 0,
+      });
+    },
+    purgeWorkspaceNow: (name) => {
+      calls.push(`purgeWorkspaceNow:${name}`);
+      return Promise.resolve({
+        purged: false,
+        workspaceId: `org-${name}`,
+        reason: 'not_revoked',
+      });
+    },
+    blockWorkspace: (name, reason) => {
+      calls.push(`blockWorkspace:${name}:${reason ?? 'no reason'}`);
+      return Promise.resolve({
+        key: name,
+        kind: 'url_key',
+        workspaceId: null,
+        removal: null,
+      });
+    },
+    unblockWorkspace: (name) => {
+      calls.push(`unblockWorkspace:${name}`);
+      return Promise.resolve(true);
+    },
+    listBlockedWorkspaces: () => {
+      calls.push('listBlockedWorkspaces');
+      return Promise.resolve([]);
     },
     close: () => {
       calls.push('close');

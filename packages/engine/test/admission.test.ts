@@ -848,6 +848,56 @@ describe('the worker list and cleanup', () => {
     ).toBe(true);
   });
 
+  test('listWorkspaceStatus carries admission verdicts without revoking anything', async () => {
+    const engine = oauthEngine({
+      mode: 'list',
+      entries: ['org-acme', 'other', 'org-gone'],
+    });
+    await installed(ACME);
+    await installed(OTHER);
+    await installed(
+      { id: 'org-gone', name: 'Gone', urlKey: 'gone' },
+      { revokedAt: clock.now().toISOString() }
+    );
+    await installed({
+      id: 'org-unlisted',
+      name: 'Unlisted',
+      urlKey: 'unlisted',
+    });
+    await store.blockWorkspace(
+      'org-other',
+      'id',
+      null,
+      clock.now().toISOString()
+    );
+    const listed = await engine.listWorkspaceStatus();
+    expect(
+      Object.fromEntries(listed.map((row) => [row.workspaceId, row.admission]))
+    ).toEqual({
+      'org-acme': 'ok',
+      'org-other': 'blocked',
+      'org-gone': 'ok',
+      'org-unlisted': 'not_allowed',
+    });
+    // Reporting refuses nothing by itself: cleanup revokes refused ones.
+    expect(
+      listed.find((row) => row.workspaceId === 'org-unlisted')?.installation
+        ?.revokedAt
+    ).toBeNull();
+    // Outside OAuth mode admission does not apply.
+    const demo = createEngine({
+      store,
+      linear: createLinearProvider({ store, oauth: OAUTH, logger }),
+      channel: recordingChannel(),
+      logger,
+      config: TEST_CONFIG,
+      now: clock.now,
+    });
+    expect(
+      (await demo.listWorkspaceStatus()).every((row) => row.admission === 'ok')
+    ).toBe(true);
+  });
+
   test('cleanup removes installed workspaces admission now refuses', async () => {
     const engine = oauthEngine({ mode: 'list', entries: ['org-acme'] });
     await installed(ACME);

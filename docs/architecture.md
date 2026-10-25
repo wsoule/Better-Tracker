@@ -2173,8 +2173,13 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
     without case); unknown → `EngineInputError('not_found')`, a URL key two
     workspaces share → `conflict`, a malformed name (not letters, digits and
     dashes, ≤ 64) → `invalid`. None returns a credential.
-    - `listWorkspaceStatus()` → the store's `WorkspaceStatus[]` (unexpired
-      sessions counted); `listBlockedWorkspaces()` → the blocks.
+    - `listWorkspaceStatus()` → `WorkspaceOverview[]`: the store's
+      `WorkspaceStatus[]` (unexpired sessions counted, least recently synced
+      first) with `admission` on each, admission's fresh verdict (`ok`,
+      `not_allowed`, `blocked`; one pass, the blocks read once; always `ok`
+      outside OAuth mode). It only reports: cleanup revokes refused installs.
+      The worker's runs over every workspace and the `workspaces` command both
+      read it (§9). `listBlockedWorkspaces()` → the blocks.
     - `removeWorkspace(name)` →
       `WorkspaceRemoval { workspaceId, revoked, appTokenRevoked, endedSessions, revokedTokens, revokeFailures }`:
       revokes the app's token with Linear (`revokeGrant`, best effort, under the
@@ -2292,7 +2297,10 @@ constants `PURGE_AFTER_DAYS` (30), `NOTIFICATION_RETENTION_DAYS` (90),
 `FIRST_SYNC_RETRY_MAX_MS` (15 minutes), `DEFAULT_MIRROR_CACHE_WORKSPACES` (16)
 and `MAX_MIRROR_CACHE_WORKSPACES` (64), `OPERATOR_OFF_MESSAGE`, the pure
 `firstSyncRetryAt(syncState)` and the types `WorkspaceRemoval`, `WorkspacePurge`
-and `WorkspaceBlock`. The `Engine` contract gains `listWorkspaceStatus()`,
+and `WorkspaceBlock`, plus `WorkspaceOverview` and, re-exported from the store
+for the worker, `WorkspaceStatus`, `BlockedWorkspace`, `BlockKind`,
+`RevokedReason` and `WorkspaceTable`. The `Engine` contract gains
+`listWorkspaceStatus()` (with admission's verdicts),
 `revokeWorkspace(ws, reason, { ifUpdatedBefore? })`, `removeWorkspace(name)`,
 `purgeWorkspaceNow(name, { now? })`, `blockWorkspace(name, reason?)`,
 `unblockWorkspace(name)` and `listBlockedWorkspaces()` (operator commands: the
@@ -2378,10 +2386,12 @@ optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
   alone. Member sessions are kept. From then on Settings and `/setup` see
   `revokedAt`, `listWorkspaceIds` skips the workspace (the worker stops retrying
   it every tick) and `forApp` fails fast without calling Linear.
-  `listRevokedWorkspaceIds()` (additive) lists those workspaces, and the worker
-  reports each as a failed workspace on every run (§9), so allocation and
-  warnings never stop silently. A session or installation row missing at lock
-  time (`StoreNotFoundError`) maps to `not_signed_in` / `not_installed`.
+  `listRevokedWorkspaceIds()` (additive) lists those workspaces. The worker
+  reads the revoke reason from `listWorkspaceStatus()` instead and reports each
+  `grant_dead` one as a failed workspace on every run (§9), so allocation and
+  warnings never stop silently; uninstalled and removed ones are skipped. A
+  session or installation row missing at lock time (`StoreNotFoundError`) maps
+  to `not_signed_in` / `not_installed`.
 
 Validation done by the engine (never trust the client): dates via
 `isValidIsoDate`; lead must be an active, non-app mirrored user or null; weight
@@ -5442,19 +5452,29 @@ notice above the sign-in card.
 - `allocate --dry-run|--live [--workspace <id>]`
 - `warn [--workspace <id>]`
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
-  UTC): for each installed workspace, if the local time in its timezone is at or
-  past `DAILY_RUN_AT` (default `08:00`) and today's daily job is unclaimed (or
-  its claim was abandoned by a run that died, past the engine's lease),
-  `runDaily` (which syncs first); otherwise a plain `fullSync` (the periodic
-  resync that heals milestone/relation drift, since Linear has no webhooks for
-  those). Then `cleanup`. Closes the store and exits. A hard timeout
-  (`TICK_TIMEOUT_MINUTES`, default 10) exits non-zero so a hung run never blocks
-  later ones (Railway skips a cron tick while the previous one runs).
+  UTC): for each active, admitted installation (least recently synced first,
+  `WORKER_CONCURRENCY` at a time, each started only with enough time left; see
+  "Scaling"), if the local time in its timezone is at or past `DAILY_RUN_AT`
+  (default `08:00`) and today's daily job is unclaimed (or its claim was
+  abandoned by a run that died, past the engine's lease), `runDaily` (which
+  syncs first); otherwise a plain `fullSync` (the periodic resync that heals
+  milestone/relation drift, since Linear has no webhooks for those), skipped
+  when a successful one finished less than 10 minutes ago. Uninstalled, removed,
+  blocked and not admitted workspaces are skipped. Then `cleanup`. Closes the
+  store and exits. A hard timeout (`TICK_TIMEOUT_MINUTES`, default 10) exits
+  non-zero so a hung run never blocks later ones (Railway skips a cron tick
+  while the previous one runs).
 - `serve` — long-running alternative to cron for other hosts: runs `tick` every
   `SYNC_INTERVAL_MINUTES` (default 15) until SIGTERM.
+- Operator commands (OAuth mode, owner decision 2026-10-25; see "Operator
+  commands" below): `workspaces [--json]`, `remove --workspace <name>`,
+  `purge --workspace <name> --yes`,
+  `block --workspace <name> [--reason <text>]`, `unblock --workspace <name>`,
+  where `<name>` is an org id or URL key.
 
-Exit code is non-zero when any workspace failed, so cron failures are loud.
-Every command runs migrations first (advisory-locked, idempotent).
+Exit code is non-zero when any workspace failed (not when it was skipped,
+deferred or its failure is chronic), so cron failures are loud. Every command
+runs migrations first (advisory-locked, idempotent).
 
 Worker decisions made while building it (binding):
 
@@ -5473,19 +5493,74 @@ Worker decisions made while building it (binding):
 - `DAILY_RUN_AT` is strict `HH:MM` (00:00–23:59); invalid worker variables exit
   1 before boot. A time later than one tick interval before midnight is logged
   as a warning (no tick may land before midnight).
-- **Exit codes**: `0` ok (including "no installed workspaces"); `1` when a
-  workspace failed (its job threw, or an allocation run ended `failed` or
-  `partial`; and every workspace whose installation is revoked, which a run over
-  all workspaces lists with `listRevokedWorkspaceIds` and reports as failed with
-  an error log naming the reinstall, instead of skipping it in silence), a
-  workspace-independent step failed (listing workspaces, `cleanup`), boot
-  failed, or the hard timeout fired; `2` usage error (unknown command/option,
-  missing `--dry-run|--live`, an option that does not apply). Undelivered
+- **Scaling** (owner decision 2026-10-25: one deployment serves several
+  workspaces; pure rules in `apps/worker/src/scaling.ts`, the runner in
+  `commands.ts`). A command over every workspace (no `--workspace`) reads
+  `engine.listWorkspaceStatus()` once: installations with admission's fresh
+  verdict, sync state and session counts.
+  - **Which**: active, admitted installations run. A block or a refusal by
+    `LINEAR_WORKSPACES` is skipped, whatever the revoke state; an installation
+    revoked as `uninstalled` or `removed` is skipped; one revoked as
+    `grant_dead` (or with no recorded reason) is a failure (below). A workspace
+    nobody installed (people only signed in) is not the worker's business and
+    gets no outcome.
+  - **Order**: by last full sync attempt ascending, never attempted first, ties
+    in the engine's order. A deferred workspace keeps its old attempt time, so
+    it runs first next tick.
+  - **Parallelism**: `WORKER_CONCURRENCY` (default 3, 1–8) lanes; each free lane
+    takes the next workspace. Outcomes and the summary keep the run order. Each
+    workspace in flight holds at most one of the store's pooled connections at a
+    time (a write transaction, or the installation's lock while a token
+    refreshes); the pool has node-postgres' default of 10 and a caller waits at
+    most `PG_CONNECT_TIMEOUT_MS` (10 s) for a free one, so the cap of 8 leaves
+    two for the daily claims, cleanup and the listings.
+  - **Deadline**: `CommandContext.deadlineAt` is when the run's hard timeout
+    passes (`TICK_TIMEOUT_MINUTES` from its start, on the commands' clock; per
+    tick under `serve`; none for `migrate`). A workspace starts only with at
+    least `max(3 min, 2 × its last_full_sync_ms)` left; a daily job (a due
+    tick's, or `daily`'s) only with at least 5 minutes left. Both are capped at
+    the budget minus one minute, so a workspace whose doubled sync time exceeds
+    the whole budget (or any workspace under a `TICK_TIMEOUT_MINUTES` below 4)
+    still starts at the beginning of a run (logged at warn) instead of never
+    again: only a successful sync records a new duration. A workspace not
+    started is **deferred**: "deferred to the next tick (… left, needs …)",
+    info, not a failure (a command run by hand says "not started …; run it
+    again"). A due daily job with less than 5 minutes left is not started; the
+    tick resyncs instead ("daily deferred to the next tick"), and the next tick
+    runs it.
+  - **Skip recent**: a tick's plain resync is skipped when the workspace's last
+    successful full sync finished less than 10 minutes ago ("sync skipped (the
+    last full sync finished 4 min ago)"). The daily job's own sync is never
+    skipped, and `sync` run by hand always syncs.
+  - With `--workspace <id>` the workspace is not listed: it runs as given,
+    needing only the 3-minute (and the daily's 5-minute) floor, with no skip and
+    no chronic rule.
+- **Exit codes** (`exitCodeFor`, the summary line's status):
+
+  | outcome                                                                                                                                               | summary                                              | log   | exit |
+  | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----- | ---- |
+  | done (also "no installed workspaces")                                                                                                                 | `<id>: <what it did>`                                | info  | 0    |
+  | skipped: uninstalled, removed, blocked, not admitted                                                                                                  | `<id>: skipped (…)`                                  | info  | 0    |
+  | deferred: not enough time left to start                                                                                                               | `<id>: … deferred to the next tick (…)`              | info  | 0    |
+  | chronic: a tick's failure, with no successful full sync for 24 hours (or none since an install more than 24 hours ago), and the run's own sync failed | `<id>: chronic failure (…)`, status `ok (N chronic)` | warn  | 0    |
+  | failed: its job threw, or an allocation run ended `failed` or `partial`                                                                               | `<id>: FAILED (…)`                                   | error | 1    |
+  | revoked as `grant_dead` (Linear refused the app's token)                                                                                              | `<id>: FAILED (…reinstall…)`                         | error | 1    |
+  | a workspace-independent step failed (listing workspaces, `cleanup`), boot failed (configuration, database), or the hard timeout fired                 | `FAILED …` / stderr                                  | error | 1    |
+  | usage error (unknown command or option, missing `--dry-run`/`--live` or `--yes`, an option that does not apply)                                       | stderr                                               | —     | 2    |
+
+  Chronic applies to `tick` only (the cron; a command run by hand always reports
+  its failures) and only to workspaces it listed. It is decided from the
+  overview read when the run started, plus whether this run's own sync
+  succeeded: a failure after a successful sync this run (an allocation run that
+  ended `partial`) is never chronic. So the cron turns red when a workspace
+  starts failing, and stays green (with a warn per tick and `chronic` in
+  `workspaces`) while a workspace that has been broken for a day is looked into.
+  A workspace revoked as `grant_dead` stays a failed workspace on every run:
+  nobody asked for it, cleanup never purges it, so the cron must show it until
+  an admin reinstalls (or the operator removes or purges it). Undelivered
   digests do not fail a run (they include people with no Slack account); they
-  are counted in the summary. A workspace revoked as `grant_dead` (Linear
-  refused the app's token, §7) stays a failed workspace on every run: nobody
-  asked for it, cleanup never purges it, so the cron must show it until an admin
-  reinstalls (or the operator purges it).
+  are counted in the summary.
+
 - **Cleanup** (`engine.cleanup()`, after every tick; each step bounded per call
   so a backlog never stretches a tick past its timeout, the rest waiting for the
   next tick; nothing of this runs with personal API keys):
@@ -5517,15 +5592,64 @@ Worker decisions made while building it (binding):
      forgotten and `workspace purged` is logged with the **id only** (a name
      must not outlive its data in the host's logs). `grant_dead` is never purged
      here; the operator's `purge` may.
-- **Operator commands** use the engine's `listWorkspaceStatus`,
-  `removeWorkspace`, `purgeWorkspaceNow` (refuses a workspace that is not
-  revoked, or was revoked less than 15 minutes ago; `grant_dead` allowed),
+- The tick's summary lists cleanup's counts: expired sessions (and failed
+  revocations) and old webhook delivery records always; sessions of uninstalled
+  or removed workspaces ended, workspaces purged, old notifications and old job
+  claims when not zero.
+- **Operator commands** (`apps/worker/src/operator.ts`; OAuth mode; owner
+  decision 2026-10-25: an operator CLI instead of an in-app operator UI, which
+  would be a person permission distinction). They use the engine's
+  `listWorkspaceStatus`, `removeWorkspace`, `purgeWorkspaceNow`,
   `blockWorkspace`, `unblockWorkspace` and `listBlockedWorkspaces` (§7 "Several
-  workspaces"); they are the only callers of those methods.
+  workspaces") and are the only callers of those methods. `<name>` is an org id
+  or URL key (letters, digits and dashes, ≤ 64, checked by the parser: exit 2);
+  the engine resolves it (the id first, else the URL key; two workspaces sharing
+  a URL key → name the id). They boot like the one-shot commands and run under
+  the same deadline. In api_key mode they are refused **before boot** like
+  `sync` (exit 1: "<command>: off when LINEAR_AUTH=api_key: the planner serves
+  one workspace with personal keys, so there is nothing to list, remove, purge
+  or block"). Their JSON logs go to stderr, so stdout holds only their output.
+  An engine refusal (`EngineInputError`: unknown name, shared URL key) prints
+  "<command> FAILED — <why>" and exits 1; any other error (the database) is
+  reported like a failed command. Output never holds a token or an email
+  address: the engine returns none, and the free text that could (a sync error,
+  a block reason) has Linear credential runs (core `redactLinearSecrets`) and
+  address-shaped runs replaced.
+  - `workspaces [--json]`: one row per workspace the store knows: id, URL key,
+    name, status (`active`, `revoked:<reason>`, `blocked`, `not admitted`,
+    `not installed`; a block wins, then the revoke), installed (date), purge on
+    (revoked as `uninstalled`/`removed`: revoked + `PURGE_AFTER_DAYS`), last
+    sync (attempt time, ok/failed, duration, failures in a row, `chronic`),
+    issues (the mirror's count at the last full sync) and unexpired sessions;
+    then the blocks (key, by organization id or URL key, since, reason) and a
+    summary line counting each status. `--json` prints one document
+    `{ workspaces: [{ id, urlKey, name, status, admission, installedAt, revokedAt, revokedReason, purgeOn, lastSync: { at, status, durationMs, consecutiveFailures, lastSuccessAt, error } | null, chronic, issues, sessions }], blocks: [{ key, kind, reason, createdAt }] }`
+    and nothing else.
+  - `remove --workspace <name>`: revokes the app's token with Linear (best
+    effort), revokes the installation as `removed` (purged `PURGE_AFTER_DAYS`
+    later unless an admin reinstalls, which stays allowed) and ends every
+    session now, revoking each grant (best effort). Prints what was done and
+    what was not (no active installation, Linear not confirming the token
+    revocation, grants that could not be revoked); exit 0.
+  - `purge --workspace <name> --yes`: without `--yes` a usage error (exit 2,
+    before boot). Deletes everything the workspace holds now (`grant_dead`
+    allowed) after ending its remaining sessions, and prints the rows deleted
+    per table. Refuses (exit 1) a workspace that is not revoked ("run remove
+    first"), one revoked less than 15 minutes ago (a sync may still be
+    finishing) and one never installed (remove ends its sessions).
+  - `block --workspace <name> [--reason <text>]` (≤ 500 characters): blocks by
+    org id when the name resolves (or is org-id shaped), else by URL key (pinned
+    to the org id on its first match); a resolved workspace is removed and its
+    sessions ended. A blocked workspace cannot sign in or reinstall; the worker
+    skips it.
+  - `unblock --workspace <name>`: lifts the block on the name and the org id it
+    resolves to (exit 0 either way, saying whether one existed). The workspace
+    stays removed until an admin reinstalls.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
-  `TICK_TIMEOUT_MINUTES`. The manual one-shot commands (`sync`, `daily`,
-  `allocate`, `warn`) get the same budget; on expiry each logs and prints the
+  `TICK_TIMEOUT_MINUTES` (the commands see it as `deadlineAt`, "Scaling"). The
+  manual one-shot commands (`sync`, `daily`, `allocate`, `warn`, and the
+  operator commands) get the same budget; on expiry each logs and prints the
   stage it was stuck in (`booting`, `running <command>`, `closing the store`)
   and exits 1. `TICK_TIMEOUT_MINUTES` is at most 14 (`MAX_TICK_TIMEOUT_MINUTES`,
   derived from the engine's constants: the 45-minute daily lease minus the
@@ -5589,6 +5713,7 @@ Worker decisions made while building it (binding):
 | `DAILY_RUN_AT`                              | worker                                | `HH:MM` in each workspace's timezone (default `08:00`)                                                                                                                                                                                                      |
 | `TICK_TIMEOUT_MINUTES`                      | worker                                | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)                                                                                                                                                                                              |
 | `SYNC_INTERVAL_MINUTES`                     | worker serve; planner in api_key mode | minutes between ticks (default 15); in api_key mode, minutes between the planner's background syncs while a member is connected (1–1440, default 15)                                                                                                        |
+| `WORKER_CONCURRENCY`                        | worker                                | workspaces one run works on at once (1–8, default 3); each in flight holds at most one of the store's 10 pooled connections at a time, so 8 leaves room for the claims and cleanup (§9 "Scaling")                                                           |
 | `PGLITE_DIR`                                | all                                   | PGlite directory when `DATABASE_URL` is unset (local dev only; a deployed api_key planner without `DATABASE_URL` logs a warning at boot)                                                                                                                    |
 | `SESSION_DAYS`                              | engine                                | session lifetime in days (default 30); unused in api_key mode (2 h idle, 12 h at most)                                                                                                                                                                      |
 | `MIRROR_CACHE_WORKSPACES`                   | engine                                | how many workspaces' indexed mirrors one process keeps in memory, least recently read dropped first (1–64, default 16)                                                                                                                                      |
@@ -5615,9 +5740,9 @@ In api_key mode `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
 `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET`, `SESSION_SECRET`,
 `SLACK_BOT_TOKEN`, `SESSION_DAYS` and `LINEAR_WORKSPACES` are not read; boot
 logs one warning per variable that is set ("X is unused when
-LINEAR_AUTH=api_key"). `DAILY_RUN_AT` and `TICK_TIMEOUT_MINUTES` do nothing (the
-worker schedules nothing, §9); `WATCHER_EMAILS` still seeds who the digest
-preview would warn.
+LINEAR_AUTH=api_key"). `DAILY_RUN_AT`, `TICK_TIMEOUT_MINUTES` and
+`WORKER_CONCURRENCY` do nothing (the worker schedules nothing, §9);
+`WATCHER_EMAILS` still seeds who the digest preview would warn.
 
 `PM_EMAILS` is retired (owner decision 2026-10-22: there is no PM role). It is
 not read; a deploy that still sets it boots normally and logs one warning
@@ -5716,6 +5841,26 @@ not read; a deploy that still sets it boots normally and logs one warning
   reads it (malformed or absent → null), the fixture's reads carry it from the
   fields store; `appendAuditEntries` writes in one statement, in order, with
   U+0000 dropped, and an empty list writes nothing.
+- worker (several workspaces, owner decision 2026-10-25), with a fake engine and
+  fake clocks: `test/scaling.test.ts` (the plan per status: run, skipped as
+  uninstalled, removed, blocked or not admitted whatever the revoke, grant_dead
+  a failure, never installed left out; least recently attempted first; the start
+  need and its cap; the daily's 5 minutes; skip recent; chronic),
+  `test/commands.test.ts` (order, `WORKER_CONCURRENCY` lanes with out-of-order
+  finishes, deferral on an advancing clock, the slow workspace started at the
+  beginning, a due daily not started with 4 minutes left, skip recent and the
+  daily's sync never skipped, every skip and exit code, chronic only in a tick
+  and never after the run's own sync succeeded, cleanup's new counts),
+  `test/operator.test.ts` (every command's output and exit code, the name passed
+  to the engine untouched and the resolved id printed, every purge refusal, the
+  JSON shape, engine refusals as FAILED lines, no token or email in any output),
+  `test/cli.test.ts` (the operator commands' options and refusals, `--yes`), and
+  `test/run.test.ts` (`deadlineAt` from `TICK_TIMEOUT_MINUTES` and per serve
+  tick, purge without `--yes` never boots, api_key mode refuses every operator
+  command before boot, `workspaces --json` keeps stdout for the JSON, and list →
+  remove → tick skips it → purge refused then done → block/unblock against the
+  real demo engine). Engine: `listWorkspaceStatus` carries admission's verdicts
+  (`test/admission.test.ts`).
 - planner: unit tests for cookie signing/origin checks; the adapters; the route
   handlers with a fake actor resolver, and end to end on the demo engine
   (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),

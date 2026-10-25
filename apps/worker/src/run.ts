@@ -13,7 +13,14 @@
 // its boot, each tick and its shutdown a deadline of that length each.
 // `migrate` has none: it claims no daily job and starts no allocation run,
 // and it is how an operator applies a migration too long for one budget
-// (every other command applies pending migrations inside its own).
+// (every other command applies pending migrations inside its own). The
+// commands see that deadline as CommandContext.deadlineAt and start a
+// workspace only with enough time left before it (scaling.ts).
+//
+// The operator's workspace commands (`workspaces`, `remove`, `purge`,
+// `block`, `unblock`; operator.ts) run like the one-shot commands, under
+// the same deadline, and write their JSON logs to stderr so stdout holds
+// only the table, the JSON or the summary line.
 
 import {
   createEngineFromEnv,
@@ -32,7 +39,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { type CliCommand, parseArgs, USAGE } from './cli';
+import { type CliCommand, isOperatorCommand, parseArgs, USAGE } from './cli';
 import {
   apiKeyModeOutcome,
   type CommandContext,
@@ -47,6 +54,7 @@ import {
   workerEngineFrom,
 } from './commands';
 import { loadWorkerConfig, type WorkerConfig, type WorkerEnv } from './config';
+import { runOperatorCommand } from './operator';
 import { dailyRunTooLate } from './schedule';
 
 const MINUTE_MS = 60_000;
@@ -87,7 +95,12 @@ export interface CliDeps {
   stopSignal?: AbortSignal;
   /** serve: waits `ms`, or less when `stop` is aborted. */
   sleep?: (ms: number, stop: AbortSignal) => Promise<void>;
-  /** Overrides TICK_TIMEOUT_MINUTES in milliseconds (tests). */
+  /**
+   * Overrides the hard timer's TICK_TIMEOUT_MINUTES in milliseconds
+   * (tests). The start rules (CommandContext.deadlineAt) still count
+   * TICK_TIMEOUT_MINUTES on the `now` clock, so a short test timer does
+   * not leave every workspace unstarted.
+   */
   tickTimeoutMs?: number;
 }
 
@@ -96,6 +109,12 @@ export const consoleOutput: CliOutput = {
   out: (line) => console.log(line),
   err: (line) => console.error(line),
 };
+
+// Every log line on stderr: the operator commands keep stdout for their
+// table, JSON or summary line.
+function stderrSink(_level: LogLevel, line: string): void {
+  console.error(line);
+}
 
 function logLevelFrom(env: WorkerEnv): LogLevel | undefined {
   const value = env['LOG_LEVEL']?.trim();
@@ -202,6 +221,12 @@ interface Session extends DeadlineTarget {
   config: WorkerConfig;
 }
 
+// When a run that starts now hits its TICK_TIMEOUT_MINUTES deadline, on
+// the commands' clock (CommandContext.deadlineAt).
+function deadlineFrom(now: () => Date, config: WorkerConfig): Date {
+  return new Date(now().getTime() + config.tickTimeoutMinutes * MINUTE_MS);
+}
+
 // Arms the hard deadline for `what` (a one-shot command, or serve's boot,
 // tick or shutdown): when it passes, log, tell the operator and end the
 // process with exit code 1. `stage` names what was still running then
@@ -247,10 +272,11 @@ async function serveLoop(
     const startedMs = Date.now();
     const deadline = armDeadline(session, 'tick');
     try {
-      const result = await runCommand(session.ctx, {
-        name: 'tick',
-        workspaceId,
-      });
+      const ctx: CommandContext = {
+        ...session.ctx,
+        deadlineAt: deadlineFrom(session.ctx.now, session.config),
+      };
+      const result = await runCommand(ctx, { name: 'tick', workspaceId });
       ticks += 1;
       if (exitCodeFor(result) !== EXIT_OK) failedTicks += 1;
       session.output.out(summaryLine(result));
@@ -288,9 +314,10 @@ export async function runCli(
   }
   const command: CliCommand = parsed.command;
   const level = logLevelFrom(deps.env);
-  const logger = (deps.logger ?? createLogger({ name: 'worker', level })).child(
-    { command: command.name }
-  );
+  const sink = isOperatorCommand(command) ? stderrSink : undefined;
+  const logger = (
+    deps.logger ?? createLogger({ name: 'worker', level, sink })
+  ).child({ command: command.name });
 
   // Personal API keys (LINEAR_AUTH=api_key) live only in the planner's
   // memory: decided before booting, so the store is not even opened
@@ -335,6 +362,11 @@ export async function runCli(
       ? processStopSignal(logger, exit)
       : null;
   const timeoutMs = deps.tickTimeoutMs ?? config.tickTimeoutMinutes * MINUTE_MS;
+  // One-shot commands: the deadline the commands see, from this moment.
+  const deadlineAt =
+    command.name === 'serve' || command.name === 'migrate'
+      ? null
+      : deadlineFrom(now, config);
   const target: DeadlineTarget = { output, logger, exit, timeoutMs };
   // One-shot commands but migrate: one deadline from here until the engine
   // is closed. Booting can hang too (an unreachable database, a held
@@ -353,7 +385,7 @@ export async function runCli(
   try {
     const createEngine = deps.createEngine ?? defaultEngineFactory;
     const engineLogger =
-      deps.engineLogger ?? createLogger({ name: 'engine', level });
+      deps.engineLogger ?? createLogger({ name: 'engine', level, sink });
     engine = await createEngine(deps.env, {
       logger: engineLogger.child({ command: command.name }),
       now,
@@ -374,7 +406,7 @@ export async function runCli(
   const session: Session = {
     ...target,
     config,
-    ctx: { engine, logger, config, now },
+    ctx: { engine, logger, config, now, deadlineAt },
   };
   let code: number;
   try {
@@ -387,6 +419,10 @@ export async function runCli(
         stop,
         deps.sleep ?? sleepUnlessStopped
       );
+    } else if (isOperatorCommand(command)) {
+      const result = await runOperatorCommand(session.ctx, command);
+      code = result.code;
+      for (const line of result.lines) output.out(line);
     } else {
       const result = await runCommand(session.ctx, command);
       code = exitCodeFor(result);

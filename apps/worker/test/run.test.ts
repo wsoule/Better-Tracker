@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { USAGE } from '../src/cli';
+import { PURGE_NEEDS_YES, USAGE } from '../src/cli';
 import { type WorkerEngine, workerEngineFrom } from '../src/commands';
 import {
   type CliDeps,
@@ -301,6 +301,118 @@ describe('runCli: one-shot commands', () => {
     void runCli(['tick'], d);
     await Bun.sleep(400);
     expect(exits).toEqual([1]);
+  });
+});
+
+describe('runCli: deadlines seen by the commands', () => {
+  // A clock the fake engine's syncs move forward, 8 minutes each.
+  function slowSyncs(workspaces: string[]): {
+    engine: FakeEngine;
+    now: () => Date;
+  } {
+    let ms = Date.parse('2026-10-21T07:00:00Z');
+    const engine = fakeEngine({ workspaces });
+    const real = engine.fullSync;
+    engine.fullSync = async (id) => {
+      ms += 8 * 60_000;
+      return real(id);
+    };
+    return { engine, now: () => new Date(ms) };
+  }
+
+  test('a one-shot command gets TICK_TIMEOUT_MINUTES from its start', async () => {
+    const { engine, now } = slowSyncs(['ws-a', 'ws-b']);
+    const d = deps(engine, {
+      env: { WORKER_CONCURRENCY: '1', TICK_TIMEOUT_MINUTES: '10' },
+      now,
+    });
+    expect(await runCli(['tick'], d)).toBe(0);
+    expect(d.output.outLines).toEqual([
+      expect.stringContaining(
+        'ws-b: workspace deferred to the next tick (2 min left, needs 3 min)'
+      ),
+    ]);
+  });
+
+  test('serve gives each tick its own deadline', async () => {
+    const { engine, now } = slowSyncs(['ws-a', 'ws-b']);
+    const stop = new AbortController();
+    let ticks = 0;
+    const d = deps(engine, {
+      env: { WORKER_CONCURRENCY: '1' },
+      now,
+      stopSignal: stop.signal,
+      sleep: () => {
+        ticks += 1;
+        if (ticks === 2) stop.abort();
+        return Promise.resolve();
+      },
+    });
+    expect(await runCli(['serve'], d)).toBe(0);
+    expect(d.output.outLines).toHaveLength(2);
+    for (const line of d.output.outLines) {
+      expect(line).toContain('ws-a: synced');
+      expect(line).toContain('ws-b: workspace deferred to the next tick');
+    }
+  });
+});
+
+describe('runCli: operator commands', () => {
+  test('purge without --yes is a usage error and never boots', async () => {
+    const d = deps(fakeEngine());
+    expect(await runCli(['purge', '--workspace', 'acme'], d)).toBe(2);
+    expect(d.output.errLines).toEqual([
+      `worker: ${PURGE_NEEDS_YES}`,
+      'Run with --help for usage.',
+    ]);
+    expect(d.created()).toBe(0);
+  });
+
+  test('each prints its lines, closes the engine and exits with its code', async () => {
+    const engine = fakeEngine();
+    const d = deps(engine);
+    expect(await runCli(['remove', '--workspace', 'acme'], d)).toBe(0);
+    expect(d.output.outLines).toEqual([
+      expect.stringMatching(/^remove ok — org-acme: /),
+    ]);
+    expect(engine.calls).toEqual(['removeWorkspace:acme', 'close']);
+
+    const refused = deps(fakeEngine());
+    expect(
+      await runCli(['purge', '--workspace', 'acme', '--yes'], refused)
+    ).toBe(1);
+    expect(refused.output.outLines).toEqual([
+      expect.stringMatching(/^purge FAILED — org-acme: not purged/),
+    ]);
+  });
+
+  test('workspaces --json keeps stdout for the JSON: logs go to stderr', async () => {
+    const out: string[] = [];
+    const err: string[] = [];
+    const log = console.log;
+    const error = console.error;
+    console.log = (...args: unknown[]) => out.push(args.join(' '));
+    console.error = (...args: unknown[]) => err.push(args.join(' '));
+    let code: number;
+    try {
+      code = await runCli(['workspaces', '--json'], {
+        env: {},
+        now: () => new Date('2026-10-21T12:00:00Z'),
+        createEngine: () =>
+          Promise.resolve(fakeEngine({ workspaces: ['ws-a'] })),
+      });
+    } finally {
+      console.log = log;
+      console.error = error;
+    }
+    expect(code).toBe(0);
+    expect(out).toHaveLength(1);
+    const parsed = JSON.parse(out[0] ?? '') as { workspaces: unknown[] };
+    expect(parsed.workspaces).toHaveLength(1);
+    // The JSON log lines went to stderr instead.
+    expect(err.some((line) => line.includes('operator command finished'))).toBe(
+      true
+    );
   });
 });
 
@@ -599,6 +711,99 @@ describe('runCli against the demo engine', () => {
   });
 });
 
+// The operator commands against the real demo engine (its own instance):
+// list, remove, purge after the 15-minute wait, block and unblock.
+describe('operator commands against the demo engine', () => {
+  let clock = new Date('2026-10-21T13:00:00Z');
+  const now = (): Date => clock;
+  let engine: WorkerEngine;
+  let shared: WorkerEngine;
+
+  beforeAll(async () => {
+    engine = workerEngineFrom(
+      await createEngineFromEnv(
+        { LINEAR_FIXTURE: '1' },
+        { logger: silentLogger, now }
+      )
+    );
+    shared = { ...engine, close: () => Promise.resolve() };
+  });
+  afterAll(async () => {
+    await engine.close();
+  });
+
+  async function run(argv: string[]): Promise<{ code: number; out: string }> {
+    const output = capture();
+    const code = await runCli(argv, {
+      env: { LINEAR_FIXTURE: '1' },
+      output,
+      logger: silentLogger,
+      engineLogger: silentLogger,
+      now,
+      createEngine: () => Promise.resolve(shared),
+    });
+    return { code, out: [...output.outLines, ...output.errLines].join('\n') };
+  }
+
+  test('list, remove, skip, purge, block and unblock', async () => {
+    const listed = await run(['workspaces', '--json']);
+    expect(listed.code).toBe(0);
+    const [demo] = (
+      JSON.parse(listed.out) as {
+        workspaces: Array<{ id: string; urlKey: string; status: string }>;
+      }
+    ).workspaces;
+    expect(demo?.status).toBe('active');
+    const id = demo?.id ?? '';
+    const urlKey = demo?.urlKey ?? '';
+
+    // Named by its URL key: the engine resolves it to the org id.
+    const removed = await run(['remove', '--workspace', urlKey]);
+    expect(removed.code).toBe(0);
+    expect(removed.out).toStartWith(
+      `remove ok — ${id}: installation revoked as removed; its data is purged on 2026-11-20`
+    );
+    expect((await run(['workspaces'])).out).toContain('revoked:removed');
+
+    // A tick skips it without failing.
+    const tick = await run(['tick']);
+    expect(tick.code).toBe(0);
+    expect(tick.out).toContain(`${id}: skipped (removed by the operator)`);
+
+    const early = await run(['purge', '--workspace', id, '--yes']);
+    expect(early.code).toBe(1);
+    expect(early.out).toContain('revoked less than 15 minutes ago');
+
+    clock = new Date('2026-10-21T13:16:00Z');
+    const purged = await run(['purge', '--workspace', id, '--yes']);
+    expect(purged.code).toBe(0);
+    expect(purged.out).toMatch(/^ {2}installations\s+1$/m);
+    expect(purged.out).toContain(`purge ok — ${id}: `);
+    expect((await run(['workspaces'])).out).toContain('No workspaces yet');
+
+    const unknown = await run(['remove', '--workspace', urlKey]);
+    expect(unknown.code).toBe(1);
+    expect(unknown.out).toStartWith('remove FAILED — No workspace here');
+
+    const blocked = await run([
+      'block',
+      '--workspace',
+      'evilcorp',
+      '--reason',
+      'spam',
+    ]);
+    expect(blocked.code).toBe(0);
+    expect(blocked.out).toStartWith('block ok — evilcorp: blocked by URL key');
+    expect((await run(['workspaces'])).out).toMatch(
+      /evilcorp\s+URL key \(not seen yet\)\s+2026-10-21\s+spam/
+    );
+    expect((await run(['unblock', '--workspace', 'evilcorp'])).out).toContain(
+      'block removed'
+    );
+    expect((await run(['workspaces'])).out).not.toContain('evilcorp');
+  });
+});
+
 describe('runCli with LINEAR_AUTH=api_key', () => {
   test('tick and serve print the note, exit 0 and never boot', async () => {
     for (const argv of [['tick'], ['serve']]) {
@@ -618,6 +823,25 @@ describe('runCli with LINEAR_AUTH=api_key', () => {
       expect(d.created()).toBe(0);
       expect(d.output.errLines).toEqual([
         `${command}: off when LINEAR_AUTH=api_key: keys live only in the planner's memory; start a run or a resync from the planner`,
+      ]);
+    }
+  });
+
+  test('the operator commands exit 1 with the sentence and never boot', async () => {
+    for (const argv of [
+      ['workspaces'],
+      ['workspaces', '--json'],
+      ['remove', '--workspace', 'acme'],
+      ['purge', '--workspace', 'acme', '--yes'],
+      ['block', '--workspace', 'acme'],
+      ['unblock', '--workspace', 'acme'],
+    ]) {
+      const d = deps(fakeEngine(), { env: { LINEAR_AUTH: 'api_key' } });
+      expect(await runCli(argv, d)).toBe(1);
+      expect(d.created()).toBe(0);
+      expect(d.output.outLines).toEqual([]);
+      expect(d.output.errLines).toEqual([
+        `${argv[0]}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge or block`,
       ]);
     }
   });

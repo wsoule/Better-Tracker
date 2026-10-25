@@ -1,6 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 
-import { type CliCommand, parseArgs, USAGE } from '../src/cli';
+import {
+  type CliCommand,
+  isOperatorCommand,
+  parseArgs,
+  PURGE_NEEDS_YES,
+  USAGE,
+} from '../src/cli';
 
 function command(argv: string[]): CliCommand {
   const result = parseArgs(argv);
@@ -43,8 +49,48 @@ describe('parseArgs: commands', () => {
     [['tick'], { name: 'tick', workspaceId: null }],
     [['tick', '--workspace', 'org-1'], { name: 'tick', workspaceId: 'org-1' }],
     [['serve'], { name: 'serve', workspaceId: null }],
+    [['workspaces'], { name: 'workspaces', json: false }],
+    [['workspaces', '--json'], { name: 'workspaces', json: true }],
+    [['--json', 'workspaces'], { name: 'workspaces', json: true }],
+    [['remove', '--workspace', 'acme'], { name: 'remove', workspace: 'acme' }],
+    [
+      ['remove', '--workspace=0f6c1f8e-1b7a-4c1e-9a52-3c2a5d1e7b90'],
+      { name: 'remove', workspace: '0f6c1f8e-1b7a-4c1e-9a52-3c2a5d1e7b90' },
+    ],
+    [
+      ['purge', '--workspace', 'acme', '--yes'],
+      { name: 'purge', workspace: 'acme' },
+    ],
+    [
+      ['--yes', 'purge', '--workspace', 'acme'],
+      { name: 'purge', workspace: 'acme' },
+    ],
+    [
+      ['block', '--workspace', 'acme'],
+      { name: 'block', workspace: 'acme', reason: null },
+    ],
+    [
+      ['block', '--workspace', 'acme', '--reason', 'spam sign-ups'],
+      { name: 'block', workspace: 'acme', reason: 'spam sign-ups' },
+    ],
+    [
+      ['block', '--reason=asked by their admin', '--workspace', 'acme'],
+      { name: 'block', workspace: 'acme', reason: 'asked by their admin' },
+    ],
+    [
+      ['unblock', '--workspace', 'acme'],
+      { name: 'unblock', workspace: 'acme' },
+    ],
   ])('%p', (argv, expected) => {
     expect(command(argv)).toEqual(expected);
+  });
+
+  test('operator commands are told apart from the rest', () => {
+    expect(isOperatorCommand(command(['workspaces']))).toBe(true);
+    expect(isOperatorCommand(command(['unblock', '--workspace', 'a']))).toBe(
+      true
+    );
+    expect(isOperatorCommand(command(['tick']))).toBe(false);
   });
 
   test('trims a workspace id', () => {
@@ -76,9 +122,15 @@ describe('parseArgs: help', () => {
       'warn',
       'tick',
       'serve',
+      'workspaces',
+      'remove',
+      'purge',
+      'block',
+      'unblock',
     ]) {
       expect(USAGE).toContain(`  ${name} `);
     }
+    expect(USAGE).toContain('WORKER_CONCURRENCY');
     expect(USAGE).toContain('2 usage error');
   });
 });
@@ -115,6 +167,46 @@ describe('parseArgs: errors', () => {
     ],
     [['migrate', '--workspace', 'a'], 'migrate does not take --workspace.'],
     [['migrate', '--', 'x'], 'Unknown option: --'],
+    [['remove'], 'remove needs --workspace <org id or URL key>.'],
+    [['unblock'], 'unblock needs --workspace <org id or URL key>.'],
+    [
+      ['remove', '--workspace', 'acme.example'],
+      '--workspace takes an organization id or URL key (letters, digits and dashes, at most 64).',
+    ],
+    [
+      ['block', '--workspace', 'x'.repeat(65)],
+      '--workspace takes an organization id or URL key (letters, digits and dashes, at most 64).',
+    ],
+    [['purge', '--workspace', 'acme'], PURGE_NEEDS_YES],
+    [['purge', '--yes'], 'purge needs --workspace <org id or URL key>.'],
+    [
+      ['workspaces', '--workspace', 'acme'],
+      'workspaces does not take --workspace (it lists every workspace).',
+    ],
+    [['tick', '--json'], '--json is only valid for workspaces, not tick.'],
+    [
+      ['remove', '--workspace', 'a', '--yes'],
+      '--yes is only valid for purge, not remove.',
+    ],
+    [
+      ['unblock', '--workspace', 'a', '--reason', 'x'],
+      '--reason is only valid for block, not unblock.',
+    ],
+    [['block', '--workspace', 'a', '--reason'], '--reason needs text'],
+    [['block', '--workspace', 'a', '--reason='], '--reason needs text'],
+    [
+      ['block', '--workspace', 'a', '--reason', 'x'.repeat(501)],
+      '--reason is at most 500 characters.',
+    ],
+    [
+      ['block', '--workspace', 'a', '--reason', 'x', '--reason', 'y'],
+      '--reason was given more than once.',
+    ],
+    [['workspaces', '--json', '--json'], '--json was given more than once.'],
+    [
+      ['remove', '--force', '--workspace', 'a'],
+      '--force is only valid for daily, not remove.',
+    ],
   ])('%p', (argv, message) => {
     expect(error(argv)).toBe(message);
   });
