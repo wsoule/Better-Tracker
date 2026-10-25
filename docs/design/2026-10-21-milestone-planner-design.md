@@ -49,8 +49,12 @@ audiences a screen that fits how they actually work.
   edit an issue, and read and add comments, from the planner.
 - Time tracking, capacity planning by hours, sprint/cycle management.
 - Being a portal page (see §4).
-- Multi-tenant SaaS. Productization is a stated future possibility; v1 serves this one
-  Linear workspace, but must not make productizing harder (see §4).
+- ~~Multi-tenant SaaS. Productization is a stated future possibility; v1 serves this one
+  Linear workspace, but must not make productizing harder (see §4).~~
+  **Amended 2026-10-25 by an owner decision** (§12, "Several workspaces on one
+  deployment"): one deployment may serve several Linear workspaces, closed to new ones
+  unless the person who runs it admits them. Billing, a Slack bot per workspace and a
+  listing in Linear's integration directory remain non-goals.
 
 ## 4. Anti-goals — it fails even if it "works" when…
 
@@ -792,3 +796,56 @@ the OAuth app and demo mode stay as they are.
   reveal the size of a private team the person is not in (all modes);
 - a deployed planner must use the project's Postgres (`DATABASE_URL`); it
   warns at boot when it would keep its data on the container's disk.
+
+### 2026-10-25 — Several workspaces on one deployment
+
+Owner, in their words: "can i connect my work to this?" (they are an admin of
+their work Linear workspace), "i need a feature to switch workspaces.", "i want
+to make it so that anyone can use this eventually." and "I don't care about the
+slack stuff at all. but do all of that stuff for the 'before strangers can use
+it' except slack." It amends the §3 non-goal "v1 serves this one Linear
+workspace".
+
+- **OAuth mode only.** One deployment serves several Linear workspaces, and one
+  browser holds a session for each and switches between them. API-key mode
+  stays pinned to one workspace, and demo mode stays one fictional workspace.
+- **Closed by default.** `LINEAR_WORKSPACES` lists the workspaces the planner
+  serves (org ids or URL keys); unset, only workspaces already installed may
+  sign in, so an existing deployment keeps working and nobody new gets in;
+  `*` opens it to every Linear workspace. The person who runs the planner can
+  also block a workspace. These gate workspaces, not people: they are not a
+  permission distinction, and inside a workspace everyone signed in can still
+  do everything (guests stay read-only).
+- **A switcher.** Switching only changes which of the browser's own sessions is
+  active; it is not a write, so guests may switch. Adding a workspace signs in
+  to whichever workspace is open at linear.app, so the planner says to open it
+  there first.
+- **Uninstall, then purge.** When an admin uninstalls the app in Linear (or the
+  person who runs the planner removes a workspace), the workspace's sessions end
+  and its data is deleted 30 days later unless someone reinstalls. When Linear
+  only refuses the app's token (`grant_dead`, the cause unknown), nothing is
+  ever purged automatically. The audit log and the run log stay "kept for good"
+  for every active workspace (2026-10-22 decision unchanged); only the
+  post-uninstall purge deletes them.
+- **Operator commands instead of an operator screen.** The person who runs the
+  planner lists, removes, blocks and purges workspaces with the worker's command
+  line (an in-app screen would be a person permission distinction).
+- **Public pages.** Privacy, terms and contact pages, readable without signing
+  in, and plain copy for people from other workspaces.
+- **Slack untouched**, except one fail-safe: one Slack bot is never used while
+  more than one workspace may be served (every digest stays in the planner's
+  outbox), and the planner promises Slack DMs only when a Slack channel is
+  active. `WATCHER_EMAILS` likewise seeds watchers only in workspaces
+  `LINEAR_WORKSPACES` names.
+
+*Builder's calls, flagged for review:*
+- a URL key in `LINEAR_WORKSPACES` (or in a block) is tied to the workspace it
+  first matches, because Linear lets admins rename URL keys: afterwards it
+  admits (or blocks) only that workspace, also after a rename;
+- a workspace taken out of `LINEAR_WORKSPACES`, or blocked, after installing is
+  removed by the worker's next cleanup (its app token wiped; its data deleted 30
+  days later unless it is admitted and reinstalled), so a typo in the list
+  removes a workspace; the warn line in the logs says which;
+- a write grant (or an install) Linear issues for another workspace than the
+  one it was asked for is refused and revoked, and the person is told to open
+  the right workspace at linear.app.
