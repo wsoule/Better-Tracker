@@ -304,13 +304,18 @@ test('a slow double-click on the locked box drills without opening it on the way
   const x = at.x + at.width / 2;
   const y = at.y + at.height / 2;
   // 400 ms apart: past the double tap's window, still a double-click to
-  // the OS (Windows and macOS count up to about 500 ms).
+  // the OS (Windows and macOS count up to about 500 ms). The page's clock
+  // is paused between the two presses, so a busy machine delivering the
+  // second press late cannot let the first press's open timer fire.
+  await page.clock.install();
+  await page.clock.pauseAt(Date.now() + 1_000);
   await page.mouse.move(x, y);
   await page.mouse.down({ clickCount: 1 });
   await page.mouse.up({ clickCount: 1 });
-  await page.waitForTimeout(400);
+  await page.clock.runFor(400);
   await page.mouse.down({ clickCount: 2 });
   await page.mouse.up({ clickCount: 2 });
+  await page.clock.resume();
   await expect(page).toHaveURL(/\/graph\?chain=ENG-23$/);
   await page.waitForTimeout(700);
   expect(

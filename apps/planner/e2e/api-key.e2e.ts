@@ -272,9 +272,15 @@ test('5d. a key typed into a search box never reaches a URL', async () => {
   page.on('request', (request) => {
     sent.push(
       (async () => {
-        const headers: Record<string, string> = await request
-          .allHeaders()
-          .catch(() => ({}));
+        // allHeaders() never settles for a request a navigation cut short,
+        // so after 2 s fall back to the headers Chromium recorded when the
+        // request started (they include the Referer).
+        const headers: Record<string, string> = await Promise.race([
+          request.allHeaders().catch(() => request.headers()),
+          new Promise<Record<string, string>>((resolve) => {
+            setTimeout(() => resolve(request.headers()), 2_000);
+          }),
+        ]);
         return `${request.url()} ${headers.referer ?? ''}`;
       })()
     );
