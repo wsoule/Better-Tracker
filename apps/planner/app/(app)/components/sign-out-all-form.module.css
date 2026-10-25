@@ -1,0 +1,14 @@
+/* "Sign out of all workspaces": a row of its own under a section (like
+   the form bars: no box, the secondary button at the start), or inline
+   in a notice's action slot. */
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-top: 20px;
+}
+
+.inline {
+  display: inline-flex;
+}

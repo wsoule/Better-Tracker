@@ -1,6 +1,7 @@
 // proxy.ts: in api_key mode, no key in any URL Next would render or
-// answer, and a fresh nonce CSP on every page; nothing at all in the
-// other modes (architecture §8.1 "No key in a URL", "Nonce CSP").
+// answer, and a fresh nonce CSP on every page; in the other modes only the
+// redirect of a page link naming a workspace (`ws`) to /open (architecture
+// §8.1 "No key in a URL", "Nonce CSP", §8.4 "Open").
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { NextRequest } from 'next/server';
@@ -200,6 +201,55 @@ describe('proxy', () => {
         expect(response.headers.get('content-security-policy')).toBeNull();
       }
     }
+  });
+
+  test('OAuth and demo mode: a page link naming a workspace goes to /open first', () => {
+    for (const env of [{}, { LINEAR_AUTH: 'oauth' }, { LINEAR_FIXTURE: '1' }]) {
+      delete process.env.LINEAR_AUTH;
+      delete process.env.LINEAR_FIXTURE;
+      Object.assign(process.env, env);
+      for (const [from, to] of [
+        ['/timeline?milestone=m1&ws=org-acme', '/timeline?milestone=m1'],
+        ['/issues/ENG-1?ws=org-acme', '/issues/ENG-1'],
+        ['/week?ws=org-acme&user=u1', '/week?user=u1'],
+      ] as const) {
+        const response = proxy(new NextRequest(`http://localhost:3360${from}`));
+        expect(response.status).toBe(307);
+        expect(response.headers.get('cache-control')).toBe('no-store');
+        const location = new URL(
+          response.headers.get('location') ?? '',
+          'http://localhost:3360'
+        );
+        expect(location.pathname).toBe('/open');
+        expect(location.searchParams.get('ws')).toBe('org-acme');
+        // `to` is the same page without ws.
+        expect(location.searchParams.get('to')).toBe(to);
+      }
+      // /open itself, API routes, static assets and prefetches pass.
+      for (const [url, headers] of [
+        ['/open?ws=org-acme&to=%2Fweek', {}],
+        ['/api/palette?ws=org-acme', {}],
+        ['/_next/static/chunks/a.js?ws=org-acme', {}],
+        ['/week?ws=org-acme', { purpose: 'prefetch' }],
+        ['/week', {}],
+      ] as const) {
+        const response = proxy(
+          new NextRequest(`http://localhost:3360${url}`, { headers })
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('location')).toBeNull();
+      }
+    }
+  });
+
+  test('api_key mode holds one workspace: a ws link is not redirected', () => {
+    process.env.LINEAR_AUTH = 'api_key';
+    process.env.APP_URL = 'http://localhost:3360';
+    const response = proxy(
+      new NextRequest('http://localhost:3360/week?ws=org-acme')
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('location')).toBeNull();
   });
 
   test('no matcher: the proxy runs on every request, and next.config has no redirects', () => {

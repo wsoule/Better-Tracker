@@ -20,6 +20,15 @@ export type ReadOnlyReasonCopy = ReadOnlyReason;
 export const FIRST_SYNC_PENDING_HEADLINE =
   'The first sync from Linear has not landed yet.';
 
+/**
+ * When a failed first sync is tried again (the engine's first-sync
+ * backoff, architecture §7: a minute after a failure, doubling while it
+ * keeps failing, at most FIRST_SYNC_RETRY_MAX_MS = 15 minutes, which a
+ * test checks; the worker tries on every run).
+ */
+export const FIRST_SYNC_RETRY_SENTENCE =
+  'It is tried again a minute after a failure, then less often while it keeps failing (at most every 15 minutes), and on every worker run.';
+
 /** api_key mode: the planner has no copy of Linear and no member's key to read one. */
 export const API_KEY_NOT_SYNCED_NOTICE =
   "The planner has no copy of Linear yet. It reads Linear with a workspace member's key: once a member connects, reload.";

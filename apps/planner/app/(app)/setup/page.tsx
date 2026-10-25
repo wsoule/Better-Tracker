@@ -1,3 +1,4 @@
+import { PURGE_AFTER_DAYS } from '@better-tracker/engine';
 import {
   BlockBar,
   Button,
@@ -9,13 +10,22 @@ import {
 import {
   INSTALL_STEPS,
   installationFacts,
+  revokedNotice,
   setupState,
 } from '../../../lib/adapters/setup';
 import { formatInstant } from '../../../lib/format';
-import { loadInstallation, requirePageActor } from '../../../lib/load';
+import { heldCount } from '../../../lib/held-sessions';
+import {
+  loadHeldSessions,
+  loadInstallation,
+  requirePageActor,
+} from '../../../lib/load';
+import { FIRST_SYNC_RETRY_SENTENCE } from '../../../lib/read-only';
 import { PageCrumb } from '../components/page-crumb';
 import ReadOnlyNotice from '../components/read-only-notice';
 import Receipts from '../components/receipts';
+import SignOutAllForm from '../components/sign-out-all-form';
+import WorkspaceGuard from '../components/workspace-guard';
 import styles from './page.module.css';
 
 export const metadata = { title: 'Setup' };
@@ -50,11 +60,25 @@ async function installContext(
    first sync has not landed nobody can be placed, so everyone is
    read-only, but Reinstall stays (readOnlyReason `not_synced`). With
    personal API keys (LINEAR_AUTH=api_key) there is nothing to install:
-   one sentence, the workspace the planner serves, and the way home. */
+   one sentence, the workspace the planner serves, and the way home.
+   In OAuth mode (owner decision 2026-10-25) the page names the session's
+   workspace even before an install, a revoked installation says why
+   (uninstalled in Linear, removed by the person who runs the planner, or
+   a token Linear refused) and, for the first two, when its data is
+   deleted, and with two or more workspaces held it offers "Sign out of
+   all workspaces". */
 export default async function SetupPage() {
   const { engine, actor } = await requirePageActor('/setup');
   const workspaceId = actor.session.workspaceId;
-  const installation = await loadInstallation(engine, workspaceId);
+  const [installation, held] = await Promise.all([
+    loadInstallation(engine, workspaceId),
+    loadHeldSessions(),
+  ]);
+  const oauth = engine.mode !== 'fixture' && engine.config.auth !== 'api_key';
+  // The session's own description: its workspace's name before any
+  // install, and why an installation was revoked.
+  const current = held.active?.workspaceId === workspaceId ? held.active : null;
+  const signOutAll = oauth && heldCount(held) >= 2 ? <SignOutAllForm /> : null;
 
   if (engine.config.auth === 'api_key') {
     return (
@@ -108,6 +132,7 @@ export default async function SetupPage() {
           </div>
         </section>
         <PageCrumb label="Setup" />
+        <WorkspaceGuard />
       </div>
     );
   }
@@ -146,10 +171,10 @@ export default async function SetupPage() {
             {notSynced ? (
               <Notice label="First sync pending" tone="warning" role="status">
                 The first sync from Linear has not landed, so changes are paused
-                for everyone. It is retried on every page and every worker run.
-                If it keeps failing, the web service&apos;s logs say why; when
-                the cause is the app&apos;s grant (for example the
-                initiative:read scope missing), a workspace admin can reinstall.
+                for everyone. {FIRST_SYNC_RETRY_SENTENCE} If it keeps failing,
+                the web service&apos;s logs say why; when the cause is the
+                app&apos;s grant (for example the initiative:read scope
+                missing), a workspace admin can reinstall.
               </Notice>
             ) : readOnly ? (
               <ReadOnlyNotice />
@@ -190,13 +215,17 @@ export default async function SetupPage() {
               </div>
             </div>
           </div>
+          {signOutAll}
         </section>
         <PageCrumb label={installation.workspaceName} />
+        <WorkspaceGuard />
       </div>
     );
   }
 
   const revoked = installation !== null && state === 'revoked';
+  const workspaceName =
+    installation?.workspaceName ?? current?.workspaceName ?? null;
   return (
     <div className="page">
       <header className={styles.head}>
@@ -206,22 +235,20 @@ export default async function SetupPage() {
         <p className={styles.receipts}>
           {revoked
             ? `${installation.workspaceName} · reinstall needed`
-            : 'Your Linear workspace · not installed yet'}
+            : `${workspaceName ?? 'Your Linear workspace'} · not installed yet`}
         </p>
       </header>
       {revoked && installation.revokedAt !== null ? (
         <div className="block">
           <div className={styles.column}>
             <Notice label="Reinstall needed" tone="danger" role="status">
-              Linear rejected the app&apos;s grant for{' '}
-              {installation.workspaceName} on{' '}
-              {formatInstant(
-                installation.revokedAt,
-                engine.config.defaultTimezone
-              )}
-              : the app was uninstalled in Linear, or Linear refused its token
-              when the planner renewed it. Until a workspace admin reinstalls
-              it, nothing syncs, nothing is allocated and no warnings go out.
+              {revokedNotice({
+                reason: current?.revokedReason ?? null,
+                revokedAt: installation.revokedAt,
+                workspaceName: installation.workspaceName,
+                timeZone: engine.config.defaultTimezone,
+                purgeAfterDays: PURGE_AFTER_DAYS,
+              })}
             </Notice>
           </div>
         </div>
@@ -250,8 +277,11 @@ export default async function SetupPage() {
               </p>
             </div>
           )}
+          {signOutAll}
         </div>
       </section>
+      {workspaceName === null ? null : <PageCrumb label={workspaceName} />}
+      <WorkspaceGuard />
     </div>
   );
 }

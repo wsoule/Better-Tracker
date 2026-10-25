@@ -24,11 +24,20 @@ import {
   signedOutNotice,
 } from '../../lib/adapters/landing';
 import {
+  connectHref,
   DEFAULT_RETURN_TO,
   sanitizeReturnTo,
   signInHref,
 } from '../../lib/auth-cookies';
-import { getPageContext } from '../../lib/load';
+import { getPageContext, loadHeldSessions } from '../../lib/load';
+import {
+  CONNECT_LABEL,
+  continueInLabel,
+  continueListIntro,
+  parseSwitchError,
+  switchErrorMessage,
+  workspaceHint,
+} from '../../lib/workspace-copy';
 import ConnectKeyBlock, {
   ConnectNotices,
 } from './components/connect-key-block';
@@ -36,6 +45,7 @@ import DemoNotice from './components/demo-notice';
 import MessageBlock from './components/message-block';
 import { PageCrumb } from './components/page-crumb';
 import Receipts from './components/receipts';
+import WorkspaceGuard from './components/workspace-guard';
 import styles from './page.module.css';
 
 export const metadata = { title: 'Sign in' };
@@ -79,7 +89,12 @@ async function loadDemo(
    (components/connect-key-block.tsx), a plain server-rendered form that
    posts the key to /api/auth/key; ?signed_out=1 (forgotten everywhere),
    ?signed_out=ended (this browser's connection had already ended) and a
-   stale session cookie each get a notice at the top of the card. */
+   stale session cookie each get a notice at the top of the card. In OAuth
+   mode (owner decision 2026-10-25), when the active cookie names no live
+   session but this browser still holds others, the card lists them as
+   "Continue in <name>" forms (POST /api/auth/switch) above the sign-in
+   button, with a link to connect another workspace; ?switch_error=<code>
+   says why a switch did not happen. */
 export default async function HomePage({
   searchParams,
 }: {
@@ -92,6 +107,7 @@ export default async function HomePage({
   const apiKeyMode = engine.config.auth === 'api_key';
   const errorMessage = authErrorMessage(firstParam(params.auth_error), {
     apiKeyMode,
+    appName: engine.config.appName,
   });
   const returnTo = sanitizeReturnTo(
     firstParam(params.returnTo),
@@ -129,6 +145,7 @@ export default async function HomePage({
           }
         />
         <Features apiKeyMode />
+        <WorkspaceGuard />
       </div>
     );
   }
@@ -152,11 +169,25 @@ export default async function HomePage({
       >
         <p role="alert">{errorMessage}</p>
         <PageCrumb label="Linear sign-in" />
+        <WorkspaceGuard />
       </MessageBlock>
     );
   }
 
   const demo = engine.mode === 'fixture' ? await loadDemo(engine) : null;
+  // OAuth mode: the other workspaces this browser still holds (the
+  // stash: the active cookie names no live session here, or this page
+  // would have gone to returnTo). Names and ids only; the tokens stay on
+  // the server.
+  const held =
+    demo === null
+      ? (await loadHeldSessions()).stash.map((entry) => ({
+          id: entry.workspaceId,
+          name: entry.workspaceName ?? 'Linear workspace',
+          hint: workspaceHint(entry) ?? entry.userName,
+        }))
+      : [];
+  const switchError = parseSwitchError(firstParam(params.switch_error));
 
   return (
     <div className={styles.auth}>
@@ -170,6 +201,11 @@ export default async function HomePage({
         {errorMessage !== null ? (
           <Notice label="Sign-in did not finish" tone="danger" role="alert">
             {errorMessage}
+          </Notice>
+        ) : null}
+        {switchError !== null ? (
+          <Notice label="Not switched" tone="danger" role="alert">
+            {switchErrorMessage(switchError)}
           </Notice>
         ) : null}
         <header className={styles.cardHead}>
@@ -200,9 +236,16 @@ export default async function HomePage({
           </>
         ) : (
           <>
+            {held.length > 0 ? (
+              <ContinueList
+                workspaces={held}
+                returnTo={returnTo}
+                sessionEnded={hadSessionCookie}
+              />
+            ) : null}
             <Button
               href={signInHref(returnTo)}
-              variant="primary"
+              variant={held.length > 0 ? 'secondary' : 'primary'}
               size="lg"
               block
             >
@@ -219,7 +262,68 @@ export default async function HomePage({
       </section>
 
       <Features apiKeyMode={false} />
+      <WorkspaceGuard />
     </div>
+  );
+}
+
+/* The signed-out card's "Continue in <name>" list (OAuth mode): one POST
+   switch form per workspace this browser still holds, as the demo
+   people's full-width rows (name over its hint, a chevron), then a link
+   to connect another workspace. */
+function ContinueList({
+  workspaces,
+  returnTo,
+  sessionEnded,
+}: {
+  workspaces: { id: string; name: string; hint: string }[];
+  returnTo: string;
+  sessionEnded: boolean;
+}) {
+  return (
+    <>
+      <p className={styles.sub}>{continueListIntro(sessionEnded)}</p>
+      <ul className={styles.people} aria-label="Workspaces held">
+        {workspaces.map((workspace) => (
+          <li key={workspace.id}>
+            <form method="post" action="/api/auth/switch">
+              <input type="hidden" name="workspace" value={workspace.id} />
+              {returnTo !== DEFAULT_RETURN_TO ? (
+                <input type="hidden" name="returnTo" value={returnTo} />
+              ) : null}
+              <button
+                type="submit"
+                className={`button ${styles.person}`}
+                aria-describedby={`held-${workspace.id}`}
+              >
+                <span className={styles.personText}>
+                  <span className={styles.personName}>
+                    {continueInLabel(workspace.name)}
+                  </span>
+                  <span
+                    id={`held-${workspace.id}`}
+                    className={styles.personMeta}
+                  >
+                    {workspace.hint}
+                  </span>
+                </span>
+                <ChevronRight
+                  className={styles.chevron}
+                  size={16}
+                  strokeWidth={1.8}
+                  aria-hidden="true"
+                />
+              </button>
+            </form>
+          </li>
+        ))}
+      </ul>
+      <p className={styles.foot}>
+        <a className="accentLink" href={connectHref(returnTo)}>
+          {CONNECT_LABEL}
+        </a>
+      </p>
+    </>
   );
 }
 

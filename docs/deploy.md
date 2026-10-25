@@ -316,7 +316,7 @@ PR environments (research: Railway deployment, "Variable reference syntax").
 | `DATABASE_URL`            |  ✓  |   ✓    | `${{Postgres.DATABASE_URL}}`, the private-network URL (`postgres.railway.internal`). The traffic is already WireGuard-encrypted, so **no SSL settings are needed**. Do not use `DATABASE_PUBLIC_URL`: its egress is billed and its certificate is self-signed (research: "Is SSL needed for Postgres…"). |
 | `APP_URL`                 |  ✓  |   ✓    | `https://<your domain>`, no trailing slash. The worker uses it for digest links.                                                                                                                                                                                                                         |
 | `TOKEN_ENCRYPTION_KEY`    |  ✓  |   ✓    | sealed. `openssl rand -base64 32`. Must be **the same on both services**: the worker decrypts the tokens the web app stored.                                                                                                                                                                             |
-| `SESSION_SECRET`          |  ✓  |        | sealed. `openssl rand -base64 48` (at least 32 characters). Signs the short-lived OAuth cookie.                                                                                                                                                                                                          |
+| `SESSION_SECRET`          |  ✓  |        | sealed. `openssl rand -base64 48` (at least 32 characters). Signs the short-lived OAuth cookie and the sign-out notice.                                                                                                                                                                                  |
 | `LINEAR_CLIENT_ID`        |  ✓  |   ✓    | from step 1. The worker needs it to refresh and revoke tokens.                                                                                                                                                                                                                                           |
 | `LINEAR_CLIENT_SECRET`    |  ✓  |   ✓    | sealed, from step 1                                                                                                                                                                                                                                                                                      |
 | `LINEAR_WEBHOOK_SECRET`   |  ✓  |        | sealed, from step 1                                                                                                                                                                                                                                                                                      |
@@ -503,8 +503,9 @@ and nobody gets a second digest on the same day.
 
 **Rotating secrets.**
 
-- `SESSION_SECRET` signs only the 10-minute OAuth cookie, so you can rotate it
-  at any time. Sign-ins in progress at that moment have to start over.
+- `SESSION_SECRET` signs only the 10-minute OAuth cookie (and the five-minute
+  "Signed out of <workspace>" notice value), so you can rotate it at any time.
+  Sign-ins in progress at that moment have to start over.
 - `LINEAR_WEBHOOK_SECRET`: rotate the webhook signing secret in the Linear app,
   then update `web`. Deliveries fail verification until both match. Linear
   retries them, and the 15-minute resync heals anything missed.
@@ -518,6 +519,15 @@ and nobody gets a second digest on the same day.
   new key makes every stored Linear token unreadable. Set the new key on both
   services and redeploy. Everyone signs in again, and an admin reinstalls from
   `/setup`.
+
+**Session cookies after the several-workspaces release** (owner decision
+2026-10-25). On an https `APP_URL` the planner's OAuth and demo cookies are now
+`__Host-mp_session`, `__Host-mp_sessions` (the other workspaces this browser
+holds) and `__Host-mp_oauth`, which a sibling subdomain cannot set. The plain
+`mp_session` and `mp_oauth` used before are no longer read, and every auth
+response expires them. So once, after this release, everyone signed in under the
+old names lands on the sign-in page and signs in again; nothing else is lost.
+API-key mode keeps its cookies as they were.
 
 **A revoked install.** The installation is marked revoked when:
 

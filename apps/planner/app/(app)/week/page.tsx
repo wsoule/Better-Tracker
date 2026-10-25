@@ -34,7 +34,10 @@ import {
   orSetup,
   requireInstalledActor,
 } from '../../../lib/load';
+import { withoutNoticeParams } from '../../../lib/workspace-copy';
 import { PageCrumb } from '../components/page-crumb';
+import WorkspaceGuard from '../components/workspace-guard';
+import WorkspaceNotices from '../components/workspace-notices';
 import css from './page.module.css';
 import WeekIssues from './week-issues';
 import WeekUserPicker from './week-user-picker';
@@ -64,9 +67,8 @@ export default async function WeekPage({
 }) {
   // Request data first: the page is per-request, never prerendered.
   const params = await searchParams;
-  const { engine, actor, workspaceId } = await requireInstalledActor(
-    currentHref('/week', params)
-  );
+  const { engine, actor, workspaceId, installation } =
+    await requireInstalledActor(currentHref('/week', params));
   const viewerId = actor.session.userId;
   const loaded = await orSetup(engine.load(workspaceId, actor));
   const users = loaded.snapshot.data.users;
@@ -82,12 +84,18 @@ export default async function WeekPage({
   // ?issue= opens the issue slide-over; every row links there, keeping
   // the rest of the URL (a ?user= for someone else's week).
   const issueKey = parseIssueParam(params);
-  const base = withIssueParam(currentHref('/week', params), null);
+  const linkParams = withoutNoticeParams(params);
+  const base = withIssueParam(currentHref('/week', linkParams), null);
   const [week, timeline, drawer] = await orSetup(
     Promise.all([
       loadWeekView(engine, workspaceId, userId),
       loadTimelineView(engine, workspaceId),
-      loadIssueDrawer(engine, actor, issueKey, currentHref('/week', params)),
+      loadIssueDrawer(
+        engine,
+        actor,
+        issueKey,
+        currentHref('/week', linkParams)
+      ),
     ])
   );
   const page = buildWeekPage({
@@ -107,6 +115,7 @@ export default async function WeekPage({
   return (
     <>
       {page.isSelf ? null : <PageCrumb label={week.userName} />}
+      <WorkspaceGuard />
       <header className={css.head}>
         <div className={css.headText}>
           <h1 className={css.title}>{page.heading}</h1>
@@ -126,6 +135,10 @@ export default async function WeekPage({
           />
         </div>
       </header>
+      <WorkspaceNotices
+        params={params}
+        workspaceName={installation.workspaceName}
+      />
 
       <div className={css.body}>
         <StatsStrip

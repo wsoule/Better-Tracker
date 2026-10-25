@@ -120,6 +120,7 @@ function viewOf(params: Record<string, string>): {
 }
 
 const MEMBER = {
+  workspaceId: 'org-northwind',
   viewerId: 'user-chloe',
   readOnly: false,
   canWriteLinear: true,
@@ -774,8 +775,9 @@ describe('the page model', () => {
     expect(eng54?.dueTone).toBe('warning');
     expect(eng54?.dueNote).toBe('Tomorrow');
     expect(page.columns).toEqual(['assignee', 'state', 'priority', 'due']);
+    // Per workspace (a browser holds several, owner decision 2026-10-25).
     expect(page.storageKey).toBe(
-      'milestone-planner:issues:collapsed:milestone'
+      'milestone-planner:issues:collapsed:org-northwind:milestone'
     );
     expect(page.defaultCollapsed).toEqual([]);
     expect(page.empty).toBeNull();

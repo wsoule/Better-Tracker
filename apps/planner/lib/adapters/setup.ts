@@ -1,5 +1,8 @@
 import { formatInstant } from '../format';
 
+/** Why an installation was revoked (engine RevokedReason). */
+export type SetupRevokedReason = 'uninstalled' | 'removed' | 'grant_dead';
+
 // /setup's mapping: which of the three states the workspace is in, and
 // the facts shown for an installation (architecture §8.1 /setup, §7.1:
 // `revokedAt` means "the app has no working Linear grant").
@@ -19,6 +22,57 @@ export type SetupState = 'installed' | 'revoked' | 'not_installed';
 export function setupState(installation: SetupInstallation | null): SetupState {
   if (installation === null) return 'not_installed';
   return installation.revokedAt === null ? 'installed' : 'revoked';
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** "Nov 24, 2026": a calendar day in `timeZone`. */
+function formatDay(iso: string, timeZone: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone,
+  }).format(date);
+}
+
+/**
+ * The /setup notice for a revoked installation, by why it was revoked
+ * (owner decision 2026-10-25): an admin uninstalled the app in Linear, the
+ * person who runs the planner removed the workspace, or Linear refused the
+ * app's token (also any revoke from before the reason was recorded). The
+ * first two are deleted `purgeAfterDays` after the revoke unless someone
+ * reinstalls, and the notice says when; a refused token is never deleted
+ * on its own. Every reason can be fixed by a reinstall (a blocked
+ * workspace never gets this far: its sign-in is refused).
+ */
+export function revokedNotice(input: {
+  reason: SetupRevokedReason | null;
+  revokedAt: string;
+  workspaceName: string;
+  timeZone: string;
+  purgeAfterDays: number;
+}): string {
+  const when = formatDay(input.revokedAt, input.timeZone);
+  const purgeOn = formatDay(
+    new Date(
+      Date.parse(input.revokedAt) + input.purgeAfterDays * DAY_MS
+    ).toISOString(),
+    input.timeZone
+  );
+  const stopped =
+    'Until a workspace admin reinstalls it, nothing syncs, nothing is allocated and no warnings go out.';
+  const deleted = `Its data is deleted on ${purgeOn} unless someone reinstalls.`;
+  switch (input.reason) {
+    case 'uninstalled':
+      return `An admin uninstalled the app in Linear on ${when}. ${deleted} ${stopped}`;
+    case 'removed':
+      return `The person who runs this planner removed ${input.workspaceName} on ${when}. ${deleted} ${stopped}`;
+    default:
+      return `Linear refused the app’s token for ${input.workspaceName} on ${when}. ${stopped}`;
+  }
 }
 
 export interface SetupFact {

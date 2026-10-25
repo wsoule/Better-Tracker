@@ -28,7 +28,11 @@ import {
   parseHighlight,
   withHighlightParam,
 } from '../lib/adapters/graph-scope';
-import { OAUTH_COOKIE, SESSION_COOKIE } from '../lib/auth-cookies';
+import {
+  activeCookieName,
+  oauthCookieName,
+  stashCookieName,
+} from '../lib/session-cookies';
 
 // The /graph URL vocabulary: reading a query string into a scope (and the
 // ?node= arrival selection), writing a scope's canonical URL, the drill-up
@@ -530,7 +534,16 @@ describe('the highlight', () => {
       'graph-highlight=risk; Path=/graph; Max-Age=31536000; SameSite=Lax; Secure'
     );
     expect(HIGHLIGHT_COOKIE).toBe('graph-highlight');
-    expect([SESSION_COOKIE, OAUTH_COOKIE]).not.toContain(HIGHLIGHT_COOKIE);
+    for (const secure of [false, true]) {
+      for (const mode of ['oauth', 'demo', 'api_key'] as const) {
+        const scheme = { mode, secure };
+        expect([
+          activeCookieName(scheme),
+          stashCookieName(scheme),
+          oauthCookieName(scheme),
+        ]).not.toContain(HIGHLIGHT_COOKIE);
+      }
+    }
   });
 
   test('graphHref never carries the highlight: links follow the cookie', () => {

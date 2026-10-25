@@ -37,14 +37,18 @@ import {
   watcherRows,
   watchersHint,
 } from '../../../lib/adapters/settings';
+import { heldCount } from '../../../lib/held-sessions';
 import { currentHref } from '../../../lib/issue-load';
 import {
   type InstalledContext,
+  loadHeldSessions,
   orSetup,
   requireInstalledActor,
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
 import ReadOnlyNotice from '../components/read-only-notice';
+import SignOutAllForm from '../components/sign-out-all-form';
+import WorkspaceGuard from '../components/workspace-guard';
 import CurrentIntoView from './current-into-view';
 import ForgetKeyForm from './forget-key-form';
 import ModesForm from './modes-form';
@@ -143,6 +147,7 @@ export default async function SettingsPage({
         </section>
       </div>
       <PageCrumb label={section.label} />
+      <WorkspaceGuard />
     </>
   );
 }
@@ -279,6 +284,10 @@ async function renderSection(
         </>
       );
     case 'status': {
+      const signOutAll =
+        engine.mode !== 'fixture' &&
+        !apiKeyMode &&
+        heldCount(await loadHeldSessions()) >= 2;
       const rows = statusRows({
         installation,
         syncState: loaded.syncState,
@@ -313,8 +322,11 @@ async function renderSection(
           {/* Resync and the digest preview are for members only. */}
           {readOnly ? null : <StatusActions />}
           {/* Signing out changes nothing in Linear or the planner, so it
-              is offered to everyone, read-only people included. */}
+              is offered to everyone, read-only people included: forgetting
+              the key with personal API keys, and (OAuth mode, two or more
+              workspaces held) signing out of all of them. */}
           {apiKeyMode ? <ForgetKeyForm /> : null}
+          {signOutAll ? <SignOutAllForm /> : null}
         </>
       );
     }

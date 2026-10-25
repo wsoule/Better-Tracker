@@ -4,9 +4,16 @@ import { randomBytes } from 'node:crypto';
 import { KEY_TEXT_REFUSAL, urlWithoutKeys } from './lib/key-text';
 import { contentSecurityPolicy, isApiKeyAuthEnv } from './lib/security-headers';
 
-/* The planner's Proxy (Next 16; Node runtime by default). It does
-   something only with personal API keys (LINEAR_AUTH=api_key, read at
-   request time, so one build serves every mode):
+/* The planner's Proxy (Next 16; Node runtime by default). In OAuth and
+   demo mode it does one thing (owner decision 2026-10-25, a browser holds
+   several workspaces): a page request whose query carries `ws` (the org
+   id a digest link names, architecture §7) gets a 307 to
+   /open?ws=<it>&to=<the same path and query without ws>, the interstitial
+   that opens the page in that workspace, offers the switch or says the
+   browser is not signed in to it (§8.4 "Open"); /open itself, API routes,
+   static assets and prefetches pass through. Everything else happens only
+   with personal API keys (LINEAR_AUTH=api_key, read at request time, so
+   one build serves every mode):
    - a request whose URL holds a Linear credential (a key pasted into the
      address bar or a link) never reaches what would answer it: Next
      echoes the request URL in the RSC payload of every page it renders
@@ -20,13 +27,15 @@ import { contentSecurityPolicy, isApiKeyAuthEnv } from './lib/security-headers';
      `x-nonce` for theirs) and on the response. API routes, static
      assets and prefetches keep the static policy, as Next's CSP guide
      recommends.
-   OAuth and demo responses pass through untouched. */
+   OAuth and demo responses otherwise pass through untouched. */
 export function proxy(request: NextRequest): NextResponse {
-  if (!isApiKeyAuthEnv(process.env)) return NextResponse.next();
+  if (!isApiKeyAuthEnv(process.env)) {
+    return workspaceLinkRedirect(request) ?? NextResponse.next();
+  }
   const { pathname, search } = request.nextUrl;
   const clean = urlWithoutKeys(pathname, search);
   if (clean !== null) return refuseKeyInUrl(pathname, clean, request.url);
-  if (!takesNonce(request)) return NextResponse.next();
+  if (!isPageRequest(request)) return NextResponse.next();
   const nonce = randomBytes(16).toString('base64');
   const csp = contentSecurityPolicy({
     nonce,
@@ -62,15 +71,43 @@ function refuseKeyInUrl(
   return response;
 }
 
+/** The interstitial a `ws` link goes through (app/(app)/open). */
+const OPEN_PATH = '/open';
+
+// OAuth and demo mode: the 307 of a page request carrying `ws` to /open,
+// or null for anything else. `ws` itself is passed on as it came (the
+// page never renders it, only matches it against the browser's held
+// sessions) and removed from `to`, which /open sanitises again.
+function workspaceLinkRedirect(request: NextRequest): NextResponse | null {
+  const { pathname, searchParams } = request.nextUrl;
+  if (!searchParams.has('ws') || pathname === OPEN_PATH) return null;
+  if (!isPageRequest(request)) return null;
+  const rest = new URLSearchParams(searchParams);
+  rest.delete('ws');
+  const query = rest.toString();
+  const to = query === '' ? pathname : `${pathname}?${query}`;
+  const target = new URLSearchParams({
+    ws: searchParams.get('ws') ?? '',
+    to,
+  });
+  const response = NextResponse.redirect(
+    new URL(`${OPEN_PATH}?${target.toString()}`, request.url),
+    307
+  );
+  response.headers.set('Cache-Control', 'no-store');
+  return response;
+}
+
 function isApiPath(pathname: string): boolean {
   return pathname === '/api' || pathname.startsWith('/api/');
 }
 
-// Whether a request is a page that gets the nonce CSP: not an API route,
-// not a static asset (`/_next/static/…`, `/_next/image`, the icon files)
-// and not a prefetch (Next's CSP guide skips all three). Matched by whole
-// path segment, so a page such as `/apiary` is still a page.
-function takesNonce(request: NextRequest): boolean {
+// Whether a request is a page that gets the nonce CSP (or, in OAuth and
+// demo mode, the `ws` redirect): not an API route, not a static asset
+// (`/_next/static/…`, `/_next/image`, the icon files) and not a prefetch
+// (Next's CSP guide skips all three). Matched by whole path segment, so a
+// page such as `/apiary` is still a page.
+function isPageRequest(request: NextRequest): boolean {
   const { pathname } = request.nextUrl;
   if (isApiPath(pathname)) return false;
   if (
