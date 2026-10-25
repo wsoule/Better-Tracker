@@ -19,12 +19,14 @@ export {
   DEFAULT_API_KEY_SYNC_INTERVAL_MINUTES,
   DEFAULT_APP_NAME,
   DEFAULT_DAILY_LEASE_MINUTES,
+  DEFAULT_MIRROR_CACHE_WORKSPACES,
   type EngineEnv,
   fixtureDatasetFromEnv,
   isApiKeyEnv,
   isFixtureEnv,
   linearAuthFromEnv,
   loadEngineConfigFromEnv,
+  MAX_MIRROR_CACHE_WORKSPACES,
   processFlagProblem,
 } from './config';
 // api_key mode (owner request 2026-10-23). The key vault itself is not
@@ -59,12 +61,17 @@ export {
   WEBHOOK_RETENTION_DAYS,
 } from './cleanup';
 // Several workspaces (owner decision 2026-10-25): the operator commands'
-// limits.
+// limits, and the first-sync backoff a page waits out.
 export {
   OPERATOR_OFF_MESSAGE,
   OPERATOR_PURGE_MIN_MINUTES,
   SESSION_REVOKE_CONCURRENCY,
 } from './workspaces';
+export {
+  FIRST_SYNC_RETRY_MAX_MS,
+  FIRST_SYNC_RETRY_MIN_MS,
+  firstSyncRetryAt,
+} from './sync';
 export {
   DONE_MEANS_MAX_LENGTH,
   WEIGHT_MAX,

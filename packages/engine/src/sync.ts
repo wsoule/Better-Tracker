@@ -6,6 +6,7 @@ import {
   defaultSettings,
   diffDays,
   type IsoDate,
+  type IsoDateTime,
   isOpenState,
   isValidIsoDate,
   isValidTimeZone,
@@ -17,6 +18,7 @@ import {
 } from '@better-tracker/core';
 import type { LinearGateway } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
+import type { SyncState } from '@better-tracker/store';
 
 import {
   type EngineRuntime,
@@ -25,7 +27,7 @@ import {
   withoutCredentials,
 } from './runtime';
 import { bootstrapWatchers } from './settings';
-import type { SyncResult } from './types';
+import { EngineInputError, type SyncResult } from './types';
 
 /**
  * Open issues whose "stalled" check can matter soon: those in milestones
@@ -190,6 +192,74 @@ export async function fullSync(
   return own;
 }
 
+/** The wait after a workspace's first failed full sync (architecture §7). */
+export const FIRST_SYNC_RETRY_MIN_MS: number = 60_000;
+/** The longest wait between first-sync attempts (architecture §7). */
+export const FIRST_SYNC_RETRY_MAX_MS: number = 15 * 60_000;
+
+/**
+ * When a page may start the next first sync of a workspace whose last
+ * full sync attempt failed: that attempt's time plus 1 minute ×
+ * 2^(failures in a row − 1), at most 15 minutes (1, 2, 4, 8, 15, 15 …).
+ * Null when the last attempt did not fail (nothing to wait for).
+ */
+export function firstSyncRetryAt(state: SyncState | null): IsoDateTime | null {
+  if (state === null || state.lastFullSyncStatus !== 'failed') return null;
+  const lastMs =
+    state.lastFullSyncAt === null ? NaN : Date.parse(state.lastFullSyncAt);
+  if (Number.isNaN(lastMs)) return null;
+  const failures = Math.max(1, state.consecutiveFailures ?? 1);
+  // 2^14 minutes is far past the cap; a bigger exponent changes nothing.
+  const waitMs = Math.min(
+    FIRST_SYNC_RETRY_MAX_MS,
+    FIRST_SYNC_RETRY_MIN_MS * 2 ** Math.min(failures - 1, 14)
+  );
+  return new Date(lastMs + waitMs).toISOString();
+}
+
+/** What firstSync did: synced (or joined a sync), or is waiting. */
+export type FirstSyncOutcome =
+  | { kind: 'synced'; result: SyncResult }
+  | { kind: 'waiting'; retryAt: IsoDateTime };
+
+/**
+ * The first sync of a workspace that has no mirror yet, as the web paths
+ * start it (authenticate's mirrorForPerson and loadWorkspace, the one
+ * helper both use). A sync already running in this process is joined as
+ * fullSync always does (SYNC_JOIN_WAIT_MS). Otherwise, when the last
+ * attempt failed and firstSyncRetryAt is still ahead, nothing starts:
+ * 'waiting' with that time, so a workspace whose first sync keeps failing
+ * is retried with backoff instead of on every page view (each attempt
+ * pages Linear with the app's token). A failed sync rejects as fullSync
+ * does. With personal API keys there is no backoff: a sync there reads
+ * with a member's own key, and one with no member connected calls no one.
+ * The worker and the Resync button call fullSync directly, without it.
+ */
+export async function firstSync(
+  rt: EngineRuntime,
+  workspaceId: string
+): Promise<FirstSyncOutcome> {
+  if (rt.config.auth !== 'api_key' && !rt.syncs.has(workspaceId)) {
+    const retryAt = firstSyncRetryAt(await rt.store.getSyncState(workspaceId));
+    if (retryAt !== null && Date.parse(retryAt) > rt.clock().getTime()) {
+      return { kind: 'waiting', retryAt };
+    }
+  }
+  return { kind: 'synced', result: await fullSync(rt, workspaceId) };
+}
+
+/**
+ * The error loadWorkspace throws while a failed first sync waits for its
+ * next attempt: a 429 with Retry-After in the web layer.
+ */
+export function firstSyncWaitError(retryAt: IsoDateTime): EngineInputError {
+  return new EngineInputError(
+    'rate_limited',
+    `The first sync from Linear failed. The planner tries again after ${retryAt}.`,
+    { retryAt }
+  );
+}
+
 /**
  * One full resync. On success the mirror is replaced and the sync recorded
  * as ok; on failure the failure is recorded on sync_state and the error
@@ -246,7 +316,16 @@ async function runFullSync(
 
     const at = rt.nowIso();
     const version = await rt.store.replaceMirror(data, at);
-    await rt.store.recordFullSync(workspaceId, { at, ok: true, error: null });
+    const durationMs = Math.round(performance.now() - startedMs);
+    // The duration and size feed the worker's per-workspace time budget
+    // and the operator's `workspaces` listing.
+    await rt.store.recordFullSync(workspaceId, {
+      at,
+      ok: true,
+      error: null,
+      durationMs,
+      issueCount: data.issues.length,
+    });
     const counts: Record<string, number> = {
       users: data.users.length,
       teams: data.teams.length,
@@ -259,7 +338,6 @@ async function runFullSync(
       historyLookups: historyIds.length,
       historyRefined: refined,
     };
-    const durationMs = Math.round(performance.now() - startedMs);
     log.info('full sync finished', { version, durationMs, ...counts });
     return { workspaceId, ok: true, version, counts, durationMs, error: null };
   } catch (caught) {

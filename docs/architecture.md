@@ -1823,11 +1823,12 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 
 `createEngine(deps: EngineDeps): Engine` (contract in `src/types.ts`).
 
-- **load(workspaceId)**: reads `sync_state.version`; if it equals the cached
-  version, reuses the indexed snapshot; otherwise loads the mirror and
-  re-indexes. Settings + milestone meta are read every call (small). Computes
-  `today` (workspace tz), assessments, allocation plan. No mirror yet → runs
-  `fullSync` first (if installed).
+- **load(workspaceId)**: reads `sync_state`; if its version and its last
+  successful sync both equal the cached ones, reuses the indexed snapshot;
+  otherwise loads the mirror and re-indexes (the mirror cache, below).
+  Settings + milestone meta are read every call (small). Computes `today`
+  (workspace tz), assessments, allocation plan. No mirror yet → runs the first
+  sync first (if installed), with the first-sync backoff below.
 - **Per-viewer visibility** (§2.13; `visibility.ts`, the one place views apply
   it): `load`, `getWeekView`, `getTimelineView`, `getGraph`,
   `getMilestoneDetail`, `getIssueList`, `getIssueListOptions`, `getRun`,
@@ -2030,8 +2031,8 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   session's Linear token when needed (under `withSessionLock`) and returns
   `Actor { session, canWriteLinear, readOnly }` (no role; `readOnly` is Linear's
   guest flag, above).
-- **Several workspaces: revoking and the operator commands** (owner decision
-  2026-10-25; `workspaces.ts`):
+- **Several workspaces: revoking, the mirror cache, the first sync** (owner
+  decision 2026-10-25; `workspaces.ts`, `runtime.ts`, `sync.ts`):
   - `revokeWorkspace(ws, reason, { ifUpdatedBefore? })` =
     `store.revokeInstallation` (revoked_at and reason set, credentials wiped
     with the blank sentinel) + forgetting this process's cached mirror of the
@@ -2100,6 +2101,33 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
       keeps the workspace out until `unblockWorkspace(name)`, which deletes the
       block on the name and on the org id it resolves to (true when one existed)
       and leaves the workspace revoked.
+  - **The mirror cache** (`createMirrorCache`): one indexed snapshot per
+    workspace, used only while the store's mirror version **and** its
+    `lastSuccessAt` both equal the ones it was loaded under. Any difference is
+    stale, lower as well as higher: a purge deletes `sync_state`, so a
+    reinstall's versions start again at 1, and the sync time keeps an old
+    snapshot from matching once the new versions reach its number (a process
+    that read nothing in between). The last load wins (a slower load of an older
+    version is replaced at the next read). It keeps at most
+    `MIRROR_CACHE_WORKSPACES` workspaces (`EngineConfig.mirrorCacheWorkspaces`,
+    1–64, default 16, `DEFAULT_MIRROR_CACHE_WORKSPACES`/
+    `MAX_MIRROR_CACHE_WORKSPACES`), dropping the least recently read first.
+  - **First-sync backoff** (`firstSync`, the one helper `authenticate`'s
+    `mirrorForPerson` and `loadWorkspace` both use for a workspace with no
+    mirror): a sync already running in this process is joined as `fullSync`
+    always does (`SYNC_JOIN_WAIT_MS`); otherwise, when the last full sync
+    attempt failed, none starts before `firstSyncRetryAt(syncState)` =
+    `lastFullSyncAt` + min(15 min, 1 min × 2^(consecutiveFailures − 1))
+    (`FIRST_SYNC_RETRY_MIN_MS`, `FIRST_SYNC_RETRY_MAX_MS`). While it waits,
+    `authenticate` places nobody (`not_synced`, logged at debug) and `load`
+    throws `EngineInputError('rate_limited', …, { retryAt })` (a 429 with
+    `Retry-After` in the web layer; pages show the first-sync state). The
+    worker, the Resync route, runs and a connect call `fullSync` directly and
+    never wait. With personal API keys there is no backoff (a sync reads with a
+    member's own key, and none at all with nobody connected).
+  - `fullSync` records its duration and the mirrored issue count
+    (`recordFullSync(…, { durationMs, issueCount })`) on success, for the
+    worker's budget and the operator's listing.
 
 ### 7.1 Engine exports and boot
 
@@ -2142,15 +2170,18 @@ null outside api_key mode); `EngineDeps` gains `keys` and `apiKeyGateway`.
 Several workspaces (additive, owner decision 2026-10-25; §7 above, §9): the
 constants `PURGE_AFTER_DAYS` (30), `NOTIFICATION_RETENTION_DAYS` (90),
 `JOB_CLAIM_RETENTION_DAYS` (30), `OPERATOR_PURGE_MIN_MINUTES` (15),
-`SESSION_REVOKE_CONCURRENCY` (4), `OPERATOR_OFF_MESSAGE` and the types
-`WorkspaceRemoval`, `WorkspacePurge` and `WorkspaceBlock`. The `Engine` contract
-gains `listWorkspaceStatus()`,
+`SESSION_REVOKE_CONCURRENCY` (4), `FIRST_SYNC_RETRY_MIN_MS` (1 minute),
+`FIRST_SYNC_RETRY_MAX_MS` (15 minutes), `DEFAULT_MIRROR_CACHE_WORKSPACES` (16)
+and `MAX_MIRROR_CACHE_WORKSPACES` (64), `OPERATOR_OFF_MESSAGE`, the pure
+`firstSyncRetryAt(syncState)` and the types `WorkspaceRemoval`, `WorkspacePurge`
+and `WorkspaceBlock`. The `Engine` contract gains `listWorkspaceStatus()`,
 `revokeWorkspace(ws, reason, { ifUpdatedBefore? })`, `removeWorkspace(name)`,
 `purgeWorkspaceNow(name, { now? })`, `blockWorkspace(name, reason?)`,
 `unblockWorkspace(name)` and `listBlockedWorkspaces()` (operator commands: the
 worker's CLI only, never a planner route); `handleWebhook`'s event gains
-optional `createdAt`; `CleanupResult` gains optional `endedWorkspaceSessions`,
-`purgedWorkspaces`, `oldNotifications` and `oldJobClaims`.
+optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
+`CleanupResult` gains optional `endedWorkspaceSessions`, `purgedWorkspaces`,
+`oldNotifications` and `oldJobClaims`.
 
 `createEngineFromEnv`:
 
@@ -5382,6 +5413,7 @@ Worker decisions made while building it (binding):
 | `SYNC_INTERVAL_MINUTES`                     | worker serve; planner in api_key mode | minutes between ticks (default 15); in api_key mode, minutes between the planner's background syncs while a member is connected (1–1440, default 15)                                                                                                        |
 | `PGLITE_DIR`                                | all                                   | PGlite directory when `DATABASE_URL` is unset (local dev only; a deployed api_key planner without `DATABASE_URL` logs a warning at boot)                                                                                                                    |
 | `SESSION_DAYS`                              | engine                                | session lifetime in days (default 30); unused in api_key mode (2 h idle, 12 h at most)                                                                                                                                                                      |
+| `MIRROR_CACHE_WORKSPACES`                   | engine                                | how many workspaces' indexed mirrors one process keeps in memory, least recently read dropped first (1–64, default 16)                                                                                                                                      |
 | `LOG_LEVEL`                                 | all                                   | debug/info/warn/error                                                                                                                                                                                                                                       |
 
 `packages/engine` exports `loadEngineConfigFromEnv(env)` and
@@ -5473,7 +5505,10 @@ not read; a deploy that still sets it boots normally and logs one warning
   removed workspaces after 30 days but not at 29, three per call, never
   `grant_dead`, a reinstall within the grace kept, the retention limits, and the
   operator's remove, purge, block and unblock with their names, refusals,
-  sessions and app token revocation).
+  sessions and app token revocation; `test/mirror-cache.test.ts`: a lower or a
+  coinciding version after a purge and reinstall is never served stale, LRU
+  eviction, `MIRROR_CACHE_WORKSPACES`; `test/first-sync.test.ts`: the doubling
+  wait and its cap at both call sites, and a running sync joined).
 - core (issue list): the matcher (`test/issue-search.test.ts`); the list
   (`test/issue-list.test.ts`): every filter with `none` and `me`, OR within and
   AND across fields, the first-initiative rule and `alsoIn`, the quick filters,

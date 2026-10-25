@@ -95,6 +95,12 @@ export interface EngineConfig {
   appName: string;
   /** Public base URL, no trailing slash (OAuth redirect, deep links). */
   appUrl: string;
+  /**
+   * Additive: how many workspaces' indexed mirrors one process keeps in
+   * memory (`MIRROR_CACHE_WORKSPACES`, 1–64, default 16); the least
+   * recently used is dropped first. Unset in hand-built configs: 16.
+   */
+  mirrorCacheWorkspaces?: number;
   /** Timezone for workspaces without a saved setting. */
   defaultTimezone: string;
   /**
