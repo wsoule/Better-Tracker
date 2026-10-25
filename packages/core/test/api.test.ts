@@ -278,6 +278,7 @@ describe('scale', () => {
       ...evaluated,
       notices: warnings.notices,
       appUrl: 'https://x.test',
+      workspaceId: 'org-1',
     });
     const graphOf = (scope: GraphScope): DependencyGraph =>
       buildDependencyGraph(

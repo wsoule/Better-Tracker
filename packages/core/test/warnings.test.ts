@@ -5,6 +5,7 @@ import {
   buildDigests,
   planAllocation,
   planWarnings,
+  withWorkspaceParam,
 } from '../src/index';
 import type {
   IsoDate,
@@ -442,6 +443,7 @@ describe('planWarnings: allocation_blocked', () => {
       ...evaluated,
       notices: result.notices,
       appUrl: 'https://x.test',
+      workspaceId: 'org-1',
     });
     expect(digests.map((d) => d.recipientId).sort()).toEqual([
       'shanzer',
@@ -451,7 +453,7 @@ describe('planWarnings: allocation_blocked', () => {
       projectName: 'Delta',
       milestoneName: null,
       lines: ['no project lead, so nothing is being assigned'],
-      url: 'https://x.test/timeline?project=p1',
+      url: 'https://x.test/timeline?project=p1&ws=org-1',
     });
   });
 
@@ -577,6 +579,7 @@ describe('buildDigests', () => {
     ...evaluated,
     notices,
     appUrl: 'https://planner.example.com/',
+    workspaceId: 'org-1',
   });
 
   test('one digest per recipient, ordered by name', () => {
@@ -638,7 +641,7 @@ describe('buildDigests', () => {
         open: 1,
         unassigned: 1,
         lines: ['1 open issue unassigned', '1/2 done, 2 days overdue'],
-        url: 'https://planner.example.com/timeline?milestone=mA',
+        url: 'https://planner.example.com/timeline?milestone=mA&ws=org-1',
       },
       {
         project: 'Delta',
@@ -647,7 +650,7 @@ describe('buildDigests', () => {
         open: 1,
         unassigned: 0,
         lines: ['no state change in 9 days', '2/3 done with 1 day left'],
-        url: 'https://planner.example.com/timeline?milestone=mD',
+        url: 'https://planner.example.com/timeline?milestone=mD&ws=org-1',
       },
       {
         project: 'Bravo',
@@ -656,7 +659,7 @@ describe('buildDigests', () => {
         open: 2,
         unassigned: 2,
         lines: ['2 open issues unassigned'],
-        url: 'https://planner.example.com/timeline?milestone=mB',
+        url: 'https://planner.example.com/timeline?milestone=mB&ws=org-1',
       },
       {
         project: 'Charlie',
@@ -665,7 +668,7 @@ describe('buildDigests', () => {
         open: 1,
         unassigned: 0,
         lines: ['0/1 done with 5 days left', 'missing: project lead'],
-        url: 'https://planner.example.com/timeline?milestone=mC',
+        url: 'https://planner.example.com/timeline?milestone=mC&ws=org-1',
       },
       {
         project: 'Charlie',
@@ -674,7 +677,7 @@ describe('buildDigests', () => {
         open: 1,
         unassigned: 0,
         lines: ['no project lead, so nothing is being assigned'],
-        url: 'https://planner.example.com/timeline?project=pC',
+        url: 'https://planner.example.com/timeline?project=pC&ws=org-1',
       },
     ]);
   });
@@ -714,6 +717,7 @@ describe('buildDigests', () => {
       ...ev,
       notices: plan.notices,
       appUrl: 'https://x.test/',
+      workspaceId: 'org-1',
     });
     expect(digest?.items.map((i) => i.notice.kind)).toEqual(['at_risk']);
     // Display order (priority first); done issues are not listed.
@@ -723,14 +727,14 @@ describe('buildDigests', () => {
         identifier: 'OPS-3',
         title: 'Provision the sandbox',
         unassigned: true,
-        url: 'https://x.test/issues/OPS-3',
+        url: 'https://x.test/issues/OPS-3?ws=org-1',
       },
       {
         id: 'mine',
         identifier: 'ENG-7',
         title: 'Write the docs',
         unassigned: false,
-        url: 'https://x.test/issues/ENG-7',
+        url: 'https://x.test/issues/ENG-7?ws=org-1',
       },
     ]);
   });
@@ -751,6 +755,7 @@ describe('buildDigests', () => {
       ...ev,
       notices: plan.notices,
       appUrl: 'https://x.test',
+      workspaceId: 'org-1',
     });
     expect(digest?.items.map((i) => i.lines)).toEqual([
       [
@@ -772,6 +777,7 @@ describe('buildDigests', () => {
       ...ev2,
       notices: plan2.notices,
       appUrl: 'https://x.test',
+      workspaceId: 'org-1',
     });
     expect(digest2?.items[0]?.lines).toEqual([
       'project lead Lead is deactivated in Linear, so nothing is being assigned',
@@ -786,6 +792,7 @@ describe('buildDigests', () => {
       ...evaluated,
       notices: [{ ...first, recipientIds: ['ghost', 'ana', 'ana'] }],
       appUrl: 'https://x.test',
+      workspaceId: 'org-1',
     });
     expect(result.map((d) => [d.recipientId, d.items.length])).toEqual([
       ['ana', 1],
@@ -801,7 +808,22 @@ describe('buildDigests', () => {
         ...deactivated,
         notices: [{ ...first, recipientIds: ['ana'] }],
         appUrl: 'https://x.test',
+        workspaceId: 'org-1',
       })
     ).toEqual([]);
+  });
+});
+
+describe('withWorkspaceParam (links that leave the app)', () => {
+  test('appends ws with ? or &, before any fragment, encoded', () => {
+    expect(withWorkspaceParam('https://x.test/issues/ENG-1', 'org-1')).toBe(
+      'https://x.test/issues/ENG-1?ws=org-1'
+    );
+    expect(
+      withWorkspaceParam('https://x.test/timeline?milestone=m1', 'org-1')
+    ).toBe('https://x.test/timeline?milestone=m1&ws=org-1');
+    expect(withWorkspaceParam('https://x.test/runs#top', 'a b')).toBe(
+      'https://x.test/runs?ws=a%20b#top'
+    );
   });
 });

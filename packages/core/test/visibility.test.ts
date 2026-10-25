@@ -337,6 +337,7 @@ describe('digests follow visibility', () => {
       ...evaluated,
       notices: plan.notices,
       appUrl: 'https://x.test',
+      workspaceId: 'org-1',
     });
     const wyat = digests.find((d) => d.recipientId === 'wyat');
     expect(wyat?.items.map((i) => i.notice.subjectId)).toEqual(['m-orion']);
@@ -370,6 +371,7 @@ describe('digests follow visibility', () => {
       ...evaluated,
       notices: plan.notices,
       appUrl: 'https://x.test',
+      workspaceId: 'org-1',
     }).filter((d) => d.recipientId === 'sam');
     if (samDigest === undefined) throw new Error('Sam got no digest');
     const orionItem = samDigest.items.find(

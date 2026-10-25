@@ -926,7 +926,13 @@ export function buildDigests(input: {
   assessments: ReadonlyMap<string, MilestoneAssessment>;
   notices: readonly Notice[];
   appUrl: string;
+  // Additive (owner decision 2026-10-25): every link a digest carries leaves
+  // the app, so each names its workspace with `ws=<workspaceId>`.
+  workspaceId: string;
 }): Digest[];
+// A link that leaves the app, naming its workspace: `ws=<org id>` appended
+// with `?` or `&` (before any fragment). In-app links never carry it.
+export function withWorkspaceParam(url: string, workspaceId: string): string;
 // graph.ts / mermaid.ts — the dependency graph at every level (§2.10)
 export function buildDependencyGraph(
   snapshot: Snapshot,
@@ -1811,8 +1817,13 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 - `createOutboxChannel()`: `delivers = false`; the engine records digests with
   status `preview`.
 - `renderDigest(digest, ctx) → { text, blocks }` is exported and unit-tested.
-  Each item's section is the linked title, the kind line, the plain lines as
-  bullets, "Due <date> · N open · M unassigned", then the open issues as
+  `DeliveryContext` is `{ appName, appUrl, workspaceId }` (the workspace id
+  additive, owner decision 2026-10-25): the one link the renderer builds itself,
+  the overflow note's timeline link, carries `ws=<workspaceId>` like the
+  digest's own links (core `withWorkspaceParam`), so a browser that holds
+  several workspaces opens it in the right one (§8.1 "Links that leave the
+  app"). Each item's section is the linked title, the kind line, the plain lines
+  as bullets, "Due <date> · N open · M unassigned", then the open issues as
   `• <issue url|KEY> Title` bullets (" — unassigned" on those with no assignee),
   unassigned first, at most 10, the rest counted as "• …and N more open issues
   (M unassigned)". Room for that last bullet is kept while the lines are placed,
@@ -1991,8 +2002,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
      `runDaily`'s warnings read that mirror next.
   6. `finishRun` with status `succeeded` / `partial` (some failed) / `failed`
      (threw). Idempotent by construction: assigned issues are never reassigned.
-- **runWarnings**: `planWarnings` with stored memory → `buildDigests` → for each
-  digest `insertNotification` (false → `alreadySent`, nothing sent) → if
+- **runWarnings**: `planWarnings` with stored memory → `buildDigests` (with the
+  workspace id, so every link names it, §8.1) → for each digest
+  `insertNotification` (false → `alreadySent`, nothing sent) → if
   `warningsMode === 'live'` deliver via the channel, else status `preview`. Save
   memory only after notifications are recorded. `previewOnly` builds digests
   without writing anything (Settings preview).

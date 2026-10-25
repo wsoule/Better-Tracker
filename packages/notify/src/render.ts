@@ -3,7 +3,12 @@
 // the accessible fallback. Slack's hard limits (docs/architecture.md §6) are
 // enforced here so a big digest is truncated visibly instead of rejected.
 
-import type { Digest, DigestIssue, DigestItem } from '@better-tracker/core';
+import {
+  type Digest,
+  type DigestIssue,
+  type DigestItem,
+  withWorkspaceParam,
+} from '@better-tracker/core';
 
 import type { DeliveryContext } from './types';
 
@@ -109,7 +114,10 @@ export function renderDigest(
 ): RenderedDigest {
   const items = digest.items;
   const headerText = renderHeaderText(context.appName, items.length);
-  const timelineUrl = `${trimTrailingSlashes(context.appUrl)}/timeline`;
+  const timelineUrl = withWorkspaceParam(
+    `${trimTrailingSlashes(context.appUrl)}/timeline`,
+    context.workspaceId
+  );
 
   const blocks: SlackBlock[] = [
     { type: 'header', text: { type: 'plain_text', text: headerText } },

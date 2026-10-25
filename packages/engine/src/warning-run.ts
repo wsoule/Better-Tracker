@@ -150,6 +150,8 @@ export async function runWarnings(
     assessments,
     notices: plan.notices,
     appUrl: rt.config.appUrl,
+    // Links that leave the app name their workspace (§7, ws=<org id>).
+    workspaceId,
   });
   const result: WarningRunResult = {
     workspaceId,
@@ -208,6 +210,7 @@ export async function runWarnings(
       sent = await channel.send(digest, {
         appName: rt.config.appName,
         appUrl: rt.config.appUrl,
+        workspaceId,
       });
     } catch (error) {
       return {
