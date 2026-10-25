@@ -34,12 +34,25 @@ export interface Installation {
   /** The app user's Linear id (who allocation comments come from). */
   appUserId: string;
   installedByUserId: string;
-  /** Set when Linear reports the app authorization was revoked. */
+  /**
+   * Set when the app has no working grant any more (the reason is in
+   * listWorkspaceStatus and describeSessions). revokeInstallation wipes
+   * the tokens, which then read back blank: '' and nulls.
+   */
   revokedAt: IsoDateTime | null;
   tokens: StoredTokens;
   createdAt: IsoDateTime;
+  /** Last write of the grant: install, reinstall or token rotation. */
   updatedAt: IsoDateTime;
 }
+
+/**
+ * Why an installation was revoked: 'uninstalled' (Linear's OAuthApp
+ * revoked webhook), 'removed' (the operator, or admission now refuses the
+ * workspace) or 'grant_dead' (Linear refused the app's token, or the cause
+ * is unknown). Only 'uninstalled' and 'removed' are purged automatically.
+ */
+export type RevokedReason = 'uninstalled' | 'grant_dead' | 'removed';
 
 export interface Session {
   /** Internal id; never the cookie value. */
@@ -62,6 +75,53 @@ export interface NewSession {
   userName: string;
   tokens: StoredTokens;
   expiresAt: IsoDateTime;
+  /**
+   * Additive: the workspace's name and URL key from the sign-in identity,
+   * which describeSessions and listWorkspaceStatus read back (the
+   * installation's values are the fallback). Omitted is stored as null.
+   */
+  workspaceName?: string | null;
+  workspaceUrlKey?: string | null;
+}
+
+/**
+ * A session takeSessionsForWorkspace deleted. `tokens` is null when the
+ * row's tokens no longer decrypt (another TOKEN_ENCRYPTION_KEY): the row
+ * is deleted all the same, only its grant cannot be revoked.
+ */
+export interface TakenSession {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  userName: string;
+  tokens: StoredTokens | null;
+  createdAt: IsoDateTime;
+  expiresAt: IsoDateTime;
+}
+
+/**
+ * What describeSessions knows about one held session cookie token,
+ * without any Linear credential.
+ */
+export interface SessionDescription {
+  /** The cookie token this describes (the caller's own input). */
+  token: string;
+  workspaceId: string;
+  /** The session's sign-in value, else the installation's; null if neither. */
+  workspaceName: string | null;
+  workspaceUrlKey: string | null;
+  userId: string;
+  userName: string;
+  expiresAt: IsoDateTime;
+  /**
+   * The mirror's User.guest for this person (a mirror row without the
+   * field reads as not a guest); null when the mirror has no row for them.
+   */
+  guest: boolean | null;
+  /** An installation row exists (active or revoked). */
+  installed: boolean;
+  revokedAt: IsoDateTime | null;
+  revokedReason: RevokedReason | null;
 }
 
 /** Discriminated union of mirrored entities, for incremental writes. */
@@ -92,10 +152,96 @@ export interface LoadedMirror {
 export interface SyncState {
   workspaceId: string;
   version: number;
+  /** The last full sync attempt (successful or not). */
   lastFullSyncAt: IsoDateTime | null;
   lastFullSyncStatus: 'ok' | 'failed' | null;
   lastFullSyncError: string | null;
   lastWebhookAt: IsoDateTime | null;
+  // Additive (migration 5), always set by the SQL store; optional only so
+  // SyncState values built by hand elsewhere keep compiling.
+  /** Failed full syncs in a row; 0 after a success. */
+  consecutiveFailures?: number;
+  /** Duration of the last full sync that reported one. */
+  lastFullSyncMs?: number | null;
+  /** When the last successful full sync finished. */
+  lastSuccessAt?: IsoDateTime | null;
+  /** Issues in the mirror at the last full sync that reported a count. */
+  mirrorIssueCount?: number | null;
+}
+
+/** An installation without its tokens (listWorkspaceStatus never decrypts). */
+export interface InstallationSummary {
+  workspaceName: string;
+  urlKey: string;
+  appUserId: string;
+  installedByUserId: string;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+  revokedAt: IsoDateTime | null;
+  revokedReason: RevokedReason | null;
+}
+
+/**
+ * One workspace the store knows: it has an installation row, sessions, or
+ * both. For the worker's ordering and the operator commands.
+ */
+export interface WorkspaceStatus {
+  workspaceId: string;
+  /** The installation's name, else the newest session's; null if neither. */
+  workspaceName: string | null;
+  urlKey: string | null;
+  /** null: never installed (people signed in, nobody installed the app). */
+  installation: InstallationSummary | null;
+  /** null: no full sync attempt, mirror write or webhook recorded yet. */
+  sync: Required<SyncState> | null;
+  /** Session rows (only unexpired ones when listWorkspaceStatus got `now`). */
+  sessionCount: number;
+}
+
+/**
+ * Every table that holds rows keyed by workspace_id, which purgeWorkspace
+ * empties for the purged workspace.
+ */
+export type WorkspaceTable =
+  | 'installations'
+  | 'sessions'
+  | 'settings'
+  | 'milestone_meta'
+  | 'sync_state'
+  | 'mirror_entities'
+  | 'webhook_deliveries'
+  | 'allocation_entries'
+  | 'allocation_runs'
+  | 'warning_memory'
+  | 'notifications'
+  | 'job_claims'
+  | 'audit_log'
+  | 'admitted_workspaces';
+
+/**
+ * Why purgeWorkspace refused: no installation row, not revoked, revoked
+ * at or after `revokedBefore`, or revoked as 'grant_dead' without
+ * `allowGrantDead`.
+ */
+export type PurgeRefusal =
+  | 'not_installed'
+  | 'not_revoked'
+  | 'too_recent'
+  | 'grant_dead';
+
+export type PurgeResult =
+  | { purged: true; counts: Record<WorkspaceTable, number> }
+  | { purged: false; reason: PurgeRefusal };
+
+/** How a block entry matches: the org id, or the URL key until pinned. */
+export type BlockKind = 'id' | 'url_key';
+
+export interface BlockedWorkspace {
+  /** Lower-cased org id or URL key. */
+  key: string;
+  kind: BlockKind;
+  reason: string | null;
+  createdAt: IsoDateTime;
 }
 
 export type RunTrigger = 'schedule' | 'manual';
@@ -224,8 +370,9 @@ export interface AuditEntry {
 /**
  * Persistence for everything the tool owns plus the Linear mirror. One
  * implementation over SQL (node-postgres in production, PGlite locally and
- * in tests). All methods are scoped by workspaceId so one deployment could
- * serve several workspaces (productization, §9).
+ * in tests). All methods are scoped by workspaceId: one deployment serves
+ * several workspaces (owner decision 2026-10-25). The few cross-workspace
+ * methods (listWorkspaceStatus, retention, blocks) never return tokens.
  */
 export interface Store {
   /** Applies pending migrations; safe to call on every boot. */
@@ -251,12 +398,78 @@ export interface Store {
       installation: Installation
     ) => Promise<{ result: T; tokens?: StoredTokens }>
   ): Promise<T>;
+  /**
+   * Additive (multi-workspace): one query over every workspace with an
+   * installation row or sessions, joined with its sync_state and session
+   * count, ordered by last full sync attempt (never attempted first), then
+   * workspace id. Decrypts nothing, so a row whose tokens no longer
+   * decrypt is listed like any other. With `now`, sessionCount counts only
+   * unexpired sessions.
+   */
+  listWorkspaceStatus(now?: IsoDateTime): Promise<WorkspaceStatus[]>;
+  /**
+   * Additive: revokes the installation as `reason` at `now` and wipes its
+   * credentials (access token '', refresh token and expiry null), in one
+   * statement. updated_at is left alone: it keeps meaning the grant's last
+   * write. Returns true when the row changed. Nothing changes (false)
+   * when there is no row; when `ifUpdatedBefore` is given and the row's
+   * updated_at is later (the event predates a reinstall or rotation: a
+   * stale revoke); or when the row is already revoked, except that a
+   * 'grant_dead' row (cause unknown) takes 'uninstalled' or 'removed' and
+   * restarts revoked_at at `now`, so the purge grace counts from when the
+   * cause became known. A revoked row never goes back to 'grant_dead'.
+   */
+  revokeInstallation(
+    workspaceId: string,
+    reason: RevokedReason,
+    now: IsoDateTime,
+    options?: { ifUpdatedBefore?: IsoDateTime }
+  ): Promise<boolean>;
+  /**
+   * Additive: deletes everything one workspace holds, in one transaction
+   * that first locks its installation row (`SELECT … FOR UPDATE`, so an
+   * in-flight reinstall finishes first and is then seen). Refuses
+   * (`purged: false` with the reason, nothing deleted) unless the row is
+   * revoked before `revokedBefore` as 'uninstalled' or 'removed', or as
+   * 'grant_dead' when `allowGrantDead` (the operator's purge). Deletes
+   * from every WorkspaceTable (allocation entries before their runs) and
+   * returns the deleted row count per table. blocked_workspaces is kept:
+   * a block outlives the purge.
+   */
+  purgeWorkspace(
+    workspaceId: string,
+    options: { revokedBefore: IsoDateTime; allowGrantDead?: boolean }
+  ): Promise<PurgeResult>;
 
   // --- sessions -----------------------------------------------------------
   /** Returns the opaque cookie token; only its SHA-256 is stored. */
   createSession(
     session: NewSession
   ): Promise<{ token: string; session: Session }>;
+  /**
+   * Additive: describes held cookie tokens in ONE statement (sessions by
+   * token hash, left-joined with the installation and the person's mirror
+   * user row), in input order: null for a token with no unexpired
+   * session. Reads no token column and decrypts nothing.
+   */
+  describeSessions(
+    tokens: readonly string[],
+    now: IsoDateTime
+  ): Promise<(SessionDescription | null)[]>;
+  /**
+   * Additive: deletes up to `limit` of the workspace's sessions (oldest
+   * created first; with `createdBefore`, only those created before it) and
+   * returns them with their decrypted tokens, so the caller can revoke the
+   * grants. Unlike takeExpiredSessions it waits for row locks (no SKIP
+   * LOCKED, bounded by the 30 s lock_timeout): a refresh in withSessionLock
+   * finishes first and its rotated tokens are the ones returned. A row
+   * whose tokens no longer decrypt is still deleted and comes back with
+   * `tokens: null` (logged).
+   */
+  takeSessionsForWorkspace(
+    workspaceId: string,
+    options: { createdBefore?: IsoDateTime; limit: number }
+  ): Promise<TakenSession[]>;
   getSession(token: string, now: IsoDateTime): Promise<Session | null>;
   /**
    * Same locking contract as withInstallationLock, for user tokens
@@ -315,14 +528,32 @@ export interface Store {
     changes: { upsert: MirrorEntity[]; remove: MirrorRef[] }
   ): Promise<number>;
   getSyncState(workspaceId: string): Promise<SyncState | null>;
+  /**
+   * Records a full sync attempt. Additive: a failure adds one to
+   * consecutiveFailures and a success resets it to 0 and sets
+   * lastSuccessAt to `at`; `durationMs` and `issueCount`, when given, are
+   * stored as lastFullSyncMs and mirrorIssueCount (rounded; omitted keeps
+   * the previous values).
+   */
   recordFullSync(
     workspaceId: string,
-    result: { at: IsoDateTime; ok: boolean; error: string | null }
+    result: {
+      at: IsoDateTime;
+      ok: boolean;
+      error: string | null;
+      durationMs?: number;
+      issueCount?: number;
+    }
   ): Promise<void>;
   /**
    * Records a webhook delivery keyed by the Linear-Delivery header and bumps
    * sync_state.lastWebhookAt. Returns false when the delivery id was already
-   * recorded (Linear retried it), so it is processed at most once.
+   * recorded (Linear retried it), so it is processed at most once. Additive:
+   * the sync_state row is created only for a workspace with an
+   * installation row (an existing row is bumped either way), so a delivery
+   * for an organization nobody installed leaves no sync_state stub. The
+   * delivery row itself is still written (dedupe needs it): the engine
+   * checks admission and the installation before calling.
    */
   recordWebhookDelivery(input: {
     deliveryId: string;
@@ -336,6 +567,12 @@ export interface Store {
     deliveryId: string,
     result: { at: IsoDateTime; error: string | null }
   ): Promise<void>;
+  /**
+   * Older revoke kept for its current callers until they move to
+   * revokeInstallation: sets revoked_at and updated_at to `at` and leaves
+   * the tokens as they are. Additive: records 'grant_dead' (cause unknown,
+   * never purged automatically) unless a reason is recorded already.
+   */
   markInstallationRevoked(workspaceId: string, at: IsoDateTime): Promise<void>;
   /** Deletes webhook delivery records received before `before`; returns the count. */
   pruneWebhookDeliveries(before: IsoDateTime): Promise<number>;
@@ -412,6 +649,11 @@ export interface Store {
     workspaceId: string,
     options: { limit: number; day?: IsoDate }
   ): Promise<NotificationRecord[]>;
+  /**
+   * Additive (retention): deletes up to `limit` notifications created
+   * before `before`, oldest first, in every workspace; returns the count.
+   */
+  pruneNotifications(before: IsoDateTime, limit: number): Promise<number>;
 
   // --- scheduled job bookkeeping ------------------------------------------
   /**
@@ -452,6 +694,49 @@ export interface Store {
     day: IsoDate,
     claimedAt?: IsoDateTime
   ): Promise<void>;
+  /**
+   * Additive (retention): deletes up to `limit` job claims claimed before
+   * `before`, oldest first, in every workspace; returns the count.
+   */
+  pruneJobClaims(before: IsoDateTime, limit: number): Promise<number>;
+
+  // --- admission: operator blocks and LINEAR_WORKSPACES pins ---------------
+  /**
+   * Additive: blocks a workspace by org id or URL key (stored lower-cased).
+   * Blocking a key again updates its kind and reason and keeps createdAt.
+   */
+  blockWorkspace(
+    key: string,
+    kind: BlockKind,
+    reason: string | null,
+    now: IsoDateTime
+  ): Promise<void>;
+  /** Additive: removes a block (key matched lower-cased); true if one existed. */
+  unblockWorkspace(key: string): Promise<boolean>;
+  /** Additive: every block, ordered by key. */
+  listBlockedWorkspaces(): Promise<BlockedWorkspace[]>;
+  /**
+   * Additive: turns the 'url_key' block on `urlKey` into an 'id' block on
+   * `workspaceId` (both lower-cased; reason and createdAt kept), so it
+   * keeps matching that org after a rename and never matches another org
+   * that takes the URL key later. True when a URL-key block was pinned.
+   */
+  pinBlockedUrlKey(urlKey: string, workspaceId: string): Promise<boolean>;
+  /**
+   * Additive: the org id a LINEAR_WORKSPACES URL-key entry is pinned to
+   * (entry matched lower-cased), or null when it was never pinned.
+   */
+  getAdmittedPin(entry: string): Promise<string | null>;
+  /**
+   * Additive: pins the entry (lower-cased) to `workspaceId` unless it is
+   * pinned already, and returns the id it is pinned to after the call: the
+   * first pin wins, so a caller whose id differs was not admitted by it.
+   */
+  pinAdmitted(
+    entry: string,
+    workspaceId: string,
+    now: IsoDateTime
+  ): Promise<string>;
 
   // --- audit ----------------------------------------------------------------
   appendAudit(entry: AuditEntry): Promise<void>;

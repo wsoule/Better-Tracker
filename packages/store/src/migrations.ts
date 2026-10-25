@@ -216,6 +216,60 @@ const ISSUE_ENTRY_INDEX: readonly string[] = [
     WHERE issue_id IS NOT NULL`,
 ];
 
+// Several workspaces on one deployment (owner decision 2026-10-25):
+// - sessions remember the workspace's name and URL key from the sign-in
+//   identity (the switcher lists them without calling Linear) and are
+//   looked up by workspace (ending a workspace's sessions);
+// - installations record why they were revoked. Rows revoked before this
+//   migration have an unknown cause, so they become 'grant_dead' (never
+//   purged automatically) and lose their credentials, written as the blank
+//   sentinel the store already reads as "no token" ('' and NULLs), so no
+//   column becomes nullable;
+// - sync_state counts consecutive failed full syncs and records the last
+//   success, duration and issue count (worker ordering, budgets, backoff).
+//   The last success is the mirror's synced time (replaceMirror and a
+//   successful recordFullSync share it); a workspace whose last attempt
+//   failed has failed at least once in a row; the issue count is the
+//   mirror's;
+// - blocked_workspaces is the operator block list and admitted_workspaces
+//   pins a LINEAR_WORKSPACES URL-key entry to the org id it first admitted.
+//   Keys are stored lower-cased;
+// - notifications get an index on created_at for bounded retention.
+const MULTI_WORKSPACE: readonly string[] = [
+  'ALTER TABLE sessions ADD COLUMN workspace_name text',
+  'ALTER TABLE sessions ADD COLUMN workspace_url_key text',
+  'CREATE INDEX sessions_workspace_idx ON sessions (workspace_id)',
+  `ALTER TABLE installations ADD COLUMN revoked_reason text
+    CHECK (revoked_reason IN ('uninstalled', 'grant_dead', 'removed'))`,
+  `UPDATE installations SET revoked_reason = 'grant_dead',
+    access_token_enc = '', refresh_token_enc = NULL, token_expires_at = NULL
+    WHERE revoked_at IS NOT NULL`,
+  'ALTER TABLE sync_state ADD COLUMN consecutive_failures integer NOT NULL DEFAULT 0',
+  'ALTER TABLE sync_state ADD COLUMN last_full_sync_ms integer',
+  'ALTER TABLE sync_state ADD COLUMN last_success_at timestamptz',
+  'ALTER TABLE sync_state ADD COLUMN mirror_issue_count integer',
+  `UPDATE sync_state SET last_success_at = mirror_synced_at
+    WHERE mirror_synced_at IS NOT NULL`,
+  `UPDATE sync_state SET consecutive_failures = 1
+    WHERE last_full_sync_status = 'failed'`,
+  `UPDATE sync_state s SET mirror_issue_count = (
+      SELECT count(*)::int FROM mirror_entities m
+      WHERE m.workspace_id = s.workspace_id AND m.kind = 'issue')
+    WHERE s.version > 0`,
+  `CREATE TABLE blocked_workspaces (
+    key text PRIMARY KEY CHECK (key = lower(key)),
+    kind text NOT NULL CHECK (kind IN ('id', 'url_key')),
+    reason text,
+    created_at timestamptz NOT NULL
+  )`,
+  `CREATE TABLE admitted_workspaces (
+    entry text PRIMARY KEY CHECK (entry = lower(entry)),
+    workspace_id text NOT NULL,
+    created_at timestamptz NOT NULL
+  )`,
+  'CREATE INDEX notifications_created_idx ON notifications (created_at)',
+];
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', statements: INITIAL_SCHEMA },
   {
@@ -229,6 +283,7 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'allocation_entries_by_issue',
     statements: ISSUE_ENTRY_INDEX,
   },
+  { version: 5, name: 'multi_workspace', statements: MULTI_WORKSPACE },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise

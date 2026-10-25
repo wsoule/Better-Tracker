@@ -1560,14 +1560,25 @@ info, to connections opened with `DATABASE_URL` exactly as given, and retry the
 call there (only opening a connection fails that way). A refusal of the URL's
 own `options` still fails.
 
-Tables (all keyed by `workspace_id`):
+Tables (all keyed by `workspace_id`, except the two admission tables):
 
 - `installations` — app actor tokens (encrypted), app user id, installer,
-  `revoked_at` (set when the app has no working grant any more: Linear sent the
-  `OAuthApp` revoked webhook, or the engine's refresh was rejected; a reinstall
-  clears it).
+  `revoked_at` (set when the app has no working grant any more) and
+  `revoked_reason` (migration 5,
+  `CHECK IN ('uninstalled','grant_dead','removed')`: Linear's `OAuthApp` revoked
+  webhook, the engine's refresh rejected or cause unknown, the operator or
+  admission). `revokeInstallation` wipes the credentials with the blank sentinel
+  the store already reads as "no token" (`access_token_enc ''`, refresh token
+  and expiry null; no column is nullable, `Installation` is unchanged). A
+  reinstall (`saveInstallation` with `revokedAt` null) clears both columns; a
+  row saved revoked keeps its reason or gets `grant_dead`. Migration 5 turns
+  rows revoked before it into `grant_dead` (never purged automatically) and
+  wipes them. `updated_at` is the grant's last write (install, reinstall,
+  rotation); a revoke leaves it alone.
 - `sessions` — `token_hash` (SHA-256 of the cookie token), user, the user's
-  Linear tokens (encrypted), expiry.
+  Linear tokens (encrypted), expiry, and (migration 5) `workspace_name`,
+  `workspace_url_key` from the sign-in identity (`NewSession` optional fields;
+  null when omitted), indexed by `workspace_id`.
 - `settings` — `data jsonb` (WorkspaceSettings). The PM list is retired (owner
   decision 2026-10-22): rows saved earlier still carry `pmUserIds`, which
   `getSettings` drops when reading and `saveSettings` never writes
@@ -1581,7 +1592,19 @@ Tables (all keyed by `workspace_id`):
   each other. `upsertMilestoneMeta` (whole row) is for seeding.
 - `mirror_entities` — `(workspace_id, kind, id) pk, data jsonb, synced_at`.
 - `sync_state` — `version bigint` (bumped on every mirror write), last full sync
-  time/status/error, last webhook time.
+  time/status/error, last webhook time, and (migration 5) `consecutive_failures`
+  (failed full syncs in a row), `last_success_at`, `last_full_sync_ms`,
+  `mirror_issue_count`, all written by
+  `recordFullSync(ws, { at, ok, error, durationMs?, issueCount? })`: a failure
+  adds one, a success resets it to 0 and sets `last_success_at = at`; a given
+  duration or count is stored (rounded), an omitted one keeps the previous
+  value. The migration backfills `last_success_at` from `mirror_synced_at`, 1
+  failure for rows whose last attempt failed, and the mirror's issue count.
+  `SyncState` carries them as optional fields (always set by this store).
+  `recordWebhookDelivery` creates the row only for a workspace with an
+  installation (an existing row is bumped either way), so a delivery for an
+  organization nobody installed leaves no stub; the delivery row is still
+  written for dedupe, and the engine checks admission first (§7).
 - `allocation_runs` — mode, trigger, status, summary jsonb; a partial unique
   index on `(workspace_id) where status = 'running'` makes concurrent runs
   impossible. `startRun(…, staleAfterMinutes)` first closes runs still `running`
@@ -1630,6 +1653,70 @@ Tables (all keyed by `workspace_id`):
   first (`created_at`, then run start, run id, seq), each with its run's
   `runMode` and `runTrigger`. Migration 4 adds
   `allocation_entries_issue_idx (workspace_id, issue_id, created_at DESC)`.
+- `blocked_workspaces (key pk, kind 'id'|'url_key', reason, created_at)` — the
+  operator block list (migration 5), keys lower-cased (`CHECK`).
+  `blockWorkspace(key, kind, reason, now)` upserts (a repeat updates kind and
+  reason, keeps `created_at`; the reason is scrubbed like planner-owned text),
+  `unblockWorkspace(key)` → whether one existed, `listBlockedWorkspaces()` by
+  key, `pinBlockedUrlKey(urlKey, workspaceId)` turns a `url_key` block into an
+  `id` block on that org (reason and time kept; an existing id block wins) and
+  says whether it did. A purge never deletes blocks.
+- `admitted_workspaces (entry pk, workspace_id, created_at)` — a
+  `LINEAR_WORKSPACES` URL-key entry pinned to the org it first admitted
+  (migration 5, entry lower-cased). `getAdmittedPin(entry)` → id or null;
+  `pinAdmitted(entry, workspaceId, now)` inserts if absent and returns the id
+  the entry is pinned to afterwards (the first pin wins, also under races).
+
+Several workspaces (owner decision 2026-10-25; additive methods, all in the
+shared PGlite/Postgres suite):
+
+- `listWorkspaceStatus(now?)` → `WorkspaceStatus[]`: one query over every
+  workspace with an installation row or sessions (`UNION`), with an
+  `InstallationSummary` (no tokens, `revokedReason`), its sync state
+  (`Required<SyncState>`) and session count (unexpired only with `now`); name
+  and URL key are the installation's, else the newest session's. Ordered by last
+  full sync attempt, never attempted first. It decrypts nothing, so a row
+  encrypted with another key is listed like any other.
+- `revokeInstallation(ws, reason, now, { ifUpdatedBefore? })` → whether it
+  changed: one `UPDATE` sets `revoked_at`/`revoked_reason` and wipes the
+  credentials. No row, `updated_at` later than `ifUpdatedBefore` (a stale
+  revoke), or already revoked → false, except that `grant_dead` takes
+  `uninstalled` or `removed` with `revoked_at` restarted (the purge grace counts
+  from when the cause is known); nothing goes back to `grant_dead`.
+  `markInstallationRevoked` stays for its callers until they move to
+  `revokeInstallation`: it moves `revoked_at`/`updated_at`, records `grant_dead`
+  unless a reason is recorded, and does not wipe the tokens.
+- `takeSessionsForWorkspace(ws, { createdBefore?, limit })` → `TakenSession[]`:
+  deletes the oldest-created sessions (only those created before `createdBefore`
+  when given) and returns their decrypted tokens to revoke. Unlike
+  `takeExpiredSessions` it **waits** for row locks (no `SKIP LOCKED`,
+  `lock_timeout` 30 s), so a refresh in `withSessionLock` commits first and its
+  rotated tokens are the ones returned; a row that no longer decrypts is deleted
+  and returned with `tokens: null`.
+- `describeSessions(tokens, now)` → `(SessionDescription | null)[]` in input
+  order: **one statement**, sessions by `token_hash = ANY(…)` (the hashes as one
+  JSON parameter) left-joined with `installations` and the person's
+  `mirror_entities` user row. Per token: workspace id, name and URL key (the
+  session's, else the installation's), user id and name, expiry, `guest` (the
+  mirror's `User.guest`, false when the row lacks the field, null without a
+  row), `installed`, `revokedAt`, `revokedReason`; null when expired or unknown.
+  No token column is read.
+- `purgeWorkspace(ws, { revokedBefore, allowGrantDead? })` → `PurgeResult`: one
+  transaction that first takes `SELECT … FOR UPDATE` on the installation (a
+  reinstall in flight commits first and is then seen), then refuses
+  (`{ purged: false, reason }`: `not_installed`, `not_revoked`, `grant_dead`
+  without `allowGrantDead`, `too_recent` unless `revoked_at < revokedBefore`) or
+  deletes the workspace from every `WorkspaceTable` (installations, sessions,
+  settings, milestone_meta, sync_state before mirror_entities, webhook
+  deliveries, allocation entries before runs, warning_memory, notifications,
+  job_claims, audit_log, admitted_workspaces; the order other writers lock in)
+  and returns the count per table. A test reads the catalog and fails when a
+  table with a `workspace_id` column is missing from the purge.
+- Retention: `pruneNotifications(before, limit)` (migration 5 indexes
+  `notifications (created_at)`) and `pruneJobClaims(before, limit)` delete at
+  most `limit` rows created/claimed before `before`, oldest first, in every
+  workspace, and return the count. The audit log and run log have no pruning
+  (kept for good, 2026-10-22).
 
 Bounded waits: every pg pool connection is opened, or a free one waited for,
 within `PG_CONNECT_TIMEOUT_MS` (10 s, `connectionTimeoutMillis`), so an

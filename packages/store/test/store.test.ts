@@ -64,6 +64,40 @@ function settings(workspaceId: string): WorkspaceSettings {
   };
 }
 
+// A Sql that records every statement it is sent, transactions included
+// (whitespace collapsed), so a test can count round trips.
+function recordingSql(inner: Sql, statements: string[]): Sql {
+  return {
+    query: (text, params) => {
+      statements.push(text.replace(/\s+/g, ' ').trim());
+      return inner.query(text, params);
+    },
+    transaction: (fn) =>
+      inner.transaction((tx) => fn(recordingSql(tx, statements))),
+    close: () => inner.close(),
+  };
+}
+
+// True when `promise` settles within `ms`: a call still waiting on a row
+// lock does not.
+function settlesWithin(
+  promise: Promise<unknown>,
+  ms: number
+): Promise<boolean> {
+  return Promise.race([
+    promise.then(
+      () => true,
+      () => true
+    ),
+    Bun.sleep(ms).then(() => false),
+  ]);
+}
+
+/** A key other suites sharing one database never use. */
+function uniqueKey(prefix: string): string {
+  return `${prefix}-${crypto.randomUUID()}`;
+}
+
 function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
   describe(label, () => {
     let sql: Sql;
@@ -915,6 +949,10 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           lastFullSyncStatus: 'failed',
           lastFullSyncError: 'Linear 503',
           lastWebhookAt: null,
+          consecutiveFailures: 1,
+          lastFullSyncMs: null,
+          lastSuccessAt: null,
+          mirrorIssueCount: null,
         });
         // A failed sync wrote no mirror, so there is nothing to load.
         expect(await store.loadMirror(ws)).toBeNull();
@@ -934,6 +972,60 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           lastFullSyncStatus: 'ok',
           lastFullSyncError: null,
           lastWebhookAt: null,
+          consecutiveFailures: 0,
+          lastFullSyncMs: null,
+          lastSuccessAt: '2026-10-21T08:15:00.000Z',
+          mirrorIssueCount: null,
+        });
+      });
+
+      test('recordFullSync counts failures in a row and keeps the last success, duration and issue count', async () => {
+        const ws = newWorkspaceId();
+        const fail = (at: string, durationMs?: number) =>
+          store.recordFullSync(ws, {
+            at,
+            ok: false,
+            error: 'Linear 503',
+            ...(durationMs === undefined ? {} : { durationMs }),
+          });
+        await fail('2026-10-21T08:00:00.000Z');
+        await fail('2026-10-21T08:05:00.000Z');
+        expect(await store.getSyncState(ws)).toMatchObject({
+          consecutiveFailures: 2,
+          lastSuccessAt: null,
+          lastFullSyncMs: null,
+        });
+        await store.recordFullSync(ws, {
+          at: '2026-10-21T08:10:00.000Z',
+          ok: true,
+          error: null,
+          durationMs: 1234.6,
+          issueCount: 42,
+        });
+        expect(await store.getSyncState(ws)).toMatchObject({
+          lastFullSyncStatus: 'ok',
+          consecutiveFailures: 0,
+          lastSuccessAt: '2026-10-21T08:10:00.000Z',
+          lastFullSyncMs: 1235,
+          mirrorIssueCount: 42,
+        });
+        // A failure without a duration keeps the last success's numbers.
+        await fail('2026-10-21T08:20:00.000Z');
+        expect(await store.getSyncState(ws)).toMatchObject({
+          lastFullSyncAt: '2026-10-21T08:20:00.000Z',
+          lastFullSyncStatus: 'failed',
+          consecutiveFailures: 1,
+          lastSuccessAt: '2026-10-21T08:10:00.000Z',
+          lastFullSyncMs: 1235,
+          mirrorIssueCount: 42,
+        });
+        // A reported duration is stored whatever the outcome; numbers
+        // that are not whole or not finite never fail the write.
+        await fail('2026-10-21T08:30:00.000Z', Number.NaN);
+        await fail('2026-10-21T08:40:00.000Z', 90_000.4);
+        expect(await store.getSyncState(ws)).toMatchObject({
+          consecutiveFailures: 3,
+          lastFullSyncMs: 90_000,
         });
       });
 
@@ -973,6 +1065,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
 
       test('recordWebhookDelivery dedupes on the delivery id', async () => {
         const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
         const deliveryId = crypto.randomUUID();
         const input = {
           deliveryId,
@@ -1013,6 +1106,37 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         );
         // Webhook bookkeeping is not a mirror write.
         expect((await store.getSyncState(ws))?.version).toBe(0);
+      });
+
+      test('recordWebhookDelivery leaves no sync_state stub for an organization nobody installed', async () => {
+        const ws = newWorkspaceId();
+        const input = {
+          deliveryId: crypto.randomUUID(),
+          workspaceId: ws,
+          type: 'Issue',
+          action: 'update',
+          entityId: 'iss-1',
+          receivedAt: '2026-10-21T08:00:00.000Z',
+        };
+        expect(await store.recordWebhookDelivery(input)).toBe(true);
+        expect(await store.getSyncState(ws)).toBeNull();
+        // The delivery itself is recorded, so a retry is still a duplicate.
+        expect(await store.recordWebhookDelivery(input)).toBe(false);
+
+        // A workspace that already has a sync_state row is bumped either way.
+        await store.recordFullSync(ws, {
+          at: '2026-10-21T07:00:00.000Z',
+          ok: false,
+          error: 'x',
+        });
+        await store.recordWebhookDelivery({
+          ...input,
+          deliveryId: crypto.randomUUID(),
+          receivedAt: '2026-10-21T09:00:00.000Z',
+        });
+        expect((await store.getSyncState(ws))?.lastWebhookAt).toBe(
+          '2026-10-21T09:00:00.000Z'
+        );
       });
 
       test('markWebhookProcessed records the outcome', async () => {
@@ -1863,7 +1987,833 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(statements).toBe(0);
       });
     });
+
+    describe('workspaces (several on one deployment)', () => {
+      const OTHER_KEY = Buffer.alloc(32, 3).toString('base64');
+      const REVOKED_AT = '2026-09-01T00:00:00.000Z';
+      const NOW = '2026-10-21T08:00:00.000Z';
+      // Expired at NOW, but in no era the global session-cleanup tests
+      // above count (2019, 2020), so the suites can share one database.
+      const EXPIRED = '2026-01-01T00:00:00.000Z';
+
+      function newSession(
+        workspaceId: string,
+        suffix: string,
+        extra: { workspaceName?: string; workspaceUrlKey?: string } = {}
+      ) {
+        return store.createSession({
+          workspaceId,
+          userId: `u-${suffix}`,
+          userName: suffix,
+          tokens: tokens(suffix),
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          ...extra,
+        });
+      }
+
+      // One row in every workspace-keyed table.
+      async function seedWorkspace(ws: string): Promise<void> {
+        await store.saveInstallation(installation(ws));
+        await newSession(ws, 'seed');
+        await store.saveSettings(settings(ws));
+        await store.upsertMilestoneMeta(ws, {
+          milestoneId: 'm-alpha',
+          weight: 1,
+          doneMeans: null,
+          updatedAt: NOW,
+          updatedBy: 'u-ana',
+        });
+        await store.replaceMirror(workspaceData(ws), NOW);
+        await store.recordWebhookDelivery({
+          deliveryId: crypto.randomUUID(),
+          workspaceId: ws,
+          type: 'Issue',
+          action: 'update',
+          entityId: 'iss-1',
+          receivedAt: NOW,
+        });
+        const run = await store.startRun({
+          workspaceId: ws,
+          mode: 'dry_run',
+          trigger: 'manual',
+          startedByUserId: 'u-ana',
+          now: NOW,
+          staleAfterMinutes: 30,
+        });
+        if (run === null) throw new Error('run did not start');
+        await store.appendRunEntries(run.id, [entry({})]);
+        await store.saveWarningMemory(ws, [
+          {
+            subjectKind: 'milestone',
+            subjectId: 'm-alpha',
+            lastKey: 'at_risk:2026-10-28',
+            lastNotifiedOn: DAY,
+            occurrence: 1,
+          },
+        ]);
+        await store.insertNotification({
+          workspaceId: ws,
+          day: DAY,
+          recipientId: 'u-ana',
+          channel: 'outbox',
+          status: 'pending',
+          digest: digest('u-ana', DAY),
+          error: null,
+          now: NOW,
+        });
+        await store.claimJob(ws, 'daily', DAY, NOW);
+        await store.appendAudit({
+          workspaceId: ws,
+          actorUserId: 'u-ana',
+          action: 'milestone.weight',
+          subjectId: 'm-alpha',
+          before: null,
+          after: 1,
+          at: NOW,
+        });
+        await store.pinAdmitted(`entry-${ws}`, ws, NOW);
+      }
+
+      // Every public table with a workspace_id column, from the catalog.
+      async function workspaceKeyedTables(): Promise<string[]> {
+        const rows = await sql.query<{ table_name: string }>(
+          `SELECT c.table_name FROM information_schema.columns c
+           JOIN information_schema.tables t
+             ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+           WHERE c.table_schema = current_schema()
+             AND c.column_name = 'workspace_id'
+             AND t.table_type = 'BASE TABLE'
+           ORDER BY c.table_name`
+        );
+        return rows.map((row) => row.table_name);
+      }
+
+      async function rowsFor(table: string, ws: string): Promise<number> {
+        // table comes from the catalog query above, never from input.
+        const rows = await sql.query<{ n: number }>(
+          `SELECT count(*)::int AS n FROM ${table} WHERE workspace_id = $1`,
+          [ws]
+        );
+        return Number(rows[0]?.n ?? 0);
+      }
+
+      test('revokeInstallation records the reason and wipes credentials with the blank sentinel', async () => {
+        const ws = newWorkspaceId();
+        const saved = installation(ws);
+        await store.saveInstallation(saved);
+        expect(await store.revokeInstallation(ws, 'uninstalled', NOW)).toBe(
+          true
+        );
+        const revoked = await store.getInstallation(ws);
+        expect(revoked).toEqual({
+          ...saved,
+          revokedAt: NOW,
+          tokens: {
+            accessToken: '',
+            refreshToken: null,
+            expiresAt: null,
+            scopes: saved.tokens.scopes,
+          },
+          // updated_at keeps meaning the grant's last write.
+          updatedAt: saved.updatedAt,
+        });
+        const raw = await sql.query<Record<string, unknown>>(
+          `SELECT access_token_enc, refresh_token_enc, token_expires_at,
+             revoked_reason
+           FROM installations WHERE workspace_id = $1`,
+          [ws]
+        );
+        expect(raw).toEqual([
+          {
+            access_token_enc: '',
+            refresh_token_enc: null,
+            token_expires_at: null,
+            revoked_reason: 'uninstalled',
+          },
+        ]);
+        // The wiped row still locks and reads (blank tokens, no decrypt).
+        const seen = await store.withInstallationLock(ws, (current) =>
+          Promise.resolve({ result: current.tokens.accessToken })
+        );
+        expect(seen).toBe('');
+
+        // Idempotent; nothing to revoke without a row; reasons are checked.
+        expect(await store.revokeInstallation(ws, 'uninstalled', NOW)).toBe(
+          false
+        );
+        expect(
+          await store.revokeInstallation(newWorkspaceId(), 'removed', NOW)
+        ).toBe(false);
+        const bad = await rejection(
+          store.revokeInstallation(ws, 'gone' as 'removed', NOW)
+        );
+        expect(bad).toBeInstanceOf(TypeError);
+      });
+
+      test('revokeInstallation ignores stale revokes, upgrades grant_dead and never downgrades', async () => {
+        const ws = newWorkspaceId();
+        const saved = installation(ws);
+        await store.saveInstallation(saved);
+        // An event older than the installation's last write (a reinstall
+        // or rotation since): ignored, nothing wiped.
+        expect(
+          await store.revokeInstallation(ws, 'uninstalled', NOW, {
+            ifUpdatedBefore: '2026-09-30T23:59:59.999Z',
+          })
+        ).toBe(false);
+        expect(await store.getInstallation(ws)).toEqual(saved);
+
+        expect(
+          await store.revokeInstallation(ws, 'grant_dead', REVOKED_AT)
+        ).toBe(true);
+        expect(await store.revokeInstallation(ws, 'grant_dead', NOW)).toBe(
+          false
+        );
+        // The cause becomes known: grant_dead takes uninstalled, and the
+        // grace restarts. The guard compares the grant's last write, which
+        // the dead-grant revoke did not move.
+        expect(
+          await store.revokeInstallation(ws, 'uninstalled', NOW, {
+            ifUpdatedBefore: saved.updatedAt,
+          })
+        ).toBe(true);
+        for (const reason of ['grant_dead', 'removed'] as const) {
+          expect(
+            await store.revokeInstallation(
+              ws,
+              reason,
+              '2026-10-22T00:00:00.000Z'
+            )
+          ).toBe(false);
+        }
+        const [status] = (await store.listWorkspaceStatus()).filter(
+          (row) => row.workspaceId === ws
+        );
+        expect(status?.installation).toMatchObject({
+          revokedAt: NOW,
+          revokedReason: 'uninstalled',
+        });
+      });
+
+      test('a reinstall clears the reason; older revokes record grant_dead', async () => {
+        const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
+        await store.revokeInstallation(ws, 'removed', NOW);
+        const reinstalled = {
+          ...installation(ws),
+          tokens: tokens('v2'),
+          updatedAt: '2026-10-22T08:00:00.000Z',
+        };
+        await store.saveInstallation(reinstalled);
+        expect(await store.getInstallation(ws)).toEqual(reinstalled);
+        const reason = async (): Promise<unknown> =>
+          (
+            await sql.query<{ revoked_reason: string | null }>(
+              'SELECT revoked_reason FROM installations WHERE workspace_id = $1',
+              [ws]
+            )
+          )[0]?.revoked_reason;
+        expect(await reason()).toBeNull();
+
+        // The older revoke records an unknown cause and keeps the tokens
+        // (its callers move to revokeInstallation).
+        await store.markInstallationRevoked(ws, NOW);
+        expect(await reason()).toBe('grant_dead');
+        expect((await store.getInstallation(ws))?.tokens).toEqual(tokens('v2'));
+        // Saved again while revoked: the recorded reason stays; a new row
+        // saved revoked gets grant_dead.
+        await store.revokeInstallation(ws, 'uninstalled', NOW);
+        await store.saveInstallation({ ...installation(ws), revokedAt: NOW });
+        expect(await reason()).toBe('uninstalled');
+        const fresh = newWorkspaceId();
+        await store.saveInstallation({
+          ...installation(fresh),
+          revokedAt: NOW,
+        });
+        const [row] = await sql.query<{ revoked_reason: string | null }>(
+          'SELECT revoked_reason FROM installations WHERE workspace_id = $1',
+          [fresh]
+        );
+        expect(row?.revoked_reason).toBe('grant_dead');
+      });
+
+      test('listWorkspaceStatus joins installations, sync state and sessions without decrypting', async () => {
+        const installed = newWorkspaceId();
+        const signedInOnly = newWorkspaceId();
+        const unreadable = newWorkspaceId();
+        await store.saveInstallation(installation(installed));
+        await store.recordFullSync(installed, {
+          at: NOW,
+          ok: true,
+          error: null,
+          durationMs: 5000,
+          issueCount: 4,
+        });
+        await newSession(installed, 'ana');
+        await store.createSession({
+          workspaceId: installed,
+          userId: 'u-old',
+          userName: 'old',
+          tokens: tokens('old'),
+          expiresAt: EXPIRED,
+        });
+        clock = new Date('2026-10-21T08:00:00.000Z');
+        await newSession(signedInOnly, 'early', {
+          workspaceName: 'Globex (old name)',
+          workspaceUrlKey: 'globex-old',
+        });
+        clock = new Date('2026-10-21T09:00:00.000Z');
+        await newSession(signedInOnly, 'late', {
+          workspaceName: 'Globex',
+          workspaceUrlKey: 'globex',
+        });
+        // Encrypted with another key: listInstallations could not read it.
+        await createSqlStore(sql, {
+          encryptionKey: OTHER_KEY,
+        }).saveInstallation(installation(unreadable));
+        try {
+          expect(
+            (await rejection(store.getInstallation(unreadable))).message
+          ).toMatch(/decrypt/);
+          const all = await store.listWorkspaceStatus();
+          const ids = all.map((row) => row.workspaceId);
+          const pick = (ws: string) => all.find((r) => r.workspaceId === ws);
+          expect(pick(installed)).toEqual({
+            workspaceId: installed,
+            workspaceName: 'Acme Robotics',
+            urlKey: 'acme',
+            installation: {
+              workspaceName: 'Acme Robotics',
+              urlKey: 'acme',
+              appUserId: 'app-user',
+              installedByUserId: 'u-ana',
+              createdAt: '2026-10-01T09:00:00.000Z',
+              updatedAt: '2026-10-01T09:00:00.000Z',
+              revokedAt: null,
+              revokedReason: null,
+            },
+            sync: {
+              workspaceId: installed,
+              version: 0,
+              lastFullSyncAt: NOW,
+              lastFullSyncStatus: 'ok',
+              lastFullSyncError: null,
+              lastWebhookAt: null,
+              consecutiveFailures: 0,
+              lastFullSyncMs: 5000,
+              lastSuccessAt: NOW,
+              mirrorIssueCount: 4,
+            },
+            sessionCount: 2,
+          });
+          expect(pick(signedInOnly)).toEqual({
+            workspaceId: signedInOnly,
+            workspaceName: 'Globex',
+            urlKey: 'globex',
+            installation: null,
+            sync: null,
+            sessionCount: 2,
+          });
+          expect(pick(unreadable)?.installation?.workspaceName).toBe(
+            'Acme Robotics'
+          );
+          // Never attempted first.
+          expect(ids.indexOf(signedInOnly)).toBeLessThan(
+            ids.indexOf(installed)
+          );
+          // With `now`, only unexpired sessions count.
+          const live = await store.listWorkspaceStatus(NOW);
+          expect(
+            live.find((r) => r.workspaceId === installed)?.sessionCount
+          ).toBe(1);
+          expect(JSON.stringify(all)).not.toContain('lin_oauth');
+        } finally {
+          await sql.query('DELETE FROM installations WHERE workspace_id = $1', [
+            unreadable,
+          ]);
+        }
+      });
+
+      test('describeSessions describes held tokens in one statement, without credentials', async () => {
+        const acme = newWorkspaceId();
+        const globex = newWorkspaceId();
+        await store.saveInstallation(installation(acme));
+        await store.revokeInstallation(acme, 'uninstalled', NOW);
+        await store.replaceMirror(workspaceData(acme), NOW);
+        const [ana] = workspaceData(acme).users;
+        if (ana === undefined) throw new Error('fixture has users');
+        await store.applyMirrorChanges(acme, {
+          upsert: [
+            {
+              kind: 'user',
+              entity: { ...ana, id: 'u-guest', name: 'Gus', guest: true },
+            },
+          ],
+          remove: [],
+        });
+        // u-ana's mirror row has no guest field (read as not a guest);
+        // u-nobody has no mirror row at all.
+        const member = await newSession(acme, 'ana', {
+          workspaceName: 'Acme (signed in)',
+        });
+        const guest = await newSession(acme, 'guest');
+        const unknown = await newSession(acme, 'nobody');
+        const elsewhere = await newSession(globex, 'ana', {
+          workspaceName: 'Globex',
+          workspaceUrlKey: 'globex',
+        });
+        const expired = await store.createSession({
+          workspaceId: acme,
+          userId: 'u-ana',
+          userName: 'ana',
+          tokens: tokens('expired'),
+          expiresAt: EXPIRED,
+        });
+
+        const statements: string[] = [];
+        const watched = createSqlStore(recordingSql(sql, statements), {
+          encryptionKey: TEST_KEY,
+          now: () => clock,
+        });
+        const described = await watched.describeSessions(
+          [
+            elsewhere.token,
+            member.token,
+            'not-a-session',
+            guest.token,
+            expired.token,
+            unknown.token,
+          ],
+          NOW
+        );
+        expect(statements).toHaveLength(1);
+        expect(statements[0]).not.toMatch(/token_enc|token_scopes/);
+        const common = {
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          installed: true,
+          revokedAt: NOW,
+          revokedReason: 'uninstalled' as const,
+          workspaceId: acme,
+          workspaceUrlKey: 'acme',
+        };
+        expect(described).toEqual([
+          {
+            token: elsewhere.token,
+            workspaceId: globex,
+            workspaceName: 'Globex',
+            workspaceUrlKey: 'globex',
+            userId: 'u-ana',
+            userName: 'ana',
+            expiresAt: '2099-01-01T00:00:00.000Z',
+            guest: null,
+            installed: false,
+            revokedAt: null,
+            revokedReason: null,
+          },
+          {
+            ...common,
+            token: member.token,
+            workspaceName: 'Acme (signed in)',
+            userId: 'u-ana',
+            userName: 'ana',
+            guest: false,
+          },
+          null,
+          {
+            ...common,
+            token: guest.token,
+            workspaceName: 'Acme Robotics',
+            userId: 'u-guest',
+            userName: 'guest',
+            guest: true,
+          },
+          null,
+          {
+            ...common,
+            token: unknown.token,
+            workspaceName: 'Acme Robotics',
+            userId: 'u-nobody',
+            userName: 'nobody',
+            guest: null,
+          },
+        ]);
+        const dump = JSON.stringify(described);
+        expect(dump).not.toContain('lin_oauth');
+        expect(dump).not.toContain('v1:');
+
+        statements.length = 0;
+        expect(await watched.describeSessions([], NOW)).toEqual([]);
+        expect(statements).toEqual([]);
+      });
+
+      test('takeSessionsForWorkspace takes one workspace, oldest first, with createdBefore and limit', async () => {
+        const ws = newWorkspaceId();
+        const other = newWorkspaceId();
+        const at = (time: string) => {
+          clock = new Date(time);
+        };
+        at('2026-10-21T08:00:00.000Z');
+        const first = await newSession(ws, 'first');
+        at('2026-10-21T09:00:00.000Z');
+        const second = await newSession(ws, 'second');
+        at('2026-10-21T10:00:00.000Z');
+        const third = await newSession(ws, 'third');
+        const kept = await newSession(other, 'kept');
+        const cutoff = '2026-10-21T09:30:00.000Z';
+
+        expect(
+          await store.takeSessionsForWorkspace(ws, {
+            createdBefore: cutoff,
+            limit: 1,
+          })
+        ).toEqual([first.session]);
+        const next = await store.takeSessionsForWorkspace(ws, {
+          createdBefore: cutoff,
+          limit: 10,
+        });
+        expect(next).toEqual([second.session]);
+        expect(next[0]?.tokens?.refreshToken).toBe('lin_oauth_refresh_second');
+        expect(
+          await store.takeSessionsForWorkspace(ws, {
+            createdBefore: cutoff,
+            limit: 10,
+          })
+        ).toEqual([]);
+        expect(await store.takeSessionsForWorkspace(ws, { limit: 10 })).toEqual(
+          [third.session]
+        );
+        expect(await store.getSession(kept.token, NOW)).toEqual(kept.session);
+
+        // A row encrypted with another key is deleted all the same and
+        // reported without tokens.
+        const foreign = await createSqlStore(sql, {
+          encryptionKey: OTHER_KEY,
+        }).createSession({
+          workspaceId: ws,
+          userId: 'u-old-key',
+          userName: 'old key',
+          tokens: tokens('old-key'),
+          expiresAt: '2099-01-01T00:00:00.000Z',
+        });
+        const taken = await store.takeSessionsForWorkspace(ws, { limit: 10 });
+        expect(taken).toEqual([{ ...foreign.session, tokens: null }]);
+        expect(await rowsFor('sessions', ws)).toBe(0);
+        await store.deleteSession(kept.token);
+      });
+
+      test('takeSessionsForWorkspace waits for a refresh in flight and takes its rotated tokens', async () => {
+        const ws = newWorkspaceId();
+        const held = await newSession(ws, 'held');
+        let release = (): void => undefined;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let entered = (): void => undefined;
+        const inside = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const rotated = tokens('rotated');
+        const refreshing = store.withSessionLock(held.session.id, async () => {
+          entered();
+          await gate;
+          return { result: null, tokens: rotated };
+        });
+        await inside;
+        const taking = store.takeSessionsForWorkspace(ws, { limit: 10 });
+        expect(await settlesWithin(taking, 150)).toBe(false);
+        release();
+        await refreshing;
+        expect(await taking).toEqual([{ ...held.session, tokens: rotated }]);
+      });
+
+      test('purgeWorkspace deletes the workspace from every table with a workspace_id column', async () => {
+        const ws = newWorkspaceId();
+        const neighbour = newWorkspaceId();
+        await seedWorkspace(ws);
+        await seedWorkspace(neighbour);
+        await store.blockWorkspace(ws, 'id', 'abuse', NOW);
+        await store.revokeInstallation(ws, 'uninstalled', REVOKED_AT);
+        try {
+          const tables = await workspaceKeyedTables();
+          // Every such table holds a row for the workspace before.
+          for (const table of tables) {
+            expect({ table, seeded: (await rowsFor(table, ws)) > 0 }).toEqual({
+              table,
+              seeded: true,
+            });
+          }
+
+          const result = await store.purgeWorkspace(ws, {
+            revokedBefore: NOW,
+          });
+          if (!result.purged) throw new Error(`refused: ${result.reason}`);
+          // A table with a workspace_id column that the purge does not
+          // know fails here.
+          expect(Object.keys(result.counts).toSorted()).toEqual(tables);
+          for (const table of tables) {
+            expect({
+              table,
+              counted: result.counts[table as keyof typeof result.counts] > 0,
+              left: await rowsFor(table, ws),
+            }).toEqual({ table, counted: true, left: 0 });
+          }
+          expect(result.counts.mirror_entities).toBe(
+            flattenedCount(workspaceData(ws))
+          );
+          // The neighbour is untouched, and the block outlives the purge.
+          for (const table of tables) {
+            expect({
+              table,
+              kept: (await rowsFor(table, neighbour)) > 0,
+            }).toEqual({ table, kept: true });
+          }
+          expect(
+            (await store.listBlockedWorkspaces()).some((b) => b.key === ws)
+          ).toBe(true);
+          expect(await store.getInstallation(ws)).toBeNull();
+          expect(
+            await store.purgeWorkspace(ws, { revokedBefore: NOW })
+          ).toEqual({ purged: false, reason: 'not_installed' });
+        } finally {
+          await store.unblockWorkspace(ws);
+        }
+      });
+
+      test('purgeWorkspace refuses a workspace not revoked, revoked too recently, or grant_dead', async () => {
+        const ws = newWorkspaceId();
+        await seedWorkspace(ws);
+        const refusal = (options: {
+          revokedBefore: string;
+          allowGrantDead?: boolean;
+        }) => store.purgeWorkspace(ws, options);
+
+        expect(await refusal({ revokedBefore: NOW })).toEqual({
+          purged: false,
+          reason: 'not_revoked',
+        });
+        await store.revokeInstallation(ws, 'grant_dead', REVOKED_AT);
+        expect(await refusal({ revokedBefore: NOW })).toEqual({
+          purged: false,
+          reason: 'grant_dead',
+        });
+        expect(
+          await refusal({ revokedBefore: REVOKED_AT, allowGrantDead: true })
+        ).toEqual({ purged: false, reason: 'too_recent' });
+        await store.revokeInstallation(ws, 'removed', REVOKED_AT);
+        expect(await refusal({ revokedBefore: REVOKED_AT })).toEqual({
+          purged: false,
+          reason: 'too_recent',
+        });
+        // Nothing was deleted by the refusals.
+        expect(await rowsFor('sessions', ws)).toBe(1);
+        expect(await rowsFor('audit_log', ws)).toBe(1);
+
+        // The operator's purge may take a grant_dead workspace.
+        const dead = newWorkspaceId();
+        await seedWorkspace(dead);
+        await store.revokeInstallation(dead, 'grant_dead', REVOKED_AT);
+        const purged = await store.purgeWorkspace(dead, {
+          revokedBefore: NOW,
+          allowGrantDead: true,
+        });
+        expect(purged.purged).toBe(true);
+        expect(await store.getInstallation(dead)).toBeNull();
+        const removed = await refusal({ revokedBefore: NOW });
+        expect(removed.purged).toBe(true);
+      });
+
+      test('purgeWorkspace waits for a reinstall in flight, then sees it and refuses', async () => {
+        const ws = newWorkspaceId();
+        await seedWorkspace(ws);
+        await store.revokeInstallation(ws, 'uninstalled', REVOKED_AT);
+        let release = (): void => undefined;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let entered = (): void => undefined;
+        const inside = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        // A reinstall holding the installation row, not yet committed.
+        const reinstalling = sql.transaction(async (tx) => {
+          await tx.query(
+            `UPDATE installations SET revoked_at = NULL, revoked_reason = NULL
+             WHERE workspace_id = $1`,
+            [ws]
+          );
+          entered();
+          await gate;
+        });
+        await inside;
+        const purging = store.purgeWorkspace(ws, { revokedBefore: NOW });
+        expect(await settlesWithin(purging, 150)).toBe(false);
+        release();
+        await reinstalling;
+        expect(await purging).toEqual({
+          purged: false,
+          reason: 'not_revoked',
+        });
+        expect(await rowsFor('sessions', ws)).toBe(1);
+      });
+
+      test('purgeWorkspace and a concurrent reinstall never deadlock', async () => {
+        for (let round = 0; round < 4; round += 1) {
+          const ws = newWorkspaceId();
+          await seedWorkspace(ws);
+          await store.revokeInstallation(ws, 'removed', REVOKED_AT);
+          const reinstall = {
+            ...installation(ws),
+            tokens: tokens(`again-${round}`),
+            updatedAt: NOW,
+          };
+          const [purge] = await Promise.all([
+            store.purgeWorkspace(ws, { revokedBefore: NOW }),
+            store.saveInstallation(reinstall),
+          ]);
+          // Either order ends with the reinstalled, active installation:
+          // purged first (the reinstall inserted a fresh row), or
+          // reinstalled first (the purge saw it and refused).
+          expect(await store.getInstallation(ws)).toEqual(reinstall);
+          if (purge.purged) {
+            expect(await rowsFor('sessions', ws)).toBe(0);
+          } else {
+            expect(purge.reason).toBe('not_revoked');
+            expect(await rowsFor('sessions', ws)).toBe(1);
+          }
+        }
+      });
+
+      test('pruneNotifications and pruneJobClaims delete old rows in bounded batches', async () => {
+        const ws = newWorkspaceId();
+        const days = ['2001-01-01', '2001-01-02', '2001-01-03', '2026-10-21'];
+        for (const day of days) {
+          const at = `${day}T08:00:00.000Z`;
+          await store.insertNotification({
+            workspaceId: ws,
+            day,
+            recipientId: 'u-ana',
+            channel: 'outbox',
+            status: 'sent',
+            digest: digest('u-ana', day),
+            error: null,
+            now: at,
+          });
+          await store.claimJob(ws, 'daily', day, at);
+        }
+        const before = '2001-06-01T00:00:00.000Z';
+        for (const prune of [
+          (limit: number) => store.pruneNotifications(before, limit),
+          (limit: number) => store.pruneJobClaims(before, limit),
+        ]) {
+          // At least three rows qualify, so a batch of two takes exactly two.
+          expect(await prune(2)).toBe(2);
+          let more = await prune(2);
+          while (more > 0) more = await prune(2);
+          expect(await prune(Number.NaN)).toBe(0);
+        }
+        expect(
+          (await store.listNotifications(ws, { limit: 10 })).map((n) => n.day)
+        ).toEqual(['2026-10-21']);
+        const claims = await sql.query<{ day: string }>(
+          `SELECT to_char(day, 'YYYY-MM-DD') AS day FROM job_claims
+           WHERE workspace_id = $1`,
+          [ws]
+        );
+        expect(claims).toEqual([{ day: '2026-10-21' }]);
+      });
+
+      test('blocks are lower-cased, pinned from a URL key to the org id, and removed', async () => {
+        const urlKey = uniqueKey('Acme');
+        const orgId = uniqueKey('Org');
+        const mine = async () =>
+          (await store.listBlockedWorkspaces()).filter((block) =>
+            [urlKey.toLowerCase(), orgId.toLowerCase()].includes(block.key)
+          );
+        await store.blockWorkspace(urlKey, 'url_key', 'spam', NOW);
+        await store.blockWorkspace(
+          urlKey.toUpperCase(),
+          'url_key',
+          'abuse lin_api_TESTKEY_member_q7Wz3Kp9Vx2Lm8Rt5Yb1Nc',
+          '2026-10-22T00:00:00.000Z'
+        );
+        expect(await mine()).toEqual([
+          {
+            key: urlKey.toLowerCase(),
+            kind: 'url_key',
+            reason: 'abuse lin_api_[redacted]',
+            createdAt: NOW,
+          },
+        ]);
+        expect(await store.pinBlockedUrlKey(urlKey.toUpperCase(), orgId)).toBe(
+          true
+        );
+        expect(await mine()).toEqual([
+          {
+            key: orgId.toLowerCase(),
+            kind: 'id',
+            reason: 'abuse lin_api_[redacted]',
+            createdAt: NOW,
+          },
+        ]);
+        expect(await store.pinBlockedUrlKey(urlKey, orgId)).toBe(false);
+        expect(await store.unblockWorkspace(orgId.toUpperCase())).toBe(true);
+        expect(await store.unblockWorkspace(orgId)).toBe(false);
+        expect(await mine()).toEqual([]);
+
+        // The org already has an id block: it is kept, the URL key goes.
+        await store.blockWorkspace(orgId, 'id', 'by id', NOW);
+        await store.blockWorkspace(urlKey, 'url_key', 'by key', NOW);
+        expect(await store.pinBlockedUrlKey(urlKey, orgId)).toBe(true);
+        expect(await mine()).toEqual([
+          {
+            key: orgId.toLowerCase(),
+            kind: 'id',
+            reason: 'by id',
+            createdAt: NOW,
+          },
+        ]);
+        await store.unblockWorkspace(orgId);
+
+        const bad = await rejection(
+          store.blockWorkspace(urlKey, 'name' as 'id', null, NOW)
+        );
+        expect(bad).toBeInstanceOf(TypeError);
+      });
+
+      test('admission pins: the first pin of an entry wins', async () => {
+        const entry = uniqueKey('Acme');
+        expect(await store.getAdmittedPin(entry)).toBeNull();
+        expect(await store.pinAdmitted(entry.toUpperCase(), 'org-1', NOW)).toBe(
+          'org-1'
+        );
+        expect(await store.pinAdmitted(entry, 'org-2', NOW)).toBe('org-1');
+        expect(await store.getAdmittedPin(entry.toUpperCase())).toBe('org-1');
+
+        const raced = uniqueKey('Globex');
+        const winners = await Promise.all(
+          ['org-a', 'org-b', 'org-c', 'org-d'].map((id) =>
+            store.pinAdmitted(raced, id, NOW)
+          )
+        );
+        expect(new Set(winners).size).toBe(1);
+        expect(await store.getAdmittedPin(raced)).toBe(winners[0] ?? null);
+      });
+    });
   });
+}
+
+// Mirror rows replaceMirror writes for a workspace (one per entity).
+function flattenedCount(data: ReturnType<typeof workspaceData>): number {
+  return (
+    data.users.length +
+    data.teams.length +
+    data.states.length +
+    data.initiatives.length +
+    data.projects.length +
+    data.milestones.length +
+    data.issues.length +
+    data.relations.length
+  );
 }
 
 storeSuite('Store on PGlite (in-memory)', () => openPgliteSql());

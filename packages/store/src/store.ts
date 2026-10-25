@@ -44,6 +44,8 @@ import { runMigrations } from './migrations';
 import type {
   AllocationRun,
   AuditEntry,
+  BlockedWorkspace,
+  BlockKind,
   Installation,
   IssueRunEntry,
   LoadedMirror,
@@ -55,6 +57,8 @@ import type {
   NewSession,
   NotificationRecord,
   NotificationStatus,
+  PurgeResult,
+  RevokedReason,
   RunEntry,
   RunEntryAction,
   RunEntryOutcome,
@@ -62,9 +66,13 @@ import type {
   RunSummary,
   RunTrigger,
   Session,
+  SessionDescription,
   Store,
   StoredTokens,
   SyncState,
+  TakenSession,
+  WorkspaceStatus,
+  WorkspaceTable,
 } from './types';
 
 /** Structural logger (compatible with @better-tracker/logger's Logger). */
@@ -188,6 +196,62 @@ interface SyncStateRow {
   last_full_sync_status: 'ok' | 'failed' | null;
   last_full_sync_error: string | null;
   last_webhook_at: DbTimestamp | null;
+  consecutive_failures: number;
+  last_full_sync_ms: number | null;
+  last_success_at: DbTimestamp | null;
+  mirror_issue_count: number | null;
+}
+
+/**
+ * listWorkspaceStatus: a workspace id with its installation columns (null
+ * when never installed), its sync_state columns (null without a row) and
+ * its session aggregate. No token column is selected.
+ */
+interface WorkspaceStatusRow {
+  workspace_id: string;
+  installation_name: string | null;
+  url_key: string | null;
+  app_user_id: string | null;
+  installed_by_user_id: string | null;
+  installed_at: DbTimestamp | null;
+  updated_at: DbTimestamp | null;
+  revoked_at: DbTimestamp | null;
+  revoked_reason: RevokedReason | null;
+  session_count: number | null;
+  session_workspace_name: string | null;
+  session_url_key: string | null;
+  sync_workspace_id: string | null;
+  version: DbBigint | null;
+  last_full_sync_at: DbTimestamp | null;
+  last_full_sync_status: 'ok' | 'failed' | null;
+  last_full_sync_error: string | null;
+  last_webhook_at: DbTimestamp | null;
+  consecutive_failures: number | null;
+  last_full_sync_ms: number | null;
+  last_success_at: DbTimestamp | null;
+  mirror_issue_count: number | null;
+}
+
+/** describeSessions: one session joined with its workspace; no tokens. */
+interface SessionDescriptionRow {
+  token_hash: string;
+  workspace_id: string;
+  workspace_name: string | null;
+  workspace_url_key: string | null;
+  user_id: string;
+  user_name: string;
+  expires_at: DbTimestamp;
+  guest: boolean | null;
+  installed: boolean;
+  revoked_at: DbTimestamp | null;
+  revoked_reason: RevokedReason | null;
+}
+
+interface BlockRow {
+  key: string;
+  kind: BlockKind;
+  reason: string | null;
+  created_at: DbTimestamp;
 }
 
 interface MirrorLoadRow {
@@ -279,6 +343,44 @@ const INSTALLATION_COLUMNS = `workspace_id, workspace_name, url_key, app_user_id
 
 const SESSION_COLUMNS = `id, workspace_id, user_id, user_name, access_token_enc,
   refresh_token_enc, token_expires_at, token_scopes, created_at, expires_at`;
+
+const SYNC_STATE_COLUMNS = `workspace_id, version, last_full_sync_at,
+  last_full_sync_status, last_full_sync_error, last_webhook_at,
+  consecutive_failures, last_full_sync_ms, last_success_at,
+  mirror_issue_count`;
+
+const REVOKED_REASONS: readonly RevokedReason[] = [
+  'uninstalled',
+  'grant_dead',
+  'removed',
+];
+
+const BLOCK_KINDS: readonly BlockKind[] = ['id', 'url_key'];
+
+/**
+ * The tables purgeWorkspace empties, in delete order. It matches the
+ * order other writers lock rows in, so a purge never deadlocks with them:
+ * sync_state before mirror_entities (mirror writers bump the version row
+ * first), allocation entries before their runs. The installation row is
+ * locked first (FOR UPDATE) and deleted last. A test checks this list
+ * against every table with a workspace_id column.
+ */
+const PURGE_ORDER: readonly WorkspaceTable[] = [
+  'sessions',
+  'settings',
+  'milestone_meta',
+  'sync_state',
+  'mirror_entities',
+  'webhook_deliveries',
+  'allocation_entries',
+  'allocation_runs',
+  'warning_memory',
+  'notifications',
+  'job_claims',
+  'audit_log',
+  'admitted_workspaces',
+  'installations',
+];
 
 const RUN_COLUMNS = `id, workspace_id, mode, run_trigger, started_by_user_id,
   status, started_at, finished_at, summary, error`;
@@ -618,7 +720,11 @@ function milestoneMetaFromRow(row: MilestoneMetaRow): MilestoneMeta {
   };
 }
 
-function syncStateFromRow(row: SyncStateRow): SyncState {
+function numberOrNull(value: number | string | null): number | null {
+  return value === null ? null : Number(value);
+}
+
+function syncStateFromRow(row: SyncStateRow): Required<SyncState> {
   return {
     workspaceId: row.workspace_id,
     version: Number(row.version),
@@ -626,7 +732,63 @@ function syncStateFromRow(row: SyncStateRow): SyncState {
     lastFullSyncStatus: row.last_full_sync_status,
     lastFullSyncError: row.last_full_sync_error,
     lastWebhookAt: toIsoOrNull(row.last_webhook_at),
+    consecutiveFailures: Number(row.consecutive_failures),
+    lastFullSyncMs: numberOrNull(row.last_full_sync_ms),
+    lastSuccessAt: toIsoOrNull(row.last_success_at),
+    mirrorIssueCount: numberOrNull(row.mirror_issue_count),
   };
+}
+
+// One listWorkspaceStatus row as the contract type. The installation's
+// name and URL key win over the newest session's (sign-in values are the
+// fallback for workspaces nobody installed yet).
+function workspaceStatusFromRow(row: WorkspaceStatusRow): WorkspaceStatus {
+  const installation =
+    row.installation_name === null ||
+    row.url_key === null ||
+    row.installed_at === null ||
+    row.updated_at === null
+      ? null
+      : {
+          workspaceName: row.installation_name,
+          urlKey: row.url_key,
+          appUserId: row.app_user_id ?? '',
+          installedByUserId: row.installed_by_user_id ?? '',
+          createdAt: toIso(row.installed_at),
+          updatedAt: toIso(row.updated_at),
+          revokedAt: toIsoOrNull(row.revoked_at),
+          revokedReason: row.revoked_reason,
+        };
+  const sync =
+    row.sync_workspace_id === null || row.version === null
+      ? null
+      : syncStateFromRow({
+          workspace_id: row.sync_workspace_id,
+          version: row.version,
+          last_full_sync_at: row.last_full_sync_at,
+          last_full_sync_status: row.last_full_sync_status,
+          last_full_sync_error: row.last_full_sync_error,
+          last_webhook_at: row.last_webhook_at,
+          consecutive_failures: row.consecutive_failures ?? 0,
+          last_full_sync_ms: row.last_full_sync_ms,
+          last_success_at: row.last_success_at,
+          mirror_issue_count: row.mirror_issue_count,
+        });
+  return {
+    workspaceId: row.workspace_id,
+    workspaceName: installation?.workspaceName ?? row.session_workspace_name,
+    urlKey: installation?.urlKey ?? row.session_url_key,
+    installation,
+    sync,
+    sessionCount: Number(row.session_count ?? 0),
+  };
+}
+
+// A whole number for an integer column (durations, counts): rounded,
+// at least 0 and at most int4's maximum; NaN and undefined become null.
+function intOrNull(value: number | undefined): number | null {
+  if (value === undefined || Number.isNaN(value)) return null;
+  return Math.min(MAX_SQL_LIMIT, Math.max(0, Math.round(value)));
 }
 
 function auditFromRow(row: AuditRow): AuditEntry {
@@ -801,17 +963,26 @@ class SqlStore implements Store {
     return rows.map((row) => this.installationFromRow(row));
   }
 
+  /**
+   * Upserts the whole row. revoked_reason follows revoked_at: a reinstall
+   * (revokedAt null) clears both; a row saved revoked keeps its recorded
+   * reason, or gets 'grant_dead' (cause unknown) when it has none.
+   */
   async saveInstallation(installation: Installation): Promise<void> {
     await this.write(
-      `INSERT INTO installations (${INSTALLATION_COLUMNS})
+      `INSERT INTO installations (${INSTALLATION_COLUMNS}, revoked_reason)
        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9::timestamptz,
-         $10::text::jsonb, $11::timestamptz, $12::timestamptz)
+         $10::text::jsonb, $11::timestamptz, $12::timestamptz,
+         CASE WHEN $6::timestamptz IS NULL THEN NULL ELSE 'grant_dead' END)
        ON CONFLICT (workspace_id) DO UPDATE SET
          workspace_name = EXCLUDED.workspace_name,
          url_key = EXCLUDED.url_key,
          app_user_id = EXCLUDED.app_user_id,
          installed_by_user_id = EXCLUDED.installed_by_user_id,
          revoked_at = EXCLUDED.revoked_at,
+         revoked_reason = CASE WHEN EXCLUDED.revoked_at IS NULL THEN NULL
+           ELSE COALESCE(installations.revoked_reason, EXCLUDED.revoked_reason)
+           END,
          access_token_enc = EXCLUDED.access_token_enc,
          refresh_token_enc = EXCLUDED.refresh_token_enc,
          token_expires_at = EXCLUDED.token_expires_at,
@@ -877,10 +1048,132 @@ class SqlStore implements Store {
   ): Promise<void> {
     await this.write(
       `UPDATE installations SET revoked_at = $2::timestamptz,
-         updated_at = $2::timestamptz
+         updated_at = $2::timestamptz,
+         revoked_reason = COALESCE(revoked_reason, 'grant_dead')
        WHERE workspace_id = $1`,
       [workspaceId, at]
     );
+  }
+
+  /**
+   * One UPDATE whose WHERE holds every rule (stale guard, already revoked,
+   * the grant_dead upgrade), so concurrent revokes and a reinstall racing
+   * it resolve on the row lock: the second writer re-checks the WHERE
+   * against the first one's commit. The credentials are wiped with the
+   * blank sentinel tokensFromRow already reads as "no token".
+   */
+  async revokeInstallation(
+    workspaceId: string,
+    reason: RevokedReason,
+    now: IsoDateTime,
+    options: { ifUpdatedBefore?: IsoDateTime } = {}
+  ): Promise<boolean> {
+    if (!REVOKED_REASONS.includes(reason)) {
+      throw new TypeError(`Unknown revoke reason ${String(reason)}`);
+    }
+    const rows = await this.write<{ workspace_id: string }>(
+      `UPDATE installations SET revoked_at = $3::timestamptz,
+         revoked_reason = $2::text,
+         access_token_enc = '', refresh_token_enc = NULL,
+         token_expires_at = NULL
+       WHERE workspace_id = $1
+         AND ($4::timestamptz IS NULL OR updated_at <= $4::timestamptz)
+         AND (revoked_at IS NULL
+           OR (COALESCE(revoked_reason, 'grant_dead') = 'grant_dead'
+             AND $2::text <> 'grant_dead'))
+       RETURNING workspace_id`,
+      [workspaceId, reason, now, options.ifUpdatedBefore ?? null]
+    );
+    return rows.length === 1;
+  }
+
+  /**
+   * Workspace ids come from installations and sessions (UNION), so a
+   * workspace people signed in to but nobody installed is listed too; its
+   * name and URL key are the newest session's sign-in values.
+   */
+  async listWorkspaceStatus(now?: IsoDateTime): Promise<WorkspaceStatus[]> {
+    const rows = await this.sql.query<WorkspaceStatusRow>(
+      `WITH s AS (
+         SELECT workspace_id,
+           count(*) FILTER (WHERE $1::timestamptz IS NULL
+             OR expires_at > $1::timestamptz)::int AS session_count,
+           (array_agg(workspace_name ORDER BY created_at DESC, id DESC)
+             FILTER (WHERE workspace_name IS NOT NULL))[1]
+             AS session_workspace_name,
+           (array_agg(workspace_url_key ORDER BY created_at DESC, id DESC)
+             FILTER (WHERE workspace_url_key IS NOT NULL))[1]
+             AS session_url_key
+         FROM sessions GROUP BY workspace_id
+       ),
+       ids AS (
+         SELECT workspace_id FROM installations
+         UNION SELECT workspace_id FROM s
+       )
+       SELECT ids.workspace_id,
+         i.workspace_name AS installation_name, i.url_key, i.app_user_id,
+         i.installed_by_user_id, i.created_at AS installed_at, i.updated_at,
+         i.revoked_at, i.revoked_reason,
+         s.session_count, s.session_workspace_name, s.session_url_key,
+         st.workspace_id AS sync_workspace_id, st.version,
+         st.last_full_sync_at, st.last_full_sync_status,
+         st.last_full_sync_error, st.last_webhook_at,
+         st.consecutive_failures, st.last_full_sync_ms, st.last_success_at,
+         st.mirror_issue_count
+       FROM ids
+       LEFT JOIN installations i ON i.workspace_id = ids.workspace_id
+       LEFT JOIN s ON s.workspace_id = ids.workspace_id
+       LEFT JOIN sync_state st ON st.workspace_id = ids.workspace_id
+       ORDER BY st.last_full_sync_at ASC NULLS FIRST, ids.workspace_id`,
+      [now ?? null]
+    );
+    return rows.map(workspaceStatusFromRow);
+  }
+
+  /**
+   * Locks the installation row first: a reinstall in flight (its upsert
+   * holds the row) commits before the check, which then sees the row
+   * active and refuses; a reinstall arriving after the lock waits and, once
+   * the purge commits, inserts a fresh row. Each table is emptied with one
+   * DELETE whose rows are only counted (a CTE), never sent back.
+   */
+  purgeWorkspace(
+    workspaceId: string,
+    options: { revokedBefore: IsoDateTime; allowGrantDead?: boolean }
+  ): Promise<PurgeResult> {
+    return this.sql.transaction(async (tx): Promise<PurgeResult> => {
+      await tx.query(TOKEN_LOCK_TIMEOUT);
+      const rows = await tx.query<{
+        revoked: boolean;
+        before_cutoff: boolean;
+        revoked_reason: RevokedReason | null;
+      }>(
+        `SELECT revoked_at IS NOT NULL AS revoked,
+           COALESCE(revoked_at < $2::timestamptz, false) AS before_cutoff,
+           revoked_reason
+         FROM installations WHERE workspace_id = $1 FOR UPDATE`,
+        [workspaceId, options.revokedBefore]
+      );
+      const row = rows[0];
+      if (row === undefined) return { purged: false, reason: 'not_installed' };
+      if (!row.revoked) return { purged: false, reason: 'not_revoked' };
+      const reason = row.revoked_reason ?? 'grant_dead';
+      if (reason === 'grant_dead' && options.allowGrantDead !== true) {
+        return { purged: false, reason: 'grant_dead' };
+      }
+      if (!row.before_cutoff) return { purged: false, reason: 'too_recent' };
+      const counts = {} as Record<WorkspaceTable, number>;
+      for (const table of PURGE_ORDER) {
+        // Table names come from PURGE_ORDER, never from input.
+        const deleted = await tx.query<{ n: number }>(
+          `WITH d AS (DELETE FROM ${table} WHERE workspace_id = $1 RETURNING 1)
+           SELECT count(*)::int AS n FROM d`,
+          [workspaceId]
+        );
+        counts[table] = Number(deleted[0]?.n ?? 0);
+      }
+      return { purged: true, counts };
+    });
   }
 
   // --- sessions -----------------------------------------------------------------
@@ -892,9 +1185,9 @@ class SqlStore implements Store {
     const rows = await this.write<SessionRow>(
       `INSERT INTO sessions (id, token_hash, workspace_id, user_id, user_name,
          access_token_enc, refresh_token_enc, token_expires_at, token_scopes,
-         created_at, expires_at)
+         created_at, expires_at, workspace_name, workspace_url_key)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8::timestamptz, $9::text::jsonb,
-         $10::timestamptz, $11::timestamptz)
+         $10::timestamptz, $11::timestamptz, $12, $13)
        RETURNING ${SESSION_COLUMNS}`,
       [
         randomUUID(),
@@ -905,6 +1198,8 @@ class SqlStore implements Store {
         ...this.tokenParams(session.tokens),
         this.nowIso(),
         session.expiresAt,
+        session.workspaceName ?? null,
+        session.workspaceUrlKey ?? null,
       ]
     );
     const row = rows[0];
@@ -912,6 +1207,55 @@ class SqlStore implements Store {
       throw new Error('Session insert returned no row');
     }
     return { token, session: this.sessionFromRow(row) };
+  }
+
+  /**
+   * The token hashes travel as one JSON array parameter (SqlParam has no
+   * arrays). guest is null without a mirror user row and false for a row
+   * that has no guest field (mirrors written before 2026-10-22).
+   */
+  async describeSessions(
+    tokens: readonly string[],
+    now: IsoDateTime
+  ): Promise<(SessionDescription | null)[]> {
+    if (tokens.length === 0) return [];
+    const hashes = tokens.map(hashSessionToken);
+    const rows = await this.sql.query<SessionDescriptionRow>(
+      `SELECT s.token_hash, s.workspace_id,
+         COALESCE(s.workspace_name, i.workspace_name) AS workspace_name,
+         COALESCE(s.workspace_url_key, i.url_key) AS workspace_url_key,
+         s.user_id, s.user_name, s.expires_at,
+         CASE WHEN m.id IS NULL THEN NULL
+           ELSE COALESCE(m.data->>'guest' = 'true', false) END AS guest,
+         i.workspace_id IS NOT NULL AS installed,
+         i.revoked_at, i.revoked_reason
+       FROM sessions s
+       LEFT JOIN installations i ON i.workspace_id = s.workspace_id
+       LEFT JOIN mirror_entities m ON m.workspace_id = s.workspace_id
+         AND m.kind = 'user' AND m.id = s.user_id
+       WHERE s.token_hash = ANY (ARRAY(
+           SELECT jsonb_array_elements_text($1::text::jsonb)))
+         AND s.expires_at > $2::timestamptz`,
+      [jsonParam(hashes), now]
+    );
+    const byHash = new Map(rows.map((row) => [row.token_hash, row]));
+    return tokens.map((token, index): SessionDescription | null => {
+      const row = byHash.get(hashes[index] ?? '');
+      if (row === undefined) return null;
+      return {
+        token,
+        workspaceId: row.workspace_id,
+        workspaceName: row.workspace_name,
+        workspaceUrlKey: row.workspace_url_key,
+        userId: row.user_id,
+        userName: row.user_name,
+        expiresAt: toIso(row.expires_at),
+        guest: row.guest,
+        installed: row.installed,
+        revokedAt: toIsoOrNull(row.revoked_at),
+        revokedReason: row.revoked_reason,
+      };
+    });
   }
 
   async getSession(token: string, now: IsoDateTime): Promise<Session | null> {
@@ -1001,6 +1345,61 @@ class SqlStore implements Store {
     return sessions.sort((a, b) => {
       if (a.expiresAt !== b.expiresAt) {
         return a.expiresAt < b.expiresAt ? -1 : 1;
+      }
+      if (a.id === b.id) return 0;
+      return a.id < b.id ? -1 : 1;
+    });
+  }
+
+  /**
+   * One DELETE … RETURNING over the workspace's oldest sessions, whose
+   * subquery locks them FOR UPDATE without SKIP LOCKED: a row held by
+   * withSessionLock (a refresh in flight) is waited for, and the row
+   * deleted is the version that refresh committed (its rotated tokens).
+   * lock_timeout bounds the wait as for the token locks. Tokens are
+   * decrypted per row, so an unreadable row only loses its own tokens.
+   */
+  async takeSessionsForWorkspace(
+    workspaceId: string,
+    options: { createdBefore?: IsoDateTime; limit: number }
+  ): Promise<TakenSession[]> {
+    const rows = await this.sql.transaction(async (tx) => {
+      await tx.query(TOKEN_LOCK_TIMEOUT);
+      return tx.query<SessionRow>(
+        `DELETE FROM sessions WHERE id IN (
+           SELECT id FROM sessions
+           WHERE workspace_id = $1
+             AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
+           ORDER BY created_at, id LIMIT $3::int
+           FOR UPDATE)
+         RETURNING ${SESSION_COLUMNS}`,
+        [workspaceId, options.createdBefore ?? null, sqlLimit(options.limit)]
+      );
+    });
+    const taken = rows.map((row): TakenSession => {
+      let tokens: StoredTokens | null = null;
+      try {
+        tokens = this.tokensFromRow(row);
+      } catch (error) {
+        this.logger?.warn(
+          'deleted a session whose tokens could not be decrypted',
+          { sessionId: row.id, workspaceId: row.workspace_id, error }
+        );
+      }
+      return {
+        id: row.id,
+        workspaceId: row.workspace_id,
+        userId: row.user_id,
+        userName: row.user_name,
+        tokens,
+        createdAt: toIso(row.created_at),
+        expiresAt: toIso(row.expires_at),
+      };
+    });
+    // RETURNING has no defined order; oldest created first, then id.
+    return taken.sort((a, b) => {
+      if (a.createdAt !== b.createdAt) {
+        return a.createdAt < b.createdAt ? -1 : 1;
       }
       if (a.id === b.id) return 0;
       return a.id < b.id ? -1 : 1;
@@ -1196,32 +1595,55 @@ class SqlStore implements Store {
 
   async getSyncState(workspaceId: string): Promise<SyncState | null> {
     const rows = await this.sql.query<SyncStateRow>(
-      `SELECT workspace_id, version, last_full_sync_at, last_full_sync_status,
-         last_full_sync_error, last_webhook_at
-       FROM sync_state WHERE workspace_id = $1`,
+      `SELECT ${SYNC_STATE_COLUMNS} FROM sync_state WHERE workspace_id = $1`,
       [workspaceId]
     );
     const row = rows[0];
     return row === undefined ? null : syncStateFromRow(row);
   }
 
+  /**
+   * One upsert. The failure count is computed from the row as it is when
+   * the upsert takes its lock, so concurrent recorders each count once.
+   */
   async recordFullSync(
     workspaceId: string,
-    result: { at: IsoDateTime; ok: boolean; error: string | null }
+    result: {
+      at: IsoDateTime;
+      ok: boolean;
+      error: string | null;
+      durationMs?: number;
+      issueCount?: number;
+    }
   ): Promise<void> {
     await this.write(
       `INSERT INTO sync_state (workspace_id, last_full_sync_at,
-         last_full_sync_status, last_full_sync_error)
-       VALUES ($1, $2::timestamptz, $3, $4)
+         last_full_sync_status, last_full_sync_error, consecutive_failures,
+         last_success_at, last_full_sync_ms, mirror_issue_count)
+       VALUES ($1, $2::timestamptz, $3::text, $4,
+         CASE WHEN $3::text = 'ok' THEN 0 ELSE 1 END,
+         CASE WHEN $3::text = 'ok' THEN $2::timestamptz END,
+         $5::int, $6::int)
        ON CONFLICT (workspace_id) DO UPDATE SET
          last_full_sync_at = EXCLUDED.last_full_sync_at,
          last_full_sync_status = EXCLUDED.last_full_sync_status,
-         last_full_sync_error = EXCLUDED.last_full_sync_error`,
+         last_full_sync_error = EXCLUDED.last_full_sync_error,
+         consecutive_failures = CASE
+           WHEN EXCLUDED.last_full_sync_status = 'ok' THEN 0
+           ELSE sync_state.consecutive_failures + 1 END,
+         last_success_at = COALESCE(EXCLUDED.last_success_at,
+           sync_state.last_success_at),
+         last_full_sync_ms = COALESCE(EXCLUDED.last_full_sync_ms,
+           sync_state.last_full_sync_ms),
+         mirror_issue_count = COALESCE(EXCLUDED.mirror_issue_count,
+           sync_state.mirror_issue_count)`,
       [
         workspaceId,
         result.at,
         result.ok ? 'ok' : 'failed',
         credentialFree(result.error),
+        intOrNull(result.durationMs),
+        intOrNull(result.issueCount),
       ]
     );
   }
@@ -1254,10 +1676,14 @@ class SqlStore implements Store {
         return false;
       }
       // GREATEST ignores NULL, so the first webhook sets the time and an
-      // out-of-order older delivery never moves it backwards.
+      // out-of-order older delivery never moves it backwards. The row is
+      // created only for an installed workspace (or bumped when it exists
+      // already): an unknown organization leaves no sync_state stub.
       await tx.query(
         `INSERT INTO sync_state (workspace_id, last_webhook_at)
-         VALUES ($1, $2::timestamptz)
+         SELECT $1::text, $2::timestamptz
+         WHERE EXISTS (SELECT 1 FROM installations WHERE workspace_id = $1::text)
+           OR EXISTS (SELECT 1 FROM sync_state WHERE workspace_id = $1::text)
          ON CONFLICT (workspace_id) DO UPDATE SET
            last_webhook_at = GREATEST(sync_state.last_webhook_at, EXCLUDED.last_webhook_at)`,
         [input.workspaceId, input.receivedAt]
@@ -1603,6 +2029,22 @@ class SqlStore implements Store {
     return rows.map(notificationFromRow);
   }
 
+  async pruneNotifications(
+    before: IsoDateTime,
+    limit: number
+  ): Promise<number> {
+    const rows = await this.write<{ n: number }>(
+      `WITH d AS (
+         DELETE FROM notifications WHERE id IN (
+           SELECT id FROM notifications WHERE created_at < $1::timestamptz
+           ORDER BY created_at, id LIMIT $2::int)
+         RETURNING 1)
+       SELECT count(*)::int AS n FROM d`,
+      [before, sqlLimit(limit)]
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
   // --- scheduled jobs ---------------------------------------------------------------
 
   /**
@@ -1680,6 +2122,131 @@ class SqlStore implements Store {
            OR (claimed_at = $4::timestamptz AND finished_at IS NULL))`,
       [workspaceId, job, day, claimedAt ?? null]
     );
+  }
+
+  async pruneJobClaims(before: IsoDateTime, limit: number): Promise<number> {
+    const rows = await this.write<{ n: number }>(
+      `WITH d AS (
+         DELETE FROM job_claims WHERE (workspace_id, job, day) IN (
+           SELECT workspace_id, job, day FROM job_claims
+           WHERE claimed_at < $1::timestamptz
+           ORDER BY claimed_at, workspace_id, job, day LIMIT $2::int)
+         RETURNING 1)
+       SELECT count(*)::int AS n FROM d`,
+      [before, sqlLimit(limit)]
+    );
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  // --- admission: blocks and pins ---------------------------------------------------
+
+  async blockWorkspace(
+    key: string,
+    kind: BlockKind,
+    reason: string | null,
+    now: IsoDateTime
+  ): Promise<void> {
+    if (!BLOCK_KINDS.includes(kind)) {
+      throw new TypeError(`Unknown block kind ${String(kind)}`);
+    }
+    await this.write(
+      `INSERT INTO blocked_workspaces (key, kind, reason, created_at)
+       VALUES ($1, $2, $3, $4::timestamptz)
+       ON CONFLICT (key) DO UPDATE SET
+         kind = EXCLUDED.kind, reason = EXCLUDED.reason`,
+      [key.toLowerCase(), kind, credentialFree(reason), now]
+    );
+  }
+
+  async unblockWorkspace(key: string): Promise<boolean> {
+    const rows = await this.write<{ key: string }>(
+      'DELETE FROM blocked_workspaces WHERE key = $1 RETURNING key',
+      [key.toLowerCase()]
+    );
+    return rows.length === 1;
+  }
+
+  async listBlockedWorkspaces(): Promise<BlockedWorkspace[]> {
+    const rows = await this.sql.query<BlockRow>(
+      `SELECT key, kind, reason, created_at FROM blocked_workspaces
+       ORDER BY key`
+    );
+    return rows.map((row) => ({
+      key: row.key,
+      kind: row.kind,
+      reason: row.reason,
+      createdAt: toIso(row.created_at),
+    }));
+  }
+
+  /**
+   * One statement: the URL-key row is deleted and re-inserted under the id
+   * (both data-modifying CTEs always run). When the org already has an id
+   * block, that one is kept and the URL-key row still goes. A URL key equal
+   * to the id only changes the row's kind.
+   */
+  async pinBlockedUrlKey(
+    urlKey: string,
+    workspaceId: string
+  ): Promise<boolean> {
+    const from = urlKey.toLowerCase();
+    const to = workspaceId.toLowerCase();
+    if (from === to) {
+      const rows = await this.write<{ key: string }>(
+        `UPDATE blocked_workspaces SET kind = 'id'
+         WHERE key = $1 AND kind = 'url_key' RETURNING key`,
+        [from]
+      );
+      return rows.length === 1;
+    }
+    const rows = await this.write<{ n: number }>(
+      `WITH moved AS (
+         DELETE FROM blocked_workspaces WHERE key = $1 AND kind = 'url_key'
+         RETURNING reason, created_at),
+       pinned AS (
+         INSERT INTO blocked_workspaces (key, kind, reason, created_at)
+         SELECT $2, 'id', reason, created_at FROM moved
+         ON CONFLICT (key) DO NOTHING
+         RETURNING key)
+       SELECT count(*)::int AS n FROM moved`,
+      [from, to]
+    );
+    return Number(rows[0]?.n ?? 0) > 0;
+  }
+
+  async getAdmittedPin(entry: string): Promise<string | null> {
+    const rows = await this.sql.query<{ workspace_id: string }>(
+      'SELECT workspace_id FROM admitted_workspaces WHERE entry = $1',
+      [entry.toLowerCase()]
+    );
+    return rows[0]?.workspace_id ?? null;
+  }
+
+  /**
+   * Insert-if-absent, then (when another process pinned the entry first)
+   * a fresh read in its own statement: the insert's snapshot may predate
+   * that pin, so it cannot be read in the same statement. A pin deleted
+   * between the two (a purge of the pinned workspace) is retried.
+   */
+  async pinAdmitted(
+    entry: string,
+    workspaceId: string,
+    now: IsoDateTime
+  ): Promise<string> {
+    const key = entry.toLowerCase();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const inserted = await this.write<{ workspace_id: string }>(
+        `INSERT INTO admitted_workspaces (entry, workspace_id, created_at)
+         VALUES ($1, $2, $3::timestamptz)
+         ON CONFLICT (entry) DO NOTHING
+         RETURNING workspace_id`,
+        [key, workspaceId, now]
+      );
+      const pinned =
+        inserted[0]?.workspace_id ?? (await this.getAdmittedPin(key));
+      if (pinned !== null) return pinned;
+    }
+    throw new Error('Could not pin the admission entry');
   }
 
   // --- audit ------------------------------------------------------------------------

@@ -358,9 +358,11 @@ describe('runMigrations', () => {
        WHERE table_schema = 'public' ORDER BY table_name`
     );
     expect(tables.map((row) => row.table_name)).toEqual([
+      'admitted_workspaces',
       'allocation_entries',
       'allocation_runs',
       'audit_log',
+      'blocked_workspaces',
       'installations',
       'items',
       'job_claims',
@@ -476,6 +478,146 @@ describe('runMigrations', () => {
       expect(rows.map((r) => r.indexname)).toEqual([
         'allocation_entries_issue_idx',
       ]);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test('migration 5 backfills revoke reasons, wiped credentials and sync counters', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 4)
+      );
+      // An active and a revoked installation, as migrations 1-4 wrote them
+      // (the ciphertext shape does not matter to the migration).
+      for (const [workspaceId, revokedAt] of [
+        ['ws-active', null],
+        ['ws-revoked', '2026-09-01T00:00:00Z'],
+      ] as const) {
+        await fresh.query(
+          `INSERT INTO installations (workspace_id, workspace_name, url_key,
+             app_user_id, installed_by_user_id, revoked_at, access_token_enc,
+             refresh_token_enc, token_expires_at, created_at, updated_at)
+           VALUES ($1, 'Acme', 'acme', 'app', 'u-ana', $2::timestamptz,
+             'v1:a:b:c', 'v1:d:e:f', '2026-10-22T08:00:00Z',
+             '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z')`,
+          [workspaceId, revokedAt]
+        );
+      }
+      await fresh.query(
+        `INSERT INTO sessions (id, token_hash, workspace_id, user_id,
+           user_name, access_token_enc, created_at, expires_at)
+         VALUES ('s1', 'h1', 'ws-active', 'u-ana', 'Ana', 'v1:a:b:c',
+           '2026-10-01T00:00:00Z', '2026-11-01T00:00:00Z')`
+      );
+      // ws-active synced fine (three issues mirrored); ws-failing never
+      // got a mirror and its last attempt failed.
+      await fresh.query(
+        `INSERT INTO sync_state (workspace_id, version, mirror_synced_at,
+           last_full_sync_at, last_full_sync_status)
+         VALUES ('ws-active', 4, '2026-10-20T08:00:00Z',
+           '2026-10-21T08:00:00Z', 'failed'),
+           ('ws-failing', 0, NULL, '2026-10-21T08:00:00Z', 'failed')`
+      );
+      for (const [kind, id] of [
+        ['issue', 'i1'],
+        ['issue', 'i2'],
+        ['issue', 'i3'],
+        ['user', 'u-ana'],
+      ] as const) {
+        await fresh.query(
+          `INSERT INTO mirror_entities (workspace_id, kind, id, ord, data,
+             synced_at)
+           VALUES ('ws-active', $1, $2, 1, '{}'::jsonb, now())`,
+          [kind, id]
+        );
+      }
+
+      expect(await runMigrations(fresh)).toEqual([5]);
+
+      const installations = await fresh.query<Record<string, unknown>>(
+        `SELECT workspace_id, revoked_reason, access_token_enc,
+           refresh_token_enc, token_expires_at
+         FROM installations ORDER BY workspace_id`
+      );
+      expect(installations).toEqual([
+        {
+          workspace_id: 'ws-active',
+          revoked_reason: null,
+          access_token_enc: 'v1:a:b:c',
+          refresh_token_enc: 'v1:d:e:f',
+          token_expires_at: new Date('2026-10-22T08:00:00Z'),
+        },
+        {
+          workspace_id: 'ws-revoked',
+          revoked_reason: 'grant_dead',
+          access_token_enc: '',
+          refresh_token_enc: null,
+          token_expires_at: null,
+        },
+      ]);
+      const sync = await fresh.query<Record<string, unknown>>(
+        `SELECT workspace_id, consecutive_failures, last_success_at,
+           last_full_sync_ms, mirror_issue_count
+         FROM sync_state ORDER BY workspace_id`
+      );
+      expect(sync).toEqual([
+        {
+          workspace_id: 'ws-active',
+          consecutive_failures: 1,
+          last_success_at: new Date('2026-10-20T08:00:00Z'),
+          last_full_sync_ms: null,
+          mirror_issue_count: 3,
+        },
+        {
+          workspace_id: 'ws-failing',
+          consecutive_failures: 1,
+          last_success_at: null,
+          last_full_sync_ms: null,
+          mirror_issue_count: null,
+        },
+      ]);
+      const sessions = await fresh.query<Record<string, unknown>>(
+        'SELECT workspace_name, workspace_url_key FROM sessions'
+      );
+      expect(sessions).toEqual([
+        { workspace_name: null, workspace_url_key: null },
+      ]);
+      const indexes = await fresh.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes
+         WHERE indexname IN ('sessions_workspace_idx',
+           'notifications_created_idx')
+         ORDER BY indexname`
+      );
+      expect(indexes.map((r) => r.indexname)).toEqual([
+        'notifications_created_idx',
+        'sessions_workspace_idx',
+      ]);
+
+      // The store reads the wiped row as a revoked installation with
+      // blank tokens, and the new constraints hold.
+      const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+      expect((await store.getInstallation('ws-revoked'))?.tokens).toEqual({
+        accessToken: '',
+        refreshToken: null,
+        expiresAt: null,
+        scopes: [],
+      });
+      for (const statement of [
+        "UPDATE installations SET revoked_reason = 'gone'",
+        `INSERT INTO blocked_workspaces (key, kind, created_at)
+         VALUES ('Acme', 'url_key', now())`,
+        `INSERT INTO blocked_workspaces (key, kind, created_at)
+         VALUES ('acme', 'name', now())`,
+        `INSERT INTO admitted_workspaces (entry, workspace_id, created_at)
+         VALUES ('Acme', 'ws-active', now())`,
+      ]) {
+        expect((await rejection(fresh.query(statement))).message).toMatch(
+          /check constraint/
+        );
+      }
     } finally {
       await fresh.close();
     }
