@@ -1906,7 +1906,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   within `warnLeadDays + stallDays` ahead or already past → bootstrap the
   watchers when the workspace has no settings yet (or, on its first sync, saved
   settings with no watchers): `WATCHER_EMAILS` matches, else the installer
-  (`bootstrapWatchers`; app users never, unmatched emails logged at warn) →
+  (`bootstrapWatchers`; app users and guests never, only active members match,
+  and how many emails matched nobody is logged at warn, never the addresses; in
+  OAuth mode the emails apply only where "Fail-safes" below allows) →
   `replaceMirror`. Later syncs never touch saved settings, so an emptied watcher
   list stays empty. Single-flight per workspace within a process: a caller that
   finds a sync running for its workspace (the web resync, the worker, `load`'s
@@ -1916,36 +1918,42 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   running sync's start on the engine clock, a caller runs its own (logged at
   warn), which later callers then join, so a hung sync never holds the daily job
   or a takeover. The web route adds a per-workspace cooldown (§8.1).
-- **handleWebhook**: `recordWebhookDelivery` (duplicate → `'duplicate'`), then
-  by `type`: `Issue` → `fetchIssue` + `fetchIssueRelations` (replace every
-  relation touching that issue) and, when the issue's milestone is not mirrored
-  yet, `fetchProject` for its project; `Project` → `fetchProject` (upsert
-  project + all its milestones, delete mirrored milestones of that project that
-  are gone); `Initiative` → `fetchInitiative`; `User` → `fetchUser`; `OAuthApp`
-  with action `revoked` → `markInstallationRevoked`. Fetch returning null or
-  action `remove` → delete from the mirror (a removed project also drops its
-  milestones). Anything else → `'ignored'`. A refetched issue keeps the mirror's
-  `lastStateChangeAt` when that is later (`withMirroredStateTime`: `fetchIssue`
-  knows only the timestamp approximation, the sync's value may be
-  history-refined), unless its state moved (`updatedFrom.stateId`, or a state
-  other than the mirror's): then the issue's `updatedAt`. When an Issue or
-  Project event brings a project the mirror did not have (reopened, or newly
-  visible), its milestones come with it but its issues cannot (there is no
-  per-project issue read), so a `fullSync` follows at once (its failure is
-  logged; the webhook's own change stays applied). Errors are recorded on the
-  delivery and logged; the periodic resync heals drift. An Issue refetch equal
-  to what the mirror holds writes nothing (since 2026-10-22, for the issue
-  list's moves): when no project refresh was needed, the mirror has the issue,
-  `sameIssue(mirrored, refetched)` holds (every `Issue` key compared with `===`,
-  an absent `dueDate` read as null, after the `lastStateChangeAt` rule above)
-  and Linear's relations of the issue are exactly the mirrored ones touching it
-  (same ids, same ends), the webhook answers "changed nothing" and the mirror
-  version, and every cached snapshot, stays as it was. So the echo of the
-  planner's own write (a person's edit, a bulk edit once it patched the mirror)
-  re-indexes nothing; an echo that lands while a bulk edit is still writing
-  still applies once. The refetch itself (2 app requests per issue) is still
-  made: skipping it would need proof that relation-only changes move
-  `Issue.updatedAt`.
+- **handleWebhook**: first, before anything is written (owner decision
+  2026-10-25, §2.6 of the multi-workspace spec: after the route's signature and
+  timestamp checks, before dedupe), a delivery for an organization with no
+  installation row is ignored whatever its type, and one for an installed
+  workspace admission refuses (fresh read) is ignored unless it is `OAuthApp`
+  `revoked`, which is never suppressed by admission; neither writes a delivery
+  row or a `sync_state` stub, and the route answers 200 either way. Then
+  `recordWebhookDelivery` (duplicate → `'duplicate'`), then by `type`: `Issue` →
+  `fetchIssue` + `fetchIssueRelations` (replace every relation touching that
+  issue) and, when the issue's milestone is not mirrored yet, `fetchProject` for
+  its project; `Project` → `fetchProject` (upsert project + all its milestones,
+  delete mirrored milestones of that project that are gone); `Initiative` →
+  `fetchInitiative`; `User` → `fetchUser`; `OAuthApp` with action `revoked` →
+  `markInstallationRevoked`. Fetch returning null or action `remove` → delete
+  from the mirror (a removed project also drops its milestones). Anything else →
+  `'ignored'`. A refetched issue keeps the mirror's `lastStateChangeAt` when
+  that is later (`withMirroredStateTime`: `fetchIssue` knows only the timestamp
+  approximation, the sync's value may be history-refined), unless its state
+  moved (`updatedFrom.stateId`, or a state other than the mirror's): then the
+  issue's `updatedAt`. When an Issue or Project event brings a project the
+  mirror did not have (reopened, or newly visible), its milestones come with it
+  but its issues cannot (there is no per-project issue read), so a `fullSync`
+  follows at once (its failure is logged; the webhook's own change stays
+  applied). Errors are recorded on the delivery and logged; the periodic resync
+  heals drift. An Issue refetch equal to what the mirror holds writes nothing
+  (since 2026-10-22, for the issue list's moves): when no project refresh was
+  needed, the mirror has the issue, `sameIssue(mirrored, refetched)` holds
+  (every `Issue` key compared with `===`, an absent `dueDate` read as null,
+  after the `lastStateChangeAt` rule above) and Linear's relations of the issue
+  are exactly the mirrored ones touching it (same ids, same ends), the webhook
+  answers "changed nothing" and the mirror version, and every cached snapshot,
+  stays as it was. So the echo of the planner's own write (a person's edit, a
+  bulk edit once it patched the mirror) re-indexes nothing; an echo that lands
+  while a bulk edit is still writing still applies once. The refetch itself (2
+  app requests per issue) is still made: skipping it would need proof that
+  relation-only changes move `Issue.updatedAt`.
 - **Issue list reads** (owner request 2026-10-22; `issue-list.ts`):
   `getIssueList(workspaceId, query, viewer?)` → `IssueListResult`
   `{ view, mirrorVersion }` and `getIssueListOptions(workspaceId, viewer?)` →
@@ -2012,17 +2020,114 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   The web route keeps live runs off until someone switches allocation live
   (§8.1).
 - **auth**: `startOAuth(intent)` creates state + PKCE pair. Scopes: `signin` →
-  `read`; `grant_write` → `read,write` (for anyone signed in but a guest: owner
+  `read`; `add_workspace` → `read` with `prompt=consent` (owner decision
+  2026-10-25: one more workspace; Linear then shows its consent screen for the
+  workspace open at linear.app instead of approving the last one silently);
+  `grant_write` → `read,write` (for anyone signed in but a guest: owner
   decisions 2026-10-21 and 2026-10-22); `install` → `read,write,initiative:read`
-  with `actor=app` (§4.1). `finishSignIn` exchanges the code, asks `whoAmI`,
-  creates a session (`sessionDays`). `finishInstall` exchanges with the app
-  actor, checks the workspace matches the actor's and saves the installation
-  (anyone signed in may install or reinstall: only a Linear admin can grant
-  `actor=app`); it writes no settings, and the web route then schedules the
-  first `fullSync`, which bootstraps the watchers. `authenticate` refreshes the
-  session's Linear token when needed (under `withSessionLock`) and returns
+  with `actor=app` and `prompt=consent` (§4.1). `OAUTH_SCOPES` is a `Record`
+  over every intent, and an unknown intent (also an inherited key such as
+  `constructor`) is `EngineInputError('invalid')`.
+  `finishSignIn({ code, codeVerifier, intent, expectWorkspaceId? })` (`signin`,
+  `add_workspace` or `grant_write`) exchanges the code, asks `whoAmI`, checks
+  admission for the workspace Linear granted (below), and for `grant_write`
+  requires `expectWorkspaceId` (else `invalid`, before the code is exchanged)
+  and refuses a grant for any other workspace with
+  `EngineAuthError('grant_wrong_workspace')` (the person had another workspace
+  open at linear.app); every refusal revokes the grant Linear issued and writes
+  no session. It then creates a session (`sessionDays`) that stores the
+  workspace's name and URL key from the identity, and `SignInResult` carries
+  them (`workspaceName`, `workspaceUrlKey`, optional: `devSignIn` fills the demo
+  workspace's, an api_key connect leaves them out).
+  `finishInstall({ code, codeVerifier, actor, expectWorkspaceId? })` refuses an
+  actor of another workspace than `expectWorkspaceId` (`wrong_workspace`, before
+  the exchange), exchanges with the app actor, checks admission (a refusal
+  revokes the new app token), checks the workspace matches the actor's and saves
+  the installation (anyone signed in may install or reinstall: only a Linear
+  admin can grant `actor=app`); it writes no settings, and the web route then
+  schedules the first `fullSync`, which bootstraps the watchers. `authenticate`
+  checks admission for the session's workspace right after `getSession` and
+  before `mirrorForPerson` (which may start a sync), refreshes the session's
+  Linear token when needed (under `withSessionLock`) and returns
   `Actor { session, canWriteLinear, readOnly }` (no role; `readOnly` is Linear's
   guest flag, above).
+- **Admission** (owner decision 2026-10-25, `admission.ts`; OAuth mode only,
+  demo and api_key modes admit their one workspace): which Linear workspaces an
+  OAuth deployment serves. It gates workspaces, never people, so it is not a
+  permission distinction. `admission(rt, { id, urlKey }, { fresh })` →
+  `'ok' | 'not_allowed' | 'blocked'`:
+  1. The operator block list (`blocked_workspaces`) wins: a block on the org id
+     (keys are lower-cased), or a `url_key` block equal to the workspace's
+     current URL key, which `pinBlockedUrlKey` turns into a block on that org id
+     on its first match, so a rename cannot dodge it.
+  2. Then `LINEAR_WORKSPACES` (`EngineConfig.workspaces`): unset or empty
+     (`installed`) is **closed to new workspaces**: only a workspace with an
+     installation row (active, or revoked during the purge grace period, so an
+     admin can reinstall) is admitted, which keeps existing deployments working;
+     `*` (`any`) admits every workspace; a list admits an entry equal to the org
+     id, or a URL-key entry pinned (`admitted_workspaces`) to the org it first
+     admitted: an unpinned entry equal to the current URL key is pinned to that
+     org (`pinAdmitted`, the first pin wins across processes), and afterwards it
+     admits only that org, also after a rename, never another org that takes the
+     key. An org-id-shaped entry (a UUID) is never read as a URL key.
+
+  `fresh` (sign-in, install, webhooks, the worker's list, cleanup) reads blocks,
+  pins and installation rows from the store, and a store error throws, so those
+  fail closed (a sign-in or install then revokes the new grant). Otherwise
+  (`authenticate`, `checkSession`, `describeSessions`) a read up to
+  `ADMISSION_CACHE_MS` (30 s) old is reused, and on a store error the last good
+  read (any age, logged at warn). The URL key comes from the identity at
+  sign-in, the installation in webhooks and the worker, and for a session
+  (looked up only when a URL-key block or an unpinned URL-key entry needs it)
+  `describeSessions`' value: the session's sign-in value, else the
+  installation's. Enforced in `finishSignIn` (every intent, right after
+  identifying the workspace: `discardTokens`, then
+  `EngineAuthError('workspace_not_allowed' | 'workspace_blocked')`, no session),
+  `finishInstall` (the same, the new app token revoked), `authenticate` (a
+  refused session reads as signed out, its row left for cleanup to end and
+  revoke), `listWorkspaceIds` (active installations admission admits, from
+  `store.listWorkspaceStatus`, least recently synced first; refused,
+  session-only and revoked ones are left out, refused ones logged at info, never
+  failures), webhooks (above) and `cleanup()`, whose
+  `revokeRefusedInstallations` revokes every installed workspace admission now
+  refuses as `'removed'` (`store.revokeInstallation`, credentials wiped, its
+  cached mirror forgotten, logged at warn), so a workspace taken out of
+  `LINEAR_WORKSPACES` or blocked keeps no live app token.
+  `refusedWorkspaces(rt)` (every workspace the store knows, installed or
+  session-only, that admission refuses, with its `WorkspaceStatus`) and
+  `refusedInstalledWorkspaces(rt)` (those with an active installation) are the
+  engine-internal helpers cleanup uses.
+
+- **Sessions in several workspaces** (owner decision 2026-10-25): one person may
+  hold sessions in several workspaces at once (each Linear workspace is its own
+  Linear user, grant and session row), and ending one revokes only its own
+  grant. `checkSession(token)` → `{ workspaceId } | null` is what switching
+  uses: admission (cached), the session row unexpired, and its Linear token
+  refreshed when near expiry through the same path as `authenticate`
+  (`forSession` under `withSessionLock`; a dead grant deletes the session, null;
+  a transient failure keeps it); it never calls `mirrorForPerson` or starts a
+  sync, and is null in api_key mode. `describeSessions(tokens)` →
+  `(SessionDescription | null)[]` in input order is the store's one-statement
+  description of a browser's held tokens (workspace id, name and URL key, user
+  id and name, expiry, the mirror's guest flag, `installed`, `revokedAt`,
+  `revokedReason`; no credential), with null for an unknown or expired token,
+  one past `MAX_DESCRIBED_SESSIONS` (20), or one whose workspace admission
+  refuses (cached reads); it makes no Linear call and never touches the mirror
+  cache, and returns `[]` in api_key and demo modes. Neither is a write, so
+  neither calls `requireWritable`: a guest may switch. `ping()` is the store's
+  liveness probe (`/api/health`).
+- **Fail-safes** (owner decision 2026-10-25, `fail-safes.ts`; OAuth mode only):
+  one `SLACK_BOT_TOKEN` channel is never used while the planner may serve more
+  than one workspace: when `LINEAR_WORKSPACES` is `*` or lists more than one
+  entry, or is unset and more than one workspace has an active installation,
+  boot builds the outbox channel instead and logs a warn naming the reason, and
+  every live warning run checks again (a second install after boot) and then
+  records each digest `undeliverable` in the outbox with `SLACK_SHARED_OFF`
+  (logged at warn). One admitted workspace keeps Slack. `WATCHER_EMAILS` seeds
+  watchers only in a workspace `LINEAR_WORKSPACES` names by id or URL key, or,
+  while it is unset, when exactly one workspace is installed (today's
+  single-workspace behaviour); never under `*`. Elsewhere the installer is the
+  first watcher (logged at info).
 
 ### 7.1 Engine exports and boot
 
@@ -2057,11 +2162,24 @@ and `signOut(token, { everyDevice? })`, which now resolves to a `SignOutResult`
 row, or in api_key mode a connected key, live, expired or recently ended);
 `CreateEngineFromEnvOptions` gains `migrateOnly` (the worker's `migrate`, §9);
 `EngineAuthError['code']` gains `key_rejected`, `key_cannot_read`,
-`guest_cannot_bind` and `no_reader` (error codes, not permission distinctions);
-`ReadOnlyReason` gains `read_only_key`; `IssueBulkResult.stopped.code` gains
-`read_only`; `EngineConfig` gains `auth` and `apiKey`
+`guest_cannot_bind` and `no_reader` (error codes, not permission distinctions),
+and (several workspaces, 2026-10-25) `workspace_not_allowed`,
+`workspace_blocked` and `grant_wrong_workspace` (refusals of a workspace or a
+grant, not of a person); `ReadOnlyReason` gains `read_only_key`;
+`IssueBulkResult.stopped.code` gains `read_only`; `EngineConfig` gains `auth`
+and `apiKey`
 (`{ idleMs, absoluteMs, syncIntervalMs, workspacePin, endpoint, deployed }`,
 null outside api_key mode); `EngineDeps` gains `keys` and `apiKeyGateway`.
+Several workspaces (additive, 2026-10-25): `OAuthIntent` gains `add_workspace`;
+`finishSignIn` and `finishInstall` take an optional `expectWorkspaceId`;
+`SignInResult` gains optional `workspaceName` and `workspaceUrlKey`; the
+`Engine` gains `checkSession(token)`, `describeSessions(tokens)` and `ping()`;
+`EngineConfig` gains optional `workspaces` (`WorkspaceAdmission`:
+`{ mode: 'installed' } | { mode: 'any' } | { mode: 'list', entries }`, absent
+reads as `installed`), `operator` (`OperatorContact` `{ name, email, url }`,
+absent reads as all null) and `demoUrl`; the index exports `ADMISSION_CACHE_MS`,
+`AdmissionVerdict`, `SLACK_SHARED_OFF`, `MAX_DESCRIBED_SESSIONS`,
+`MAX_WORKSPACE_ENTRIES`, `isDeployedEnv` and the `SessionDescription` type.
 
 `createEngineFromEnv`:
 
@@ -2111,7 +2229,14 @@ null outside api_key mode); `EngineDeps` gains `keys` and `apiKeyGateway`.
   `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`; `DATABASE_URL` or PGlite at
   `PGLITE_DIR` (default `.data/pglite`); redirect URI
   `${APP_URL}/api/auth/linear/callback`; Slack channel when `SLACK_BOT_TOKEN` is
-  set, else the outbox. Runs `store.migrate()` before returning.
+  set and the Slack fail-safe (§7 "Fail-safes") allows it, else the outbox. Runs
+  `store.migrate()` before returning. Logs which workspaces it admits:
+  `LINEAR_WORKSPACES` unset → info "closed to new workspaces: only installed
+  workspaces may sign in; set LINEAR_WORKSPACES to add one"; a list → info with
+  the entry count; `*` → warn. A deployed planner (`isDeployedEnv`:
+  `NODE_ENV=production` on a non-loopback `APP_URL`) without `OPERATOR_EMAIL`
+  logs one info line saying the contact page names no way to reach whoever runs
+  it.
 - Real `LinearProvider`: loads the installation/session tokens, refreshes when
   `expiresAt` is within 5 minutes (under the row lock, re-reading inside the
   lock so only one process refreshes; the new expiry is counted on the
@@ -2243,11 +2368,13 @@ Engine decisions made while building it (binding for callers):
   `takeExpiredSessions` in batches of 50 (at most 500 per run; the rest wait for
   the next tick) and revokes each one's Linear grant (refresh token, else access
   token), because Linear may auto-revoke a user's oldest tokens past about 10
-  per app. Revocation is best effort: a failure is logged at warn and counted,
-  never fails cleanup. Demo mode only deletes (`deleteExpiredSessions`). Webhook
-  delivery records older than 30 days (`WEBHOOK_RETENTION_DAYS`) are pruned:
-  dedupe needs only Linear's ~6 h retry window, the rest keeps each delivery's
-  processing error around to investigate.
+  per app. In OAuth mode it first revokes, as `'removed'`, every installed
+  workspace admission now refuses (`revokeRefusedInstallations`, §7
+  "Admission"). Revocation is best effort: a failure is logged at warn and
+  counted, never fails cleanup. Demo mode only deletes
+  (`deleteExpiredSessions`). Webhook delivery records older than 30 days
+  (`WEBHOOK_RETENTION_DAYS`) are pruned: dedupe needs only Linear's ~6 h retry
+  window, the rest keeps each delivery's processing error around to investigate.
 
 ### 7.2 Issue page (owner decision 2026-10-21)
 
@@ -5232,15 +5359,20 @@ Worker decisions made while building it (binding):
 | `DATABASE_URL`                              | all                                   | Postgres; unset → PGlite at `PGLITE_DIR` (default `.data/pglite`)                                                                                                                                                                                           |
 | `LINEAR_AUTH`                               | planner, worker                       | how the planner reaches Linear: `oauth` (default) or `api_key` (personal API keys held in the planner's memory, §7.4); a config error together with `LINEAR_FIXTURE`; set it as one shared variable for web and worker                                      |
 | `LINEAR_WORKSPACE`                          | planner (api_key)                     | the Linear workspace URL key (or organization id) the planner serves; **required when deployed** in api_key mode (`NODE_ENV=production`, non-loopback `APP_URL`); unset locally, the first member to connect binds; the worker's `migrate` does not need it |
+| `LINEAR_WORKSPACES`                         | planner, worker (oauth)               | oauth mode only: which Linear workspaces may use the planner (§7 "Admission"): unset → closed to new workspaces, `*` → any, else up to 100 comma-separated org ids or URL keys; set the same value on web **and** worker                                    |
 | `LINEAR_API_URL`                            | planner (api_key)                     | **test-only**: the GraphQL endpoint of a local fake Linear; accepted only with a loopback `APP_URL` and a `127.0.0.1` or `[::1]` URL without user info; logged at error level when set; the connect route then answers only loopback hosts                  |
 | `NODE_OPTIONS`                              | planner (api_key)                     | must include `--disable-sigusr1` when deployed in api_key mode (`deploy/Dockerfile` sets it); `--inspect*`, `--debug*` and the heap-snapshot flags are refused in api_key mode                                                                              |
 | `TOKEN_ENCRYPTION_KEY`                      | all                                   | oauth mode only: 32 random bytes, base64 (unused and warned about in api_key mode)                                                                                                                                                                          |
 | `SESSION_SECRET`                            | planner                               | oauth mode only: ≥ 32 chars, signs the OAuth cookie                                                                                                                                                                                                         |
 | `LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET` | planner, worker                       | oauth mode only: OAuth app                                                                                                                                                                                                                                  |
 | `LINEAR_WEBHOOK_SECRET`                     | planner                               | oauth mode only: webhook signing secret                                                                                                                                                                                                                     |
-| `SLACK_BOT_TOKEN`                           | worker, planner                       | optional; without it digests stay in the outbox                                                                                                                                                                                                             |
+| `SLACK_BOT_TOKEN`                           | worker, planner                       | optional; without it digests stay in the outbox, and in oauth mode they stay there while more than one workspace may be served (§7 "Fail-safes")                                                                                                            |
 | `DEFAULT_TIMEZONE`                          | all                                   | IANA zone for new workspaces (default `UTC`)                                                                                                                                                                                                                |
-| `WATCHER_EMAILS`                            | engine                                | comma-separated emails of the first watchers (else the installer)                                                                                                                                                                                           |
+| `WATCHER_EMAILS`                            | engine                                | comma-separated emails of the first watchers (else the installer); active members only; oauth mode: only in workspaces `LINEAR_WORKSPACES` names, or the one installed while it is unset                                                                    |
+| `OPERATOR_NAME`                             | planner                               | optional: who runs the planner, for the contact, privacy and terms pages (one line, at most 120 characters)                                                                                                                                                 |
+| `OPERATOR_EMAIL`                            | planner                               | optional: their email address; a deployed oauth planner without it logs one info line at boot                                                                                                                                                               |
+| `OPERATOR_URL`                              | planner                               | optional: an http(s) link about whoever runs the planner                                                                                                                                                                                                    |
+| `DEMO_URL`                                  | planner                               | optional: an http(s) link to a public demo, shown on the signed-out landing                                                                                                                                                                                 |
 | `LINEAR_FIXTURE`                            | planner, worker                       | `1` = demo mode, no Linear needed; `showcase` = the big demo                                                                                                                                                                                                |
 | `DAILY_RUN_AT`                              | worker                                | `HH:MM` in each workspace's timezone (default `08:00`)                                                                                                                                                                                                      |
 | `TICK_TIMEOUT_MINUTES`                      | worker                                | hard limit per run (not `migrate`), minutes (default 10, ≤ 14)                                                                                                                                                                                              |
@@ -5252,12 +5384,27 @@ Worker decisions made while building it (binding):
 `packages/engine` exports `loadEngineConfigFromEnv(env)` and
 `createEngineFromEnv(env)` so the planner and worker build identical engines.
 
+`LINEAR_WORKSPACES` (owner decision 2026-10-25, §7 "Admission"): unset or empty,
+the planner is **closed to new workspaces**: only workspaces that already have
+an installation may sign in and install, so an existing deployment keeps
+working. `*` opens it to any Linear workspace (boot logs a warn). Otherwise it
+lists up to 100 org ids or URL keys (letters, digits and dashes, at most 64
+each; case-insensitive); ids are recommended, since an admin can rename a URL
+key, and a URL key entry is pinned to the org it first admits. Set the same
+value on the web and the worker (a Railway shared variable), or the worker keeps
+syncing a workspace the web refuses. Demo mode does not read it. `OPERATOR_*`
+and `DEMO_URL` are optional in every mode and refused at boot when malformed
+(`OPERATOR_EMAIL` must look like an address, `OPERATOR_URL` and `DEMO_URL` must
+be http(s) URLs without user info); they are exposed as `EngineConfig.operator`
+and `EngineConfig.demoUrl`.
+
 In api_key mode `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
 `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET`, `SESSION_SECRET`,
-`SLACK_BOT_TOKEN` and `SESSION_DAYS` are not read; boot logs one warning per
-variable that is set ("X is unused when LINEAR_AUTH=api_key"). `DAILY_RUN_AT`
-and `TICK_TIMEOUT_MINUTES` do nothing (the worker schedules nothing, §9);
-`WATCHER_EMAILS` still seeds who the digest preview would warn.
+`SLACK_BOT_TOKEN`, `SESSION_DAYS` and `LINEAR_WORKSPACES` are not read; boot
+logs one warning per variable that is set ("X is unused when
+LINEAR_AUTH=api_key"). `DAILY_RUN_AT` and `TICK_TIMEOUT_MINUTES` do nothing (the
+worker schedules nothing, §9); `WATCHER_EMAILS` still seeds who the digest
+preview would warn.
 
 `PM_EMAILS` is retired (owner decision 2026-10-22: there is no PM role). It is
 not read; a deploy that still sets it boots normally and logs one warning
@@ -5587,10 +5734,43 @@ not read; a deploy that still sets it boots normally and logs one warning
 
 ## 12. Verified external facts
 
-See `docs/research.md` (generated from the research pass with sources). The
-personal-API-key facts this design relies on (F1–F14, checked 2026-10-23) are
-summarised in §4.1 "Personal API keys" and sourced in `docs/research.md`
-"Personal API keys (2026-10-23)", with the points still unverified: how Linear
-refuses a Read-only key's write, the key body's format, whether a
-team-restricted key can read `initiatives`, and whether Linear's error text can
-ever echo a credential.
+See `docs/research.md` (generated from the research pass with sources).
+
+Several workspaces (owner decision 2026-10-25; checked 2026-10-25 against
+Linear's GraphQL schema, `packages/sdk/src/schema.graphql` in `linear/linear`,
+and Linear's docs; linear.app/developers itself could not be opened from the
+sandbox):
+
+- **Distribution is private or public** (verified, schema
+  `OAuthApplication.distribution`): "Distribution setting for the OAuth
+  application. Private applications are only installable by the owning
+  workspace." The default is `private` (verified from an excerpt of the OAuth
+  app manifest docs). Neither `OAuthApplicationCreateInput` nor
+  `OAuthApplicationUpdateInput` has the field, so it is changed in Linear's UI
+  (Settings → Administration → API → the app → Public), not through the API. A
+  public app is not listed in Linear's integration directory (reported, not
+  verified).
+- **`prompt=consent`** (verified from an excerpt of Linear's OAuth 2.0 docs):
+  "The consent screen is displayed every time, even if all scopes were
+  previously granted. This can be useful if you want to give users the
+  opportunity to connect multiple workspaces." Without it Linear redirects at
+  once when the app was approved before with the same permissions (2021-01-14
+  changelog excerpt). `add_workspace` and `install` send it; plain sign-in and
+  `grant_write` do not.
+- **The workspace open at linear.app decides which one a grant is for**
+  (reported, not verified): several independent reports say the grant follows
+  the browser's active Linear workspace and that no authorize parameter picks
+  one; reports disagree on whether the consent screen has a workspace picker. So
+  the planner asks people to open the workspace at linear.app first, checks the
+  workspace of every grant it gets (`grant_wrong_workspace`, an install's
+  `wrong_workspace`, "already held" in the callback), and never assumes.
+- Each workspace is its own Linear user, grant and refresh chain; Linear's "more
+  than 10 tokens per app" auto-revoke counts per user (`activeTokensForUser` in
+  the schema; that it still applies after the refresh-token migration is
+  unverified), so sessions held in several workspaces do not use up each
+  other's. The personal-API-key facts this design relies on (F1–F14, checked
+  2026-10-23) are summarised in §4.1 "Personal API keys" and sourced in
+  `docs/research.md` "Personal API keys (2026-10-23)", with the points still
+  unverified: how Linear refuses a Read-only key's write, the key body's format,
+  whether a team-restricted key can read `initiatives`, and whether Linear's
+  error text can ever echo a credential.

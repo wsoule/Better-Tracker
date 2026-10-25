@@ -18,6 +18,12 @@
 //   (best effort): Linear may auto-revoke a user's oldest tokens once they
 //   hold more than 10 for one app, so abandoned tokens must not pile up.
 //   cleanup() does the same for sessions that expired (cleanup.ts).
+// - Several workspaces (owner decision 2026-10-25): every sign-in and
+//   install is checked against admission (admission.ts) right after Linear
+//   says which workspace it is for, and refused with the new grant revoked;
+//   authenticate, checkSession and describeSessions treat a session of a
+//   refused workspace as signed out (cleanup ends it). One person may hold
+//   sessions in several workspaces at once; each is its own row and grant.
 
 import { type Snapshot, type User, viewerScope } from '@better-tracker/core';
 import {
@@ -36,9 +42,15 @@ import type { Logger } from '@better-tracker/logger';
 import type {
   Installation,
   Session,
+  SessionDescription,
   StoredTokens,
 } from '@better-tracker/store';
 
+import {
+  admission,
+  type AdmissionVerdict,
+  createAdmissionPass,
+} from './admission';
 import { needsRefresh } from './providers';
 import type { EngineRuntime, MirrorView } from './runtime';
 import { fullSync } from './sync';
@@ -66,7 +78,22 @@ export const OAUTH_SCOPES: Record<OAuthIntent, readonly string[]> = {
   signin: ['read'],
   grant_write: ['read', 'write'],
   install: ['read', 'write', 'initiative:read'],
+  // One more workspace: a plain sign-in, but with prompt=consent.
+  add_workspace: ['read'],
 };
+
+/** The intents finishSignIn completes (install has finishInstall). */
+const SIGN_IN_INTENTS: readonly OAuthIntent[] = [
+  'signin',
+  'grant_write',
+  'add_workspace',
+];
+
+/**
+ * How many held tokens describeSessions describes; later ones read as
+ * null. A browser holds at most 10 (the active session and 9 stashed).
+ */
+export const MAX_DESCRIBED_SESSIONS = 20;
 
 /** Tokens demo-mode sessions and the demo installation carry. */
 const FIXTURE_TOKENS: StoredTokens = {
@@ -190,23 +217,79 @@ async function exchangeAndIdentify(
   }
 }
 
-/** The authorize URL plus the state and PKCE verifier the cookie keeps. */
+/**
+ * The authorize URL plus the state and PKCE verifier the cookie keeps.
+ * install adds actor=app; install and add_workspace add prompt=consent,
+ * so Linear shows its consent screen (for add_workspace: for the workspace
+ * open at linear.app) instead of silently approving the last one.
+ */
 export function startOAuth(rt: EngineRuntime, intent: OAuthIntent): OAuthStart {
   const oauth = requireOAuth(rt);
-  const scopes = OAUTH_SCOPES[intent];
-  if (scopes === undefined) {
+  if (typeof intent !== 'string' || !Object.hasOwn(OAUTH_SCOPES, intent)) {
     throw new EngineInputError('invalid', 'Unknown sign-in intent.');
   }
+  const scopes = OAUTH_SCOPES[intent];
   const state = createOAuthState();
   const pkce = createPkcePair();
   const install = intent === 'install';
+  const consent = install || intent === 'add_workspace';
   const url = buildAuthorizeUrl(oauth, {
     state,
     scopes: [...scopes],
     codeChallenge: pkce.challenge,
-    ...(install ? { actor: 'app' as const, prompt: 'consent' as const } : {}),
+    ...(install ? { actor: 'app' as const } : {}),
+    ...(consent ? { prompt: 'consent' as const } : {}),
   });
   return { url, state, codeVerifier: pkce.verifier };
+}
+
+/** What a sign-in or install refused by admission is told. */
+function refusedByAdmission(
+  verdict: Exclude<AdmissionVerdict, 'ok'>,
+  workspaceName: string
+): EngineAuthError {
+  return verdict === 'blocked'
+    ? new EngineAuthError(
+        'workspace_blocked',
+        `This planner does not serve ${workspaceName}: the person who runs it has blocked that workspace.`
+      )
+    : new EngineAuthError(
+        'workspace_not_allowed',
+        `This planner is not open to ${workspaceName} yet. Ask the person who runs it to add that workspace.`
+      );
+}
+
+/**
+ * Refuses a grant Linear just issued for a workspace admission does not
+ * admit (fresh: blocks, pins and installations read now), revoking it
+ * first, so a refused workspace never gets a session or an installation.
+ * A store error refuses too (fail closed), also revoking the grant.
+ */
+async function requireAdmitted(
+  rt: EngineRuntime,
+  oauth: OAuthClientConfig,
+  tokens: TokenSet,
+  workspace: LinearIdentity['workspace'],
+  log: Logger
+): Promise<void> {
+  let verdict: AdmissionVerdict;
+  try {
+    verdict = await admission(
+      rt,
+      { id: workspace.id, urlKey: workspace.urlKey },
+      { fresh: true }
+    );
+  } catch (error) {
+    await discardTokens(rt, oauth, tokens, log);
+    throw error;
+  }
+  if (verdict === 'ok') return;
+  await discardTokens(rt, oauth, tokens, log);
+  log.info('refused a workspace admission does not admit', {
+    workspaceId: workspace.id,
+    admission: verdict,
+  });
+  throw refusedByAdmission(verdict, workspace.name);
 }
 
 async function needsInstall(
@@ -277,22 +360,54 @@ export async function mirrorForPerson(
   return { view: await rt.mirror.current(workspaceId), installed: true };
 }
 
-/** Completes signin / grant_write: a new session for the Linear user. */
+/**
+ * Completes signin / add_workspace / grant_write: a new session for the
+ * Linear user in the workspace Linear granted, once admission admits that
+ * workspace (else workspace_not_allowed / workspace_blocked). A write grant
+ * must come back for `expectWorkspaceId` (required for grant_write; the
+ * other intents ignore it), else grant_wrong_workspace. Every refusal
+ * revokes the grant Linear issued and writes no session.
+ */
 export async function finishSignIn(
   rt: EngineRuntime,
   input: {
     code: string;
     codeVerifier: string;
-    intent: 'signin' | 'grant_write';
+    intent: 'signin' | 'grant_write' | 'add_workspace';
+    expectWorkspaceId?: string;
   }
 ): Promise<SignInResult> {
   const oauth = requireOAuth(rt);
-  if (input.intent !== 'signin' && input.intent !== 'grant_write') {
+  if (!SIGN_IN_INTENTS.includes(input.intent)) {
     throw new EngineInputError('invalid', 'Unknown sign-in intent.');
+  }
+  const expected =
+    input.intent === 'grant_write' ? input.expectWorkspaceId : undefined;
+  if (
+    input.intent === 'grant_write' &&
+    (typeof expected !== 'string' || expected === '')
+  ) {
+    throw new EngineInputError(
+      'invalid',
+      'A write grant needs the workspace it is for (expectWorkspaceId).'
+    );
   }
   const log = rt.logger.child({ op: 'signin', intent: input.intent });
   const { tokens, identity } = await exchangeAndIdentify(rt, oauth, input, log);
   const { user, workspace } = identity;
+  await requireAdmitted(rt, oauth, tokens, workspace, log);
+  if (expected !== undefined && workspace.id !== expected) {
+    await discardTokens(rt, oauth, tokens, log);
+    log.warn('refused a write grant for another workspace', {
+      workspaceId: workspace.id,
+      expectedWorkspaceId: expected,
+      userId: user.id,
+    });
+    throw new EngineAuthError(
+      'grant_wrong_workspace',
+      `Linear granted write access for ${workspace.name}, not for the workspace you were working in. Open that workspace at linear.app, then allow editing again.`
+    );
+  }
   if (user.app || !user.active) {
     await discardTokens(rt, oauth, tokens, log);
     log.warn('refused sign-in', {
@@ -338,6 +453,8 @@ export async function finishSignIn(
     userName: user.name,
     tokens: stored,
     expiresAt,
+    workspaceName: workspace.name,
+    workspaceUrlKey: workspace.urlKey,
   });
   log.info('signed in', {
     workspaceId: workspace.id,
@@ -349,6 +466,8 @@ export async function finishSignIn(
     sessionToken: created.token,
     session: publicSession(created.session),
     needsInstall: await needsInstall(rt, workspace.id),
+    workspaceName: workspace.name,
+    workspaceUrlKey: workspace.urlKey,
   };
 }
 
@@ -364,11 +483,28 @@ export async function finishSignIn(
  */
 export async function finishInstall(
   rt: EngineRuntime,
-  input: { code: string; codeVerifier: string; actor: Actor }
+  input: {
+    code: string;
+    codeVerifier: string;
+    actor: Actor;
+    expectWorkspaceId?: string;
+  }
 ): Promise<Installation> {
   const oauth = requireOAuth(rt);
   const { actor } = input;
   const workspaceId = actor.session.workspaceId;
+  // The install was started for one workspace (the signed OAuth state);
+  // the session finishing it must be of that workspace. Checked before the
+  // code is exchanged, so no grant is issued.
+  if (
+    input.expectWorkspaceId !== undefined &&
+    input.expectWorkspaceId !== workspaceId
+  ) {
+    throw new EngineAuthError(
+      'wrong_workspace',
+      'This install was started for another workspace than the session finishing it. Start the install again.'
+    );
+  }
   const log = rt.logger.child({
     op: 'install',
     workspaceId,
@@ -377,6 +513,7 @@ export async function finishInstall(
   const existing = await rt.store.getInstallation(workspaceId);
 
   const { tokens, identity } = await exchangeAndIdentify(rt, oauth, input, log);
+  await requireAdmitted(rt, oauth, tokens, identity.workspace, log);
   if (!identity.user.app || identity.workspace.id !== workspaceId) {
     await discardTokens(rt, oauth, tokens, log);
     log.warn('refused install', {
@@ -440,17 +577,153 @@ export async function devSignIn(
     expiresAt: new Date(
       rt.clock().getTime() + rt.config.sessionDays * DAY_MS
     ).toISOString(),
+    workspaceName: FIXTURE_WORKSPACE.name,
+    workspaceUrlKey: FIXTURE_WORKSPACE.urlKey,
   });
   rt.logger.info('demo sign-in', { workspaceId, userId: user.id });
   return {
     sessionToken: created.token,
     session: publicSession(created.session),
     needsInstall: await needsInstall(rt, workspaceId),
+    workspaceName: FIXTURE_WORKSPACE.name,
+    workspaceUrlKey: FIXTURE_WORKSPACE.urlKey,
   };
 }
 
+// The URL key admission matches a session's workspace with when a URL key
+// block or an unpinned LINEAR_WORKSPACES URL key needs it: the session's
+// sign-in value, else the installation's (one query, no decryption).
+async function sessionUrlKey(
+  rt: EngineRuntime,
+  sessionToken: string
+): Promise<string | null> {
+  const [described] = await rt.store.describeSessions(
+    [sessionToken],
+    rt.nowIso()
+  );
+  return described?.workspaceUrlKey ?? null;
+}
+
 /**
- * Resolves a cookie token into an Actor. A user token about to expire is
+ * Whether admission (cached reads) admits the session's workspace. A
+ * refused session reads as signed out; its row is left for cleanup, which
+ * ends it and revokes its grant.
+ */
+async function sessionAdmitted(
+  rt: EngineRuntime,
+  sessionToken: string,
+  session: Session
+): Promise<boolean> {
+  const verdict = await admission(
+    rt,
+    {
+      id: session.workspaceId,
+      lookupUrlKey: () => sessionUrlKey(rt, sessionToken),
+    },
+    { fresh: false }
+  );
+  if (verdict === 'ok') return true;
+  rt.logger.info('session refused: admission refuses its workspace', {
+    workspaceId: session.workspaceId,
+    userId: session.userId,
+    admission: verdict,
+  });
+  return false;
+}
+
+/**
+ * Refreshes the session's Linear token when it is near expiry (under the
+ * session lock, rt.linear.forSession). A dead grant ends the session
+ * (false); a transient failure keeps it (logged, retried on the person's
+ * next Linear edit). Demo sessions never refresh.
+ */
+async function refreshSessionIfNeeded(
+  rt: EngineRuntime,
+  sessionToken: string,
+  session: Session
+): Promise<boolean> {
+  if (rt.linear.mode === 'fixture' || !needsRefresh(session.tokens, rt.clock()))
+    return true;
+  try {
+    await rt.linear.forSession(session);
+  } catch (error) {
+    if (error instanceof EngineAuthError && error.code === 'not_signed_in') {
+      await rt.store.deleteSession(sessionToken);
+      return false;
+    }
+    rt.logger.warn('could not refresh the session token; continuing', {
+      workspaceId: session.workspaceId,
+      userId: session.userId,
+      error,
+    });
+  }
+  return true;
+}
+
+/**
+ * Whether a held cookie token is a live session of an admitted workspace
+ * (Engine.checkSession, for switching): admission (cached), the session
+ * row unexpired, and its Linear token refreshed when near expiry (a dead
+ * grant ends it). Never places the person: no mirror read, no sync.
+ */
+export async function checkSession(
+  rt: EngineRuntime,
+  sessionToken: string | undefined
+): Promise<{ workspaceId: string } | null> {
+  if (rt.config.auth === 'api_key') return null;
+  if (typeof sessionToken !== 'string' || sessionToken === '') return null;
+  const session = await rt.store.getSession(sessionToken, rt.nowIso());
+  if (session === null) return null;
+  if (!(await sessionAdmitted(rt, sessionToken, session))) return null;
+  if (!(await refreshSessionIfNeeded(rt, sessionToken, session))) return null;
+  return { workspaceId: session.workspaceId };
+}
+
+/**
+ * Engine.describeSessions: the store's one-query description of each held
+ * token (no credential, no Linear call, no mirror cache), in input order,
+ * with null for an unknown or expired token, one past
+ * MAX_DESCRIBED_SESSIONS, or one whose workspace admission refuses (cached
+ * reads). [] in api_key and demo modes, which hold one session.
+ */
+export async function describeSessions(
+  rt: EngineRuntime,
+  sessionTokens: readonly string[]
+): Promise<(SessionDescription | null)[]> {
+  if (rt.config.auth !== 'oauth' || rt.linear.mode === 'fixture') return [];
+  if (!Array.isArray(sessionTokens)) return [];
+  const asked = sessionTokens.map((token, index) =>
+    typeof token === 'string' && token !== '' && index < MAX_DESCRIBED_SESSIONS
+      ? token
+      : null
+  );
+  const tokens = asked.filter((token): token is string => token !== null);
+  const described = await rt.store.describeSessions(tokens, rt.nowIso());
+  const byToken = new Map<string, SessionDescription>();
+  for (const entry of described)
+    if (entry !== null) byToken.set(entry.token, entry);
+  const check = createAdmissionPass(rt, { fresh: false });
+  const out: (SessionDescription | null)[] = [];
+  for (const token of asked) {
+    const entry = token === null ? undefined : byToken.get(token);
+    if (entry === undefined) {
+      out.push(null);
+      continue;
+    }
+    const verdict = await check({
+      id: entry.workspaceId,
+      urlKey: entry.workspaceUrlKey,
+      installed: entry.installed,
+    });
+    out.push(verdict === 'ok' ? entry : null);
+  }
+  return out;
+}
+
+/**
+ * Resolves a cookie token into an Actor. A session of a workspace
+ * admission refuses (cached reads, checked before anything else) reads as
+ * signed out, its row left for cleanup. A user token about to expire is
  * refreshed (single-flight under the session lock); a dead grant ends the
  * session (null), while a transient refresh failure keeps the person signed
  * in for reads and is retried on their next Linear edit. A person the
@@ -470,6 +743,8 @@ export async function authenticate(
   const session = await rt.store.getSession(sessionToken, rt.nowIso());
   if (session === null) return null;
   const fixture = rt.linear.mode === 'fixture';
+  // Before mirrorForPerson, which may start a refused workspace's sync.
+  if (!(await sessionAdmitted(rt, sessionToken, session))) return null;
 
   const { view, installed } = await mirrorForPerson(rt, session.workspaceId);
   const mirrored = view?.snapshot.users.get(session.userId);
@@ -482,21 +757,7 @@ export async function authenticate(
     return null;
   }
 
-  if (!fixture && needsRefresh(session.tokens, rt.clock())) {
-    try {
-      await rt.linear.forSession(session);
-    } catch (error) {
-      if (error instanceof EngineAuthError && error.code === 'not_signed_in') {
-        await rt.store.deleteSession(sessionToken);
-        return null;
-      }
-      rt.logger.warn('could not refresh the session token; continuing', {
-        workspaceId: session.workspaceId,
-        userId: session.userId,
-        error,
-      });
-    }
-  }
+  if (!(await refreshSessionIfNeeded(rt, sessionToken, session))) return null;
 
   // Decided per request from the mirror, so a person Linear turns into a
   // guest (or back) is read-only (or not) from their next page on.

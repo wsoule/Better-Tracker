@@ -11,7 +11,12 @@ import {
 import { parseEncryptionKey } from '@better-tracker/store';
 
 import { API_KEY_IDLE_MS, API_KEY_MAX_MS } from './key-vault';
-import type { EngineConfig, LinearAuthMode } from './types';
+import type {
+  EngineConfig,
+  LinearAuthMode,
+  OperatorContact,
+  WorkspaceAdmission,
+} from './types';
 
 /** Process environment, or any plain map of variables (tests). */
 export type EngineEnv = Readonly<Record<string, string | undefined>>;
@@ -42,6 +47,10 @@ export const DEFAULT_API_KEY_SYNC_INTERVAL_MINUTES = 15;
 const MAX_SYNC_INTERVAL_MINUTES = 1440;
 /** What LINEAR_WORKSPACE may hold: a URL key or an organization id. */
 const WORKSPACE_PIN = /^[A-Za-z0-9-]{1,64}$/;
+/** At most this many LINEAR_WORKSPACES entries. */
+export const MAX_WORKSPACE_ENTRIES = 100;
+/** OPERATOR_NAME's limit, in characters. */
+const MAX_OPERATOR_NAME = 120;
 /** Hosts that count as this machine (APP_URL "loopback"). */
 const LOOPBACK_HOSTS: readonly string[] = ['localhost', '127.0.0.1', '[::1]'];
 /** The only hosts LINEAR_API_URL (test-only) may point at. */
@@ -59,6 +68,7 @@ export const API_KEY_UNUSED_ENV_VARIABLES: readonly string[] = [
   'SESSION_SECRET',
   'SLACK_BOT_TOKEN',
   'SESSION_DAYS',
+  'LINEAR_WORKSPACES',
 ];
 
 /**
@@ -234,6 +244,126 @@ function parseAppUrl(value: string): { url: string } | { error: string } {
   return { url: value.replace(/\/+$/, '') };
 }
 
+/**
+ * Whether the environment is a deployed planner: NODE_ENV=production on a
+ * non-loopback APP_URL (api_key mode's `deployed`, for any mode). An
+ * invalid or missing APP_URL is not deployed (loadEngineConfigFromEnv
+ * reports it).
+ */
+export function isDeployedEnv(env: EngineEnv): boolean {
+  const appUrl = read(env, 'APP_URL');
+  if (read(env, 'NODE_ENV') !== 'production' || appUrl === null) return false;
+  try {
+    return !LOOPBACK_HOSTS.includes(new URL(appUrl).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * LINEAR_WORKSPACES (OAuth mode, owner decision 2026-10-25): unset or
+ * empty → closed to new workspaces (`installed`); exactly `*` → `any`;
+ * else a comma-separated list of org ids or URL keys (letters, digits and
+ * dashes, at most 64 each, at most MAX_WORKSPACE_ENTRIES), lower-cased and
+ * deduplicated. Problems are added to `problems`.
+ */
+function readWorkspaceAdmission(
+  env: EngineEnv,
+  problems: string[]
+): WorkspaceAdmission {
+  const items = parseList(read(env, 'LINEAR_WORKSPACES'));
+  if (items.length === 0) return { mode: 'installed' };
+  if (items.length === 1 && items[0] === '*') return { mode: 'any' };
+  const entries: string[] = [];
+  for (const item of items) {
+    if (item === '*') {
+      problems.push(
+        'LINEAR_WORKSPACES is either * on its own or a list of workspaces, not both'
+      );
+      continue;
+    }
+    if (!WORKSPACE_PIN.test(item)) {
+      problems.push(
+        `LINEAR_WORKSPACES has an entry that is not a Linear organization id or URL key (letters, digits and dashes, at most 64): ${item.slice(0, 80)}`
+      );
+      continue;
+    }
+    const entry = item.toLowerCase();
+    if (!entries.includes(entry)) entries.push(entry);
+  }
+  if (entries.length > MAX_WORKSPACE_ENTRIES) {
+    problems.push(
+      `LINEAR_WORKSPACES lists ${entries.length} workspaces; at most ${MAX_WORKSPACE_ENTRIES} are allowed (use * to admit any)`
+    );
+  }
+  return entries.length === 0
+    ? { mode: 'installed' }
+    : { mode: 'list', entries };
+}
+
+// Whether text holds a control character (C0 or DEL).
+function hasControlCharacter(text: string): boolean {
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+  return false;
+}
+
+// An optional public http(s) URL without user info (OPERATOR_URL,
+// DEMO_URL), or null when unset; a problem is added when it is malformed.
+function readPublicUrl(
+  env: EngineEnv,
+  name: string,
+  problems: string[]
+): string | null {
+  const value = read(env, name);
+  if (value === null) return null;
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(value);
+  } catch {
+    parsed = null;
+  }
+  if (
+    parsed === null ||
+    (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') ||
+    parsed.username !== '' ||
+    parsed.password !== ''
+  ) {
+    problems.push(`${name} must be an http:// or https:// URL`);
+    return null;
+  }
+  return value;
+}
+
+/**
+ * OPERATOR_NAME, OPERATOR_EMAIL and OPERATOR_URL (all optional): who runs
+ * this planner, for the contact, privacy and terms pages. The shapes are
+ * checked loosely: one line of at most 120 characters, something@something,
+ * an http(s) URL.
+ */
+function readOperator(env: EngineEnv, problems: string[]): OperatorContact {
+  const name = read(env, 'OPERATOR_NAME');
+  if (
+    name !== null &&
+    (name.length > MAX_OPERATOR_NAME || hasControlCharacter(name))
+  ) {
+    problems.push(
+      `OPERATOR_NAME must be one line of at most ${MAX_OPERATOR_NAME} characters`
+    );
+  }
+  const email = read(env, 'OPERATOR_EMAIL');
+  if (email !== null && !/^[^\s@]+@[^\s@]+$/.test(email)) {
+    problems.push('OPERATOR_EMAIL is not an email address');
+  }
+  return {
+    name,
+    email,
+    url: readPublicUrl(env, 'OPERATOR_URL', problems),
+  };
+}
+
 // Validates a bootstrap email list and lowercases it for matching.
 function parseEmails(
   name: string,
@@ -394,6 +524,14 @@ export function loadEngineConfigFromEnv(
     problems.push('LOG_LEVEL must be one of debug, info, warn, error');
   }
 
+  // Read in OAuth mode only: demo mode ignores it and api_key mode reports
+  // it unused at boot (API_KEY_UNUSED_ENV_VARIABLES).
+  const workspaces = oauthMode
+    ? readWorkspaceAdmission(env, problems)
+    : undefined;
+  const operator = readOperator(env, problems);
+  const demoUrl = readPublicUrl(env, 'DEMO_URL', problems);
+
   let apiKey: EngineConfig['apiKey'] = null;
   if (apiKeyMode && !fixture) {
     apiKey = readApiKeyConfig(env, {
@@ -426,6 +564,9 @@ export function loadEngineConfigFromEnv(
             redirectUri: `${appUrl}${OAUTH_CALLBACK_PATH}`,
           },
     sessionDays,
+    ...(workspaces === undefined ? {} : { workspaces }),
+    operator,
+    demoUrl,
   };
 }
 

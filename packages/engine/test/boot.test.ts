@@ -41,6 +41,10 @@ describe('loadEngineConfigFromEnv', () => {
       bootstrapWatcherEmails: [],
       oauth: null,
       sessionDays: 30,
+      // Additive (2026-10-25): who runs it and the demo link, for the
+      // public pages; LINEAR_WORKSPACES is not read in demo mode.
+      operator: { name: null, email: null, url: null },
+      demoUrl: null,
     });
   });
 

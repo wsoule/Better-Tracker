@@ -4,7 +4,9 @@
 // entirely in memory over a fictional demo workspace; OAuth mode talks to
 // Linear through stored OAuth tokens; api_key mode (LINEAR_AUTH=api_key,
 // owner request 2026-10-23) through each person's own personal API key,
-// held only in this process's memory over a credential-free store.
+// held only in this process's memory over a credential-free store. OAuth
+// mode logs which workspaces it admits (LINEAR_WORKSPACES) and keeps one
+// Slack bot from serving several workspaces (fail-safes.ts).
 
 import {
   defaultSettings,
@@ -43,11 +45,13 @@ import {
   DEFAULT_PGLITE_DIR,
   type EngineEnv,
   fixtureDatasetFromEnv,
+  isDeployedEnv,
   loadEngineConfigFromEnv,
   RETIRED_ENV_VARIABLES,
   retiredEnvVariables,
 } from './config';
 import { createEngine } from './engine';
+import { sharedSlackReason } from './fail-safes';
 import { bindingFor } from './key-auth';
 import { createApiKeyLinearProvider } from './key-provider';
 import {
@@ -294,6 +298,42 @@ async function createApiKeyEngineFromEnv(
 }
 
 /**
+ * The OAuth boot lines about who may use this planner (owner decision
+ * 2026-10-25): which workspaces LINEAR_WORKSPACES admits (a warn for `*`),
+ * and, on a deployed planner, an info line when OPERATOR_EMAIL is unset
+ * (the contact page then names no way to reach whoever runs it).
+ */
+function logAdmission(
+  env: EngineEnv,
+  config: EngineConfig,
+  logger: Logger
+): void {
+  const mode = config.workspaces ?? { mode: 'installed' };
+  if (mode.mode === 'any') {
+    logger.warn(
+      'LINEAR_WORKSPACES is *: any Linear workspace may sign in to and install this planner',
+      { variable: 'LINEAR_WORKSPACES' }
+    );
+  } else if (mode.mode === 'list') {
+    logger.info(
+      `LINEAR_WORKSPACES admits ${mode.entries.length} workspace${mode.entries.length === 1 ? '' : 's'}`,
+      { variable: 'LINEAR_WORKSPACES', entries: mode.entries.length }
+    );
+  } else {
+    logger.info(
+      'closed to new workspaces: only installed workspaces may sign in; set LINEAR_WORKSPACES to add one',
+      { variable: 'LINEAR_WORKSPACES' }
+    );
+  }
+  if (isDeployedEnv(env) && (config.operator?.email ?? null) === null) {
+    logger.info(
+      'OPERATOR_EMAIL is not set: the contact page names no way to reach whoever runs this planner',
+      { variable: 'OPERATOR_EMAIL' }
+    );
+  }
+}
+
+/**
  * Opens the store, runs migrations and returns a ready engine. Throws one
  * Error listing every configuration problem before touching anything.
  */
@@ -364,10 +404,23 @@ export async function createEngineFromEnv(
       });
     }
 
+    if (!fixture) logAdmission(env, config, logger);
     const slackToken = read(env, 'SLACK_BOT_TOKEN');
+    // The Slack fail-safe: one bot never carries several workspaces'
+    // digests (the warning run checks again for installs after boot).
+    const slackOff =
+      options.channel === undefined && !fixture && slackToken !== undefined
+        ? await sharedSlackReason(config, store)
+        : null;
+    if (slackOff !== null) {
+      logger.warn(
+        `SLACK_BOT_TOKEN is not used: ${slackOff}, and one Slack bot would carry every workspace's digests. Digests stay in each workspace's outbox.`,
+        { variable: 'SLACK_BOT_TOKEN', reason: slackOff }
+      );
+    }
     const channel =
       options.channel ??
-      (!fixture && slackToken !== undefined
+      (!fixture && slackToken !== undefined && slackOff === null
         ? createSlackChannel({ botToken: slackToken, logger })
         : createOutboxChannel());
 

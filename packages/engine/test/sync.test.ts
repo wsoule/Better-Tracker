@@ -200,7 +200,10 @@ describe('fullSync', () => {
     expect(settings).not.toHaveProperty('pmUserIds');
     expect(settings?.timezone).toBe('UTC');
     expect(settings?.allocationMode).toBe('dry_run');
-    expect(s.logs.some((l) => l.includes('ghost@x.example'))).toBe(true);
+    // Unmatched addresses (the ghost, and the app user's) are counted,
+    // never logged (owner decision 2026-10-25).
+    expect(s.logs.some((l) => l.includes('ghost@x.example'))).toBe(false);
+    expect(s.logs.some((l) => l.includes('"unmatched":2'))).toBe(true);
 
     // Later syncs never touch configured settings, an emptied watcher
     // list included (there is no "last PM" rule to refill it).

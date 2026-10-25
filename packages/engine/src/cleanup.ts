@@ -9,9 +9,13 @@
 // - Webhook delivery records older than WEBHOOK_RETENTION_DAYS are pruned.
 //   Dedupe only needs Linear's retry window (about six hours); the longer
 //   window keeps each delivery's processing error around to investigate.
+// - Installed workspaces admission now refuses (taken out of
+//   LINEAR_WORKSPACES, or blocked) are revoked as 'removed'
+//   (revokeRefusedInstallations).
 
 import type { OAuthClientConfig } from '@better-tracker/linear';
 
+import { refusedInstalledWorkspaces } from './admission';
 import { revokeGrant } from './auth';
 import type { EngineRuntime } from './runtime';
 import type { CleanupResult } from './types';
@@ -63,6 +67,40 @@ async function revokeExpiredSessions(
   }
 }
 
+/**
+ * Revokes, as 'removed' (credentials wiped, store.revokeInstallation), every
+ * workspace with an active installation that admission refuses now (fresh
+ * read), and forgets its cached mirror, so a workspace taken out of
+ * LINEAR_WORKSPACES or blocked keeps no live app token and its purge clock
+ * starts. Each one is logged at warn. No Linear call (the app token is
+ * wiped, not revoked with Linear). Returns the workspaces it revoked.
+ * OAuth mode only (refusedInstalledWorkspaces is empty otherwise).
+ */
+export async function revokeRefusedInstallations(
+  rt: EngineRuntime,
+  now: Date
+): Promise<string[]> {
+  const revoked: string[] = [];
+  for (const { workspaceId, verdict } of await refusedInstalledWorkspaces(rt)) {
+    if (
+      !(await rt.store.revokeInstallation(
+        workspaceId,
+        'removed',
+        now.toISOString()
+      ))
+    ) {
+      continue;
+    }
+    rt.mirror.forget(workspaceId);
+    rt.logger.warn(
+      'removed a workspace admission no longer admits; its app token is wiped',
+      { workspaceId, admission: verdict }
+    );
+    revoked.push(workspaceId);
+  }
+  return revoked;
+}
+
 /** Deletes expired sessions (revoking their grants) and old deliveries. */
 export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
   const now = rt.clock();
@@ -72,6 +110,7 @@ export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
     revokeFailures: 0,
     oldDeliveries: 0,
   };
+  await revokeRefusedInstallations(rt, now);
   const oauth = rt.config.oauth;
   if (
     rt.linear.mode === 'fixture' ||

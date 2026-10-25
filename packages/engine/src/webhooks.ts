@@ -4,7 +4,11 @@
 // project milestones or issue relations, so an Issue event also replaces
 // that issue's relations and an Issue/Project event refreshes the project's
 // milestones; the periodic full sync heals anything still missed. Errors are
-// recorded on the delivery and logged, never thrown to the route.
+// recorded on the delivery and logged, never thrown to the route. Before
+// anything is written (the delivery row included), a delivery for an
+// organization with no installation, or one admission refuses, is ignored
+// (owner decision 2026-10-25), except Linear's OAuthApp revoked, which is
+// always applied to an installed workspace.
 
 import {
   type BlockingRelation,
@@ -19,6 +23,7 @@ import type { LinearGateway } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 import type { MirrorEntity, MirrorRef } from '@better-tracker/store';
 
+import { admission, installationRow } from './admission';
 import { type EngineRuntime, errorMessage } from './runtime';
 import { fullSync } from './sync';
 import { EngineAuthError, type Engine } from './types';
@@ -444,7 +449,46 @@ async function syncForNewProjects(
 }
 
 /**
- * The engine's handleWebhook. Demo mode ignores webhooks. A delivery id
+ * Whether a verified delivery may be recorded and applied (§2.6 order:
+ * after the route's signature and timestamp checks, before dedupe writes
+ * the delivery row). An organization with no installation row is ignored
+ * whatever the event (nothing to update or revoke). An installed one that
+ * admission refuses (fresh read) is ignored too, except OAuthApp revoked:
+ * an uninstall is never suppressed. A store error ignores the delivery
+ * (logged), like a failed dedupe write.
+ */
+async function webhookAdmitted(
+  rt: EngineRuntime,
+  event: WebhookEvent,
+  log: Logger
+): Promise<boolean> {
+  try {
+    const installation = await installationRow(rt, event.workspaceId);
+    if (installation === null) {
+      log.info('webhook for an organization with no installation; ignored');
+      return false;
+    }
+    if (event.type === 'OAuthApp' && event.action === 'revoked') return true;
+    const verdict = await admission(
+      rt,
+      { id: event.workspaceId, urlKey: installation.urlKey, installed: true },
+      { fresh: true }
+    );
+    if (verdict === 'ok') return true;
+    log.info('webhook for a workspace admission refuses; ignored', {
+      admission: verdict,
+    });
+    return false;
+  } catch (error) {
+    log.error('could not check the webhook workspace; ignored', { error });
+    return false;
+  }
+}
+
+/**
+ * The engine's handleWebhook. Demo mode ignores webhooks. A delivery for
+ * an organization with no installation or one admission refuses is
+ * ignored without writing anything (webhookAdmitted). A delivery id
  * seen before returns 'duplicate' without doing anything. Processing errors
  * are recorded on the delivery (markWebhookProcessed) and logged; the call
  * then still resolves ('processed': the delivery was handled and its error
@@ -475,6 +519,8 @@ export async function handleWebhook(
     log.warn('webhook ignored: this planner uses personal API keys');
     return 'ignored';
   }
+  // Refused and unknown organizations leave no row behind.
+  if (!(await webhookAdmitted(rt, event, log))) return 'ignored';
 
   if (deliveryId !== null) {
     try {

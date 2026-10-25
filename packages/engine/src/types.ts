@@ -49,6 +49,7 @@ import type {
   RunEntry,
   RunTrigger,
   Session,
+  SessionDescription,
   Store,
   SyncState,
 } from '@better-tracker/store';
@@ -78,6 +79,29 @@ export interface ApiKeyConfig {
   endpoint: string;
   /** NODE_ENV=production on a non-loopback APP_URL. */
   deployed: boolean;
+}
+
+/**
+ * EngineConfig.workspaces: which Linear workspaces may use an OAuth-mode
+ * planner (`LINEAR_WORKSPACES`, owner decision 2026-10-25; architecture §7
+ * "Admission"). It gates workspaces, never people.
+ * - `installed` (unset or empty): closed to new workspaces; only one that
+ *   already has an installation row (active, or revoked during the grace
+ *   period, so an admin can reinstall) is admitted.
+ * - `any` (`*`): every Linear workspace.
+ * - `list`: only the listed workspaces, each an org id or a URL key
+ *   (lower-cased; a URL key is pinned to the org it first admits).
+ */
+export type WorkspaceAdmission =
+  | { mode: 'installed' }
+  | { mode: 'any' }
+  | { mode: 'list'; entries: readonly string[] };
+
+/** Who runs this planner (`OPERATOR_*`), for the public pages. */
+export interface OperatorContact {
+  name: string | null;
+  email: string | null;
+  url: string | null;
 }
 
 /** Static configuration for one deployment. */
@@ -111,6 +135,19 @@ export interface EngineConfig {
    * TICK_TIMEOUT_MINUTES at lease − stale − 1 (14).
    */
   dailyLeaseMinutes?: number;
+  /**
+   * Additive (OAuth mode only): `LINEAR_WORKSPACES`. Absent reads as
+   * `{ mode: 'installed' }` (closed to new workspaces). Demo and api_key
+   * modes ignore it.
+   */
+  workspaces?: WorkspaceAdmission;
+  /**
+   * Additive: `OPERATOR_NAME`, `OPERATOR_EMAIL` and `OPERATOR_URL`, for the
+   * contact, privacy and terms pages. Absent reads as all null.
+   */
+  operator?: OperatorContact;
+  /** Additive: `DEMO_URL`, a public demo of the planner; null when unset. */
+  demoUrl?: string | null;
 }
 
 /**
@@ -410,7 +447,16 @@ export interface CleanupResult {
   oldDeliveries: number;
 }
 
-export type OAuthIntent = 'signin' | 'install' | 'grant_write';
+/**
+ * Additive `add_workspace` (owner decision 2026-10-25): a sign-in to one
+ * more Linear workspace, asking for `read` with `prompt=consent` so Linear
+ * shows its consent screen again instead of approving the last workspace.
+ */
+export type OAuthIntent =
+  | 'signin'
+  | 'install'
+  | 'grant_write'
+  | 'add_workspace';
 
 export interface OAuthStart {
   url: string;
@@ -424,6 +470,13 @@ export interface SignInResult {
   session: Session;
   /** The workspace has no app installation yet; send the user to /setup. */
   needsInstall: boolean;
+  /**
+   * Additive: the workspace's name and URL key from Linear's identity
+   * (OAuth sign-ins and demo sign-ins fill them; an api_key connect may
+   * leave them out).
+   */
+  workspaceName?: string;
+  workspaceUrlKey?: string;
 }
 
 /** What connectApiKey returns (api_key mode). */
@@ -483,7 +536,19 @@ export class EngineAuthError extends Error {
      * Additive (api_key mode): no workspace member has a key connected,
      * so nothing can read Linear for the mirror (503, not "signed out").
      */
-    | 'no_reader';
+    | 'no_reader'
+    /**
+     * Additive (owner decision 2026-10-25): LINEAR_WORKSPACES does not
+     * admit the workspace a sign-in or install came back with (403).
+     */
+    | 'workspace_not_allowed'
+    /** Additive: the operator blocked that workspace (403). */
+    | 'workspace_blocked'
+    /**
+     * Additive: a write grant came back for another workspace than the one
+     * it was asked for (the person had another workspace open at linear.app).
+     */
+    | 'grant_wrong_workspace';
   constructor(code: EngineAuthError['code'], message: string) {
     super(message);
     this.name = 'EngineAuthError';
@@ -517,25 +582,60 @@ export interface Engine {
 
   // --- auth -----------------------------------------------------------------
   startOAuth(intent: OAuthIntent): OAuthStart;
-  /** Completes signin or grant_write: creates (or replaces) a session. */
+  /**
+   * Completes signin, add_workspace or grant_write: creates a session for
+   * the workspace Linear granted, once admission admits it (else
+   * workspace_not_allowed or workspace_blocked, the grant revoked).
+   * Additive `expectWorkspaceId`: required for grant_write, whose grant must
+   * be for that workspace (else grant_wrong_workspace, the grant revoked);
+   * the other intents ignore it.
+   */
   finishSignIn(input: {
     code: string;
     codeVerifier: string;
-    intent: 'signin' | 'grant_write';
+    intent: 'signin' | 'grant_write' | 'add_workspace';
+    expectWorkspaceId?: string;
   }): Promise<SignInResult>;
   /**
    * Completes the admin's actor=app install for the actor's workspace. A
-   * read-only actor (a Linear guest) is refused first (read_only).
+   * read-only actor (a Linear guest) is refused first (read_only), and a
+   * workspace admission refuses is refused with the new app token
+   * revoked. Additive `expectWorkspaceId`: the workspace the install was
+   * started for; the actor must be a session of it (else wrong_workspace).
    */
   finishInstall(input: {
     code: string;
     codeVerifier: string;
     actor: Actor;
+    expectWorkspaceId?: string;
   }): Promise<Installation>;
   /** Fixture mode only: sign in as a demo user without OAuth. */
   devSignIn(userId: string): Promise<SignInResult>;
-  /** Resolves a cookie token into an Actor, or null. */
+  /**
+   * Resolves a cookie token into an Actor, or null. Additive: null too when
+   * admission refuses the session's workspace (its row is left for
+   * cleanup).
+   */
   authenticate(sessionToken: string | undefined): Promise<Actor | null>;
+  /**
+   * Additive (switching workspaces): whether a held cookie token is still a
+   * live session the planner admits, without placing the person: the
+   * workspace is admitted, the session exists and is unexpired, and a
+   * Linear token near expiry is refreshed (a dead grant ends the session,
+   * null). Never syncs or reads the mirror. Null in api_key mode.
+   */
+  checkSession(
+    sessionToken: string | undefined
+  ): Promise<{ workspaceId: string } | null>;
+  /**
+   * Additive: what a browser's held cookie tokens are, in input order (null
+   * for a token with no unexpired session, or whose workspace admission
+   * refuses), from one store query: no Linear call, no mirror read, no
+   * credential. [] in api_key and demo modes.
+   */
+  describeSessions(
+    sessionTokens: readonly string[]
+  ): Promise<(SessionDescription | null)[]>;
   /**
    * Ends a session. Additive `everyDevice` (api_key mode only, ignored
    * elsewhere): forget every connected key of that person, not just this
@@ -787,6 +887,8 @@ export interface Engine {
    */
   cleanup(): Promise<CleanupResult>;
   now(): IsoDateTime;
+  /** Additive: the store's liveness probe (for /api/health); never throws. */
+  ping(): Promise<boolean>;
   /**
    * Additive: closes the store the engine was built with (the worker exits
    * after each tick; tests release their PGlite instances).
@@ -794,4 +896,4 @@ export interface Engine {
   close(): Promise<void>;
 }
 
-export type { IsoDateTime };
+export type { IsoDateTime, SessionDescription };

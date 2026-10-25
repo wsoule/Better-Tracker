@@ -38,6 +38,7 @@ import type {
   NotificationStatus,
 } from '@better-tracker/store';
 
+import { SLACK_SHARED_OFF, sharedSlackReason } from './fail-safes';
 import { loadWorkspace } from './load';
 import { type EngineRuntime, errorMessage } from './runtime';
 import { type Actor, EngineInputError, type WarningRunResult } from './types';
@@ -174,17 +175,29 @@ export async function runWarnings(
   }
 
   const channel = rt.deps.channel;
-  const delivering = settings.warningsMode === 'live' && channel.delivers;
+  // The Slack fail-safe (owner decision 2026-10-25): one bot never carries
+  // digests while this planner may serve more than one workspace (checked
+  // here too, since a second install may come after boot).
+  const slackOff =
+    settings.warningsMode === 'live' && channel.delivers
+      ? await sharedSlackReason(rt.config, rt.store)
+      : null;
+  if (slackOff !== null) {
+    log.warn('Slack is off: digests stay in the outbox', { reason: slackOff });
+  }
+  const delivering =
+    settings.warningsMode === 'live' && channel.delivers && slackOff === null;
 
   // What a digest is recorded as when nothing is delivered: preview mode
   // keeps it in the outbox on purpose; live mode without a channel that
-  // reaches people is undeliverable, loudly.
+  // reaches people (or with Slack off by the fail-safe) is undeliverable,
+  // loudly.
   const recordOnly = (): DeliveryOutcome =>
     settings.warningsMode === 'live'
       ? {
           status: 'undeliverable',
           channel: 'outbox',
-          error: SLACK_NOT_CONFIGURED,
+          error: slackOff === null ? SLACK_NOT_CONFIGURED : SLACK_SHARED_OFF,
         }
       : { status: 'preview', channel: 'outbox', error: null };
 

@@ -22,11 +22,19 @@ export {
   type EngineEnv,
   fixtureDatasetFromEnv,
   isApiKeyEnv,
+  isDeployedEnv,
   isFixtureEnv,
   linearAuthFromEnv,
   loadEngineConfigFromEnv,
+  MAX_WORKSPACE_ENTRIES,
   processFlagProblem,
 } from './config';
+// Several workspaces (owner decision 2026-10-25): admission's verdicts and
+// cache window, the Slack fail-safe's digest note, and how many held
+// tokens describeSessions describes.
+export { ADMISSION_CACHE_MS, type AdmissionVerdict } from './admission';
+export { SLACK_SHARED_OFF } from './fail-safes';
+export { MAX_DESCRIBED_SESSIONS } from './auth';
 // api_key mode (owner request 2026-10-23). The key vault itself is not
 // exported: only the engine reaches it.
 export { API_KEY_IDLE_MS, API_KEY_MAX_MS } from './key-vault';
