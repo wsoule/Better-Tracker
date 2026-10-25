@@ -8,11 +8,17 @@
 // requireCanInstall, which also lets a workspace whose first sync has not
 // landed be reinstalled. With personal API keys (config.auth api_key) the
 // auth methods go to key-auth.ts, OAuth is off, nothing runs unattended
-// (no scheduled run, digest or webhook) and the logs fail closed.
+// (no scheduled run, digest or webhook) and the logs fail closed. In OAuth
+// mode one deployment serves every workspace admission admits (owner
+// decision 2026-10-25, admission.ts): admission gates workspaces, never
+// people, so it adds no permission distinction.
 
+import { admittedInstalledWorkspaceIds } from './admission';
 import { runAllocation } from './allocation-run';
 import {
   authenticate,
+  checkSession,
+  describeSessions,
   devSignIn,
   finishInstall,
   finishSignIn,
@@ -120,6 +126,10 @@ export function createEngine(deps: EngineDeps): Engine {
       apiKeyMode ? oauthOff() : devSignIn(rt, userId),
     authenticate: (token) =>
       apiKeyMode ? authenticateWithKey(rt, token) : authenticate(rt, token),
+    // Switching workspaces: neither is a write, so no requireWritable (a
+    // guest may switch); both are null / [] with personal API keys.
+    checkSession: (token) => checkSession(rt, token),
+    describeSessions: (tokens) => describeSessions(rt, tokens),
     signOut: async (token, options) =>
       apiKeyMode ? signOutWithKey(rt, token, options) : signOut(rt, token),
     connectApiKey: (input) => connectApiKey(rt, input),
@@ -220,9 +230,9 @@ export function createEngine(deps: EngineDeps): Engine {
           ? []
           : [binding.workspaceId];
       }
-      return (await deps.store.listInstallations())
-        .filter((installation) => installation.revokedAt === null)
-        .map((installation) => installation.workspaceId);
+      // Active installations admission admits, least recently synced
+      // first; refused ones are skipped (info), never failures.
+      return admittedInstalledWorkspaceIds(rt);
     },
     listRevokedWorkspaceIds: async () =>
       apiKeyMode
@@ -270,6 +280,7 @@ export function createEngine(deps: EngineDeps): Engine {
       return cleanup(rt);
     },
     now: () => rt.nowIso(),
+    ping: () => deps.store.ping(),
     close: async () => {
       rt.keys?.scheduler?.close();
       rt.keys?.vault.clear();

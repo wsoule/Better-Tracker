@@ -18,6 +18,7 @@ import {
 import type { LinearGateway } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 
+import { watcherEmailsFor } from './fail-safes';
 import {
   type EngineRuntime,
   errorMessage,
@@ -95,18 +96,20 @@ async function refineLastStateChanges(
 // are saved, with the watchers bootstrapped from WATCHER_EMAILS (else the
 // installer); on the very first sync over settings saved earlier (an
 // install made before the owner decision of 2026-10-22 saved the installer
-// as PM) an empty watcher list is filled the same way. Returns null when
-// nothing needs saving.
-function bootstrapSettings(input: {
+// as PM) an empty watcher list is filled the same way. WATCHER_EMAILS is
+// narrowed to the workspaces it may seed (watcherEmailsFor). Resolves null
+// when nothing needs saving.
+async function bootstrapSettings(input: {
   rt: EngineRuntime;
   workspaceId: string;
+  urlKey: string | null;
   data: WorkspaceData;
   current: WorkspaceSettings;
   stored: boolean;
   firstSync: boolean;
   installerId: string | null;
   log: Logger;
-}): WorkspaceSettings | null {
+}): Promise<WorkspaceSettings | null> {
   const { rt, current } = input;
   if (input.stored && !input.firstSync) return null;
   const base: WorkspaceSettings = input.stored
@@ -115,7 +118,10 @@ function bootstrapSettings(input: {
   const watcherUserIds = bootstrapWatchers({
     data: input.data,
     installerId: input.installerId,
-    watcherEmails: rt.config.bootstrapWatcherEmails,
+    watcherEmails: await watcherEmailsFor(rt, {
+      id: input.workspaceId,
+      urlKey: input.urlKey,
+    }),
     existing: input.stored ? current.watcherUserIds : null,
     log: input.log,
   });
@@ -227,9 +233,10 @@ async function runFullSync(
       log
     );
 
-    const bootstrap = bootstrapSettings({
+    const bootstrap = await bootstrapSettings({
       rt,
       workspaceId,
+      urlKey: installation?.urlKey ?? null,
       data,
       current: settings,
       stored,

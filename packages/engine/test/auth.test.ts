@@ -120,7 +120,15 @@ async function signIn(
 ): Promise<{ token: string; actor: Actor }> {
   const code = `code-${identity.user.id}-${intent}-${Math.random()}`;
   fake.addCode(code, identity, intent === 'signin' ? 'read' : 'read,write');
-  const result = await engine.finishSignIn({ code, codeVerifier: 'v', intent });
+  const result = await engine.finishSignIn({
+    code,
+    codeVerifier: 'v',
+    intent,
+    // A write grant names the workspace it is for.
+    ...(intent === 'grant_write'
+      ? { expectWorkspaceId: identity.workspace.id }
+      : {}),
+  });
   const actor = await engine.authenticate(result.sessionToken);
   if (actor === null) throw new Error('not signed in');
   return { token: result.sessionToken, actor };
@@ -566,6 +574,7 @@ describe('guests are read-only', () => {
         code: 'code-gus-write',
         codeVerifier: 'v',
         intent: 'grant_write',
+        expectWorkspaceId: 'org-acme',
       })
     );
     expect(refused).toBeInstanceOf(EngineAuthError);
@@ -661,6 +670,7 @@ describe('guests are read-only', () => {
           code: 'code-gus-write',
           codeVerifier: 'v',
           intent: 'grant_write',
+          expectWorkspaceId: 'org-acme',
         })
       )
     ).toMatchObject({ name: 'EngineAuthError', code: 'read_only' });

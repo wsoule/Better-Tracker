@@ -32,10 +32,13 @@ function unique(ids: readonly string[]): string[] {
 
 /**
  * Bootstrap the watchers (architecture §7): any existing list is kept, else
- * the people whose email is in `watcherEmails` (WATCHER_EMAILS), else the
- * installer, so a fresh workspace always warns somebody besides the leads.
- * App users are never watchers, and only mirrored people count. Emails
- * that match nobody are logged at warn (missing inputs are loud).
+ * the people whose email is in `watcherEmails` (WATCHER_EMAILS, already
+ * narrowed to the workspaces it may seed: fail-safes.ts watcherEmailsFor),
+ * else the installer, so a fresh workspace always warns somebody besides
+ * the leads. App users are never watchers, and only mirrored people count.
+ * An email matches active members only, never a guest. How many emails
+ * match nobody is logged at warn (missing inputs are loud), never the
+ * addresses themselves.
  */
 export function bootstrapWatchers(input: {
   data: WorkspaceData;
@@ -49,7 +52,7 @@ export function bootstrapWatchers(input: {
   for (const user of input.data.users) {
     if (user.app) continue;
     people.set(user.id, user);
-    if (user.email !== null && user.active) {
+    if (user.email !== null && user.active && user.guest !== true) {
       byEmail.set(user.email.trim().toLowerCase(), user);
     }
   }
@@ -57,16 +60,20 @@ export function bootstrapWatchers(input: {
   const existing = unique(input.existing ?? []).filter((id) => people.has(id));
   if (existing.length > 0) return existing;
   const fromEmails: string[] = [];
+  let unmatched = 0;
   for (const email of input.watcherEmails) {
     const user = byEmail.get(email.toLowerCase());
     if (user === undefined) {
-      input.log.warn('bootstrap email matches no active Linear user', {
-        variable: 'WATCHER_EMAILS',
-        email,
-      });
+      unmatched += 1;
     } else if (!fromEmails.includes(user.id)) {
       fromEmails.push(user.id);
     }
+  }
+  if (unmatched > 0) {
+    input.log.warn('bootstrap emails match no active Linear member', {
+      variable: 'WATCHER_EMAILS',
+      unmatched,
+    });
   }
   if (fromEmails.length > 0) return fromEmails;
   if (input.installerId !== null && people.has(input.installerId)) {

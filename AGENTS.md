@@ -35,6 +35,14 @@
   the acting person's own key; the mirror sync uses a member's reader key that
   cannot write; `requireWritable` stays the one guard (`read_only_key`). Never
   add an `instrumentation.ts` that captures headers or bodies.
+- One deployment may serve several Linear workspaces (owner decision 2026-10-25,
+  design doc §12, OAuth mode only). Every read and write is keyed by the
+  session's workspace. `LINEAR_WORKSPACES` (closed to new workspaces when unset)
+  and the operator block list gate _workspaces_, not people, so they are not a
+  permission distinction; admission is checked in the engine
+  (`engine/src/admission.ts`) on every sign-in, install, request, webhook and
+  worker run. Switching only changes which of the browser's own sessions is
+  active: it calls no `requireWritable`, and guests may switch.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace; `LINEAR_FIXTURE=showcase` serves the large showcase workspace, made
   for the live demo). Tests never call real Linear or Slack.
