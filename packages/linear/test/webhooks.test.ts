@@ -126,6 +126,7 @@ describe('parseWebhookEvent', () => {
           stateId: 'st-old',
           updatedAt: '2026-10-20T00:00:00.000Z',
         },
+        createdAt: '2026-10-21T12:00:00.000Z',
       },
     });
   });
@@ -210,8 +211,33 @@ describe('parseWebhookEvent', () => {
         entityId: null,
         webhookTimestamp: NOW - 1_000,
         updatedFrom: null,
+        createdAt: '2026-10-21T12:00:00.000Z',
       },
     });
+  });
+
+  // createdAt is when the payload was created (webhookTimestamp is when
+  // it was sent): the engine's stale-revoke guard compares it with the
+  // installation's last update. It is normalised, and optional.
+  test('createdAt is read as an ISO instant, or null when absent or not a date', () => {
+    const revoked = (createdAt: unknown): string =>
+      JSON.stringify({
+        action: 'revoked',
+        type: 'OAuthApp',
+        organizationId: 'org-1',
+        webhookTimestamp: NOW,
+        ...(createdAt === undefined ? {} : { createdAt }),
+      });
+    const createdAtOf = (body: string): unknown => {
+      const result = parseWebhookEvent(body, NOW);
+      return result.ok ? result.event.createdAt : 'refused';
+    };
+    expect(createdAtOf(revoked('2026-10-21T13:00:00+01:00'))).toBe(
+      '2026-10-21T12:00:00.000Z'
+    );
+    expect(createdAtOf(revoked(undefined))).toBeNull();
+    expect(createdAtOf(revoked('yesterday-ish'))).toBeNull();
+    expect(createdAtOf(revoked(1792584000000))).toBeNull();
   });
 
   test('remove events carry the entity id and no updatedFrom', () => {
@@ -233,6 +259,7 @@ describe('parseWebhookEvent', () => {
         entityId: 'proj-1',
         webhookTimestamp: NOW,
         updatedFrom: null,
+        createdAt: '2026-10-21T12:00:00.000Z',
       },
     });
   });
@@ -282,6 +309,7 @@ describe('parseWebhookEvent', () => {
         entityId: null,
         webhookTimestamp: NOW,
         updatedFrom: null,
+        createdAt: '2026-10-21T12:00:00.000Z',
       },
     });
   });
