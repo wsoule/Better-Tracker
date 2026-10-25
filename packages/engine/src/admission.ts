@@ -20,7 +20,7 @@
 import type { BlockedWorkspace, WorkspaceStatus } from '@better-tracker/store';
 
 import type { EngineRuntime } from './runtime';
-import type { WorkspaceAdmission } from './types';
+import type { WorkspaceAdmission, WorkspaceOverview } from './types';
 
 /** What admission says about one workspace. */
 export type AdmissionVerdict = 'ok' | 'not_allowed' | 'blocked';
@@ -356,6 +356,30 @@ export async function admittedInstalledWorkspaceIds(
     ids.push(status.workspaceId);
   }
   return ids;
+}
+
+/**
+ * Engine.listWorkspaceStatus: every workspace the store knows (unexpired
+ * sessions counted at the engine clock), in the store's order, each with
+ * admission's fresh verdict. One admission pass, so the block list is read
+ * once; refused workspaces are only reported here, never revoked (cleanup
+ * does that). A store error throws.
+ */
+export async function workspaceOverview(
+  rt: EngineRuntime
+): Promise<WorkspaceOverview[]> {
+  const statuses = await rt.store.listWorkspaceStatus(rt.nowIso());
+  const check = createAdmissionPass(rt, { fresh: true });
+  const overview: WorkspaceOverview[] = [];
+  for (const status of statuses) {
+    const verdict = await check({
+      id: status.workspaceId,
+      urlKey: status.urlKey,
+      installed: status.installation !== null,
+    });
+    overview.push({ ...status, admission: verdict });
+  }
+  return overview;
 }
 
 /** A workspace the store knows that admission refuses, with its status. */

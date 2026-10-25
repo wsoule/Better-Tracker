@@ -59,6 +59,7 @@ import type {
   WorkspaceTable,
 } from '@better-tracker/store';
 
+import type { AdmissionVerdict } from './admission';
 import type { KeySyncScheduler } from './key-sync';
 import type { KeyVault } from './key-vault';
 
@@ -517,6 +518,16 @@ export type WorkspacePurge =
       workspaceId: string;
       reason: 'not_installed' | 'not_revoked' | 'too_recent';
     };
+
+/**
+ * One workspace as listWorkspaceStatus reports it (the worker's tick and
+ * the operator's `workspaces`, §9): the store's status plus what admission
+ * says about it now, read fresh (blocks, LINEAR_WORKSPACES and its pins).
+ * `ok` outside OAuth mode, where admission does not apply.
+ */
+export interface WorkspaceOverview extends WorkspaceStatus {
+  admission: AdmissionVerdict;
+}
 
 /** What blockWorkspace stored and did (the operator's `block`, §9). */
 export interface WorkspaceBlock {
@@ -985,10 +996,10 @@ export interface Engine {
   /**
    * Every workspace the store knows (installed, or only signed in to),
    * ordered by last full sync attempt (never attempted first), with its
-   * installation summary, sync state and unexpired session count. No
-   * tokens, no emails.
+   * installation summary, sync state, unexpired session count and
+   * admission's fresh verdict. No tokens, no emails.
    */
-  listWorkspaceStatus(): Promise<WorkspaceStatus[]>;
+  listWorkspaceStatus(): Promise<WorkspaceOverview[]>;
   /**
    * Revokes the installation as `reason` (wiping its credentials) and
    * forgets this process's cached mirror of it; true when the row changed
@@ -1062,4 +1073,12 @@ export interface Engine {
   close(): Promise<void>;
 }
 
-export type { IsoDateTime, SessionDescription };
+export type {
+  BlockedWorkspace,
+  BlockKind,
+  IsoDateTime,
+  RevokedReason,
+  SessionDescription,
+  WorkspaceStatus,
+  WorkspaceTable,
+};

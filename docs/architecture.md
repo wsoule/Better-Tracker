@@ -2173,8 +2173,13 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
     without case); unknown → `EngineInputError('not_found')`, a URL key two
     workspaces share → `conflict`, a malformed name (not letters, digits and
     dashes, ≤ 64) → `invalid`. None returns a credential.
-    - `listWorkspaceStatus()` → the store's `WorkspaceStatus[]` (unexpired
-      sessions counted); `listBlockedWorkspaces()` → the blocks.
+    - `listWorkspaceStatus()` → `WorkspaceOverview[]`: the store's
+      `WorkspaceStatus[]` (unexpired sessions counted, least recently synced
+      first) with `admission` on each, admission's fresh verdict (`ok`,
+      `not_allowed`, `blocked`; one pass, the blocks read once; always `ok`
+      outside OAuth mode). It only reports: cleanup revokes refused installs.
+      The worker's runs over every workspace and the `workspaces` command both
+      read it (§9). `listBlockedWorkspaces()` → the blocks.
     - `removeWorkspace(name)` →
       `WorkspaceRemoval { workspaceId, revoked, appTokenRevoked, endedSessions, revokedTokens, revokeFailures }`:
       revokes the app's token with Linear (`revokeGrant`, best effort, under the
@@ -2292,7 +2297,10 @@ constants `PURGE_AFTER_DAYS` (30), `NOTIFICATION_RETENTION_DAYS` (90),
 `FIRST_SYNC_RETRY_MAX_MS` (15 minutes), `DEFAULT_MIRROR_CACHE_WORKSPACES` (16)
 and `MAX_MIRROR_CACHE_WORKSPACES` (64), `OPERATOR_OFF_MESSAGE`, the pure
 `firstSyncRetryAt(syncState)` and the types `WorkspaceRemoval`, `WorkspacePurge`
-and `WorkspaceBlock`. The `Engine` contract gains `listWorkspaceStatus()`,
+and `WorkspaceBlock`, plus `WorkspaceOverview` and, re-exported from the store
+for the worker, `WorkspaceStatus`, `BlockedWorkspace`, `BlockKind`,
+`RevokedReason` and `WorkspaceTable`. The `Engine` contract gains
+`listWorkspaceStatus()` (with admission's verdicts),
 `revokeWorkspace(ws, reason, { ifUpdatedBefore? })`, `removeWorkspace(name)`,
 `purgeWorkspaceNow(name, { now? })`, `blockWorkspace(name, reason?)`,
 `unblockWorkspace(name)` and `listBlockedWorkspaces()` (operator commands: the
