@@ -8,7 +8,7 @@ import type { User } from '@better-tracker/core';
 
 const AUTH_ERROR_MESSAGE: Record<string, string> = {
   access_denied:
-    'Linear sign-in was cancelled, so nothing changed. Sign in again when you are ready.',
+    'Linear sign-in was cancelled or not granted. If your workspace needs an admin to approve apps, ask an admin to approve {app} in Linear’s settings, then try again.',
   oauth_expired:
     'The sign-in took longer than 10 minutes, or this browser lost its sign-in cookie. Start again.',
   oauth_state:
@@ -37,6 +37,15 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
     'This server is missing its SESSION_SECRET (or it is shorter than 32 characters), so it cannot sign anyone in. Whoever runs the deployment needs to set it.',
   linear_rate_limited:
     'Linear is rate-limiting the planner right now. Wait a minute and sign in again.',
+  // Several workspaces (owner decision 2026-10-25).
+  workspace_not_allowed:
+    'This planner is not open to that Linear workspace yet. Ask the person who runs it.',
+  workspace_blocked:
+    'This planner does not serve that Linear workspace: the person who runs it has blocked it.',
+  grant_wrong_workspace:
+    'Linear granted write access for another workspace than the one you were working in, so the planner did not keep it. Open that workspace at linear.app, then choose Allow edits again.',
+  too_many_workspaces:
+    'This browser is signed in to 10 workspaces, the most it holds. Sign out of a workspace first, then connect another.',
   linear_unauthorized:
     'Linear refused the planner’s credentials. Whoever runs the deployment should check the Linear OAuth app settings.',
   internal: 'Something went wrong on the server. It was logged; try again.',
@@ -100,11 +109,12 @@ const CODE_PATTERN = /^[a-z_]{1,40}$/;
  * The sentence for an ?auth_error code; null when there is none. Codes
  * come from the URL, so only known shapes are echoed back, and Linear API
  * failures without their own sentence share one. `apiKeyMode` uses the
- * connect form's sentences first.
+ * connect form's sentences first; `appName` is the app's name where a
+ * sentence says it (default "Milestone Planner").
  */
 export function authErrorMessage(
   code: string | undefined,
-  options: { apiKeyMode?: boolean } = {}
+  options: { apiKeyMode?: boolean; appName?: string } = {}
 ): string | null {
   if (code === undefined || code === '') return null;
   if (!CODE_PATTERN.test(code)) {
@@ -117,7 +127,9 @@ export function authErrorMessage(
     if (keyed !== undefined) return keyed;
   }
   const known = AUTH_ERROR_MESSAGE[code];
-  if (known !== undefined) return known;
+  if (known !== undefined) {
+    return known.replace('{app}', options.appName ?? 'Milestone Planner');
+  }
   if (code.startsWith('linear_')) {
     return 'Linear could not be reached or refused the request. Try again in a minute.';
   }

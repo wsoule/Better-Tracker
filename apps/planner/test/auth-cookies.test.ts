@@ -1,19 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  clearOauthCookie,
-  clearSessionCookie,
-  isSecureUrl,
-  OAUTH_COOKIE,
-  oauthCookie,
+  addWorkspaceHref,
+  connectHref,
   parseIntent,
   parseOAuthPayload,
-  readCookie,
   redirectWithCookies,
   resolveSessionSecret,
   sanitizeReturnTo,
-  serializeCookie,
-  sessionCookie,
   signInHref,
   signInLocation,
 } from '../lib/auth-cookies';
@@ -103,72 +97,11 @@ describe('sanitizeReturnTo', () => {
   });
 });
 
-describe('cookie attributes', () => {
-  test('mp_session is httpOnly, Lax, Path=/ and expires with the session', () => {
-    const header = sessionCookie('tok_123', '2026-10-28T12:00:00.000Z', {
-      secure: false,
-      nowMs: NOW,
-    });
-    expect(header).toBe(
-      'mp_session=tok_123; Path=/; Max-Age=604800; HttpOnly; SameSite=Lax'
-    );
-  });
-
-  test('Secure is added only when the app is served over https', () => {
-    const https = sessionCookie('t', '2026-10-22T12:00:00.000Z', {
-      secure: isSecureUrl('https://planner.example.com'),
-      nowMs: NOW,
-    });
-    const http = sessionCookie('t', '2026-10-22T12:00:00.000Z', {
-      secure: isSecureUrl('http://localhost:3000'),
-      nowMs: NOW,
-    });
-    expect(https.split('; ')).toContain('Secure');
-    expect(http.split('; ')).not.toContain('Secure');
-    expect(isSecureUrl('not a url')).toBe(false);
-  });
-
-  test('mp_oauth lives 10 minutes and only travels to /api/auth', () => {
-    const header = oauthCookie('abc.def', true);
-    expect(header).toBe(
-      'mp_oauth=abc.def; Path=/api/auth; Max-Age=600; HttpOnly; SameSite=Lax; Secure'
-    );
-  });
-
-  test('clearing uses the same path and Max-Age=0', () => {
-    expect(clearSessionCookie(false)).toBe(
-      'mp_session=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax'
-    );
-    expect(clearOauthCookie(true)).toBe(
-      'mp_oauth=; Path=/api/auth; Max-Age=0; HttpOnly; SameSite=Lax; Secure'
-    );
-  });
-
-  test('an expired or unparseable expiry never yields a negative Max-Age', () => {
-    expect(
-      sessionCookie('t', '2026-10-20T00:00:00.000Z', {
-        secure: false,
-        nowMs: NOW,
-      })
-    ).toContain('Max-Age=0;');
-    expect(sessionCookie('t', 'soon', { secure: false, nowMs: NOW })).toContain(
-      'Max-Age=0;'
-    );
-  });
-
-  test('refuses values that would need escaping', () => {
-    expect(() =>
-      serializeCookie('x', 'a;b', { path: '/', maxAge: 1, secure: false })
-    ).toThrow(/escaping/);
-  });
-
-  test('redirects keep every Set-Cookie header', () => {
+describe('redirectWithCookies', () => {
+  test('keeps every Set-Cookie header, never cached', () => {
     const response = redirectWithCookies('/week', [
-      clearOauthCookie(false),
-      sessionCookie('t', '2026-10-22T12:00:00.000Z', {
-        secure: false,
-        nowMs: NOW,
-      }),
+      'a=1; Path=/; Max-Age=0; HttpOnly; SameSite=Lax',
+      'b=2; Path=/; Max-Age=60; HttpOnly; SameSite=Lax',
     ]);
     expect(response.status).toBe(303);
     expect(response.headers.get('location')).toBe('/week');
@@ -177,24 +110,40 @@ describe('cookie attributes', () => {
   });
 });
 
-describe('readCookie', () => {
-  test('finds one cookie among several', () => {
-    const request = new Request('http://localhost/x', {
-      headers: { cookie: 'a=1; mp_session=tok; mp_oauth=x.y' },
-    });
-    expect(readCookie(request, 'mp_session')).toBe('tok');
-    expect(readCookie(request, OAUTH_COOKIE)).toBe('x.y');
-    expect(readCookie(request, 'missing')).toBeUndefined();
-    expect(readCookie(new Request('http://localhost/'), 'a')).toBeUndefined();
-  });
-});
-
 describe('OAuth state', () => {
   test('intent defaults to sign-in and rejects unknown values', () => {
     expect(parseIntent(null)).toBe('signin');
     expect(parseIntent('install')).toBe('install');
     expect(parseIntent('grant_write')).toBe('grant_write');
+    expect(parseIntent('add_workspace')).toBe('add_workspace');
     expect(parseIntent('admin')).toBeNull();
+    expect(parseIntent('toString')).toBeNull();
+  });
+
+  test('install and grant_write carry the workspace they were started for', () => {
+    const base = { state: 'st', codeVerifier: 'cv', returnTo: '/week' };
+    for (const intent of ['install', 'grant_write']) {
+      // Without it the payload is refused (it reads as expired).
+      expect(parseOAuthPayload({ ...base, intent })).toBeNull();
+      const payload: unknown = parseOAuthPayload({
+        ...base,
+        intent,
+        expectWorkspaceId: 'org-acme',
+      });
+      expect(payload).toEqual({
+        ...base,
+        intent,
+        expectWorkspaceId: 'org-acme',
+      });
+      // Only an id's characters.
+      expect(
+        parseOAuthPayload({ ...base, intent, expectWorkspaceId: 'a b' })
+      ).toBeNull();
+    }
+    for (const intent of ['signin', 'add_workspace']) {
+      const payload: unknown = parseOAuthPayload({ ...base, intent });
+      expect(payload).toEqual({ ...base, intent });
+    }
   });
 
   test('the signed cookie round-trips into a payload', () => {
@@ -230,6 +179,7 @@ describe('OAuth state', () => {
         state: 'st',
         codeVerifier: 'cv',
         intent: 'install',
+        expectWorkspaceId: 'org-acme',
         returnTo: '//evil.example',
       })?.returnTo
     ).toBe('/week');
@@ -283,56 +233,20 @@ describe('signInLocation and signInHref (a deep link opened signed out)', () => 
   });
 });
 
-describe('api_key-mode session cookies', () => {
-  const KEYMODE_HTTPS = {
-    auth: 'api_key',
-    appUrl: 'https://planner.example.com',
-  };
-  const KEYMODE_HTTP = { auth: 'api_key', appUrl: 'http://localhost:3360' };
-
-  test('sessionCookieName: __Host- only in api_key mode on https', async () => {
-    const { sessionCookieName } = await import('../lib/auth-cookies');
-    expect(sessionCookieName(KEYMODE_HTTPS)).toBe('__Host-mp_session');
-    expect(sessionCookieName(KEYMODE_HTTP)).toBe('mp_session');
-    expect(
-      sessionCookieName({ auth: 'oauth', appUrl: 'https://p.example' })
-    ).toBe('mp_session');
-    expect(sessionCookieName({ appUrl: 'https://p.example' })).toBe(
-      'mp_session'
+describe('connect another workspace (owner decision 2026-10-25)', () => {
+  test('the connect page and its Linear link carry a sanitized returnTo', () => {
+    expect(connectHref()).toBe('/setup/connect');
+    expect(connectHref('/week')).toBe('/setup/connect');
+    expect(connectHref('/timeline?milestone=m1')).toBe(
+      '/setup/connect?returnTo=%2Ftimeline%3Fmilestone%3Dm1'
     );
-  });
-
-  test('apiKeySessionCookie: a browser-session cookie, Secure and __Host- on https', async () => {
-    const { apiKeySessionCookie } = await import('../lib/auth-cookies');
-    expect(apiKeySessionCookie('tok_123', { secure: false })).toBe(
-      'mp_session=tok_123; Path=/; HttpOnly; SameSite=Lax'
+    expect(connectHref('//evil.example')).toBe('/setup/connect');
+    expect(addWorkspaceHref()).toBe('/api/auth/linear?intent=add_workspace');
+    expect(addWorkspaceHref('/issues/ENG-1')).toBe(
+      '/api/auth/linear?intent=add_workspace&returnTo=%2Fissues%2FENG-1'
     );
-    const secure = apiKeySessionCookie('tok_123', { secure: true });
-    expect(secure).toBe(
-      '__Host-mp_session=tok_123; Path=/; HttpOnly; SameSite=Lax; Secure'
+    expect(addWorkspaceHref('https://evil.example')).toBe(
+      '/api/auth/linear?intent=add_workspace'
     );
-    expect(secure).not.toMatch(/Max-Age|Expires|Domain/i);
-    expect(() => apiKeySessionCookie('a;b', { secure: false })).toThrow();
-  });
-
-  test('clearApiKeySessionCookies expires both names', async () => {
-    const { clearApiKeySessionCookies } = await import('../lib/auth-cookies');
-    const cookies = clearApiKeySessionCookies(false);
-    expect(cookies).toHaveLength(2);
-    expect(cookies[0]).toStartWith('mp_session=;');
-    expect(cookies[1]).toStartWith('__Host-mp_session=;');
-    for (const cookie of cookies) expect(cookie).toContain('Max-Age=0');
-    expect(cookies[1]).toContain('Secure');
-  });
-
-  test('on https, a request carrying only mp_session reads no session', async () => {
-    const { readCookie, sessionCookieName } =
-      await import('../lib/auth-cookies');
-    const request = new Request('https://planner.example.com/', {
-      headers: { cookie: 'mp_session=tossed-by-a-sibling' },
-    });
-    expect(
-      readCookie(request, sessionCookieName(KEYMODE_HTTPS))
-    ).toBeUndefined();
   });
 });

@@ -14,6 +14,13 @@ import type {
 
 import { formatDate, plural } from '../format';
 import type { ReadOnlyReasonCopy } from '../read-only';
+import {
+  CONNECT_LABEL,
+  CONNECT_PALETTE_HINT,
+  signOutOfLabel,
+  switchToLabel,
+  workspaceHint,
+} from '../workspace-copy';
 import { assessmentMark, statusLabel, uiStatus } from './status';
 
 // The app frame's core → ui mapping (architecture §8.3): the sidebar's
@@ -27,12 +34,16 @@ export const SIDEBAR_STORAGE_KEY = 'milestone-planner-sidebar';
 /** Palette section names, in display order. */
 export const PALETTE_SECTIONS = {
   suggestions: 'Suggestions',
+  /** OAuth mode (owner decision 2026-10-25): switch to another held
+      workspace, or connect one. */
+  workspaces: 'Workspaces',
   jump: 'Jump to',
   navigation: 'Navigation',
 } as const;
 
 export const PALETTE_SECTION_ORDER: string[] = [
   PALETTE_SECTIONS.suggestions,
+  PALETTE_SECTIONS.workspaces,
   PALETTE_SECTIONS.jump,
   PALETTE_SECTIONS.navigation,
 ];
@@ -276,10 +287,47 @@ export function weekNavCount(week: WeekView): { count: number; label: string } {
   return { count, label: `${plural(count, 'issue')} due this week` };
 }
 
+/** One of the browser's workspaces, as the switcher and the palette list
+    it (no session token: the frame goes to the browser). */
+export interface ShellFrameWorkspace {
+  id: string;
+  name: string;
+  /** "Guest", "Not installed", "Reinstall needed" or "linear.app/<key>". */
+  hint?: string;
+  /** The workspace this frame shows. */
+  current: boolean;
+}
+
+/** A held session's fields the frame reads (engine.describeSessions). */
+export interface HeldWorkspaceInput {
+  workspaceId: string;
+  workspaceName: string | null;
+  workspaceUrlKey: string | null;
+  installed: boolean;
+  revokedAt: string | null;
+  guest: boolean | null;
+}
+
+/** What a workspace is listed as when the engine has no name for it. */
+export const UNNAMED_WORKSPACE_LABEL = 'Linear workspace';
+
 /** Everything the sidebar and topbar show, as plain serializable data. */
 export interface ShellFrame {
   appName: string;
+  /** The workspace this frame shows: api-client.ts names it in every
+      request, and each page's guard compares its own with it. */
+  workspaceId: string;
   workspaceName: string | null;
+  /**
+   * OAuth mode: the workspaces this browser holds a session for, by name,
+   * the current one marked (the brand row's switcher and the palette's
+   * Workspaces section). Null in api_key and demo mode, which hold one
+   * workspace: no switcher renders.
+   */
+  workspaces: ShellFrameWorkspace[] | null;
+  /** Where the switcher's and the palette's connect row goes; null
+      without a switcher. */
+  connectHref: string | null;
   userName: string;
   /**
    * The person is read-only in the planner: the palette offers no runs or
@@ -303,7 +351,16 @@ export interface ShellFrame {
 
 export interface ShellFrameInput {
   appName: string;
+  /** The actor's session's workspace. */
+  workspaceId: string;
   workspaceName: string | null;
+  /**
+   * OAuth mode: the browser's live held sessions (active first); null in
+   * api_key and demo mode (no switcher).
+   */
+  heldWorkspaces?: readonly HeldWorkspaceInput[] | null;
+  /** The connect page's href (with the switcher). */
+  connectHref?: string;
   userName: string;
   /** Actor.readOnly. */
   readOnly: boolean;
@@ -319,6 +376,44 @@ export interface ShellFrameInput {
   loadFailed: boolean;
 }
 
+/**
+ * The switcher's rows: one per held workspace (the first session seen for
+ * a workspace wins), named by the engine, with the frame's own workspace
+ * always present and marked current, even if the held list missed it.
+ */
+export function frameWorkspaces(input: {
+  currentId: string;
+  currentName: string | null;
+  held: readonly HeldWorkspaceInput[];
+}): ShellFrameWorkspace[] {
+  const out: ShellFrameWorkspace[] = [];
+  const seen = new Set<string>();
+  for (const entry of input.held) {
+    if (seen.has(entry.workspaceId)) continue;
+    seen.add(entry.workspaceId);
+    const current = entry.workspaceId === input.currentId;
+    const name =
+      (current ? input.currentName : null) ??
+      entry.workspaceName ??
+      UNNAMED_WORKSPACE_LABEL;
+    const hint = workspaceHint(entry);
+    out.push({
+      id: entry.workspaceId,
+      name,
+      ...(hint === undefined ? {} : { hint }),
+      current,
+    });
+  }
+  if (!seen.has(input.currentId)) {
+    out.unshift({
+      id: input.currentId,
+      name: input.currentName ?? UNNAMED_WORKSPACE_LABEL,
+      current: true,
+    });
+  }
+  return out;
+}
+
 /** Builds the frame data; the empty-section copy says what is missing. */
 export function buildShellFrame(input: ShellFrameInput): ShellFrame {
   const count = input.week === null ? null : weekNavCount(input.week);
@@ -329,9 +424,20 @@ export function buildShellFrame(input: ShellFrameInput): ShellFrame {
     : input.loadFailed
       ? 'Projects could not be loaded'
       : 'No active projects';
+  const held = input.heldWorkspaces ?? null;
   return {
     appName: input.appName,
+    workspaceId: input.workspaceId,
     workspaceName: input.workspaceName,
+    workspaces:
+      held === null
+        ? null
+        : frameWorkspaces({
+            currentId: input.workspaceId,
+            currentName: input.workspaceName,
+            held,
+          }),
+    connectHref: held === null ? null : (input.connectHref ?? null),
     userName: input.userName,
     readOnly: input.readOnly,
     readOnlyReason: input.readOnly
@@ -343,6 +449,72 @@ export function buildShellFrame(input: ShellFrameInput): ShellFrame {
     projects,
     projectsEmptyLabel,
   };
+}
+
+/** The footer sign-out form: what it says and which fields it posts. */
+export interface ShellSignOutForm {
+  /** Undefined: the shell's own "Sign out". */
+  label?: string;
+  fields?: Record<string, string>;
+}
+
+/**
+ * The footer's sign-out (owner decision 2026-10-25): in OAuth mode it
+ * posts scope=current and the frame's workspace id (a tab left on one
+ * workspace never signs out the one switched to since), and with two or
+ * more workspaces held it says "Sign out of <workspace>". In api_key and
+ * demo mode it is the plain form.
+ */
+export function shellSignOut(frame: ShellFrame): ShellSignOutForm {
+  if (frame.workspaces === null) return {};
+  const fields = { scope: 'current', workspace: frame.workspaceId };
+  if (frame.workspaces.length < 2) return { fields };
+  const name =
+    frame.workspaces.find((w) => w.current)?.name ??
+    frame.workspaceName ??
+    UNNAMED_WORKSPACE_LABEL;
+  return { label: signOutOfLabel(name), fields };
+}
+
+/** One row of the palette's Workspaces section, before icons and handlers. */
+export interface WorkspacePaletteEntry {
+  id: string;
+  label: string;
+  hint?: string;
+  /** Switch to this workspace (onSelect), or follow `href` (connect). */
+  switchTo?: string;
+  href?: string;
+}
+
+/**
+ * The palette's Workspaces section (after Suggestions): "Switch to <name>"
+ * for every other held workspace, by name, then "Connect another
+ * workspace". Offered to read-only people too (switching is not a write)
+ * and with no shortcuts. Empty without a switcher (api_key, demo).
+ */
+export function workspacePaletteEntries(
+  frame: Pick<ShellFrame, 'workspaces' | 'connectHref'>
+): WorkspacePaletteEntry[] {
+  if (frame.workspaces === null) return [];
+  const others = frame.workspaces
+    .filter((workspace) => !workspace.current)
+    .sort((a, b) => a.name.localeCompare(b.name, 'en'))
+    .map((workspace): WorkspacePaletteEntry => ({
+      id: `workspace-${workspace.id}`,
+      label: switchToLabel(workspace.name),
+      ...(workspace.hint === undefined ? {} : { hint: workspace.hint }),
+      switchTo: workspace.id,
+    }));
+  if (frame.connectHref === null) return others;
+  return [
+    ...others,
+    {
+      id: 'workspace-connect',
+      label: CONNECT_LABEL,
+      hint: CONNECT_PALETTE_HINT,
+      href: frame.connectHref,
+    },
+  ];
 }
 
 // ---------------------------------------------------------------------------

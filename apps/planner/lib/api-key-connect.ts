@@ -17,19 +17,20 @@ import { LINEAR_GRAPHQL_ENDPOINT } from '@better-tracker/linear';
 import { createLogger } from '@better-tracker/logger';
 
 import {
-  apiKeySessionCookie,
   authErrorLocation,
   DEFAULT_RETURN_TO,
-  isSecureUrl,
-  readCookie,
   redirectWithCookies,
   sanitizeReturnTo,
-  sessionCookieName,
 } from './auth-cookies';
 import { readLimitedText } from './body';
 import { connectClientKey, type ConnectLimiter } from './connect-limit';
 import { engineAuthCode, engineInputCode } from './engine-errors';
 import { jsonError, rejectCrossOrigin } from './origin';
+import {
+  activeSessionToken,
+  apiKeySessionCookie,
+  isSecureUrl,
+} from './session-cookies';
 
 const logger = createLogger({ name: 'planner.connect' });
 
@@ -192,7 +193,7 @@ export async function handleConnect(
   allowed.finish('success');
 
   // 10. The new session replaces the one this browser had.
-  const previous = readCookie(request, sessionCookieName(config));
+  const previous = activeSessionToken(request, { mode: 'api_key', secure });
   if (
     previous !== undefined &&
     previous !== '' &&

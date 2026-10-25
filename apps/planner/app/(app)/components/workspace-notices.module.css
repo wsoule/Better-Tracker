@@ -1,0 +1,16 @@
+/* /week's workspace notices: a column under the page head, as wide as
+   the page's own column. */
+.notices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1440px;
+  margin: 16px auto 0;
+  padding: 0 48px;
+}
+
+@media (width <= 768px) {
+  .notices {
+    padding: 0 16px;
+  }
+}

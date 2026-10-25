@@ -14,6 +14,7 @@ import {
   orSetup,
   requireInstalledActor,
 } from '../../../../lib/load';
+import WorkspaceGuard from '../../components/workspace-guard';
 import IssuesScreen from './issues-screen';
 import css from './page.module.css';
 
@@ -62,6 +63,7 @@ export default async function IssuesPage({
   const { blockersOf, blocking } = loaded.snapshot;
   const page = buildIssueListPage({
     view,
+    workspaceId,
     query: urlQuery,
     viewerId,
     readOnly: actor.readOnly,
@@ -75,6 +77,7 @@ export default async function IssuesPage({
 
   return (
     <>
+      <WorkspaceGuard />
       <header className={css.head}>
         <h1 className={css.title}>{page.heading}</h1>
         <p className={css.subtitle}>{page.subtitle}</p>
@@ -88,6 +91,7 @@ export default async function IssuesPage({
         today={view.today}
         viewerId={viewerId}
         mirrorVersion={mirrorVersion}
+        workspaceId={workspaceId}
         facts={{
           hasInitiatives: loaded.snapshot.initiatives.size > 0,
           teamCount: loaded.snapshot.teams.size,

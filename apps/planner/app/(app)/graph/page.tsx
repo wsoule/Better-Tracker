@@ -19,6 +19,7 @@ import {
   requireInstalledActor,
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
+import WorkspaceGuard from '../components/workspace-guard';
 import GraphScreen from './graph-screen';
 
 export const metadata: Metadata = { title: 'Graph' };
@@ -106,6 +107,7 @@ export default async function GraphPage({
         issueDrawer={issueDrawer}
       />
       {model.crumb !== null ? <PageCrumb label={model.crumb} /> : null}
+      <WorkspaceGuard />
     </>
   );
 }

@@ -14,6 +14,7 @@ import type { DeliveryContext } from '../src/types';
 export const CONTEXT: DeliveryContext = {
   appName: 'Milestone Planner',
   appUrl: 'https://planner.example.com',
+  workspaceId: 'org-1',
 };
 
 export const TOKEN = 'xoxb-test-token-123';

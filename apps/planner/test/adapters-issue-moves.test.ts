@@ -101,6 +101,7 @@ function workspace(edit?: (data: WorkspaceData) => void) {
       });
       return buildIssueListPage({
         view,
+        workspaceId: 'org-northwind',
         query,
         viewerId,
         readOnly: false,

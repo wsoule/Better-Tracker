@@ -122,6 +122,8 @@ export interface IssuesScreenProps {
   today: string;
   viewerId: string;
   mirrorVersion: number;
+  /** The workspace the page shows (the picker options' cache key). */
+  workspaceId: string;
   /** Which Filter menu fields apply: Initiative only with initiatives,
       Team only with two or more teams. */
   facts: { hasInitiatives: boolean; teamCount: number };
@@ -227,6 +229,7 @@ export default function IssuesScreen({
   today,
   viewerId,
   mirrorVersion,
+  workspaceId,
   facts,
   drawer,
   permissions,
@@ -349,7 +352,7 @@ export default function IssuesScreen({
 
   // ---- pickers --------------------------------------------------------------
 
-  const optionsState = useIssueListOptions(mirrorVersion);
+  const optionsState = useIssueListOptions(mirrorVersion, workspaceId);
   const names = useMemo(
     () =>
       mergeNames(

@@ -6,6 +6,7 @@ import { CloudAlert, RefreshCw, RefreshCwOff } from 'lucide-react';
 import {
   API_KEY_NOT_SYNCED_NOTICE,
   FIRST_SYNC_PENDING_HEADLINE,
+  FIRST_SYNC_RETRY_SENTENCE,
 } from '../../lib/read-only';
 import MessageBlock from './components/message-block';
 import {
@@ -81,10 +82,10 @@ export default function AppError({
         <p>
           The planner reads everything from its copy of the Linear workspace,
           and that copy has not arrived yet: the first sync after the install
-          failed or is still running. It is retried on every page and every
-          worker run; the web service&apos;s logs say why it failed. When the
-          cause is the app&apos;s grant (for example the initiative:read scope
-          missing), a workspace admin can reinstall from Setup.
+          failed or is still running. {FIRST_SYNC_RETRY_SENTENCE} The web
+          service&apos;s logs say why it failed. When the cause is the
+          app&apos;s grant (for example the initiative:read scope missing), a
+          workspace admin can reinstall from Setup.
         </p>
       </MessageBlock>
     );

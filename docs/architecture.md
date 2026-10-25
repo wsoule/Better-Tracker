@@ -926,7 +926,13 @@ export function buildDigests(input: {
   assessments: ReadonlyMap<string, MilestoneAssessment>;
   notices: readonly Notice[];
   appUrl: string;
+  // Additive (owner decision 2026-10-25): every link a digest carries leaves
+  // the app, so each names its workspace with `ws=<workspaceId>`.
+  workspaceId: string;
 }): Digest[];
+// A link that leaves the app, naming its workspace: `ws=<org id>` appended
+// with `?` or `&` (before any fragment). In-app links never carry it.
+export function withWorkspaceParam(url: string, workspaceId: string): string;
 // graph.ts / mermaid.ts — the dependency graph at every level (§2.10)
 export function buildDependencyGraph(
   snapshot: Snapshot,
@@ -1811,8 +1817,13 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 - `createOutboxChannel()`: `delivers = false`; the engine records digests with
   status `preview`.
 - `renderDigest(digest, ctx) → { text, blocks }` is exported and unit-tested.
-  Each item's section is the linked title, the kind line, the plain lines as
-  bullets, "Due <date> · N open · M unassigned", then the open issues as
+  `DeliveryContext` is `{ appName, appUrl, workspaceId }` (the workspace id
+  additive, owner decision 2026-10-25): the one link the renderer builds itself,
+  the overflow note's timeline link, carries `ws=<workspaceId>` like the
+  digest's own links (core `withWorkspaceParam`), so a browser that holds
+  several workspaces opens it in the right one (§8.1 "Links that leave the
+  app"). Each item's section is the linked title, the kind line, the plain lines
+  as bullets, "Due <date> · N open · M unassigned", then the open issues as
   `• <issue url|KEY> Title` bullets (" — unassigned" on those with no assignee),
   unassigned first, at most 10, the rest counted as "• …and N more open issues
   (M unassigned)". Room for that last bullet is kept while the lines are placed,
@@ -1991,8 +2002,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
      `runDaily`'s warnings read that mirror next.
   6. `finishRun` with status `succeeded` / `partial` (some failed) / `failed`
      (threw). Idempotent by construction: assigned issues are never reassigned.
-- **runWarnings**: `planWarnings` with stored memory → `buildDigests` → for each
-  digest `insertNotification` (false → `alreadySent`, nothing sent) → if
+- **runWarnings**: `planWarnings` with stored memory → `buildDigests` (with the
+  workspace id, so every link names it, §8.1) → for each digest
+  `insertNotification` (false → `alreadySent`, nothing sent) → if
   `warningsMode === 'live'` deliver via the channel, else status `preview`. Save
   memory only after notifications are recorded. `previewOnly` builds digests
   without writing anything (Settings preview).
@@ -2923,18 +2935,21 @@ merge of the branch. Gr8r is a reference only; nothing is imported from it.
 
 | route                            | who               | what                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | -------------------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/`                              | all               | signed out: "Sign in with Linear" (fixture mode: demo user picker); signed in → `/week`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/`                              | all               | signed out: "Sign in with Linear" (fixture mode: demo user picker; OAuth mode with other workspaces still held: a "Continue in <name>" form per held workspace, §8.4 "Several workspaces"); signed in → `/week`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `/week`                          | signed in         | My week (the landing screen); anyone may pass `?user=<id>` to see a person's week; `?issue=<key>` opens the issue slide-over (§8.5)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `/timeline`                      | signed in         | Gantt timeline; `?milestone=<id>` opens the drawer (with `&issue=<key>`, one of its issues in its place, §8.5), `?project=<id>` focuses a lane; edit controls for everyone but a guest (date and lead need Linear write access)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `/projects`                      | signed in         | projects register: next milestone, status, progress, lead, allocation state                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `/graph`                         | signed in         | dependency graph (§8.4) at four levels inside the workspace or one container: `?initiative=<id\|none>` (default: projects), `?project=<id>` (default: issues), `?milestone=<id>` (issues), `?chain=<identifier or id>` (one issue's chain); most specific wins; `?level=initiative\|project\|milestone\|issue` picks another level the container offers (otherwise ignored); no params = the workspace's milestones; `?node=<id>` selects a box on arrival; `?highlight=status\|risk\|critical` picks what the drawing emphasises (lenient: any case, `critical-path` too, anything else ignored; without it the `graph-highlight` cookie remembers the last one picked on the device, else Status; never part of a scope's URL); an unknown or hidden id renders the not-found page (streamed with status 200, like every `(app)` page, below), except initiative ids for a viewer with no initiatives (the workspace, with a notice); `?issue=<key>` opens the slide-over (§8.5) |
 | `/runs`, `/runs/[id]`            | signed in         | allocation run log; everyone but a guest gets "Preview (dry run)" and, while allocation is live, "Run now"                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | `/settings`                      | signed in         | modes, watchers, schedule, status, digest preview, notifications, audit; editable by everyone but a guest (read-only for them)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `/setup`                         | signed in         | install the app into the workspace (admin; nothing to start for a guest)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `/setup`                         | signed in         | install the app into the workspace (admin; nothing to start for a guest); names the session's workspace, says why a revoked installation was revoked and when its data is deleted, and offers "Sign out of all workspaces" with two or more held (§8.4)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `/setup/connect`                 | all (OAuth mode)  | connect another workspace: the hint and a "Continue to Linear" link to `/api/auth/linear?intent=add_workspace` (carrying `?returnTo=`); signed in or out, no JavaScript needed; 404 in api_key and demo mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `/open?ws=&to=`                  | all               | the interstitial a page link naming a workspace (`ws=<org id>`, digest links, §7) is sent to by `proxy.ts`: to `to` when `ws` is the active workspace, a "Switch to <name>" form when the browser holds it, else a connect link; never renders `ws`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `GET /api/palette`               | signed in         | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets `mp_oauth` cookie); `install` and `grant_write` need a session and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `GET /api/auth/linear/callback`  | —                 | finishes OAuth                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `POST /api/auth/logout`          | —                 | ends session                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets the OAuth state cookie); a link, not origin-checked; `install` and `grant_write` need a session, sign its workspace id into the state (`expectWorkspaceId`) and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else; `add_workspace` (OAuth mode, `prompt=consent`) works signed in or out and is refused with `too_many_workspaces` while the browser holds 10                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `GET /api/auth/linear/callback`  | —                 | finishes OAuth (not origin-checked, never rate-limited: the signed state protects it); the session rules below ("Session cookies")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `POST /api/auth/logout`          | —                 | ends sessions; OAuth mode takes `scope=current\|all` and `workspace=<org id>` (below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `POST /api/auth/switch`          | OAuth mode only   | `workspace=<org id>`, optional `returnTo`: makes another of the browser's sessions active (not a write: a guest may switch); JSON with `Accept: application/json`, else a 303; 404 in api_key and demo mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `POST /api/auth/demo`            | fixture mode only | demo sign-in                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `POST /api/auth/key`             | api_key mode only | connect with a personal Linear API key (§7.4): the connect form's urlencoded `apiKey` and optional `returnTo` → 303 to `returnTo` with the session cookie, or 303 to `/?auth_error=<code>`; 404 in other modes (see "API-key mode" below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `POST /api/webhooks/linear`      | Linear            | verify, ack 200, process in `after()`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
@@ -2963,18 +2978,19 @@ merge of the branch. Gr8r is a reference only; nothing is imported from it.
 like `?highlight=`, never read by the server and never part of a scope's URL; a
 box that is not drawn locks nothing, and the address bar drops it.
 
-Security: session cookie `mp_session` (httpOnly, `SameSite=Lax`, `Secure` when
-`APP_URL` is https, `Path=/`); OAuth cookie `mp_oauth` carries
-`{state, codeVerifier, intent, returnTo}` signed with HMAC-SHA256
-(`SESSION_SECRET`), 10-minute expiry, compared in constant time. Mutating routes
-require same-origin `Origin` (or `Sec-Fetch-Site: same-origin`) and JSON bodies
-validated with zod, read through one limited reader (`readJson`: at most 1 MiB,
-else 413 `too_large` before anything is parsed; the webhook's limit is 5 MiB).
-`returnTo` must be a relative path. Every page/route resolves the actor
-server-side; the UI never decides permissions. Every mutating route above
-(PATCH, POST and DELETE, but the auth routes and the webhook) answers a Linear
-guest 403 `read_only` (owner decision 2026-10-22, "Guests limited to read only")
-right after the CSRF guard and the session, before its body is read:
+Security: the session cookie (httpOnly, `SameSite=Lax`, `Path=/`; `Secure` and
+the `__Host-` name when `APP_URL` is https; "Session cookies" below names every
+cookie); the OAuth state cookie carries
+`{state, codeVerifier, intent, returnTo, expectWorkspaceId?}` signed with
+HMAC-SHA256 (`SESSION_SECRET`), 10-minute expiry, compared in constant time.
+Mutating routes require same-origin `Origin` (or `Sec-Fetch-Site: same-origin`)
+and JSON bodies validated with zod, read through one limited reader (`readJson`:
+at most 1 MiB, else 413 `too_large` before anything is parsed; the webhook's
+limit is 5 MiB). `returnTo` must be a relative path. Every page/route resolves
+the actor server-side; the UI never decides permissions. Every mutating route
+above (PATCH, POST and DELETE, but the auth routes and the webhook) answers a
+Linear guest 403 `read_only` (owner decision 2026-10-22, "Guests limited to read
+only") right after the CSRF guard and the session, before its body is read:
 `refuseReadOnly` in `lib/http.ts` runs the engine's own `requireWritable`, so
 the routes and the engine refuse with the same code and sentence, and
 `errorResponse` maps an engine `read_only` to 403 as well. A "write access" row
@@ -2995,6 +3011,120 @@ rendering of every page, which only API-key mode does, below; development adds
 `Strict-Transport-Security: max-age=31536000; includeSubDomains` (ignored by
 browsers over plain HTTP), `X-Frame-Options: DENY`, `nosniff`, a strict-origin
 referrer policy and a Permissions-Policy.
+
+**Session cookies and several workspaces** (owner decision 2026-10-25, §7
+"Sessions in several workspaces"; binding):
+
+- **One helper** (`lib/session-cookies.ts`) is the only place auth cookie names
+  are chosen, read and written: `cookieScheme(engine)` (mode `oauth`, `demo` or
+  `api_key`, and whether `APP_URL` is https), `activeSessionToken`,
+  `stashTokens`, `sessionCookies({ active, stash })`, `clearSessionCookies`,
+  `oauthStateCookie` / `readOauthState` / `clearOauthStateCookie`,
+  `legacyCookieClears`, and api_key mode's `apiKeySessionCookie` /
+  `clearApiKeySessionCookies`. Pages read it from the `cookies()` jar, routes
+  from the `Request`. A test greps `app/`, `lib/` and `proxy.ts` for a cookie
+  name, the old constants or `readCookie(` outside it and fails.
+- **Names**: on https `__Host-mp_session` (the active session),
+  `__Host-mp_sessions` (the stash, OAuth mode only) and `__Host-mp_oauth` (the
+  OAuth state, `Path=/` because `__Host-` requires it, `Max-Age=600`); on http
+  (local) `mp_session`, `mp_sessions` and `mp_oauth` (still `Path=/api/auth`).
+  Every cookie is `HttpOnly`, `SameSite=Lax`, `Path=/` (but http's `mp_oauth`),
+  `Secure` on https, with a `Max-Age` from the latest expiry it holds. api_key
+  mode keeps its cookies exactly (§7.4, below): it never sets or reads the
+  stash, and `clearApiKeySessionCookies` also expires both stash names. Every
+  OAuth and demo auth response on https also expires the plain `mp_session` and
+  `mp_oauth` used before (a one-time effect: whoever was signed in under the old
+  names signs in again once). A test runs every auth route with an https
+  `APP_URL`, plain and `__Host-` cookies carrying different tokens, and checks
+  that only the `__Host-` tokens reach the engine and only `__Host-` cookies are
+  set.
+- **The stash** holds up to 9 inactive session tokens, `.`-joined, most recently
+  active first; when read, entries that are not token-shaped are ignored,
+  duplicates and the active token removed. `lib/held-sessions.ts` describes the
+  active token and the stash in one `engine.describeSessions` call (no Linear
+  call, no credential) into `HeldSessions` (`active`, `stash`: live sessions,
+  one per workspace; `dropped`: tokens naming no live session) and rearranges
+  them with pure functions (`activate`, `without`, `unchanged`) whose `signOut`
+  list the routes end in `after()`: a token removed from the cookies while its
+  row may exist is signed out (its Linear grant revoked), never just dropped,
+  and past 9 stashed the oldest is signed out. Demo mode holds one session (no
+  stash; `describeSessions` answers nothing there).
+- **Only the POST routes are origin-checked** (switch, logout, demo, key):
+  `GET /api/auth/linear` is a link and the callback a cross-site redirect from
+  linear.app, protected by the signed state. OAuth starts stay links, never
+  forms.
+- **Start** (`GET /api/auth/linear`): `install` and `grant_write` sign the
+  active session's workspace id into the state as `expectWorkspaceId` (a state
+  without it reads as `oauth_expired`), so a switch in another tab during
+  Linear's consent screen cannot change which workspace they act for;
+  `add_workspace` is refused with `too_many_workspaces` when the browser already
+  holds 10.
+- **Callback**: for `signin`, `add_workspace` and `grant_write` the engine's
+  `finishSignIn` (with `expectWorkspaceId` for `grant_write`) makes a session N
+  for workspace W. `signin` and `add_workspace` that come back with a workspace
+  the browser already holds a live session for (active or stashed, checked with
+  `engine.checkSession`) keep that session and its grant, end N at once (there
+  is no engine call to discard a fresh grant, so N is signed out, revoking it),
+  make W active and land on `/week?connect=same`. Otherwise N becomes active,
+  sessions of other workspaces stay in the stash (the previous active one
+  first), and any other session held for W is replaced (signed out after the
+  response; `grant_write` always replaces). The landing is `/setup` when W has
+  no installation, else the sanitised `returnTo` (`add_workspace`: `/week`
+  unless the open interstitial passed one). An install is finished by the
+  browser's session for `expectWorkspaceId` (active or stashed; gone →
+  `sign_in_first`) with `expectWorkspaceId` passed to `finishInstall`, and that
+  session becomes active. The callback is never rate-limited (a refusal there
+  would burn Linear's single-use code).
+- **Switch** (`POST /api/auth/switch`, `workspace=<org id>`, optional
+  `returnTo`): finds the browser's held session for that workspace
+  (`describeSessions`), checks it with `engine.checkSession` (its Linear token
+  refreshed when near expiry, never a sync; the active session may be missing or
+  dead), then makes it active with the previous active one first in the stash,
+  dropping (and signing out after the response) what no longer names a session.
+  With `Accept: application/json` it answers 200 `{ location }` or
+  `{ error: { code, message } }`: 404 `unknown_workspace`, 410 `session_ended`
+  (the target is dropped and signed out), 400 `invalid_request`, with the
+  cookies either way; a plain form post gets a 303 to the sanitised `returnTo`
+  (else `/week`) or to `/week?switch_error=<code>` (`/?switch_error=` when no
+  session stays active), never to the Referer. `Cache-Control: no-store`. Not a
+  write: no `requireWritable`, and a guest may switch. 404 in api_key and demo
+  mode.
+- **Logout** (`POST /api/auth/logout`): OAuth mode takes `scope=current|all`
+  and, for `current`, `workspace=<the org id the form's page showed>` (a tab
+  left on one workspace never signs out the one switched to since). `current`
+  ends that workspace's held session, active or stashed; when another remains
+  (the most recent stashed one taking an ended active one's place) it lands on
+  `/week?signed_out=1&from=<a five-minute value signed with SESSION_SECRET naming the workspace signed out>`,
+  otherwise both cookies are cleared and it goes to `/`. When the browser holds
+  no session for that workspace nothing is ended (`/week?signed_out=none`).
+  Without `workspace` it ends the active session. `all` ends every held session
+  (each revoking its grant) and clears both cookies. Demo mode ends its one
+  session; the api_key branch is unchanged.
+- **Stale tabs**: every `api-client.ts` request sends
+  `X-Planner-Workspace: <the shell frame's workspace id>` (`setFrameWorkspace`,
+  called by `PlannerShell` in the browser), and `requireApiActor` answers **409
+  `workspace_changed`** when the header is present and is not the active
+  session's workspace ("This tab shows <A>, but this browser switched to <B> in
+  another tab. Reload to continue in <B>, or switch back to <A>.", names from
+  the engine, never the header; the "Not saved" toast offers Reload). Without
+  the header a request is let through (the engine scopes every read and write to
+  the session's workspace anyway). Layouts do not re-render on client navigation
+  (Next 16 `layout.md`), and an `(app)/template.tsx` would not cover it either
+  (Next 16 `template.md`: a template does not remount for a search-param change
+  or a navigation within a deeper segment), so **every `(app)` page renders
+  `WorkspaceGuard`**, a server component that puts its own request's workspace
+  id (null signed out) into a client component, which reloads the tab when it
+  differs from the frame's (`FrameWorkspaceProvider` in `PlannerShell`); nothing
+  can be lost, since a navigation just happened. A test checks every page
+  renders it. The Issues page's picker options are kept by workspace and mirror
+  version, and its folded groups are remembered under
+  `milestone-planner:issues:collapsed:<workspace id>:<grouping>`. Switching is a
+  full page load.
+- **Links that leave the app** (digests, §7) carry `ws=<org id>`; `proxy.ts`
+  sends a page request carrying `ws` (OAuth and demo mode; not `/open`, API
+  routes, static assets or prefetches) with a 307 and `no-store` to
+  `/open?ws=<it>&to=<the path and query without ws>` (§8.4 "Several
+  workspaces"). In-app links never carry it.
 
 **API-key mode** (`LINEAR_AUTH=api_key`, owner request 2026-10-23, §7.4;
 binding):
@@ -3114,27 +3244,35 @@ Auth and frame details (decided while building `apps/planner`; binding):
   (`POST /api/auth/demo` takes an optional `returnTo` field), so signing in
   lands there, not on My week. A signed-in visitor of `/?returnTo=…` goes
   straight there. The same `sanitizeReturnTo` rules apply at every hop.
-- `mp_oauth` is scoped to `Path=/api/auth`. `returnTo` must start with exactly
-  one `/` (never `//` or `/\`), contain no control characters or spaces
-  (browsers strip them, turning `/\t/x` into `//x`), resolve to the same origin
-  and hold no Linear credential, as it is or percent-decoded up to three times
+- The OAuth state cookie is scoped to `Path=/api/auth` on http and `Path=/` on
+  https (as `__Host-mp_oauth`). `returnTo` must start with exactly one `/`
+  (never `//` or `/\`), contain no control characters or spaces (browsers strip
+  them, turning `/\t/x` into `//x`), resolve to the same origin and hold no
+  Linear credential, as it is or percent-decoded up to three times
   (`holdsLinearCredential`, `lib/key-text.ts`: every hop copies it into a
   `Location`, and no URL the planner answers carries a key); anything else
   becomes `/week`. Non-ASCII characters are percent-encoded (UTF-8), because the
   callback's `Location` header must be a byte string. It is checked when signing
   the cookie and again after verifying it.
-- Every callback outcome clears `mp_oauth`. Failures land on
-  `/?auth_error=<code>`: the engine's `EngineAuthError`/`EngineInputError`
-  codes, `linear_<kind>`, `oauth_expired` (missing, tampered or expired cookie),
-  `oauth_state`, `oauth_code`, `access_denied`, `sign_in_first`
-  (install/grant_write without a session), `read_only` (install/grant_write
+- Every callback outcome clears the OAuth state cookie. Failures land on
+  `/?auth_error=<code>`: the engine's `EngineAuthError`/`EngineInputError` codes
+  (with several workspaces `workspace_not_allowed`, `workspace_blocked` and
+  `grant_wrong_workspace`, each with its own sentence; install keeps its
+  `wrong_workspace` one), `linear_<kind>`, `oauth_expired` (missing, tampered or
+  expired cookie, or an install or write grant state without its workspace),
+  `oauth_state`, `oauth_code`, `access_denied` ("Linear sign-in was cancelled or
+  not granted. If your workspace needs an admin to approve apps, ask an admin to
+  approve Milestone Planner in Linear's settings, then try again."; the app's
+  name is `APP_NAME`), `too_many_workspaces` (the start route, at 10 held),
+  `sign_in_first` (install/grant_write without a session, or an install whose
+  workspace the browser no longer holds), `read_only` (install/grant_write
   started by a Linear guest, or the engine refusing a guest's write grant at the
   callback: "You are a guest in Linear, so the planner is read-only for you…"),
   `session_secret`, `invalid_request` or `internal` (logged). The demo sign-in
   reports the engine's `invalid` (a deactivated person or the app user) as
   `demo_inactive`. A signed-in visitor sees the error on `/` instead of being
   sent to `/week`. A sign-in that replaces a session ends the old one in
-  `after()`.
+  `after()` (OAuth mode: "Session cookies" above).
 - `SESSION_SECRET` (≥ 32 chars) is required in real mode; without it the OAuth
   routes log the misconfiguration and redirect with `session_secret`. Demo mode
   uses a per-process random secret.
@@ -3712,6 +3850,33 @@ links and follow-ups, new or unread, progress and the timeline's today.
   no room, also as a toast). Picking the current workspace does nothing.
   Switching changes which of the browser's own sessions is active; it is not a
   write, so a guest may switch.
+- **The planner's wiring** (`lib/load.ts loadShellFrame`,
+  `lib/adapters/shell.ts`, `PlannerShell`): in OAuth mode
+  `ShellFrame.workspaces` lists the browser's held workspaces
+  (`describeSessions` over the active cookie and the stash, once per request,
+  `loadHeldSessions`; only ids, names and states are copied into the frame,
+  never a token), the frame's own workspace always present and `current`, each
+  hinted "Not installed", "Reinstall needed", "Guest" or `linear.app/<urlKey>`
+  (`workspaceHint`, in that order), and `ShellFrame.connectHref` is
+  `/setup/connect`; both are null in api_key and demo mode, so no switcher
+  renders there. `ShellFrame.workspaceId` is the frame's workspace, which
+  `PlannerShell` hands to the api client (`X-Planner-Workspace`) and to the
+  pages' navigation guard (§8.1 "Stale tabs"). `onSwitch` is
+  `switchWorkspace(id)` (`lib/api-client.ts`): it posts `workspace=<id>` to
+  `/api/auth/switch` with `Accept: application/json`, loads the answered
+  `location` with `window.location.assign` (only a same-site path) and returns a
+  promise that never settles, so "Switching to <name>" stays until the page
+  goes; a 4xx rejects with the route's sentence. The palette's Workspaces items
+  (`workspacePaletteEntries`: `workspace-<id>` "Switch to <name>" with an
+  arrow-left-right icon per other workspace by name, then `workspace-connect`
+  "Connect another workspace", hinted "Sign in with Linear", a plus icon, `href`
+  `/setup/connect`) toast "Not switched" with the sentence when a switch is
+  refused. The footer's sign-out form posts `scope=current` and the frame's
+  workspace id (`ShellSignOut.fields`, hidden inputs) and, with two or more
+  workspaces held, is named "Sign out of <workspace>" (`shellSignOut`); api_key
+  and demo mode keep the plain "Sign out". "Sign out of all workspaces"
+  (`scope=all`) is a secondary button on Settings → Status and `/setup` while
+  two or more are held, and in `/week`'s signed-out notice (§8.4).
 - **Phone (≤ 900px)**: the sidebar becomes a 280px off-canvas drawer
   (`--shadow-pop`, over the `--overlay` scrim) opened from a topbar menu button;
   a fixed white bottom **tab bar** (`--border` top; 19px icons over 11px labels,
@@ -5191,6 +5356,69 @@ links and follow-ups, new or unread, progress and the timeline's today.
   Undeliverable tinted red (error text red). Empty logs are Gr8r's centred empty
   state with an icon.
 
+- **Several workspaces** (OAuth mode, owner decision 2026-10-25; §8.1 "Session
+  cookies"; copy in `lib/workspace-copy.ts`; names always from the engine, never
+  from a URL):
+  - **Signed-out landing**: when the active cookie names no live session but the
+    stash holds live ones, the sign-in card lists them above "Sign in with
+    Linear" (then a secondary button) under "Your session for this workspace
+    ended. This browser is still signed in to:" (without a stale active cookie,
+    "This browser is still signed in to:"): one full-width row per workspace
+    (the demo people's row: "Continue in <name>" over its hint or the person's
+    name, a chevron), each a plain POST form to `/api/auth/switch` carrying
+    `returnTo`, then a "Connect another workspace" link to `/setup/connect`.
+    `?switch_error=<code>` shows a red "Not switched" alert in the card.
+  - **`/setup/connect`** ("Connect another workspace", signed in or out, under
+    the `(app)` frame): the setup page's panel with the hint "Linear connects
+    the workspace you have open at linear.app. Open the one you want to add
+    there first.", a primary "Continue to Linear" (a plain link to
+    `/api/auth/linear?intent=add_workspace`, with the sanitised `returnTo` when
+    one was given) and Cancel, and a note that the planner asks for read access
+    and each workspace keeps its own sign-in. At 10 held workspaces an amber
+    "Ten workspaces" notice says to sign out of one first and the link is not
+    offered. Works without JavaScript; 404 in api_key and demo mode.
+  - **`/open?ws=<org id>&to=<path>`** (the interstitial `proxy.ts` sends a link
+    naming a workspace to): `ws` the active workspace → straight to `to`
+    (sanitised, else `/week`); a workspace the browser holds → Gr8r's full-page
+    state "This link is for <name>." with a primary "Switch to <name>" (a POST
+    switch form, `returnTo=to`) and, signed in, "Stay here"; otherwise "This
+    link is for a Linear workspace this browser is not signed in to." with
+    "Connect another workspace" (`/setup/connect?returnTo=<to>`). The `ws` value
+    is never rendered (a value that is not id-shaped matches nothing). In
+    api_key and demo mode it just opens `to` (signed-out visitors via the
+    sign-in page).
+  - **`/setup`** names the session's workspace before any install ("Acme · not
+    installed yet"). A revoked installation's red "Reinstall needed" notice says
+    why, by the reason `describeSessions` reports: uninstalled "An admin
+    uninstalled the app in Linear on <date>.", removed "The person who runs this
+    planner removed <name> on <date>.", a refused token (or a revoke from before
+    reasons were recorded) "Linear refused the app's token for <name> on
+    <date>."; the first two add "Its data is deleted on <date +
+    PURGE_AFTER_DAYS> unless someone reinstalls." (`revokedNotice` in
+    `lib/adapters/setup.ts`, the engine's exported constant), and every one ends
+    "Until a workspace admin reinstalls it, nothing syncs, nothing is allocated
+    and no warnings go out." A removed workspace may be reinstalled; a blocked
+    one never reaches this page (its sign-in is refused). With two or more
+    workspaces held the page ends with "Sign out of all workspaces".
+  - **`/week`'s notices** under the page head (neutral bordered, never the blue
+    info tone; a failed switch red): `?connect=same` "Already connected: Linear
+    connected <W> again, which this browser already has. To add another
+    workspace, open it at linear.app first, then choose Connect another
+    workspace."; `?signed_out=1` "Signed out: Signed out of <A>. Still signed in
+    to <B>." (A from the logout route's signed `from` value; "Signed out. Still
+    signed in to <B>." when it does not verify) with a small "Sign out of all
+    workspaces" button; `?signed_out=none` "This browser was not signed in to
+    that workspace any more, so nothing was signed out."; `?switch_error=` "Not
+    switched". The page's own links leave these parameters out.
+  - **Settings → Status** ends with "Sign out of all workspaces" while two or
+    more workspaces are held.
+  - **First sync**: the pending state (the error page, `/setup`) says when a
+    failed first sync is tried again instead of "on every page": "It is tried
+    again a minute after a failure, then less often while it keeps failing (at
+    most every 15 minutes), and on every worker run."
+    (`FIRST_SYNC_RETRY_SENTENCE`, checked against the engine's
+    `FIRST_SYNC_RETRY_MAX_MS`).
+
 - **With personal API keys** (`LINEAR_AUTH=api_key`, owner request 2026-10-23,
   §7.4):
   - **`/` (the connect page)**: Gr8r's sign-in card, as on the OAuth landing
@@ -5887,6 +6115,49 @@ not read; a deploy that still sets it boots normally and logs one warning
   keeps its date on any day, cross-year dates included, in both demo workspaces
   (`test/adapters-graph-sublabel.test.ts`), and the layout cache reuses only an
   identical drawing, frames included (`test/graph-layout-cache.test.ts`).
+- planner (several workspaces, owner decision 2026-10-25; §8.1 "Session
+  cookies"): `test/session-cookies.test.ts` (the names per mode and scheme, the
+  `__Host-` ones only on https and a plain one never read there, the OAuth state
+  on `Path=/` there, the stash's round trip, order, nine-entry cap, duplicates,
+  invalid entries and the active token kept out, its Max-Age from the latest
+  expiry, the legacy expiries, api_key mode's cookies unchanged with the stash
+  names cleared too; `readHeldSessions` and the `activate` / `without`
+  arrangements, overflow signed out); `test/session-cookie-names.test.ts` (no
+  cookie name, old constant or `readCookie(` outside `lib/session-cookies.ts`);
+  `test/auth-routes-https.test.ts` (every auth route on https reads only the
+  `__Host-` tokens and sets only `__Host-` cookies or plain expiries);
+  `test/auth-routes.test.ts` (the start route's `expectWorkspaceId`,
+  `add_workspace` signed in or out and refused at 10; the callback's rules: a
+  workspace already held kept with the new grant ended and `connect=same`, a
+  dead held session replaced, other workspaces kept, `grant_write` replacing its
+  workspace's session even after a switch, overflow, dropped tokens, an install
+  by a stashed session, an install for a workspace no longer held, the new error
+  codes); `test/auth-workspace-routes.test.ts` (switch as JSON and as a form, a
+  guest switching, never the Referer, `unknown_workspace`, `session_ended`
+  pruned and signed out, dead-active recovery, 404 outside OAuth mode; logout
+  `current` with and without the active session, a stale tab's workspace, one
+  not held, the last one, `all`); `test/stale-tab-guards.test.ts` (409
+  `workspace_changed` naming both workspaces and never the header, the
+  navigation guard's decision, every `(app)` page rendering `WorkspaceGuard`);
+  `test/shell-workspaces.test.ts` (the frame's workspaces, hints and connect row
+  with no token in it, the footer's "Sign out of <workspace>" and fields, the
+  palette's Workspaces items and section order, none of it in api_key or demo
+  mode); `test/workspace-pages.test.tsx` (`/setup/connect`, `/open`, the
+  landing's "Continue in" forms, `/setup`'s per-reason revoked copy and purge
+  date, `/week`'s notices with the signed name); `test/proxy.test.ts` (the `ws`
+  redirect); `test/api-client.test.ts` (the header, `switchWorkspace`, the
+  Reload toast). **The cross-workspace gate** is
+  `test/oauth-workspaces.test.ts`: the real auth and API routes over a real
+  OAuth engine (PGlite) and the e2e fake Linear's two organizations in-process
+  (`createEngineFromEnv(…, { fetch })`, https `APP_URL`): sign in to and install
+  Acme, connect Globex (`prompt=consent`) as its admin and install it, each
+  token authenticating to its own workspace, switching both ways, a stale
+  `X-Planner-Workspace` getting 409, a Globex write grant replacing only
+  Globex's session, a PATCH of an Acme issue id while Globex is active refused
+  with nothing reaching Acme in the fake's request log, connecting Globex again
+  keeping its write grant, Ana a guest in Globex getting 403 `read_only`,
+  signing out of Globex keeping Acme and revoking only Globex's grants, and no
+  Linear or session token in the logs.
 - planner (issue list): `test/adapters-issue-list.test.ts` (the URL grammar:
   canonical order, defaults left out, `state=all`, `me` and `none`, dropped
   values, the 50-value and 200-character caps, `limit` steps, invalid section

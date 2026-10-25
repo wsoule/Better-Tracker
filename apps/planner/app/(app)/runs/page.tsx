@@ -12,6 +12,7 @@ import type { Metadata } from 'next';
 import { buildRunsPage, type RunRowModel } from '../../../lib/adapters/runs';
 import { orSetup, requireInstalledActor } from '../../../lib/load';
 import ReadOnlyNotice from '../components/read-only-notice';
+import WorkspaceGuard from '../components/workspace-guard';
 import css from './page.module.css';
 import RunActions from './run-actions';
 
@@ -66,6 +67,7 @@ export default async function RunsPage() {
 
   return (
     <>
+      <WorkspaceGuard />
       {/* The run controls sit top right in the header (Gr8r's header
           actions), their note under the receipts. */}
       <header className={`${css.head} ${css.headActions}`}>

@@ -5,6 +5,7 @@ import { issuePagePath } from '../../../../lib/adapters/issue';
 import { loadIssueModel } from '../../../../lib/issue-load';
 import { orSetup, requireInstalledActor } from '../../../../lib/load';
 import { PageCrumb } from '../../components/page-crumb';
+import WorkspaceGuard from '../../components/workspace-guard';
 import IssuePageView from './issue-page-view';
 
 type Params = Promise<{ id: string }>;
@@ -39,6 +40,7 @@ export default async function IssuePage({ params }: { params: Params }) {
   return (
     <>
       <PageCrumb label={model.key} />
+      <WorkspaceGuard />
       <IssuePageView model={model} />
     </>
   );

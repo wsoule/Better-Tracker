@@ -267,7 +267,7 @@ describe('renderDigest', () => {
     expect(sections[0]).toContain('Milestone 0>');
     expect(sections[46]).toContain('Milestone 46>');
     expect(lastContextText(blocks)).toBe(
-      '…and 13 more — open the timeline: <https://planner.example.com/timeline|Timeline>'
+      '…and 13 more — open the timeline: <https://planner.example.com/timeline?ws=org-1|Timeline>'
     );
     expect(headerText(blocks)).toBe(
       'Milestone Planner: 60 milestones need attention'
@@ -306,7 +306,7 @@ describe('renderDigest', () => {
       appUrl: 'https://planner.example.com/',
     });
     expect(lastContextText(blocks)).toContain(
-      '<https://planner.example.com/timeline|Timeline>'
+      '<https://planner.example.com/timeline?ws=org-1|Timeline>'
     );
   });
 

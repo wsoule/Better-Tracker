@@ -22,6 +22,7 @@ import {
   requestViewer,
   requireInstalledActor,
 } from '../../../lib/load';
+import WorkspaceGuard from '../components/workspace-guard';
 import css from './page.module.css';
 import TimelineScreen from './timeline-screen';
 
@@ -116,6 +117,7 @@ export default async function TimelinePage({
 
   return (
     <>
+      <WorkspaceGuard />
       <header className={css.head}>
         <h1 className={css.title}>Timeline</h1>
         <p className={css.receipts}>{timelineReceipts(view)}</p>

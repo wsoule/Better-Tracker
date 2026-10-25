@@ -22,6 +22,7 @@ import {
 } from '../../../../lib/adapters/runs';
 import { orSetup, requireInstalledActor } from '../../../../lib/load';
 import { PageCrumb } from '../../components/page-crumb';
+import WorkspaceGuard from '../../components/workspace-guard';
 import css from '../page.module.css';
 
 export const metadata: Metadata = { title: 'Run' };
@@ -127,6 +128,7 @@ export default async function RunPage({
         )}
       </div>
       <PageCrumb label={model.crumb} />
+      <WorkspaceGuard />
     </>
   );
 }

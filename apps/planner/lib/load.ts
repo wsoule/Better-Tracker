@@ -5,9 +5,14 @@ import { cache } from 'react';
 
 import { parseIssueListSearch } from './adapters/issue-list';
 import { buildShellFrame, type ShellFrame } from './adapters/shell';
-import { signInLocation } from './auth-cookies';
+import { CONNECT_PATH, signInLocation } from './auth-cookies';
 import { engineAuthCode } from './engine-errors';
-import { getRequestContext, type RequestContext } from './session';
+import { allHeld, type HeldSessions } from './held-sessions';
+import {
+  getHeldSessions,
+  getRequestContext,
+  type RequestContext,
+} from './session';
 
 // Data loading for server components (pages and the (app) layout).
 //
@@ -28,6 +33,15 @@ type Installation = Awaited<ReturnType<Engine['getInstallation']>>;
 /** The engine and signed-in actor (or null), once per request. */
 export const getPageContext: () => Promise<RequestContext> =
   cache(getRequestContext);
+
+/**
+ * The sessions this browser holds (OAuth mode: the active cookie and the
+ * stash, described in one store query), once per request. Holds session
+ * tokens: never pass it, or anything copied from it but names and ids, to
+ * a client component.
+ */
+export const loadHeldSessions: () => Promise<HeldSessions> =
+  cache(getHeldSessions);
 
 /** The workspace's installation row (tokens redacted), once per request. */
 export const loadInstallation: (
@@ -189,9 +203,30 @@ export async function loadShellFrame(
       }
     }
   }
+  // OAuth mode only: api_key and demo mode hold one workspace, so the
+  // frame gets no switcher (describeSessions answers nothing there).
+  const oauth = engine.mode !== 'fixture' && engine.config.auth !== 'api_key';
+  // Only names, ids and states: the frame goes to the browser, the
+  // sessions' tokens never do.
+  const held = oauth
+    ? allHeld(await loadHeldSessions()).map((entry) => ({
+        workspaceId: entry.workspaceId,
+        workspaceName: entry.workspaceName,
+        workspaceUrlKey: entry.workspaceUrlKey,
+        installed: entry.installed,
+        revokedAt: entry.revokedAt,
+        guest: entry.guest,
+      }))
+    : null;
   return buildShellFrame({
     appName: engine.config.appName,
-    workspaceName: installation?.workspaceName ?? null,
+    workspaceId,
+    workspaceName:
+      installation?.workspaceName ??
+      held?.find((entry) => entry.workspaceId === workspaceId)?.workspaceName ??
+      null,
+    heldWorkspaces: held,
+    connectHref: CONNECT_PATH,
     userName: actor.session.userName,
     readOnly: actor.readOnly,
     readOnlyReason: actor.readOnlyReason,

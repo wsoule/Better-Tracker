@@ -781,9 +781,17 @@ export const ISSUE_LIST_COLUMN_LABELS: Partial<
   Record<TaskColumnId | 'title', string>
 > = { state: 'Status' };
 
-/** Where each grouping's collapsed groups are remembered (per viewer). */
-export function collapsedStorageKey(group: IssueListGroupBy): string {
-  return `milestone-planner:issues:collapsed:${group}`;
+/**
+ * Where each grouping's collapsed groups are remembered (per viewer, per
+ * workspace: a browser holds several since the owner decision of
+ * 2026-10-25, and one workspace's folded milestones mean nothing in
+ * another).
+ */
+export function collapsedStorageKey(
+  group: IssueListGroupBy,
+  workspaceId: string
+): string {
+  return `milestone-planner:issues:collapsed:${workspaceId}:${group}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -852,6 +860,8 @@ export interface IssueListPageModel {
 
 export interface IssueListPageInput {
   view: IssueListView;
+  /** The workspace the list is of (the folded groups' storage key). */
+  workspaceId: string;
   /** The URL's own query (before the no-initiatives fallback): row links
       and footer views keep it. */
   query: IssueListQuery;
@@ -1554,7 +1564,7 @@ export function buildIssueListPage(
     columns: issueListColumns(view.query.group),
     sections,
     defaultCollapsed,
-    storageKey: collapsedStorageKey(view.query.group),
+    storageKey: collapsedStorageKey(view.query.group, input.workspaceId),
     empty:
       sections.length === 0
         ? {

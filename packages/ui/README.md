@@ -869,6 +869,12 @@ items in a section of your own (the planner's "Workspaces": "Switch to <name>"
 with `onSelect`, "Connect another workspace" with `href`) and place it with
 `sectionOrder`.
 
+A host holding several workspaces usually names the one its footer signs out of:
+`AppShellProps.signOut` takes an optional `label` ("Sign out of Acme", the
+button's name and tooltip) and `fields`, hidden inputs the form posts (the
+planner's `{ scope: 'current', workspace: '<org id>' }`, so a tab left on one
+workspace never signs out another).
+
 ### Edit controls
 
 Every edit control is controlled and saves through one contract: `onChange` /

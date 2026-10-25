@@ -9,8 +9,14 @@ import type { ZodType } from 'zod';
 
 import { readLimitedText } from './body';
 import { engineAuthCode, engineInputCode } from './engine-errors';
+import { heldFor } from './held-sessions';
 import { jsonError, rejectCrossOrigin } from './origin';
-import { getRequestContext } from './session';
+import { getHeldSessions, getRequestContext } from './session';
+import {
+  UNNAMED_WORKSPACE,
+  WORKSPACE_HEADER,
+  workspaceChangedMessage,
+} from './workspace-copy';
 
 export { jsonError, rejectCrossOrigin };
 
@@ -163,8 +169,40 @@ export function refuseReadOnly(actor: Actor): Response | null {
 }
 
 /**
+ * 409 workspace_changed: the tab that sent the request shows another
+ * workspace than this browser's active session (it switched in another
+ * tab). The sentence names both from the engine (the held sessions, the
+ * installation), never from the header.
+ */
+async function workspaceChanged(
+  engine: Engine,
+  actor: Actor,
+  tabWorkspaceId: string
+): Promise<Response> {
+  const held = await getHeldSessions();
+  const activeName =
+    held.active?.workspaceName ??
+    (await engine.getInstallation(actor.session.workspaceId))?.workspaceName ??
+    UNNAMED_WORKSPACE;
+  const tabName = heldFor(held, tabWorkspaceId)?.workspaceName ?? null;
+  return jsonError(
+    409,
+    'workspace_changed',
+    workspaceChangedMessage(tabName, activeName),
+    {},
+    { 'Cache-Control': 'no-store' }
+  );
+}
+
+/**
  * Resolves the signed-in actor for an API route and applies the CSRF guard
- * for non-GET methods. A Response means "send this".
+ * for non-GET methods. A Response means "send this". A request that names
+ * its tab's workspace (`X-Planner-Workspace`, which every api-client.ts
+ * call sends) gets 409 workspace_changed when that is not the active
+ * session's workspace any more (owner decision 2026-10-25: a browser holds
+ * several workspaces, and a tab left on one must not act in another); a
+ * request without the header is let through (the engine scopes every read
+ * and write to the session's workspace anyway).
  */
 export async function requireApiActor(
   request: Request
@@ -182,6 +220,14 @@ export async function requireApiActor(
         ? 'Connect your Linear API key first.'
         : 'Sign in first.'
     );
+  }
+  const tabWorkspaceId = request.headers.get(WORKSPACE_HEADER);
+  if (
+    tabWorkspaceId !== null &&
+    tabWorkspaceId !== '' &&
+    tabWorkspaceId !== actor.session.workspaceId
+  ) {
+    return workspaceChanged(engine, actor, tabWorkspaceId);
   }
   return { engine, actor };
 }

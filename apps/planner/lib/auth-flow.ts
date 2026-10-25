@@ -52,6 +52,24 @@ export async function signOutQuietly(
   }
 }
 
+/**
+ * Ends, after the response, the sessions a route left out of the cookies
+ * (a replaced or overflowing session, a token that names no live session
+ * any more), each through signOutQuietly so its Linear grant is revoked
+ * and nothing outlives its cookie. `schedule` is Next's after() in the
+ * routes and a queue in tests.
+ */
+export function signOutLater(
+  engine: Engine,
+  tokens: readonly string[],
+  schedule: (task: () => Promise<unknown>) => void
+): void {
+  for (const token of new Set(tokens)) {
+    if (token === '') continue;
+    schedule(() => signOutQuietly(engine, token));
+  }
+}
+
 /** Logs a configuration problem the redirect cannot show in full. */
 export function logConfigError(message: string, error: unknown): void {
   logger.error(message, { err: error });

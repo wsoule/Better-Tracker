@@ -175,6 +175,7 @@ describe('shell frame', () => {
   test('says why the project list is empty', () => {
     const base = {
       appName: 'Milestone Planner',
+      workspaceId: 'org-northwind',
       workspaceName: null,
       userName: 'Ana Moreno',
       readOnly: false,
@@ -410,6 +411,7 @@ describe('palette actions', () => {
   test('the frame carries no role flag', () => {
     const frame = buildShellFrame({
       appName: 'Milestone Planner',
+      workspaceId: 'org-northwind',
       workspaceName: null,
       userName: 'Chloe Diaz',
       readOnly: false,
@@ -430,6 +432,7 @@ describe('palette actions', () => {
     expect(paletteSuggestions(true).map((s) => s.action)).toEqual(['theme']);
     const frame = buildShellFrame({
       appName: 'Milestone Planner',
+      workspaceId: 'org-northwind',
       workspaceName: null,
       userName: 'Gus Hart',
       readOnly: true,

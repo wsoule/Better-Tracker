@@ -11,6 +11,7 @@ import {
   orSetup,
   requireInstalledActor,
 } from '../../../lib/load';
+import WorkspaceGuard from '../components/workspace-guard';
 import css from './page.module.css';
 import ProjectsRegister from './projects-register';
 
@@ -48,6 +49,7 @@ export default async function ProjectsPage({
 
   return (
     <>
+      <WorkspaceGuard />
       <header className={css.head}>
         <h1 className={css.title}>Projects</h1>
         <p className={css.receipts}>{page.receipts}</p>

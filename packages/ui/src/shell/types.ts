@@ -95,6 +95,9 @@ export interface ShellSignOut {
   action: string;
   method: 'post';
   label?: string;
+  /** Hidden fields the form posts (a host holding several workspaces
+      names which one this page signs out of). */
+  fields?: Readonly<Record<string, string>>;
 }
 
 export interface ShellSettingsLink {

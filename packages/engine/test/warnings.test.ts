@@ -84,8 +84,9 @@ describe('preview mode', () => {
     expect(records.every((r) => r.channel === 'outbox')).toBe(true);
     expect(records.every((r) => r.day === h.clock.today())).toBe(true);
     const ana = records.find((r) => r.recipientId === 'user-ana');
+    // Links that leave the app name their workspace (§7).
     expect(ana?.digest.items[0]?.url).toBe(
-      'https://planner.example/timeline?milestone=ms-atlas-2'
+      `https://planner.example/timeline?milestone=ms-atlas-2&ws=${WORKSPACE_ID}`
     );
 
     // Memory was saved: the same day has nothing new to say.

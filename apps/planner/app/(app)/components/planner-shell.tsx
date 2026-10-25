@@ -8,9 +8,11 @@ import {
   type ShellNavItem,
   type ShellSection,
   type ShellTab,
+  type ShellWorkspaceSwitcher,
   useToast,
 } from '@better-tracker/ui';
 import {
+  ArrowLeftRight,
   CalendarCheck,
   ChartGantt,
   Contrast,
@@ -20,6 +22,7 @@ import {
   ListChecks,
   Network,
   Play,
+  Plus,
   RefreshCw,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -39,14 +42,23 @@ import {
   type PaletteSuggestionAction,
   runIdFrom,
   type ShellFrame,
+  shellSignOut,
   SIDEBAR_STORAGE_KEY,
   syncFailureMessage,
   userBadge,
+  workspacePaletteEntries,
 } from '../../../lib/adapters/shell';
-import { getJson, sendJson } from '../../../lib/api-client';
+import {
+  getJson,
+  sendJson,
+  setFrameWorkspace,
+  switchWorkspace,
+} from '../../../lib/api-client';
 import { refuseKeyText } from '../../../lib/key-text';
+import { CONNECT_LABEL } from '../../../lib/workspace-copy';
 import { CrumbProvider, usePageCrumb } from './page-crumb';
 import { ReadOnlyReasonProvider } from './read-only-notice';
+import { FrameWorkspaceProvider } from './workspace-frame';
 
 const NAV_ICONS: Record<NavTargetId, ShellIcon> = {
   week: CalendarCheck,
@@ -105,19 +117,34 @@ interface PlannerShellProps {
  * breadcrumb) and the command palette with its actions. Every command is
  * offered to everyone signed in (there are no roles) except a Linear
  * guest, who is read-only (owner decision 2026-10-22): their palette keeps
- * navigation, Jump to and the theme switch, and their user line says
- * "Guest". The routes behind the commands refuse a guest too.
+ * navigation, Jump to, the theme switch and the Workspaces section, and
+ * their user line says "Guest". The routes behind the commands refuse a
+ * guest too.
+ *
+ * In OAuth mode the frame lists the browser's held workspaces (owner
+ * decision 2026-10-25): the brand row is the workspace switcher, the
+ * palette has a Workspaces section, and the footer's sign-out names the
+ * workspace it ends. The frame's workspace id also goes into every
+ * api-client request (X-Planner-Workspace) and into the context each
+ * page's navigation guard compares with (workspace-frame.tsx).
  */
 export default function PlannerShell(props: PlannerShellProps) {
+  // In the browser only: the module is shared by every request on the
+  // server, which never calls the api client.
+  if (typeof window !== 'undefined') {
+    setFrameWorkspace(props.frame.workspaceId);
+  }
   return (
-    <CrumbProvider>
-      <ReadOnlyReasonProvider
-        reason={props.frame.readOnlyReason}
-        apiKeyMode={props.frame.apiKeyMode}
-      >
-        <PaletteFrame {...props} />
-      </ReadOnlyReasonProvider>
-    </CrumbProvider>
+    <FrameWorkspaceProvider workspaceId={props.frame.workspaceId}>
+      <CrumbProvider>
+        <ReadOnlyReasonProvider
+          reason={props.frame.readOnlyReason}
+          apiKeyMode={props.frame.apiKeyMode}
+        >
+          <PaletteFrame {...props} />
+        </ReadOnlyReasonProvider>
+      </CrumbProvider>
+    </FrameWorkspaceProvider>
   );
 }
 
@@ -181,6 +208,32 @@ function PaletteFrame({
         onSelect: run[suggestion.action],
       })
     );
+    const workspaces = workspacePaletteEntries(frame).map(
+      (entry): PaletteItem => {
+        const item: PaletteItem = {
+          id: entry.id,
+          label: entry.label,
+          hint: entry.hint,
+          section: PALETTE_SECTIONS.workspaces,
+          icon: entry.switchTo === undefined ? Plus : ArrowLeftRight,
+        };
+        const target = entry.switchTo;
+        if (target !== undefined) {
+          // The palette has closed by now: a refusal is a toast.
+          item.onSelect = () =>
+            void switchWorkspace(target).catch((error: unknown) =>
+              toast({
+                kind: 'error',
+                label: 'Not switched',
+                message: error instanceof Error ? error.message : 'Try again.',
+              })
+            );
+        } else {
+          item.href = entry.href;
+        }
+        return item;
+      }
+    );
     const navigation = NAV_TARGETS.map((target): PaletteItem => ({
       id: `nav-${target.id}`,
       label: `Go to ${target.label}`,
@@ -190,8 +243,8 @@ function PaletteFrame({
       shortcut: target.shortcut,
       icon: NAV_ICONS[target.id],
     }));
-    return [...suggestions, ...navigation];
-  }, [frame.readOnly, previewAllocation, resync, themeStorageKey]);
+    return [...suggestions, ...workspaces, ...navigation];
+  }, [frame, previewAllocation, resync, themeStorageKey, toast]);
 
   const loadItems = useCallback(async () => {
     const body = await getJson('/api/palette');
@@ -266,6 +319,23 @@ function Frame({
     },
   ];
 
+  // OAuth mode: the brand row lists the browser's workspaces; picking one
+  // posts the switch and loads the page it answers (a full page load).
+  const workspaceSwitcher = useMemo<ShellWorkspaceSwitcher | undefined>(
+    () =>
+      frame.workspaces === null
+        ? undefined
+        : {
+            workspaces: frame.workspaces,
+            onSwitch: (id: string) => switchWorkspace(id),
+            ...(frame.connectHref === null
+              ? {}
+              : { connect: { label: CONNECT_LABEL, href: frame.connectHref } }),
+          },
+    [frame.workspaces, frame.connectHref]
+  );
+  const signOut = shellSignOut(frame);
+
   const tabs = TAB_IDS.map((id): ShellTab => {
     const target = NAV_TARGETS.find((t) => t.id === id) ?? NAV_TARGETS[0];
     return {
@@ -282,6 +352,7 @@ function Frame({
       appName={frame.appName}
       workspaceName={frame.workspaceName ?? undefined}
       brandHref="/week"
+      workspaceSwitcher={workspaceSwitcher}
       nav={nav}
       sections={sections}
       settings={{
@@ -292,7 +363,11 @@ function Frame({
         name: frame.userName,
         badge: userBadge(frame),
       }}
-      signOut={{ action: '/api/auth/logout', method: 'post' }}
+      signOut={{
+        action: '/api/auth/logout',
+        method: 'post',
+        ...signOut,
+      }}
       themeStorageKey={themeStorageKey}
       crumbs={crumbsFor(pathname, pageCrumb)}
       banner={banner}

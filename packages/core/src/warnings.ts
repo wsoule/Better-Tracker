@@ -376,6 +376,21 @@ function noticeLines(
   return lines;
 }
 
+/**
+ * A link that leaves the planner (a digest's, architecture §7 "Links that
+ * leave the app"), naming the workspace it is about: `ws=<org id>` is
+ * appended with `?` or `&`, so a browser that holds several workspaces
+ * (owner decision 2026-10-25) opens it in the right one (the planner's
+ * /open interstitial). In-app links never carry it.
+ */
+export function withWorkspaceParam(url: string, workspaceId: string): string {
+  const hash = url.indexOf('#');
+  const base = hash === -1 ? url : url.slice(0, hash);
+  const fragment = hash === -1 ? '' : url.slice(hash);
+  const joiner = base.includes('?') ? '&' : '?';
+  return `${base}${joiner}ws=${encodeURIComponent(workspaceId)}${fragment}`;
+}
+
 // The open issues a notice counts, named so the message says what is open
 // and what is unassigned (§7.5), each linked to its planner issue page.
 // Keeps `openIssueIds` order (display order); ids missing from the snapshot
@@ -383,7 +398,8 @@ function noticeLines(
 function digestIssues(
   snapshot: Snapshot,
   notice: Notice,
-  baseUrl: string
+  baseUrl: string,
+  workspaceId: string
 ): DigestIssue[] {
   const unassigned = new Set(notice.unassignedIssueIds);
   const issues: DigestIssue[] = [];
@@ -395,7 +411,10 @@ function digestIssues(
       identifier: issue.identifier,
       title: issue.title,
       unassigned: unassigned.has(id),
-      url: `${baseUrl}/issues/${encodeURIComponent(issue.identifier)}`,
+      url: withWorkspaceParam(
+        `${baseUrl}/issues/${encodeURIComponent(issue.identifier)}`,
+        workspaceId
+      ),
     });
   }
   return issues;
@@ -406,7 +425,8 @@ function digestIssues(
  * at_risk → invalid_due_soon → allocation_blocked, then by milestone
  * display order (project notices by their next milestone, else timeline
  * order). Digests are ordered by recipient name. Unknown or deactivated
- * recipients get nothing.
+ * recipients get nothing. Every link carries `ws=<workspaceId>`
+ * (withWorkspaceParam).
  */
 export function buildDigests(input: {
   snapshot: Snapshot;
@@ -414,6 +434,8 @@ export function buildDigests(input: {
   assessments: ReadonlyMap<string, MilestoneAssessment>;
   notices: readonly Notice[];
   appUrl: string;
+  /** The workspace the digests are about (its Linear org id). */
+  workspaceId: string;
 }): Digest[] {
   const { snapshot, ctx, assessments } = input;
   const baseUrl = input.appUrl.replace(/\/+$/, '');
@@ -466,10 +488,12 @@ export function buildDigests(input: {
         : assessments.get(notice.milestoneId);
     const lead =
       project?.leadId == null ? undefined : snapshot.users.get(project.leadId);
-    const url =
+    const url = withWorkspaceParam(
       notice.subjectKind === 'milestone'
         ? `${baseUrl}/timeline?milestone=${encodeURIComponent(notice.subjectId)}`
-        : `${baseUrl}/timeline?project=${encodeURIComponent(notice.subjectId)}`;
+        : `${baseUrl}/timeline?project=${encodeURIComponent(notice.subjectId)}`,
+      input.workspaceId
+    );
     const item: DigestItem = {
       notice,
       projectName: project?.name ?? notice.projectId,
@@ -477,7 +501,7 @@ export function buildDigests(input: {
       leadName: lead?.name ?? null,
       openCount: notice.openIssueIds.length,
       unassignedCount: notice.unassignedIssueIds.length,
-      openIssues: digestIssues(snapshot, notice, baseUrl),
+      openIssues: digestIssues(snapshot, notice, baseUrl, input.workspaceId),
       lines: noticeLines(snapshot, ctx, assessment, notice),
       url,
     };

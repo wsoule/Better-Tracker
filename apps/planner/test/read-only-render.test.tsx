@@ -267,6 +267,7 @@ describe('the Issues page', () => {
     });
     const page = buildIssueListPage({
       view: issueView,
+      workspaceId: 'org-northwind',
       query,
       viewerId: who.viewerId,
       readOnly: who.readOnly,
@@ -283,6 +284,7 @@ describe('the Issues page', () => {
         today={TODAY}
         viewerId={who.viewerId}
         mirrorVersion={1}
+        workspaceId="org-northwind"
         facts={{ hasInitiatives: !who.readOnly, teamCount: 2 }}
         drawer={{ param: null, model: null }}
         permissions={{

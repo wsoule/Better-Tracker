@@ -24,12 +24,32 @@ describe('landing', () => {
   test('auth errors read as plain sentences', () => {
     expect(authErrorMessage(undefined)).toBeNull();
     expect(authErrorMessage('')).toBeNull();
-    expect(authErrorMessage('access_denied')).toMatch(/cancelled/);
+    expect(authErrorMessage('access_denied')).toBe(
+      'Linear sign-in was cancelled or not granted. If your workspace needs an admin to approve apps, ask an admin to approve Milestone Planner in Linear’s settings, then try again.'
+    );
+    expect(
+      authErrorMessage('access_denied', { appName: 'Acme Planner' })
+    ).toContain('approve Acme Planner in Linear’s settings');
     expect(authErrorMessage('session_secret')).toMatch(/SESSION_SECRET/);
     expect(authErrorMessage('linear_network')).toMatch(/Linear could not/);
     expect(authErrorMessage('brand_new')).toBe(
       'Sign-in did not finish (brand_new). Start again.'
     );
+  });
+
+  test('several workspaces: the new codes have their own sentences (owner decision 2026-10-25)', () => {
+    expect(authErrorMessage('workspace_not_allowed')).toBe(
+      'This planner is not open to that Linear workspace yet. Ask the person who runs it.'
+    );
+    expect(authErrorMessage('workspace_blocked')).toMatch(/blocked it/);
+    expect(authErrorMessage('grant_wrong_workspace')).toMatch(
+      /another workspace than the one you were working in/
+    );
+    expect(authErrorMessage('too_many_workspaces')).toMatch(
+      /Sign out of a workspace first/
+    );
+    // Install keeps its own wrong_workspace sentence.
+    expect(authErrorMessage('wrong_workspace')).toMatch(/That install was for/);
   });
 
   test('a demo person who cannot sign in is told so, not "sign-in is off"', () => {

@@ -2,10 +2,38 @@
 // client island goes through sendJson: same-origin fetch with a JSON body
 // (the routes' CSRF guard accepts it because the browser sends a matching
 // Origin), and a result the caller can show in a toast without parsing.
+// Every request names the workspace its tab shows (X-Planner-Workspace,
+// set by PlannerShell from the shell frame), so a tab left on one
+// workspace after the browser switched to another in a second tab is
+// answered 409 workspace_changed instead of acting there (architecture
+// §8.1 "Stale tabs").
 
 import type { IssueBulkPatch, IssueListOptions } from '@better-tracker/core';
 import type { IssueBulkResult } from '@better-tracker/engine';
 import type { ToastInput } from '@better-tracker/ui';
+
+import { WORKSPACE_HEADER } from './workspace-copy';
+
+// The workspace the tab's shell frame shows; null outside the signed-in
+// frame (and on the server, which never calls these).
+let frameWorkspaceId: string | null = null;
+
+/**
+ * Names the workspace this tab shows, for the X-Planner-Workspace header
+ * of every later request (PlannerShell calls it while rendering, in the
+ * browser only: the layout, and so the frame, never re-renders on client
+ * navigation, which is what makes it the tab's workspace).
+ */
+export function setFrameWorkspace(workspaceId: string | null): void {
+  frameWorkspaceId = workspaceId;
+}
+
+/** The headers every request carries, plus `extra`. */
+function requestHeaders(extra: Record<string, string>): Record<string, string> {
+  return frameWorkspaceId === null
+    ? extra
+    : { ...extra, [WORKSPACE_HEADER]: frameWorkspaceId };
+}
 
 export type ApiResult<T> =
   | { ok: true; status: number; data: T }
@@ -88,10 +116,10 @@ export async function sendJson<T = unknown>(
   try {
     response = await fetch(url, {
       method,
-      headers: {
+      headers: requestHeaders({
         'content-type': 'application/json',
         accept: 'application/json',
-      },
+      }),
       body: JSON.stringify(body ?? {}),
       credentials: 'same-origin',
       cache: 'no-store',
@@ -122,7 +150,7 @@ export async function getJson(
   let response: Response;
   try {
     response = await fetch(url, {
-      headers: { accept: 'application/json' },
+      headers: requestHeaders({ accept: 'application/json' }),
       credentials: 'same-origin',
       cache: 'no-store',
       signal,
@@ -139,16 +167,75 @@ export async function getJson(
 }
 
 /**
+ * Switches this browser to another of its workspaces (POST
+ * /api/auth/switch with `workspace=<id>`, asking for JSON): on success
+ * the page loads the route's `location` (a full page load, so nothing of
+ * the old workspace stays in memory) and the promise never settles, so
+ * the switcher keeps saying "Switching to …" until the page goes; a
+ * refusal rejects with an Error carrying the route's sentence (the
+ * switcher prints "Not switched …", the palette toasts it). `assign`
+ * stands in for window.location.assign in tests.
+ */
+export async function switchWorkspace(
+  workspaceId: string,
+  assign: (location: string) => void = (location) =>
+    window.location.assign(location)
+): Promise<never> {
+  let response: Response;
+  try {
+    response = await fetch('/api/auth/switch', {
+      method: 'POST',
+      headers: requestHeaders({ accept: 'application/json' }),
+      body: new URLSearchParams({ workspace: workspaceId }),
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  } catch {
+    throw new Error(NETWORK_MESSAGE);
+  }
+  const data = await readBody(response);
+  if (!response.ok) {
+    throw new Error(errorFromBody(response.status, data).message);
+  }
+  const location =
+    typeof data === 'object' && data !== null
+      ? (data as Record<string, unknown>).location
+      : undefined;
+  // Only a same-site path is followed (the route sends one).
+  assign(
+    typeof location === 'string' &&
+      location.startsWith('/') &&
+      !location.startsWith('//')
+      ? location
+      : '/week'
+  );
+  return new Promise<never>(() => undefined);
+}
+
+/**
  * The "Not saved" toast for a refused save. A needs_write_scope answer
  * carries the grant_write link, offered to everyone (there are no roles),
  * so the toast gets an "Allow edits" action and stays up long enough to
  * use it; `navigate` is how the action follows the link (a full page load
- * in the browser, since the OAuth start must never be prefetched).
+ * in the browser, since the OAuth start must never be prefetched). A
+ * workspace_changed answer (this tab shows another workspace than the one
+ * the browser switched to) gets a "Reload" action instead; `reload` stands
+ * in for window.location.reload in tests.
  */
 export function notSavedToast(
   result: Extract<ApiResult<unknown>, { ok: false }>,
-  navigate: (href: string) => void
+  navigate: (href: string) => void,
+  reload: () => void = () => window.location.reload()
 ): ToastInput {
+  if (result.code === 'workspace_changed') {
+    return {
+      kind: 'error',
+      label: 'Not saved',
+      message: result.message,
+      action: { label: 'Reload', onClick: reload },
+      duration: 10_000,
+    };
+  }
   const grant = result.grantWriteHref;
   if (grant === undefined) {
     return { kind: 'error', label: 'Not saved', message: result.message };

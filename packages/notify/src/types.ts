@@ -3,6 +3,13 @@ import type { Digest } from '@better-tracker/core';
 export interface DeliveryContext {
   appName: string;
   appUrl: string;
+  /**
+   * The workspace the digest is about (its Linear org id): the links the
+   * renderer builds itself carry `ws=<it>` (core's withWorkspaceParam), as
+   * the digest's own links do, so a browser that holds several workspaces
+   * opens them in the right one.
+   */
+  workspaceId: string;
 }
 
 export type DeliveryResult =
