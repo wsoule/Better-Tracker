@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 
+import type { SaveResult } from '../edit/types';
 import type { UiStatus, UiTone } from '../types';
 
 // Prop vocabulary of the shell family (app frame, command palette, toasts,
@@ -102,12 +103,61 @@ export interface ShellSettingsLink {
   current?: boolean;
 }
 
+/** One workspace in the brand row's switcher. */
+export interface ShellWorkspace {
+  /** Stable id, handed back through onSwitch. */
+  id: string;
+  name: string;
+  /** Quiet text after the name ("Guest", "Reinstall needed",
+      "linear.app/acme"). */
+  hint?: string;
+  /** The workspace this page shows: its row is ticked, and the menu opens
+      on it. */
+  current?: boolean;
+}
+
+/**
+ * The brand row as Gr8r's workspace switcher (AppShellProps
+ * .workspaceSwitcher): the row opens a menu of the workspaces instead of
+ * linking to brandHref.
+ */
+export interface ShellWorkspaceSwitcher {
+  /** Listed by name whatever the order given, so rows never move after a
+      switch. */
+  workspaces: readonly ShellWorkspace[];
+  /**
+   * Switches to the workspace with this id. Return a promise: while it
+   * runs the workspace line reads "Switching to <name>"; a rejection with
+   * an Error prints "Not switched" and its message under the row (also a
+   * toast on the collapsed rail, when a ToastProvider is mounted). The
+   * menu reloads nothing itself: on success the host navigates (a full
+   * page load), and may leave the promise pending so the line stays until
+   * the page goes. Picking the current workspace calls nothing.
+   */
+  onSwitch: (id: string) => SaveResult;
+  /** A last row under a divider ("Connect another workspace", with a plus
+      icon) that loads `href` as a full page navigation. */
+  connect?: { label: string; href: string };
+  /** The action's words: the end of the row's accessible name ("Milestone
+      Planner Acme, switch workspace") and of its rail tooltip ("Acme ·
+      Switch workspace"). Default "Switch workspace". */
+  label?: string;
+}
+
 export interface AppShellProps {
   /** Product name in the brand row ("Milestone Planner"). */
   appName: string;
-  /** Workspace name under the product name in the brand row. */
+  /** Workspace name under the product name in the brand row (with a
+      switcher, its current workspace's name wins). */
   workspaceName?: string;
+  /** Where the brand link goes (unused while `workspaceSwitcher` is
+      set). */
   brandHref: string;
+  /** Makes the brand row the workspace switcher: a menu of the
+      workspaces this person can switch between, plus an optional
+      connect row. Leave it out for a host with one workspace, and the
+      brand link renders as before. */
+  workspaceSwitcher?: ShellWorkspaceSwitcher;
   nav: ShellNavItem[];
   sections?: ShellSection[];
   settings?: ShellSettingsLink;
