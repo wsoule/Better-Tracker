@@ -1030,6 +1030,26 @@ describe('runCommand: several workspaces', () => {
       'cleanup: 1 expired session, 0 old webhook delivery records, 2 sessions of uninstalled or removed workspaces, 1 workspace purged, 120 old notifications',
     ]);
   });
+
+  test('cleanup counts installed workspaces LINEAR_WORKSPACES leaves out, without failing the tick', async () => {
+    const engine = fakeEngine({ workspaces: [] });
+    engine.cleanup = () =>
+      Promise.resolve({
+        expiredSessions: 0,
+        revokedTokens: 0,
+        revokeFailures: 0,
+        oldDeliveries: 0,
+        notServedWorkspaces: 1,
+      });
+    const result = await runCommand(context(engine), {
+      name: 'tick',
+      workspaceId: null,
+    });
+    expect(result.notes).toEqual([
+      'cleanup: 0 expired sessions, 0 old webhook delivery records, 1 installed workspace not served (LINEAR_WORKSPACES leaves it out)',
+    ]);
+    expect(exitCodeFor(result)).toBe(0);
+  });
 });
 
 describe('workerEngineFrom', () => {

@@ -640,17 +640,32 @@ One OAuth deployment can serve several Linear workspaces (design §12,
 2026-10-25). Personal API keys (section 7) and demo mode stay one workspace.
 
 **Set `LINEAR_WORKSPACES` on both services.** The web service decides which
-workspaces may sign in and install. The worker decides which ones it syncs, and
-its housekeeping removes an installed workspace the value no longer admits. Give
+workspaces may sign in and install. The worker decides which ones it syncs. Give
 both the same value, most simply as one Railway shared variable referenced from
 each service as `${{shared.LINEAR_WORKSPACES}}`. Otherwise the worker keeps
-syncing, and never removes, a workspace the web refuses.
+syncing a workspace the web refuses.
+
+**A workspace the value leaves out is not served, but nothing is deleted.** Its
+people are signed out at once and cannot sign back in, the worker skips it and
+its webhooks are ignored. Its installation, app token, sessions and data stay as
+they were, so putting it back on the list restores it (its people are signed in
+again). Boot logs a warning for every installed workspace a list leaves out
+(`<id> is installed but not in LINEAR_WORKSPACES: it is not served; add it back or run 'remove'`),
+and every tick's housekeeping repeats it
+(`cleanup: … 1 installed workspace not served (LINEAR_WORKSPACES leaves it out)`).
+Only `remove`, `block` and `purge` (below) uninstall a workspace, sign its
+people out for good or delete its data.
 
 The value (arch §7 "Admission"):
 
 - **unset or empty**: closed to new workspaces. Only workspaces that already
   have an installation (active, or revoked but not purged yet, so an admin can
-  reinstall) may sign in. Existing deployments keep working.
+  reinstall) may sign in, so an existing deployment keeps working. **A new
+  deployment admits nobody**: name its first workspace before the first sign-in
+  (section 4 "First run"; boot warns "no workspace can sign in until
+  LINEAR_WORKSPACES names one"). To add a workspace later, switch to a list that
+  names every installed workspace plus the new one ("Add another workspace"
+  below).
 - **a list**: comma-separated, at most 100 entries, case-insensitive, each a
   Linear organization id or a URL key. **Use ids**: an admin can rename a URL
   key in Linear. (A URL-key entry is pinned to the workspace it first admits:
@@ -661,6 +676,27 @@ The value (arch §7 "Admission"):
   link to `/contact`, so they can ask you.
 - **`*`**: every Linear workspace may sign in and install. Boot logs a warning.
   Use `block` to keep one out.
+
+**Add another workspace** (for example your work workspace next to the one
+already installed):
+
+1. Run `workspaces` (below) and note the organization id of every installed
+   workspace: each `active` one, and any `revoked:…` one an admin may still
+   reinstall.
+2. Set `LINEAR_WORKSPACES` to those ids plus the new workspace, comma-separated
+   (`<id 1>,<id 2>,<new id or URL key>`), as the one shared variable both
+   services use, and redeploy the web service. The new workspace's id is shown
+   nowhere until it is admitted, so its URL key (`linear.app/<key>`) is fine: it
+   is pinned to that workspace on its first sign-in. Check the web's boot log:
+   there must be no `is installed but not in LINEAR_WORKSPACES` warning.
+3. An admin of the new workspace opens it at linear.app first, then signs in
+   (or, already signed in to another workspace, chooses **Connect another
+   workspace** in the workspace menu) and installs the app from `/setup`.
+4. Run `workspaces` again: every workspace you listed shows `active`.
+
+**A list that leaves out an installed workspace signs its people out at once.**
+Nothing is deleted, and adding it back restores it, but until then nobody in it
+can use the planner.
 
 **How a tick handles many workspaces** (arch §9 "Scaling"):
 
@@ -714,8 +750,10 @@ Typical uses:
   15 minutes later `purge --workspace <id> --yes`. After an uninstall in Linear
   the purge happens by itself 30 days later.
 - **Stop serving a workspace**: take it out of `LINEAR_WORKSPACES` on both
-  services (the next tick removes it), or `block` it, which also keeps it from
-  coming back while `LINEAR_WORKSPACES` is `*`.
+  services. It is no longer served, but nothing is deleted (boot and every tick
+  warn about it). To also uninstall it and start the 30-day purge, run `remove`;
+  to keep it out for good, also while `LINEAR_WORKSPACES` is `*`, `block` it
+  (which removes it and ends its sessions).
 
 **Running them on Railway.** The worker service is a cron job: its container
 runs only while a tick does, so there is normally nothing to connect to. Run the
@@ -766,7 +804,9 @@ Before strangers use the planner (design §12, 2026-10-25), in this order:
    runs this planner") and `/contact` says no contact details are published.
 3. Optionally set **`DEMO_URL`** to a public demo deployment (one with
    `LINEAR_FIXTURE=showcase`): the landing page links to it.
-4. Decide **`LINEAR_WORKSPACES`** (above) and set it on both services.
+4. Decide **`LINEAR_WORKSPACES`** (above) and set it on both services. A list
+   must name every installed workspace that should stay served ("Add another
+   workspace").
 5. Leave `SLACK_BOT_TOKEN` as it is: with more than one possible workspace the
    planner stops using it by itself (step 2).
 6. Run the **`X-Real-IP` check** (section 5 "Rate limits").

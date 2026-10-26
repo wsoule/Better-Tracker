@@ -363,7 +363,7 @@ export async function admittedInstalledWorkspaceIds(
  * sessions counted at the engine clock), in the store's order, each with
  * admission's fresh verdict. One admission pass, so the block list is read
  * once; refused workspaces are only reported here, never revoked (cleanup
- * does that). A store error throws.
+ * removes blocked installations). A store error throws.
  */
 export async function workspaceOverview(
   rt: EngineRuntime
@@ -392,8 +392,9 @@ export interface RefusedWorkspace {
 /**
  * Every workspace the store knows (an installation row, sessions, or both;
  * store.listWorkspaceStatus) that admission refuses now, fresh: for
- * cleanup, which revokes the installed ones (revokeRefusedInstallations)
- * and ends their sessions. [] outside OAuth mode.
+ * cleanup (handleRefusedInstallations), which removes blocked
+ * installations and only warns about the ones LINEAR_WORKSPACES leaves
+ * out. [] outside OAuth mode.
  */
 export async function refusedWorkspaces(
   rt: EngineRuntime
@@ -413,19 +414,4 @@ export async function refusedWorkspaces(
     }
   }
   return refused;
-}
-
-/**
- * The refused workspaces (refusedWorkspaces) whose installation is still
- * active: taken out of LINEAR_WORKSPACES or blocked after installing.
- * cleanup revokes each as 'removed'.
- */
-export async function refusedInstalledWorkspaces(
-  rt: EngineRuntime
-): Promise<RefusedWorkspace[]> {
-  return (await refusedWorkspaces(rt)).filter(
-    (row) =>
-      row.status.installation !== null &&
-      row.status.installation.revokedAt === null
-  );
 }

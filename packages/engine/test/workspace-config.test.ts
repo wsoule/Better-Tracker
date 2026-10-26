@@ -205,6 +205,64 @@ describe('OAuth boot', () => {
     expect(line(closed, 'OPERATOR_EMAIL')).toBeUndefined();
   });
 
+  // Seeds active installations of `ids` (and `revoked` ones) into a fresh
+  // PGlite directory before the boot.
+  function installations(
+    ids: readonly string[],
+    revoked: readonly string[] = []
+  ): (pgliteDir: string) => Promise<void> {
+    return async (pgliteDir) => {
+      const store = await openStore({ pgliteDir, encryptionKey: TEST_KEY });
+      await store.migrate();
+      for (const id of [...ids, ...revoked]) {
+        await store.saveInstallation({
+          workspaceId: id,
+          workspaceName: id,
+          urlKey: id,
+          appUserId: `app-${id}`,
+          installedByUserId: 'u-ana',
+          revokedAt: revoked.includes(id) ? '2026-10-02T00:00:00.000Z' : null,
+          tokens: {
+            accessToken: `token-${id}`,
+            refreshToken: null,
+            expiresAt: null,
+            scopes: ['read'],
+          },
+          createdAt: '2026-10-01T00:00:00.000Z',
+          updatedAt: '2026-10-01T00:00:00.000Z',
+        });
+      }
+      await store.close();
+    };
+  }
+
+  test('warns about each installed workspace a list leaves out, and about a list nobody can sign in under', async () => {
+    const listed = await boot(
+      { LINEAR_WORKSPACES: 'org-acme' },
+      installations(['org-acme', 'org-other'], ['org-gone'])
+    );
+    const leftOut = listed.filter((l) =>
+      l.includes('is installed but not in LINEAR_WORKSPACES')
+    );
+    expect(leftOut).toHaveLength(1);
+    expect(leftOut[0]).toContain(
+      "org-other is installed but not in LINEAR_WORKSPACES: it is not served; add it back or run 'remove'"
+    );
+    expect(leftOut[0]).toContain('"level":"warn"');
+
+    // Unset with nothing installed: a new deployment must name one first.
+    const fresh = await boot({});
+    expect(
+      line(fresh, 'no workspace can sign in until LINEAR_WORKSPACES names one')
+    ).toContain('"level":"warn"');
+    expect(line(fresh, 'closed to new workspaces')).toContain(
+      "set LINEAR_WORKSPACES to every installed workspace's id plus the new one"
+    );
+    const existing = await boot({}, installations(['org-acme']));
+    expect(line(existing, 'no workspace can sign in')).toBeUndefined();
+    expect(line(existing, 'is installed but not in')).toBeUndefined();
+  });
+
   test('a deployed planner without OPERATOR_EMAIL says so once', async () => {
     const deployed = await boot({ NODE_ENV: 'production' });
     expect(

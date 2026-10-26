@@ -2104,19 +2104,35 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   identifying the workspace: `discardTokens`, then
   `EngineAuthError('workspace_not_allowed' | 'workspace_blocked')`, no session),
   `finishInstall` (the same, the new app token revoked), `authenticate` (a
-  refused session reads as signed out, its row left for cleanup to end and
-  revoke), `listWorkspaceIds` (active installations admission admits, from
-  `store.listWorkspaceStatus`, least recently synced first; refused,
-  session-only and revoked ones are left out, refused ones logged at info, never
-  failures), webhooks (above) and `cleanup()`, whose
-  `revokeRefusedInstallations` revokes every installed workspace admission now
-  refuses as `'removed'` (`revokeWorkspace`: credentials wiped, its cached
-  mirror forgotten; logged at warn), so a workspace taken out of
-  `LINEAR_WORKSPACES` or blocked keeps no live app token.
-  `refusedWorkspaces(rt)` (every workspace the store knows, installed or
-  session-only, that admission refuses, with its `WorkspaceStatus`) and
-  `refusedInstalledWorkspaces(rt)` (those with an active installation) are the
-  engine-internal helpers cleanup uses.
+  refused session reads as signed out; its row is kept), `listWorkspaceIds`
+  (active installations admission admits, from `store.listWorkspaceStatus`,
+  least recently synced first; refused, session-only and revoked ones are left
+  out, refused ones logged at info, never failures), webhooks (above) and
+  `cleanup()` (`handleRefusedInstallations`, below).
+
+  **A list refusal is a soft gate; a block is a hard one** (design doc §12,
+  2026-10-25). A workspace admission refuses because of `LINEAR_WORKSPACES`
+  (left off the list, a change from `*` or unset to a list, or a URL-key entry
+  that does not match a stale or renamed key) is not served: sign-in and install
+  are refused, its sessions read as signed out, the worker skips it and its
+  webhooks are ignored (except `OAuthApp` revoked). **Nothing is destroyed
+  automatically**: cleanup does not revoke its installation or wipe its app
+  token, and ends none of its sessions; each cleanup logs one warn per refused
+  workspace with an installation (active or `grant_dead`) naming its id and the
+  fix (add it back to `LINEAR_WORKSPACES`, or run `remove`), and counts it
+  (`CleanupResult.notServedWorkspaces`). Putting it back on the list restores
+  everything as it was: the installation serves again and its sessions sign back
+  in. Its sessions stay unusable until then or until they expire (the
+  expired-session step then revokes their grants as for any session). Only the
+  operator's `remove`, `block` and `purge` revoke, end sessions or delete. A
+  **block** stays a hard gate: `block` removes the workspace and ends its
+  sessions, and cleanup revokes as `'removed'` (`revokeWorkspace`: credentials
+  wiped, its cached mirror forgotten; logged at warn) a blocked workspace that
+  still has an active installation (one that matched a URL-key block only after
+  the `block` command), whose sessions created before that revoke then end like
+  any removed workspace's. `refusedWorkspaces(rt)` (every workspace the store
+  knows, installed or session-only, that admission refuses, with its
+  `WorkspaceStatus`) is the engine-internal helper cleanup uses.
 
 - **Sessions in several workspaces** (owner decision 2026-10-25): one person may
   hold sessions in several workspaces at once (each Linear workspace is its own
@@ -2179,8 +2195,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
       as before. `grant_dead` **keeps member sessions** (their grants do not
       depend on the app's; they reach /setup's "Reinstall needed"), is **never
       purged automatically**, and stays a failed worker outcome (§9).
-    - **removed**: the operator's `remove` (below), and (admission) `cleanup()`
-      for an installed workspace admission now refuses.
+    - **removed**: the operator's `remove` and `block` (below), and `cleanup()`
+      for an installed workspace a block now refuses (never for one
+      `LINEAR_WORKSPACES` leaves out: that is a soft gate, "Admission" above).
   - **Operator commands** (`Engine` additive, for the worker's CLI only, §9;
     **no planner route may call them**: there is no operator role in the
     planner, and they act across sessions; with personal API keys all but the
@@ -2194,9 +2211,10 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
       `WorkspaceStatus[]` (unexpired sessions counted, least recently synced
       first) with `admission` on each, admission's fresh verdict (`ok`,
       `not_allowed`, `blocked`; one pass, the blocks read once; always `ok`
-      outside OAuth mode). It only reports: cleanup revokes refused installs.
-      The worker's runs over every workspace and the `workspaces` command both
-      read it (§9). `listBlockedWorkspaces()` → the blocks.
+      outside OAuth mode). It only reports: cleanup removes blocked installs and
+      warns about the ones `LINEAR_WORKSPACES` leaves out. The worker's runs
+      over every workspace and the `workspaces` command both read it (§9).
+      `listBlockedWorkspaces()` → the blocks.
     - `removeWorkspace(name)` →
       `WorkspaceRemoval { workspaceId, revoked, appTokenRevoked, endedSessions, revokedTokens, revokeFailures }`:
       revokes the app's token with Linear (`revokeGrant`, best effort, under the
@@ -2378,20 +2396,26 @@ optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
   set and the Slack fail-safe (§7 "Fail-safes") allows it, else the outbox. Runs
   `store.migrate()` before returning. Logs which workspaces it admits:
   `LINEAR_WORKSPACES` unset → info "closed to new workspaces: only installed
-  workspaces may sign in; set LINEAR_WORKSPACES to add one"; a list → info with
-  the entry count; `*` → warn. A deployed planner (`isDeployedEnv`:
-  `NODE_ENV=production` on a non-loopback `APP_URL`) without `OPERATOR_EMAIL`
-  logs one info line saying the contact page names no way to reach whoever runs
-  it. The test-only `LINEAR_API_URL` (same gate as in api_key mode: a loopback
-  `APP_URL`, a `127.0.0.1` or `[::1]` URL without user info, else a config
-  error; `EngineConfig.linearTestEndpoint`) points OAuth mode at a local fake
-  Linear (`test-endpoint.ts`): boot wraps the provider's and the engine's fetch
-  so GraphQL goes to the URL itself and every other `https://api.linear.app`
-  path (`/oauth/token`, `/oauth/revoke`) to the same path at its origin, and
-  `startOAuth` sends the browser to `<origin>/oauth/authorize` with the same
-  query; one error-level line names the origin. Without it nothing is wrapped
-  and every call and the authorize link name Linear byte for byte. Demo mode
-  ignores it.
+  workspaces may sign in; to add one, set LINEAR_WORKSPACES to every installed
+  workspace's id plus the new one", and, when no workspace is installed at all,
+  a warn "no workspace can sign in until LINEAR_WORKSPACES names one" (a new
+  deployment must name its first workspace); a list → info with the entry count,
+  plus one warn per active installation the list does not admit ("<id> is
+  installed but not in LINEAR_WORKSPACES: it is not served; add it back or run
+  'remove'", from `listWorkspaceStatus` after the engine is built; a failed read
+  is logged at warn and never stops the boot); `*` → warn. A deployed planner
+  (`isDeployedEnv`: `NODE_ENV=production` on a non-loopback `APP_URL`) without
+  `OPERATOR_EMAIL` logs one info line saying the contact page names no way to
+  reach whoever runs it. The test-only `LINEAR_API_URL` (same gate as in api_key
+  mode: a loopback `APP_URL`, a `127.0.0.1` or `[::1]` URL without user info,
+  else a config error; `EngineConfig.linearTestEndpoint`) points OAuth mode at a
+  local fake Linear (`test-endpoint.ts`): boot wraps the provider's and the
+  engine's fetch so GraphQL goes to the URL itself and every other
+  `https://api.linear.app` path (`/oauth/token`, `/oauth/revoke`) to the same
+  path at its origin, and `startOAuth` sends the browser to
+  `<origin>/oauth/authorize` with the same query; one error-level line names the
+  origin. Without it nothing is wrapped and every call and the authorize link
+  name Linear byte for byte. Demo mode ignores it.
 - Real `LinearProvider`: loads the installation/session tokens, refreshes when
   `expiresAt` is within 5 minutes (under the row lock, re-reading inside the
   lock so only one process refreshes; the new expiry is counted on the
@@ -2529,17 +2553,19 @@ Engine decisions made while building it (binding for callers):
   `takeExpiredSessions` in batches of 50 (at most 500 per run; the rest wait for
   the next tick) and revokes each one's Linear grant (refresh token, else access
   token), because Linear may auto-revoke a user's oldest tokens past about 10
-  per app. In OAuth mode it first revokes, as `'removed'`, every installed
-  workspace admission now refuses (`revokeRefusedInstallations`, §7
-  "Admission"). Revocation is best effort: a failure is logged at warn and
-  counted, never fails cleanup. Demo mode only deletes
+  per app. In OAuth mode it first handles the installed workspaces admission now
+  refuses (`handleRefusedInstallations`, §7 "Admission"): a blocked one still
+  installed is revoked as `'removed'`; one `LINEAR_WORKSPACES` leaves out is
+  only warned about (its id and the fix) and counted, never revoked, and none of
+  its sessions is ended. Revocation is best effort: a failure is logged at warn
+  and counted, never fails cleanup. Demo mode only deletes
   (`deleteExpiredSessions`). Webhook delivery records older than 30 days
   (`WEBHOOK_RETENTION_DAYS`) are pruned: dedupe needs only Linear's ~6 h retry
   window, the rest keeps each delivery's processing error around to investigate.
   Additive (several workspaces, §9): `endedWorkspaceSessions`,
-  `purgedWorkspaces`, `oldNotifications` and `oldJobClaims` (always set,
-  optional in the type), and `revokedTokens`/`revokeFailures` count every
-  session the pass ended.
+  `purgedWorkspaces`, `oldNotifications`, `oldJobClaims` and
+  `notServedWorkspaces` (always set, optional in the type), and
+  `revokedTokens`/`revokeFailures` count every session the pass ended.
 
 ### 7.2 Issue page (owner decision 2026-10-21)
 
@@ -5973,7 +5999,14 @@ Worker decisions made while building it (binding):
 
 - **Cleanup** (`engine.cleanup()`, after every tick; each step bounded per call
   so a backlog never stretches a tick past its timeout, the rest waiting for the
-  next tick; nothing of this runs with personal API keys):
+  next tick; nothing of this runs with personal API keys): 0. Refused
+  installations (§7 "Admission"): a blocked workspace that still has an active
+  installation is revoked as `removed` (a block is a hard gate). An installed
+  workspace (active or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a
+  soft gate: one warn per call names its id and the fix (add it back, or run
+  `remove`), it is counted (`notServedWorkspaces`), and nothing is revoked,
+  wiped, ended or purged, so re-admitting it restores it as it was. Its sessions
+  stay unusable until then or until they expire (step 1).
   1. Expired sessions are taken in batches of 50 (at most 500) and their Linear
      grants revoked, best effort (unchanged).
   2. Webhook delivery records older than `WEBHOOK_RETENTION_DAYS` (30) are
@@ -6004,8 +6037,9 @@ Worker decisions made while building it (binding):
      here; the operator's `purge` may.
 - The tick's summary lists cleanup's counts: expired sessions (and failed
   revocations) and old webhook delivery records always; sessions of uninstalled
-  or removed workspaces ended, workspaces purged, old notifications and old job
-  claims when not zero.
+  or removed workspaces ended, workspaces purged, old notifications, old job
+  claims and installed workspaces not served ("LINEAR_WORKSPACES leaves it out";
+  never a failure) when not zero.
 - **Operator commands** (`apps/worker/src/operator.ts`; OAuth mode; owner
   decision 2026-10-25: an operator CLI instead of an in-app operator UI, which
   would be a person permission distinction). They use the engine's
@@ -6135,17 +6169,22 @@ Worker decisions made while building it (binding):
 `LINEAR_WORKSPACES` (owner decision 2026-10-25, §7 "Admission"): unset or empty,
 the planner is **closed to new workspaces**: only workspaces that already have
 an installation may sign in and install, so an existing deployment keeps
-working. `*` opens it to any Linear workspace (boot logs a warn). Otherwise it
-lists up to 100 org ids or URL keys (letters, digits and dashes, at most 64
-each; case-insensitive); ids are recommended, since an admin can rename a URL
-key, and a URL key entry is pinned to the org it first admits. Set the same
-value on the web and the worker (a Railway shared variable), or the worker keeps
-syncing a workspace the web refuses. Demo mode does not read it. `OPERATOR_*`
-and `DEMO_URL` are optional in every mode and refused at boot when malformed
-(`OPERATOR_EMAIL` must look like an address, `OPERATOR_URL` and `DEMO_URL` must
-be http(s) URLs without user info); they are exposed as `EngineConfig.operator`
-and `EngineConfig.demoUrl`, which the public pages and the landing page read
-(§8.4 "Public pages and copy").
+working, and a **new deployment admits nobody** (boot warns "no workspace can
+sign in until LINEAR_WORKSPACES names one"): it must name its first workspace.
+`*` opens it to any Linear workspace (boot logs a warn). Otherwise it lists up
+to 100 org ids or URL keys (letters, digits and dashes, at most 64 each;
+case-insensitive); ids are recommended, since an admin can rename a URL key, and
+a URL key entry is pinned to the org it first admits. A list must name **every
+installed workspace** that should stay served: one it leaves out is not served
+(boot warns once per such installation, cleanup on every tick), though nothing
+is deleted, and adding it back restores it. Set the same value on the web and
+the worker (a Railway shared variable), or the worker keeps syncing a workspace
+the web refuses. Demo mode does not read it. `OPERATOR_*` and `DEMO_URL` are
+optional in every mode and refused at boot when malformed (`OPERATOR_EMAIL` must
+look like an address, `OPERATOR_URL` and `DEMO_URL` must be http(s) URLs without
+user info); they are exposed as `EngineConfig.operator` and
+`EngineConfig.demoUrl`, which the public pages and the landing page read (§8.4
+"Public pages and copy").
 
 The planner's rate limits are constants, not variables (`RATE_LIMITS` in
 `apps/planner/lib/rate-limit.ts`, §8.1 "Rate limits"), counted per web process;

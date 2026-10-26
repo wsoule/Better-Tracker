@@ -483,6 +483,12 @@ export interface CleanupResult {
   oldNotifications?: number;
   /** Daily job claims older than JOB_CLAIM_RETENTION_DAYS, deleted. */
   oldJobClaims?: number;
+  /**
+   * Installed workspaces LINEAR_WORKSPACES does not admit: not served, and
+   * left as they are (each one logged at warn with the fix); only the
+   * operator's remove, block or purge take them away.
+   */
+  notServedWorkspaces?: number;
 }
 
 /**

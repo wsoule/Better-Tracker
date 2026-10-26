@@ -815,7 +815,9 @@ workspace".
   `*` opens it to every Linear workspace. The person who runs the planner can
   also block a workspace. These gate workspaces, not people: they are not a
   permission distinction, and inside a workspace everyone signed in can still
-  do everything (guests stay read-only).
+  do everything (guests stay read-only). A workspace left off
+  `LINEAR_WORKSPACES` is not served but nothing is deleted automatically; only
+  the operator's remove, block or purge revoke or delete.
 - **A switcher.** Switching only changes which of the browser's own sessions is
   active; it is not a write, so guests may switch. Adding a workspace signs in
   to whichever workspace is open at linear.app, so the planner says to open it
@@ -842,10 +844,14 @@ workspace".
 - a URL key in `LINEAR_WORKSPACES` (or in a block) is tied to the workspace it
   first matches, because Linear lets admins rename URL keys: afterwards it
   admits (or blocks) only that workspace, also after a rename;
-- a workspace taken out of `LINEAR_WORKSPACES`, or blocked, after installing is
-  removed by the worker's next cleanup (its app token wiped; its data deleted 30
-  days later unless it is admitted and reinstalled), so a typo in the list
-  removes a workspace; the warn line in the logs says which;
+- a workspace taken out of `LINEAR_WORKSPACES` after installing (also by a
+  typo, or a URL key that no longer matches after a rename) is not served
+  (sign-in refused, its people signed out, skipped by the worker) but keeps its
+  installation, app token, sessions and data, and putting it back on the list
+  restores it as it was; boot and every worker cleanup log a warn naming it and
+  the fix (the lead engineer's call after the 2026-10-26 review, replacing
+  "removed by the next cleanup"). A blocked workspace is still removed: a block
+  is the operator's explicit act;
 - a write grant (or an install) Linear issues for another workspace than the
   one it was asked for is refused and revoked, and the person is told to open
   the right workspace at linear.app;

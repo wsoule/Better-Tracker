@@ -22,7 +22,10 @@
 //   install is checked against admission (admission.ts) right after Linear
 //   says which workspace it is for, and refused with the new grant revoked;
 //   authenticate, checkSession and describeSessions treat a session of a
-//   refused workspace as signed out (cleanup ends it). One person may hold
+//   refused workspace as signed out. Its row is kept: a workspace left off
+//   LINEAR_WORKSPACES is not served but nothing is ended, so its sessions
+//   stay unusable until it is admitted again or they expire (blocks and
+//   the operator's remove end them). One person may hold
 //   sessions in several workspaces at once; each is its own row and grant.
 
 import { type Snapshot, type User, viewerScope } from '@better-tracker/core';
@@ -622,8 +625,9 @@ async function sessionUrlKey(
 
 /**
  * Whether admission (cached reads) admits the session's workspace. A
- * refused session reads as signed out; its row is left for cleanup, which
- * ends it and revokes its grant.
+ * refused session reads as signed out; its row is kept (a list refusal
+ * ends nothing: re-admitting the workspace signs it back in, and expiry
+ * cleanup revokes its grant otherwise).
  */
 async function sessionAdmitted(
   rt: EngineRuntime,
@@ -739,7 +743,7 @@ export async function describeSessions(
 /**
  * Resolves a cookie token into an Actor. A session of a workspace
  * admission refuses (cached reads, checked before anything else) reads as
- * signed out, its row left for cleanup. A user token about to expire is
+ * signed out, its row kept (sessionAdmitted). A user token about to expire is
  * refreshed (single-flight under the session lock); a dead grant ends the
  * session (null), while a transient refresh failure keeps the person signed
  * in for reads and is retried on their next Linear edit. A person the

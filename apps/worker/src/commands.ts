@@ -574,7 +574,8 @@ async function dailyWorkspace(
 // Housekeeping after a tick (engine.cleanup(), arch §9 "Cleanup"): expired
 // sessions and those of uninstalled or removed workspaces (their Linear
 // grants revoked), purges 30 days after an uninstall or removal, and
-// retention for webhook deliveries, notifications and job claims. The
+// retention for webhook deliveries, notifications and job claims; installed
+// workspaces LINEAR_WORKSPACES leaves out are counted (never removed). The
 // counts added for several workspaces are listed only when not zero.
 async function runCleanup(
   ctx: CommandContext,
@@ -599,6 +600,11 @@ async function runCleanup(
       [cleaned.purgedWorkspaces, 'workspace purged', 'workspaces purged'],
       [cleaned.oldNotifications, 'old notification', 'old notifications'],
       [cleaned.oldJobClaims, 'old job claim', 'old job claims'],
+      [
+        cleaned.notServedWorkspaces,
+        'installed workspace not served (LINEAR_WORKSPACES leaves it out)',
+        'installed workspaces not served (LINEAR_WORKSPACES leaves them out)',
+      ],
     ];
     for (const [count = 0, one, many] of extra) {
       if (count > 0) parts.push(`${count} ${count === 1 ? one : many}`);
