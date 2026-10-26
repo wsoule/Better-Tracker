@@ -327,7 +327,7 @@ export async function namedInWorkspaceList(
 
 /**
  * The installed (active installation) workspaces admission admits, in the
- * store's order (last full sync attempt first, never attempted first): the
+ * store's order (least recently attempted first, never attempted first): the
  * worker's list (listWorkspaceIds). Session-only workspaces and revoked
  * installations are left out; refused ones are logged at info and left
  * out, never failures. Fresh.

@@ -732,8 +732,9 @@ can use the planner.
 **How a tick handles many workspaces** (arch §9 "Scaling"):
 
 - It works on `WORKER_CONCURRENCY` workspaces at once (default 3), least
-  recently synced first, so the workspaces a tick could not reach run first on
-  the next one.
+  recently attempted first (a sync counts from when it started, so one that the
+  time limit cut off goes after the others), so the workspaces a tick could not
+  reach run first on the next one.
 - It starts a workspace only with at least 3 minutes, or twice that workspace's
   last full sync time, left before `TICK_TIMEOUT_MINUTES`, and a daily job only
   with at least 5 minutes left. Anything it cannot start is logged as
@@ -764,7 +765,9 @@ Which outcomes turn the cron red (exit 1):
   (`stuck while running tick (workspaces still running: <id>)`). One named on
   every tick has a sync that never fits: raise `TICK_TIMEOUT_MINUTES` (at
   most 14) or `remove` it. Housekeeping runs first in every tick, so purges and
-  session revocations go on meanwhile.
+  session revocations go on meanwhile, and the stuck workspace goes after the
+  others on the next tick, so they keep syncing too (each of its ticks still
+  ends in exit 1 until you act).
 
 **Operator commands.** These list and manage the workspaces this deployment
 holds. They run from the worker's command line only; nothing in the planner

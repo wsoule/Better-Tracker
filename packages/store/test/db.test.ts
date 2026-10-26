@@ -720,6 +720,29 @@ describe('runMigrations', () => {
     }
   );
 
+  test('migration 7 adds when a full sync attempt started, empty for every row', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 6)
+      );
+      await fresh.query(
+        `INSERT INTO sync_state (workspace_id, version, last_full_sync_at,
+           last_full_sync_status)
+         VALUES ('ws-a', 1, '2026-10-21T08:00:00Z', 'ok')`
+      );
+      expect(await runMigrations(fresh)).toEqual([7]);
+      const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+      expect(await store.getSyncState('ws-a')).toMatchObject({
+        lastFullSyncAt: '2026-10-21T08:00:00.000Z',
+        lastFullSyncStartedAt: null,
+      });
+    } finally {
+      await fresh.close();
+    }
+  });
+
   test('concurrent migrators apply each migration once', async () => {
     const list: Migration[] = [
       {

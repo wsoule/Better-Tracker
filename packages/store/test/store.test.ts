@@ -953,6 +953,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           lastFullSyncMs: null,
           lastSuccessAt: null,
           mirrorIssueCount: null,
+          lastFullSyncStartedAt: null,
         });
         // A failed sync wrote no mirror, so there is nothing to load.
         expect(await store.loadMirror(ws)).toBeNull();
@@ -976,6 +977,58 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           lastFullSyncMs: null,
           lastSuccessAt: '2026-10-21T08:15:00.000Z',
           mirrorIssueCount: null,
+          lastFullSyncStartedAt: null,
+        });
+      });
+
+      test('recordFullSyncStart stamps when an attempt started and changes nothing else', async () => {
+        const ws = newWorkspaceId();
+        // A first attempt that never ends (its process was killed) leaves
+        // only its start.
+        await store.recordFullSyncStart(ws, '2026-10-21T07:00:00.000Z');
+        expect(await store.getSyncState(ws)).toEqual({
+          workspaceId: ws,
+          version: 0,
+          lastFullSyncAt: null,
+          lastFullSyncStatus: null,
+          lastFullSyncError: null,
+          lastWebhookAt: null,
+          consecutiveFailures: 0,
+          lastFullSyncMs: null,
+          lastSuccessAt: null,
+          mirrorIssueCount: null,
+          lastFullSyncStartedAt: '2026-10-21T07:00:00.000Z',
+        });
+        await store.recordFullSync(ws, {
+          at: '2026-10-21T08:00:00.000Z',
+          ok: false,
+          error: 'Linear 503',
+          durationMs: 4000,
+        });
+        await store.recordFullSyncStart(ws, '2026-10-21T08:15:00.000Z');
+        // The last finished attempt is untouched: backoff, the chronic
+        // rule and the skip-recent rule read only that.
+        expect(await store.getSyncState(ws)).toMatchObject({
+          lastFullSyncAt: '2026-10-21T08:00:00.000Z',
+          lastFullSyncStatus: 'failed',
+          lastFullSyncError: 'Linear 503',
+          consecutiveFailures: 1,
+          lastFullSyncMs: 4000,
+          lastSuccessAt: null,
+          lastFullSyncStartedAt: '2026-10-21T08:15:00.000Z',
+        });
+        // A late writer never moves it back, and a finish leaves it alone.
+        await store.recordFullSyncStart(ws, '2026-10-21T08:10:00.000Z');
+        await store.recordFullSync(ws, {
+          at: '2026-10-21T08:20:00.000Z',
+          ok: true,
+          error: null,
+        });
+        expect(await store.getSyncState(ws)).toMatchObject({
+          lastFullSyncAt: '2026-10-21T08:20:00.000Z',
+          lastFullSyncStatus: 'ok',
+          consecutiveFailures: 0,
+          lastFullSyncStartedAt: '2026-10-21T08:15:00.000Z',
         });
       });
 
@@ -2337,6 +2390,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
               lastFullSyncMs: 5000,
               lastSuccessAt: NOW,
               mirrorIssueCount: 4,
+              lastFullSyncStartedAt: null,
             },
             sessionCount: 2,
           });
@@ -2366,6 +2420,29 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             unreadable,
           ]);
         }
+      });
+
+      test('listWorkspaceStatus orders by the later of an attempt start and finish', async () => {
+        // In a shared database other tests' workspaces sort among these,
+        // so only the relative order of these three is checked. `stuck`
+        // finished long ago but started an attempt last (killed since);
+        // `finished` finished after `older` did.
+        const older = newWorkspaceId();
+        const finished = newWorkspaceId();
+        const stuck = newWorkspaceId();
+        for (const ws of [older, finished, stuck]) {
+          await store.saveInstallation(installation(ws));
+        }
+        const done = (ws: string, at: string) =>
+          store.recordFullSync(ws, { at, ok: true, error: null });
+        await done(stuck, '2026-10-20T05:00:00.000Z');
+        await done(older, '2026-10-20T06:00:00.000Z');
+        await done(finished, '2026-10-20T07:00:00.000Z');
+        await store.recordFullSyncStart(stuck, '2026-10-20T07:30:00.000Z');
+        const ids = (await store.listWorkspaceStatus())
+          .map((row) => row.workspaceId)
+          .filter((id) => id === older || id === finished || id === stuck);
+        expect(ids).toEqual([older, finished, stuck]);
       });
 
       test('describeSessions describes held tokens in one statement, without credentials', async () => {

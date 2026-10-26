@@ -200,6 +200,7 @@ interface SyncStateRow {
   last_full_sync_ms: number | null;
   last_success_at: DbTimestamp | null;
   mirror_issue_count: number | null;
+  last_full_sync_started_at: DbTimestamp | null;
 }
 
 /**
@@ -230,6 +231,7 @@ interface WorkspaceStatusRow {
   last_full_sync_ms: number | null;
   last_success_at: DbTimestamp | null;
   mirror_issue_count: number | null;
+  last_full_sync_started_at: DbTimestamp | null;
 }
 
 /** describeSessions: one session joined with its workspace; no tokens. */
@@ -348,7 +350,7 @@ const SESSION_COLUMNS = `id, workspace_id, user_id, user_name, access_token_enc,
 const SYNC_STATE_COLUMNS = `workspace_id, version, last_full_sync_at,
   last_full_sync_status, last_full_sync_error, last_webhook_at,
   consecutive_failures, last_full_sync_ms, last_success_at,
-  mirror_issue_count`;
+  mirror_issue_count, last_full_sync_started_at`;
 
 const REVOKED_REASONS: readonly RevokedReason[] = [
   'uninstalled',
@@ -737,6 +739,7 @@ function syncStateFromRow(row: SyncStateRow): Required<SyncState> {
     lastFullSyncMs: numberOrNull(row.last_full_sync_ms),
     lastSuccessAt: toIsoOrNull(row.last_success_at),
     mirrorIssueCount: numberOrNull(row.mirror_issue_count),
+    lastFullSyncStartedAt: toIsoOrNull(row.last_full_sync_started_at),
   };
 }
 
@@ -774,6 +777,7 @@ function workspaceStatusFromRow(row: WorkspaceStatusRow): WorkspaceStatus {
           last_full_sync_ms: row.last_full_sync_ms,
           last_success_at: row.last_success_at,
           mirror_issue_count: row.mirror_issue_count,
+          last_full_sync_started_at: row.last_full_sync_started_at,
         });
   return {
     workspaceId: row.workspace_id,
@@ -1134,12 +1138,13 @@ class SqlStore implements Store {
          st.last_full_sync_at, st.last_full_sync_status,
          st.last_full_sync_error, st.last_webhook_at,
          st.consecutive_failures, st.last_full_sync_ms, st.last_success_at,
-         st.mirror_issue_count
+         st.mirror_issue_count, st.last_full_sync_started_at
        FROM ids
        LEFT JOIN installations i ON i.workspace_id = ids.workspace_id
        LEFT JOIN s ON s.workspace_id = ids.workspace_id
        LEFT JOIN sync_state st ON st.workspace_id = ids.workspace_id
-       ORDER BY st.last_full_sync_at ASC NULLS FIRST, ids.workspace_id`,
+       ORDER BY GREATEST(st.last_full_sync_at, st.last_full_sync_started_at)
+         ASC NULLS FIRST, ids.workspace_id`,
       [now ?? null]
     );
     return rows.map(workspaceStatusFromRow);
@@ -1686,6 +1691,26 @@ class SqlStore implements Store {
         intOrNull(result.durationMs),
         intOrNull(result.issueCount),
       ]
+    );
+  }
+
+  /**
+   * One upsert of last_full_sync_started_at alone (GREATEST, so a late
+   * writer never moves it back): the status, error, failure count and the
+   * finish time stay as the last finished attempt left them.
+   */
+  async recordFullSyncStart(
+    workspaceId: string,
+    at: IsoDateTime
+  ): Promise<void> {
+    await this.write(
+      `INSERT INTO sync_state (workspace_id, last_full_sync_started_at)
+       VALUES ($1, $2::timestamptz)
+       ON CONFLICT (workspace_id) DO UPDATE SET
+         last_full_sync_started_at = GREATEST(
+           sync_state.last_full_sync_started_at,
+           EXCLUDED.last_full_sync_started_at)`,
+      [workspaceId, at]
     );
   }
 

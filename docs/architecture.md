@@ -1616,7 +1616,12 @@ Tables (all keyed by `workspace_id`, except the two admission tables):
   each other. `upsertMilestoneMeta` (whole row) is for seeding.
 - `mirror_entities` — `(workspace_id, kind, id) pk, data jsonb, synced_at`.
 - `sync_state` — `version bigint` (bumped on every mirror write), last full sync
-  time/status/error, last webhook time, and (migration 5) `consecutive_failures`
+  time/status/error, last webhook time, (migration 7)
+  `last_full_sync_started_at` (when the latest attempt started, finished or not:
+  `recordFullSyncStart(ws, at)` upserts only that column, never moving it back,
+  so the status, error, failure count and finish time stay those of the last
+  attempt that ended; `listWorkspaceStatus` orders by the later of it and
+  `last_full_sync_at`, §9 "Scaling"), and (migration 5) `consecutive_failures`
   (failed full syncs in a row), `last_success_at`, `last_full_sync_ms`,
   `mirror_issue_count`, all written by
   `recordFullSync(ws, { at, ok, error, durationMs?, issueCount? })`: a failure
@@ -2147,8 +2152,8 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   `finishInstall` (the same, the new app token revoked), `authenticate` (a
   refused session reads as signed out; its row is kept), `listWorkspaceIds`
   (active installations admission admits, from `store.listWorkspaceStatus`,
-  least recently synced first; refused, session-only and revoked ones are left
-  out, refused ones logged at info, never failures), webhooks (above) and
+  least recently attempted first; refused, session-only and revoked ones are
+  left out, refused ones logged at info, never failures), webhooks (above) and
   `cleanup()` (`handleRefusedInstallations`, below).
 
   **A list refusal is a soft gate; a block is a hard one** (design doc §12,
@@ -6069,8 +6074,17 @@ Worker decisions made while building it (binding):
     nobody installed (people only signed in) is not the worker's business and
     gets no outcome.
   - **Order**: by last full sync attempt ascending, never attempted first, ties
-    in the engine's order. A deferred workspace keeps its old attempt time, so
-    it runs first next tick.
+    in the engine's order. An attempt's time is the later of when it started
+    (`sync_state.last_full_sync_started_at`, migration 7: `runFullSync` stamps
+    it with `store.recordFullSyncStart` before anything that can hang) and when
+    it finished (`last_full_sync_at`, written only by an attempt that ends). A
+    workspace whose sync is killed with its tick therefore sorts after the
+    workspaces that tick never reached, instead of first on every tick (with
+    `WORKER_CONCURRENCY=1` it used to take the only lane every time and no other
+    workspace synced). The start is read for ordering only: first-sync backoff
+    reads the last finished attempt, the chronic rule and skip-recent the last
+    success. A deferred workspace keeps its old attempt time, so it runs first
+    next tick.
   - **Parallelism**: `WORKER_CONCURRENCY` (default 3, 1–8) lanes; each free lane
     takes the next workspace. Outcomes and the summary keep the run order. Each
     workspace in flight holds at most one of the store's pooled connections at a

@@ -144,7 +144,7 @@ Every command except migrate and serve exits 1 when it is still running
 TICK_TIMEOUT_MINUTES (default 10, at most 14) after it started; serve
 applies that limit to its boot, each tick and its shutdown. A run over
 every workspace works on WORKER_CONCURRENCY (default 3) at once, least
-recently synced first, and leaves for the next tick any workspace it has
+recently attempted first, and leaves for the next tick any workspace it has
 no time left to start.
 
 Options:

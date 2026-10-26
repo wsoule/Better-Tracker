@@ -239,7 +239,7 @@ export function createEngine(deps: EngineDeps): Engine {
           ? []
           : [binding.workspaceId];
       }
-      // Active installations admission admits, least recently synced
+      // Active installations admission admits, least recently attempted
       // first; refused ones are skipped (info), never failures.
       return admittedInstalledWorkspaceIds(rt);
     },

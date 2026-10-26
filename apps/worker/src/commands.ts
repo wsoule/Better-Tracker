@@ -1,7 +1,7 @@
 // The worker's commands (architecture §9) over the engine. A command over
 // every workspace plans them from the engine's overview (scaling.ts): the
 // active, admitted ones run, WORKER_CONCURRENCY at a time, least recently
-// synced first, each only when there is time left to finish it; the rest
+// attempted first, each only when there is time left to finish it; the rest
 // are skipped (uninstalled, removed, blocked, not admitted) or failed (a
 // dead app grant). A failure in one is logged and recorded, and the others
 // still run. The result carries one outcome per workspace, from which the
@@ -52,7 +52,7 @@ export type AllocationRunResult = Awaited<ReturnType<Engine['runAllocation']>>;
 export interface WorkerEngine {
   readonly mode: 'linear' | 'fixture';
   /**
-   * Every workspace the store knows, least recently synced first, with
+   * Every workspace the store knows, least recently attempted first, with
    * its installation, sync state, sessions and admission's verdict.
    */
   listWorkspaceStatus(): Promise<WorkspaceOverview[]>;

@@ -287,6 +287,15 @@ const BLOCK_URL_KEY: readonly string[] = [
     ADD COLUMN IF NOT EXISTS url_key text CHECK (url_key = lower(url_key))`,
 ];
 
+// When the latest full sync attempt started (recordFullSyncStart). The
+// finish time (last_full_sync_at) is written only by an attempt that
+// ends, so a sync killed with the worker's tick left no trace, and the
+// worker kept starting that workspace first on every tick. Ordering by the
+// later of the two lets the workspaces it never reached go first.
+const SYNC_ATTEMPT_START: readonly string[] = [
+  'ALTER TABLE sync_state ADD COLUMN last_full_sync_started_at timestamptz',
+];
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', statements: INITIAL_SCHEMA },
   {
@@ -302,6 +311,11 @@ export const MIGRATIONS: readonly Migration[] = [
   },
   { version: 5, name: 'multi_workspace', statements: MULTI_WORKSPACE },
   { version: 6, name: 'blocked_workspace_url_key', statements: BLOCK_URL_KEY },
+  {
+    version: 7,
+    name: 'full_sync_attempt_start',
+    statements: SYNC_ATTEMPT_START,
+  },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise

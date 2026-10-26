@@ -267,6 +267,27 @@ export function firstSyncWaitError(retryAt: IsoDateTime): EngineInputError {
 }
 
 /**
+ * Records that a full sync attempt starts now (store.recordFullSyncStart),
+ * before anything that can hang. The finish is recorded only by an attempt
+ * that ends, so without this a sync killed with its process (the worker's
+ * tick deadline) left the workspace looking least recently attempted, and
+ * the worker started it first again on every tick, before the workspaces
+ * it never reached. Touches nothing the backoff, chronic and skip-recent
+ * rules read. Best effort: a failure is logged and the sync goes on.
+ */
+async function recordAttemptStart(
+  rt: EngineRuntime,
+  workspaceId: string,
+  log: Logger
+): Promise<void> {
+  try {
+    await rt.store.recordFullSyncStart(workspaceId, rt.nowIso());
+  } catch (error) {
+    log.warn('could not record the start of a full sync', { error });
+  }
+}
+
+/**
  * Keeps an installed workspace's name and URL key as Linear reports them
  * now (store.updateInstallationIdentity; no write when they did not
  * change), so admission's URL-key matching (LINEAR_WORKSPACES entries,
@@ -302,15 +323,17 @@ export async function refreshInstallationIdentity(
 }
 
 /**
- * One full resync. On success the mirror is replaced and the sync recorded
- * as ok; on failure the failure is recorded on sync_state and the error
- * rethrown (the mirror is left as it was).
+ * One full resync. Its start is recorded first (recordAttemptStart). On
+ * success the mirror is replaced and the sync recorded as ok; on failure
+ * the failure is recorded on sync_state and the error rethrown (the mirror
+ * is left as it was).
  */
 async function runFullSync(
   rt: EngineRuntime,
   workspaceId: string
 ): Promise<SyncResult> {
   const log = rt.logger.child({ workspaceId, op: 'fullSync' });
+  await recordAttemptStart(rt, workspaceId, log);
   const startedMs = performance.now();
   try {
     const gateway = await rt.linear.forApp(workspaceId);

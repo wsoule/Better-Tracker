@@ -94,6 +94,41 @@ describe('planWorkspaces', () => {
     ]);
   });
 
+  test('an attempt that started and never finished counts from its start', () => {
+    // org-stuck last finished long ago, but its sync started an hour ago
+    // and was killed with its tick: the workspaces that tick never
+    // reached go first now.
+    const plans = planWorkspaces([
+      overview('org-stuck', {
+        sync: {
+          lastFullSyncAt: ago(3 * HOUR),
+          lastFullSyncStartedAt: ago(HOUR),
+        },
+      }),
+      overview('org-never-reached', {
+        sync: { lastFullSyncAt: ago(2 * HOUR) },
+      }),
+      overview('org-done', {
+        sync: {
+          lastFullSyncAt: ago(30 * MINUTE),
+          lastFullSyncStartedAt: ago(34 * MINUTE),
+        },
+      }),
+      // Started first, never finished: after the never attempted.
+      overview('org-first-stuck', {
+        sync: { lastFullSyncAt: null, lastFullSyncStartedAt: ago(HOUR) },
+      }),
+      overview('org-new'),
+    ]);
+    expect(plans.map((plan) => plan.workspaceId)).toEqual([
+      'org-new',
+      'org-never-reached',
+      'org-stuck',
+      'org-first-stuck',
+      'org-done',
+    ]);
+  });
+
   test('ties keep the engine order', () => {
     const at = ago(HOUR);
     const plans = planWorkspaces(
@@ -152,6 +187,18 @@ describe('recentSyncAgeMs', () => {
         NOW
       )
     ).toBeNull();
+    // An attempt that only started is no recent sync.
+    expect(
+      recentSyncAgeMs(
+        overview('org-a', {
+          sync: {
+            lastSuccessAt: ago(HOUR),
+            lastFullSyncStartedAt: ago(MINUTE),
+          },
+        }),
+        NOW
+      )
+    ).toBeNull();
   });
 });
 
@@ -167,6 +214,16 @@ describe('isChronic', () => {
       });
     expect(isChronic(lastSuccess(25 * HOUR), NOW)).toBe(true);
     expect(isChronic(lastSuccess(23 * HOUR), NOW)).toBe(false);
+    // Attempts that keep starting (and dying) change nothing.
+    const started = (status: ReturnType<typeof lastSuccess>) => ({
+      ...status,
+      sync:
+        status.sync === null
+          ? null
+          : { ...status.sync, lastFullSyncStartedAt: ago(MINUTE) },
+    });
+    expect(isChronic(started(lastSuccess(25 * HOUR)), NOW)).toBe(true);
+    expect(isChronic(started(lastSuccess(23 * HOUR)), NOW)).toBe(false);
   });
 
   test('never synced: chronic once installed more than 24 hours ago', () => {

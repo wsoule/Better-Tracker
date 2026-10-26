@@ -6,8 +6,10 @@
 // - which workspaces a run works on: active, admitted installations; the
 //   others are skipped (uninstalled, removed, blocked, not admitted) or,
 //   for a dead app grant, reported as failed;
-// - in what order: least recently attempted full sync first, never
-//   attempted first, so a run cut short never starves the same ones;
+// - in what order: least recently attempted full sync first (the later of
+//   the attempt's start and its finish, so a workspace whose sync was
+//   killed with its tick goes after the ones that tick never reached),
+//   never attempted first, so a run cut short never starves the same ones;
 // - whether there is time left to start one before the run's deadline;
 // - when a tick's plain resync is not needed (a recent successful one);
 // - when a workspace's failure is chronic (warned about, not failed).
@@ -65,12 +67,24 @@ export function planFor(status: WorkspaceOverview): WorkspacePlan | null {
   return { kind: 'run', workspaceId, status };
 }
 
-// Epoch ms of the last full sync attempt; -Infinity when never attempted
-// (or unreadable), so those sort first.
-function lastAttemptMs(status: WorkspaceOverview): number {
-  const at = status.sync?.lastFullSyncAt ?? null;
-  const ms = at === null ? Number.NaN : Date.parse(at);
+// Epoch ms of an ISO time; -Infinity for none or an unreadable one.
+function epochMs(at: string | null | undefined): number {
+  const ms = at === null || at === undefined ? Number.NaN : Date.parse(at);
   return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms;
+}
+
+// Epoch ms of the last full sync attempt: the later of when it started
+// and when it finished. An attempt killed with its process recorded only
+// its start, which must count, or the workspace would look least recently
+// attempted and go first on every tick, ahead of the ones its kill kept
+// from running. -Infinity when never attempted, so those sort first.
+// Only the ordering reads the start: backoff, the chronic rule and the
+// skip-recent rule read finished attempts (lastSuccessAt).
+function lastAttemptMs(status: WorkspaceOverview): number {
+  return Math.max(
+    epochMs(status.sync?.lastFullSyncAt),
+    epochMs(status.sync?.lastFullSyncStartedAt)
+  );
 }
 
 /**

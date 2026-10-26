@@ -171,6 +171,13 @@ export interface SyncState {
   lastSuccessAt?: IsoDateTime | null;
   /** Issues in the mirror at the last full sync that reported a count. */
   mirrorIssueCount?: number | null;
+  /**
+   * Additive (migration 7): when the latest full sync attempt started
+   * (recordFullSyncStart), finished or not. lastFullSyncAt is written only
+   * when an attempt ends, so an attempt killed with its process shows only
+   * here. The worker orders workspaces by the later of the two.
+   */
+  lastFullSyncStartedAt?: IsoDateTime | null;
 }
 
 /** An installation without its tokens (listWorkspaceStatus never decrypts). */
@@ -434,10 +441,10 @@ export interface Store {
   /**
    * Additive (multi-workspace): one query over every workspace with an
    * installation row or sessions, joined with its sync_state and session
-   * count, ordered by last full sync attempt (never attempted first), then
-   * workspace id. Decrypts nothing, so a row whose tokens no longer
-   * decrypt is listed like any other. With `now`, sessionCount counts only
-   * unexpired sessions.
+   * count, ordered by last full sync attempt (the later of its start and
+   * its finish; never attempted first), then workspace id. Decrypts
+   * nothing, so a row whose tokens no longer decrypt is listed like any
+   * other. With `now`, sessionCount counts only unexpired sessions.
    */
   listWorkspaceStatus(now?: IsoDateTime): Promise<WorkspaceStatus[]>;
   /**
@@ -583,6 +590,15 @@ export interface Store {
       issueCount?: number;
     }
   ): Promise<void>;
+  /**
+   * Additive (migration 7): records that a full sync attempt started at
+   * `at` (lastFullSyncStartedAt; never moved back), creating the row when
+   * there is none. Changes nothing else: the last attempt's status, error,
+   * failure count, finish time and last success stay as they were, so
+   * backoff, the chronic rule and the skip-recent rule still read finished
+   * attempts only.
+   */
+  recordFullSyncStart(workspaceId: string, at: IsoDateTime): Promise<void>;
   /**
    * Records a webhook delivery keyed by the Linear-Delivery header and bumps
    * sync_state.lastWebhookAt. Returns false when the delivery id was already

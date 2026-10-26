@@ -1152,6 +1152,76 @@ describe('runCommand: several workspaces', () => {
   });
 });
 
+describe('runCommand: a workspace whose full sync never finishes', () => {
+  // Every 15 minutes a tick with the default 10-minute budget, one
+  // workspace at a time, before DAILY_RUN_AT (plain resyncs). ws-stuck
+  // has never synced, and its sync outlives every tick: the tick's
+  // deadline kills it (here: it takes the clock past the deadline and
+  // fails, so the rest of that tick has no time left). The others sync in
+  // 4 minutes each. The fake keeps sync state as the store does: the
+  // engine stamps an attempt's start (recordFullSyncStart), and only an
+  // attempt that ends records its finish.
+  test('it no longer goes first on every tick, so the others still sync', async () => {
+    const ids = ['ws-stuck', 'ws-a', 'ws-b', 'ws-c'];
+    const longAgo = '2026-10-20T03:00:00.000Z';
+    const state = new Map(
+      ids.map((id) => [
+        id,
+        {
+          lastFullSyncAt: id === 'ws-stuck' ? null : longAgo,
+          lastSuccessAt: id === 'ws-stuck' ? null : longAgo,
+          lastFullSyncMs: id === 'ws-stuck' ? null : 4 * MINUTE,
+          lastFullSyncStartedAt: null as string | null,
+        },
+      ])
+    );
+    let now = new Date('2026-10-21T03:00:00Z');
+    let deadlineAt = new Date(now.getTime() + 10 * MINUTE);
+    const engine = fakeEngine({ workspaces: [] });
+    engine.listWorkspaceStatus = () =>
+      Promise.resolve(
+        ids.map((id) => overview(id, { sync: { ...state.get(id) } }))
+      );
+    const synced: string[][] = [];
+    engine.fullSync = (id) => {
+      const entry = state.get(id);
+      if (entry === undefined) throw new Error(`unknown ${id}`);
+      entry.lastFullSyncStartedAt = now.toISOString();
+      if (id === 'ws-stuck') {
+        now = new Date(deadlineAt.getTime() + 1000);
+        return Promise.reject(new Error('killed at the tick deadline'));
+      }
+      now = new Date(now.getTime() + 4 * MINUTE);
+      entry.lastFullSyncAt = now.toISOString();
+      entry.lastSuccessAt = now.toISOString();
+      synced.at(-1)?.push(id);
+      return Promise.resolve(syncResult(id));
+    };
+
+    const firsts: string[] = [];
+    for (let tick = 0; tick < 4; tick += 1) {
+      now = new Date(Date.parse('2026-10-21T03:00:00Z') + tick * 15 * MINUTE);
+      deadlineAt = new Date(now.getTime() + 10 * MINUTE);
+      synced.push([]);
+      // The context's clock reads `now`, which the syncs move on.
+      const ctx: CommandContext = {
+        ...context(engine, { deadlineAt }),
+        now: () => now,
+      };
+      const result = await runCommand(ctx, {
+        name: 'tick',
+        workspaceId: null,
+      });
+      firsts.push(result.outcomes[0]?.workspaceId ?? '');
+    }
+    // Before attempt starts were recorded, ws-stuck (never finished) was
+    // first in every tick and nothing else ever synced.
+    expect(firsts[0]).toBe('ws-stuck');
+    expect(firsts.slice(1)).not.toContain('ws-stuck');
+    expect(new Set(synced.flat())).toEqual(new Set(['ws-a', 'ws-b', 'ws-c']));
+  });
+});
+
 describe('workerEngineFrom', () => {
   // An engine whose load() must not be called: reading the timezone may
   // not sync a workspace (load syncs one that was never mirrored).

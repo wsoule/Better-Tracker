@@ -146,6 +146,7 @@ export function overview(
           lastFullSyncMs: null,
           lastSuccessAt: null,
           mirrorIssueCount: null,
+          lastFullSyncStartedAt: null,
           ...overrides.sync,
         };
   return {
