@@ -5720,22 +5720,26 @@ links and follow-ups, new or unread, progress and the timeline's today.
     recipient's name and email), sign-in and access (each person's Linear id and
     name, the workspace's name and their tokens encrypted with AES-256-GCM, the
     cookie's SHA-256 only; the app's tokens, app user and installer; webhook
-    records; sync records; the admit and block lists), logs and memory (client
-    IPs kept only in the planner's memory for the rate limits, with their real
-    windows, 10 minutes for sign-in starts and switches and one for refused
-    webhook deliveries, and that an address can outlast its window until a later
-    request on the same count clears it or a restart; the host's logs, which
-    besides the planner's own lines hold Railway's request logs with every
+    records; sync records; the admit and block lists: a URL-key entry's
+    workspace id, a block's workspace id, URL key and reason), logs and memory
+    (client IPs kept only in the planner's memory for the rate limits, with
+    their real windows, 10 minutes for sign-in starts and switches and one for
+    refused webhook deliveries, and that an address can outlast its window until
+    a later request on the same count clears it or a restart; the host's logs,
+    which besides the planner's own lines hold Railway's request logs with every
     request's client IP, user agent and path), where (Railway, Linear, and Slack
     only while `slack`), how long (a table from `SESSION_DAYS`,
     `WEBHOOK_RETENTION_DAYS`, `NOTIFICATION_RETENTION_DAYS`,
     `JOB_CLAIM_RETENTION_DAYS` and `PURGE_AFTER_DAYS`; the copy of Linear,
-    settings and the two logs while installed; deletion `PURGE_AFTER_DAYS` after
-    Linear tells the planner about an uninstall, and a grant Linear refuses with
-    no uninstall notice, `grant_dead`, kept until the operator removes it with
-    sessions lasting until they expire; database backups, when the operator
-    turns them on, can keep data longer), and how to have it deleted (sign out;
-    uninstall in Linear, deleted `PURGE_AFTER_DAYS` after Linear's notice, kept
+    settings and the two logs while installed; deletion of everything else
+    `PURGE_AFTER_DAYS` after Linear tells the planner about an uninstall; the
+    pins and blocks (`admitted_workspaces`, `blocked_workspaces`, which the
+    purge keeps on purpose so a URL key keeps naming the same org) with no time
+    limit; and a grant Linear refuses with no uninstall notice, `grant_dead`,
+    kept until the operator removes it with sessions lasting until they expire;
+    database backups, when the operator turns them on, can keep data longer),
+    and how to have it deleted (sign out; uninstall in Linear, deleted
+    `PURGE_AFTER_DAYS` after Linear's notice except the pins and blocks, kept
     until the operator removes it when no notice comes; ask the operator sooner
     or to make sure). api_key mode says the key and session live in memory only
     (idle and absolute limits in hours), no digests and no webhooks; the demo

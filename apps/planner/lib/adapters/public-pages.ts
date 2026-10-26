@@ -276,7 +276,7 @@ export function privacyPage(facts: PublicFacts): PublicPage {
             'For each workspace: the app’s own Linear tokens, encrypted the same way, the app’s Linear user id, and who installed it and when.',
             `Webhook records: for each delivery from Linear, its type, action and the id of what changed.`,
             'Sync records: when the copy was last refreshed, how long it took, how many issues it holds, and the error when a refresh failed.',
-            'Which workspaces the planner admits or blocks, by Linear workspace id, with the reason given for a block.',
+            'Which workspaces the planner admits or blocks: for a workspace admitted by its URL key, that URL key and the Linear workspace id it was matched to; for a blocked one, its Linear workspace id and URL key, with the reason given for the block.',
           ],
         },
       ],
@@ -345,8 +345,12 @@ export function privacyPage(facts: PublicFacts): PublicPage {
             'While the workspace has the app installed',
           ],
           [
-            'Everything about a workspace after it uninstalls the app',
+            'Everything else about a workspace after it uninstalls the app',
             `Deleted ${days(PURGE_AFTER_DAYS)} after Linear tells the planner about the uninstall, unless it is installed again first`,
+          ],
+          [
+            'Which workspaces are admitted or blocked (a Linear workspace id with a URL key, and a block’s reason)',
+            'Kept with no time limit, also after the rest of the workspace is deleted, so an admission or a block keeps naming the same workspace after a rename; ask the person who runs the planner to remove them',
           ],
           [
             'Everything about a workspace whose app access Linear refused with no uninstall notice',
@@ -387,7 +391,7 @@ export function privacyPage(facts: PublicFacts): PublicPage {
             },
             {
               kind: 'text',
-              text: `A workspace admin can uninstall the app in Linear’s settings. When Linear tells the planner about the uninstall, the planner stops reading the workspace, signs everyone out of it, and deletes everything it holds about the workspace ${days(PURGE_AFTER_DAYS)} later. If that notice never arrives (Linear then only refuses the app’s access), the planner stops reading the workspace but keeps what it holds until the person who runs it removes the workspace, and people’s sessions last until they expire. To have it deleted sooner, to make sure it is deleted after an uninstall, or to ask what is held about you, ${contact}.`,
+              text: `A workspace admin can uninstall the app in Linear’s settings. When Linear tells the planner about the uninstall, the planner stops reading the workspace, signs everyone out of it, and deletes what it holds about the workspace ${days(PURGE_AFTER_DAYS)} later, except which workspace id and URL key an admission or a block names (see How long). If that notice never arrives (Linear then only refuses the app’s access), the planner stops reading the workspace but keeps what it holds until the person who runs it removes the workspace, and people’s sessions last until they expire. To have it deleted sooner, to make sure it is deleted after an uninstall, or to ask what is held about you, ${contact}.`,
             },
           ],
   });
