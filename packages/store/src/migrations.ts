@@ -296,6 +296,16 @@ const SYNC_ATTEMPT_START: readonly string[] = [
   'ALTER TABLE sync_state ADD COLUMN last_full_sync_started_at timestamptz',
 ];
 
+// When the installation's name and URL key were last read from Linear (an
+// install, a full sync, a sign-in, cleanup's identity read). Admission
+// matches a session's own sign-in URL key only when the session signed in
+// after that read, so a key Linear gave the workspace before a rename never
+// pins a LINEAR_WORKSPACES entry another org took since. Null (rows from
+// before this migration) until the next read.
+const URL_KEY_READ_AT: readonly string[] = [
+  'ALTER TABLE installations ADD COLUMN url_key_read_at timestamptz',
+];
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', statements: INITIAL_SCHEMA },
   {
@@ -316,6 +326,7 @@ export const MIGRATIONS: readonly Migration[] = [
     name: 'full_sync_attempt_start',
     statements: SYNC_ATTEMPT_START,
   },
+  { version: 8, name: 'url_key_read_at', statements: URL_KEY_READ_AT },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise

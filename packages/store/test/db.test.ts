@@ -732,12 +732,47 @@ describe('runMigrations', () => {
            last_full_sync_status)
          VALUES ('ws-a', 1, '2026-10-21T08:00:00Z', 'ok')`
       );
-      expect(await runMigrations(fresh)).toEqual([7]);
+      expect(
+        await runMigrations(
+          fresh,
+          MIGRATIONS.filter((m) => m.version <= 7)
+        )
+      ).toEqual([7]);
       const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
       expect(await store.getSyncState('ws-a')).toMatchObject({
         lastFullSyncAt: '2026-10-21T08:00:00.000Z',
         lastFullSyncStartedAt: null,
       });
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test('migration 8 adds when the URL key was read, empty for rows before it', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 7)
+      );
+      await fresh.query(
+        `INSERT INTO installations (workspace_id, workspace_name, url_key,
+           app_user_id, installed_by_user_id, access_token_enc, created_at,
+           updated_at)
+         VALUES ('ws-a', 'Acme', 'acme', 'u-app', 'u-ana', '',
+           '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z')`
+      );
+      await fresh.query(
+        `INSERT INTO sessions (id, token_hash, workspace_id, user_id,
+           user_name, access_token_enc, created_at, expires_at)
+         VALUES ('s-1', 'hash-1', 'ws-a', 'u-ana', 'Ana', '',
+           '2026-10-20T09:00:00Z', '2099-01-01T00:00:00Z')`
+      );
+      expect(await runMigrations(fresh)).toEqual([8]);
+      const rows = await fresh.query<{ url_key_read_at: unknown }>(
+        'SELECT url_key_read_at FROM installations'
+      );
+      expect(rows).toEqual([{ url_key_read_at: null }]);
     } finally {
       await fresh.close();
     }

@@ -53,6 +53,7 @@ import {
   admission,
   type AdmissionVerdict,
   createAdmissionPass,
+  newerSignInUrlKey,
 } from './admission';
 import { needsRefresh } from './providers';
 import type { EngineRuntime, MirrorView } from './runtime';
@@ -463,8 +464,15 @@ export async function finishSignIn(
       );
     }
   }
-  // An installed workspace's row follows a rename (no write otherwise).
-  await refreshInstallationIdentity(rt, workspace.id, workspace, log);
+  // An installed workspace's row follows a rename, and records that its
+  // key was read now (no other write).
+  await refreshInstallationIdentity(
+    rt,
+    workspace.id,
+    workspace,
+    rt.nowIso(),
+    log
+  );
   const expiresAt = new Date(
     rt.clock().getTime() + rt.config.sessionDays * DAY_MS
   ).toISOString();
@@ -613,9 +621,11 @@ export async function devSignIn(
 
 // The URL keys admission matches a session's workspace with when a URL key
 // block or an unpinned LINEAR_WORKSPACES URL key needs them (one query, no
-// decryption): the installation's (refreshed by every full sync and
-// sign-in), else the session's sign-in value, and the session's own
-// sign-in value, which an unpinned entry is matched against first.
+// decryption): the installation's (refreshed by every full sync, sign-in
+// and cleanup identity read), else the session's sign-in value, and the
+// session's own sign-in value when it is newer than the installation's
+// (newerSignInUrlKey), which an unpinned entry is matched against only
+// when the first matches no entry.
 async function sessionUrlKeys(
   rt: EngineRuntime,
   sessionToken: string
@@ -626,7 +636,10 @@ async function sessionUrlKeys(
   );
   return {
     urlKey: described?.workspaceUrlKey ?? null,
-    signInUrlKey: described?.signInUrlKey ?? null,
+    signInUrlKey:
+      described === null || described === undefined
+        ? null
+        : newerSignInUrlKey(described),
   };
 }
 
@@ -740,7 +753,7 @@ export async function describeSessions(
     const verdict = await check({
       id: entry.workspaceId,
       urlKey: entry.workspaceUrlKey,
-      signInUrlKey: entry.signInUrlKey ?? null,
+      signInUrlKey: newerSignInUrlKey(entry),
       installed: entry.installed,
     });
     out.push(verdict === 'ok' ? entry : null);

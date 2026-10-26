@@ -1598,7 +1598,10 @@ Tables (all keyed by `workspace_id`, except the two admission tables):
   row saved revoked keeps its reason or gets `grant_dead`. Migration 5 turns
   rows revoked before it into `grant_dead` (never purged automatically) and
   wipes them. `updated_at` is the grant's last write (install, reinstall,
-  rotation); a revoke leaves it alone.
+  rotation); a revoke leaves it alone. `url_key_read_at` (migration 8) is when
+  the name and URL key were last read from Linear (an install, a full sync, a
+  sign-in, cleanup's identity read; null on rows from before it until the next
+  read), which admission compares a session's sign-in with (§7 "Admission").
 - `sessions` — `token_hash` (SHA-256 of the cookie token), user, the user's
   Linear tokens (encrypted), expiry, and (migration 5) `workspace_name`,
   `workspace_url_key` from the sign-in identity (`NewSession` optional fields;
@@ -1714,11 +1717,17 @@ shared PGlite/Postgres suite):
   and URL key are the installation's, else the newest session's. Ordered by last
   full sync attempt, never attempted first. It decrypts nothing, so a row
   encrypted with another key is listed like any other.
-- `updateInstallationIdentity(ws, { workspaceName, urlKey })` → whether it
-  changed: one `UPDATE` of the installation's name and URL key to what Linear
-  reports now (a full sync, a sign-in); `updated_at`, the tokens and the revoke
-  state are left alone (`updated_at` keeps dating the grant's last write for the
-  stale-revoke guard). False without a row or when nothing differs.
+- `updateInstallationIdentity(ws, { workspaceName, urlKey }, { readAt? })` →
+  whether the name or URL key changed: one `UPDATE` of the installation's name
+  and URL key to what Linear reports now (a full sync, a sign-in, cleanup's
+  identity read); `updated_at`, the tokens and the revoke state are left alone
+  (`updated_at` keeps dating the grant's last write for the stale-revoke guard).
+  With `readAt` (when Linear was asked) it also records `url_key_read_at`
+  (migration 8), locking the row first (a CTE `FOR UPDATE`) and writing nothing
+  when a later read is recorded, so a slow sync never puts back a key a sign-in
+  replaced; `saveInstallation` records its `updatedAt` there (an install reads
+  the identity just before). False without a row, when nothing differs, or when
+  a later read is recorded.
 - `revokeInstallation(ws, reason, now, { ifUpdatedBefore? })` → whether it
   changed: one `UPDATE` sets `revoked_at`/`revoked_reason` and wipes the
   credentials. No row, `updated_at` later than `ifUpdatedBefore` (a stale
@@ -1741,7 +1750,9 @@ shared PGlite/Postgres suite):
   `mirror_entities` user row. Per token: workspace id, name and URL key (the
   installation's, kept current by every sync and sign-in, else the session's
   sign-in values), the URL key the session itself signed in under
-  (`signInUrlKey`, which admission also matches unpinned entries against, §7
+  (`signInUrlKey`), when it signed in (`signedInAt`, the row's `created_at`) and
+  when the installation's URL key was last read (`urlKeyReadAt`, null without an
+  installation or before migration 8; admission's fallback compares the two, §7
   "Admission"), user id and name, expiry, `guest` (the mirror's `User.guest`,
   false when the row lacks the field, null without a row), `installed`,
   `revokedAt`, `revokedReason`; null when expired or unknown. No token column is
@@ -2144,28 +2155,37 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   (looked up only when a URL-key block or an unpinned URL-key entry needs it)
   `describeSessions`' value: the installation's, else the session's sign-in
   value (what the switcher shows, and what URL-key blocks match). An unpinned
-  URL-key entry is also matched against the key **the session itself signed in
-  under** (`SessionDescription.signInUrlKey`, Linear's value at sign-in), and
-  that one first: while the installation's key is stale (a rename no sync has
-  seen), a session that signed in under the current key still pins the entry and
-  stays signed in. A pin always names the session's own workspace id, and an
-  entry already pinned to another org stays so (the first pin wins). The
-  installation's name and URL key are **kept current**: every successful full
-  sync writes what Linear reports now (`WorkspaceData.organization` →
-  `store.updateInstallationIdentity`, OAuth mode, no write when unchanged, best
-  effort), and so does every sign-in to an installed workspace, so URL-key
-  entries and blocks match the key the workspace has now, not the one saved at
-  install. A refused workspace is never synced, so cleanup reads the key itself
-  when that could matter: an active installation `LINEAR_WORKSPACES` refuses
-  while one of its URL-key entries is still unpinned gets one organization read
-  with the app token per cleanup (`forApp` → `whoAmI`; the read is cut off at
-  cleanup's deadline), then `refreshInstallationIdentity` and a fresh admission
-  check, which pins the entry when it matches now (`reAdmittedWorkspaces`; the
-  tick lists its workspaces after cleanup, so it is served in the same tick).
-  Nothing is revoked or ended by it; a failed read is logged at warn and tried
-  again next cleanup. With every URL-key entry pinned, no read is made (it could
-  not help). Enforced in `finishSignIn` (every intent, right after identifying
-  the workspace: `discardTokens`, then
+  URL-key entry is matched against that key first. Only when it matches **no**
+  URL-key entry (pinned or not) is the entry matched against the key **the
+  session itself signed in under** (`SessionDescription.signInUrlKey`, Linear's
+  value at sign-in), and only when the session signed in after the
+  installation's key was last read from Linear (`newerSignInUrlKey`:
+  `signedInAt` later than `urlKeyReadAt`; never when the read is not recorded,
+  rows from before migration 8): while the installation's key is stale (a rename
+  no read has seen yet), a session that signed in under the current key still
+  pins the entry and stays signed in, and a key the workspace has given up since
+  a session signed in (a rename that a sync read, after which another org may
+  take the key) never pins an entry for it. A pin always names the session's own
+  workspace id, and an entry already pinned to another org stays so (the first
+  pin wins). The installation's name and URL key are **kept current**: every
+  successful full sync writes what Linear reports now
+  (`WorkspaceData.organization` → `store.updateInstallationIdentity` with
+  `readAt` = the sync's start, OAuth mode, best effort), and so do every sign-in
+  to an installed workspace (`readAt` now) and cleanup's identity read; each
+  records `url_key_read_at`, and a read older than the recorded one changes
+  nothing, so URL-key entries and blocks match the key the workspace has now,
+  not the one saved at install. A refused workspace is never synced, so cleanup
+  reads the key itself when that could matter: an active installation
+  `LINEAR_WORKSPACES` refuses while one of its URL-key entries is still unpinned
+  gets one organization read with the app token per cleanup (`forApp` →
+  `whoAmI`; the read is cut off at cleanup's deadline), then
+  `refreshInstallationIdentity` and a fresh admission check, which pins the
+  entry when it matches now (`reAdmittedWorkspaces`; the tick lists its
+  workspaces after cleanup, so it is served in the same tick). Nothing is
+  revoked or ended by it; a failed read is logged at warn and tried again next
+  cleanup. With every URL-key entry pinned, no read is made (it could not help).
+  Enforced in `finishSignIn` (every intent, right after identifying the
+  workspace: `discardTokens`, then
   `EngineAuthError('workspace_not_allowed' | 'workspace_blocked')`, no session),
   `finishInstall` (the same, the new app token revoked), `authenticate` (a
   refused session reads as signed out; its row is kept), `listWorkspaceIds`
@@ -2398,26 +2418,27 @@ Several workspaces (additive, 2026-10-25): `OAuthIntent` gains `add_workspace`;
 `{ mode: 'installed' } | { mode: 'any' } | { mode: 'list', entries }`, absent
 reads as `installed`), `operator` (`OperatorContact` `{ name, email, url }`,
 absent reads as all null) and `demoUrl`; the index exports `ADMISSION_CACHE_MS`,
-`AdmissionVerdict`, `SLACK_SHARED_OFF`, `MAX_DESCRIBED_SESSIONS`,
-`MAX_WORKSPACE_ENTRIES`, `isDeployedEnv` and the `SessionDescription` type.
-Several workspaces (additive, owner decision 2026-10-25; §7 above, §9): the
-constants `PURGE_AFTER_DAYS` (30), `NOTIFICATION_RETENTION_DAYS` (90),
-`JOB_CLAIM_RETENTION_DAYS` (30), `OPERATOR_PURGE_MIN_MINUTES` (15),
-`SESSION_REVOKE_CONCURRENCY` (4), `FIRST_SYNC_RETRY_MIN_MS` (1 minute),
-`FIRST_SYNC_RETRY_MAX_MS` (15 minutes), `DEFAULT_MIRROR_CACHE_WORKSPACES` (16)
-and `MAX_MIRROR_CACHE_WORKSPACES` (64), `OPERATOR_OFF_MESSAGE`, the pure
-`firstSyncRetryAt(syncState)` and the types `WorkspaceRemoval`, `WorkspacePurge`
-and `WorkspaceBlock`, plus `WorkspaceOverview` and, re-exported from the store
-for the worker, `WorkspaceStatus`, `BlockedWorkspace`, `BlockKind`,
-`RevokedReason` and `WorkspaceTable`. The `Engine` contract gains
-`listWorkspaceStatus()` (with admission's verdicts),
-`revokeWorkspace(ws, reason, { ifUpdatedBefore? })`, `removeWorkspace(name)`,
-`purgeWorkspaceNow(name, { now? })`, `blockWorkspace(name, reason?)`,
-`unblockWorkspace(name)` and `listBlockedWorkspaces()` (operator commands: the
-worker's CLI only, never a planner route); `handleWebhook`'s event gains
-optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
-`CleanupResult` gains optional `endedWorkspaceSessions`, `purgedWorkspaces`,
-`oldNotifications` and `oldJobClaims`.
+`AdmissionVerdict`, `newerSignInUrlKey`, `SLACK_SHARED_OFF`,
+`MAX_DESCRIBED_SESSIONS`, `MAX_WORKSPACE_ENTRIES`, `isDeployedEnv` and the
+`SessionDescription` type. Several workspaces (additive, owner decision
+2026-10-25; §7 above, §9): the constants `PURGE_AFTER_DAYS` (30),
+`NOTIFICATION_RETENTION_DAYS` (90), `JOB_CLAIM_RETENTION_DAYS` (30),
+`OPERATOR_PURGE_MIN_MINUTES` (15), `SESSION_REVOKE_CONCURRENCY` (4),
+`FIRST_SYNC_RETRY_MIN_MS` (1 minute), `FIRST_SYNC_RETRY_MAX_MS` (15 minutes),
+`DEFAULT_MIRROR_CACHE_WORKSPACES` (16) and `MAX_MIRROR_CACHE_WORKSPACES` (64),
+`OPERATOR_OFF_MESSAGE`, the pure `firstSyncRetryAt(syncState)` and the types
+`WorkspaceRemoval`, `WorkspacePurge` and `WorkspaceBlock`, plus
+`WorkspaceOverview` and, re-exported from the store for the worker,
+`WorkspaceStatus`, `BlockedWorkspace`, `BlockKind`, `RevokedReason` and
+`WorkspaceTable`. The `Engine` contract gains `listWorkspaceStatus()` (with
+admission's verdicts), `revokeWorkspace(ws, reason, { ifUpdatedBefore? })`,
+`removeWorkspace(name)`, `purgeWorkspaceNow(name, { now? })`,
+`blockWorkspace(name, reason?)`, `unblockWorkspace(name)` and
+`listBlockedWorkspaces()` (operator commands: the worker's CLI only, never a
+planner route); `handleWebhook`'s event gains optional `createdAt`;
+`EngineConfig` gains optional `mirrorCacheWorkspaces`; `CleanupResult` gains
+optional `endedWorkspaceSessions`, `purgedWorkspaces`, `oldNotifications` and
+`oldJobClaims`.
 
 `createEngineFromEnv`:
 
@@ -6465,10 +6486,12 @@ not read; a deploy that still sets it boots normally and logs one warning
   PgBouncer with its default configuration) runs the store behind a pooler that
   refuses the startup option. Migrations (`test/db.test.ts`): each one's
   backfills, and migration 6 converging from both texts of migration 5 (one
-  `url_key` column, one `CHECK`, rows kept), migration 7's empty start column;
-  `recordFullSyncStart` changing nothing but its column and never moving back,
-  `listWorkspaceStatus` ordering by the later of start and finish, and
-  `describeSessions`' `signInUrlKey` (`test/store.test.ts`).
+  `url_key` column, one `CHECK`, rows kept), migration 7's empty start column,
+  migration 8's empty `url_key_read_at`; `recordFullSyncStart` changing nothing
+  but its column and never moving back, `listWorkspaceStatus` ordering by the
+  later of start and finish, `updateInstallationIdentity` recording its read and
+  never applying an older one, and `describeSessions`' `signInUrlKey`,
+  `signedInAt` and `urlKeyReadAt` (`test/store.test.ts`).
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe
@@ -6565,12 +6588,14 @@ not read; a deploy that still sets it boots normally and logs one warning
   `LINEAR_WORKSPACES` leaves out (re-admitting restores them, sessions
   included), a renamed workspace listed by its new URL key is never removed and
   its sign-in refreshes the installation's name and key, a URL-key pin outlives
-  a purge, unblock by URL key after a pin, a session that signed in under the
-  current key pinning an unpinned entry (its own key first) while the
-  installation's is stale and never one pinned to another org, cleanup's
-  identity read admitting a refused installation again with one app-token read,
-  and skipping the read without an unpinned entry or time, a failed one only
-  warning (`test/admission.test.ts`); cleanup's deadline: a slow revoke endpoint
+  a purge, unblock by URL key after a pin, the installation's URL key tried
+  before a session's, a session that signed in after the installation's key was
+  read pinning an entry only its key matches, an older session's key never
+  pinning an entry another org took after a rename that a sync read
+  (`newerSignInUrlKey`), and never one pinned to another org, cleanup's identity
+  read admitting a refused installation again with one app-token read, and
+  skipping the read without an unpinned entry or time, a failed one only warning
+  (`test/admission.test.ts`); cleanup's deadline: a slow revoke endpoint
   stopping it in time with every session it took revoked and the rest left for
   the next pass, no time left starting no revocation or purge while the
   store-only steps still run, a purge waiting until its sessions' revocations

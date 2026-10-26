@@ -241,6 +241,8 @@ interface SessionDescriptionRow {
   workspace_name: string | null;
   workspace_url_key: string | null;
   sign_in_url_key: string | null;
+  signed_in_at: DbTimestamp;
+  url_key_read_at: DbTimestamp | null;
   user_id: string;
   user_name: string;
   expires_at: DbTimestamp;
@@ -972,17 +974,22 @@ class SqlStore implements Store {
   /**
    * Upserts the whole row. revoked_reason follows revoked_at: a reinstall
    * (revokedAt null) clears both; a row saved revoked keeps its recorded
-   * reason, or gets 'grant_dead' (cause unknown) when it has none.
+   * reason, or gets 'grant_dead' (cause unknown) when it has none. The
+   * name and URL key count as read from Linear at updatedAt
+   * (url_key_read_at): an install reads them just before it saves.
    */
   async saveInstallation(installation: Installation): Promise<void> {
     await this.write(
-      `INSERT INTO installations (${INSTALLATION_COLUMNS}, revoked_reason)
+      `INSERT INTO installations (${INSTALLATION_COLUMNS}, revoked_reason,
+         url_key_read_at)
        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9::timestamptz,
          $10::text::jsonb, $11::timestamptz, $12::timestamptz,
-         CASE WHEN $6::timestamptz IS NULL THEN NULL ELSE 'grant_dead' END)
+         CASE WHEN $6::timestamptz IS NULL THEN NULL ELSE 'grant_dead' END,
+         $12::timestamptz)
        ON CONFLICT (workspace_id) DO UPDATE SET
          workspace_name = EXCLUDED.workspace_name,
          url_key = EXCLUDED.url_key,
+         url_key_read_at = EXCLUDED.url_key_read_at,
          app_user_id = EXCLUDED.app_user_id,
          installed_by_user_id = EXCLUDED.installed_by_user_id,
          revoked_at = EXCLUDED.revoked_at,
@@ -1009,18 +1016,41 @@ class SqlStore implements Store {
     );
   }
 
+  /**
+   * With `readAt`: one statement that locks the row (a CTE `FOR UPDATE`,
+   * so the old values compared are the latest committed ones) and writes
+   * the name, URL key and url_key_read_at unless a newer read is recorded
+   * already, so a slow sync's earlier read never overwrites a sign-in's
+   * later one. Without it, only a change is written, as before.
+   */
   async updateInstallationIdentity(
     workspaceId: string,
-    identity: { workspaceName: string; urlKey: string }
+    identity: { workspaceName: string; urlKey: string },
+    options: { readAt?: IsoDateTime } = {}
   ): Promise<boolean> {
-    const rows = await this.write<{ workspace_id: string }>(
-      `UPDATE installations SET workspace_name = $2, url_key = $3
-       WHERE workspace_id = $1
-         AND (workspace_name <> $2 OR url_key <> $3)
-       RETURNING workspace_id`,
-      [workspaceId, identity.workspaceName, identity.urlKey]
+    if (options.readAt === undefined) {
+      const rows = await this.write<{ workspace_id: string }>(
+        `UPDATE installations SET workspace_name = $2, url_key = $3
+         WHERE workspace_id = $1
+           AND (workspace_name <> $2 OR url_key <> $3)
+         RETURNING workspace_id`,
+        [workspaceId, identity.workspaceName, identity.urlKey]
+      );
+      return rows.length === 1;
+    }
+    const rows = await this.write<{ changed: boolean }>(
+      `WITH old AS (
+         SELECT workspace_name, url_key FROM installations
+         WHERE workspace_id = $1 FOR UPDATE)
+       UPDATE installations i SET workspace_name = $2, url_key = $3,
+         url_key_read_at = $4::timestamptz
+       FROM old
+       WHERE i.workspace_id = $1
+         AND (i.url_key_read_at IS NULL OR i.url_key_read_at <= $4::timestamptz)
+       RETURNING (old.workspace_name <> $2 OR old.url_key <> $3) AS changed`,
+      [workspaceId, identity.workspaceName, identity.urlKey, options.readAt]
     );
-    return rows.length === 1;
+    return rows[0]?.changed === true;
   }
 
   /**
@@ -1252,10 +1282,13 @@ class SqlStore implements Store {
    * installation's name and URL key win over the session's sign-in values
    * (every full sync and sign-in refreshes them; listWorkspaceStatus picks
    * the same way), so a rename shows everywhere at once. The session's own
-   * sign-in URL key comes back as well (signInUrlKey): admission also
-   * matches an unpinned LINEAR_WORKSPACES URL key entry against it, so a
+   * sign-in URL key comes back as well (signInUrlKey), with when the
+   * session signed in (signedInAt) and when the installation's URL key was
+   * last read from Linear (urlKeyReadAt): admission falls back to the
+   * sign-in key only when the session signed in after that read, so a
    * stale installation key (a rename no sync has seen) cannot sign out a
-   * session that signed in under the current one.
+   * session that signed in under the current one, and a stale sign-in key
+   * cannot pin an entry another org took since.
    */
   async describeSessions(
     tokens: readonly string[],
@@ -1268,6 +1301,7 @@ class SqlStore implements Store {
          COALESCE(i.workspace_name, s.workspace_name) AS workspace_name,
          COALESCE(i.url_key, s.workspace_url_key) AS workspace_url_key,
          s.workspace_url_key AS sign_in_url_key,
+         s.created_at AS signed_in_at, i.url_key_read_at,
          s.user_id, s.user_name, s.expires_at,
          CASE WHEN m.id IS NULL THEN NULL
            ELSE COALESCE(m.data->>'guest' = 'true', false) END AS guest,
@@ -1292,6 +1326,8 @@ class SqlStore implements Store {
         workspaceName: row.workspace_name,
         workspaceUrlKey: row.workspace_url_key,
         signInUrlKey: row.sign_in_url_key,
+        signedInAt: toIso(row.signed_in_at),
+        urlKeyReadAt: toIsoOrNull(row.url_key_read_at),
         userId: row.user_id,
         userName: row.user_name,
         expiresAt: toIso(row.expires_at),

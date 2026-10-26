@@ -122,6 +122,15 @@ export interface SessionDescription {
    * descriptions built by hand elsewhere keep compiling.
    */
   signInUrlKey?: string | null;
+  /**
+   * Additive: when the session signed in (its row's createdAt), and when
+   * the installation's URL key was last read from Linear (null: no
+   * installation, or not read since migration 8). Admission matches an
+   * unpinned LINEAR_WORKSPACES entry against signInUrlKey only when the
+   * session signed in after that read. Always set by the SQL store.
+   */
+  signedInAt?: IsoDateTime;
+  urlKeyReadAt?: IsoDateTime | null;
   userId: string;
   userName: string;
   expiresAt: IsoDateTime;
@@ -424,14 +433,18 @@ export interface Store {
    * Additive (multi-workspace): sets the installation's workspace name and
    * URL key to what Linear reports now (a full sync, a sign-in), so
    * admission's URL-key matching and the listings follow a rename. One
-   * statement; nothing else changes, updated_at included (it keeps meaning
-   * the grant's last write, which the stale-revoke guard compares with).
-   * True when the row existed and changed; false when there is no row or
-   * it already holds these values.
+   * statement; updated_at is left alone (it keeps meaning the grant's last
+   * write, which the stale-revoke guard compares with). Additive: with
+   * `readAt` (when Linear was asked), the read is recorded as the row's
+   * url_key_read_at, and a read older than the one recorded changes
+   * nothing (a newer read wins). True when the row existed and its name or
+   * URL key changed; false when there is no row, it already holds these
+   * values, or a newer read is recorded.
    */
   updateInstallationIdentity(
     workspaceId: string,
-    identity: { workspaceName: string; urlKey: string }
+    identity: { workspaceName: string; urlKey: string },
+    options?: { readAt?: IsoDateTime }
   ): Promise<boolean>;
   /**
    * Runs fn while holding a row lock on the installation, so two processes

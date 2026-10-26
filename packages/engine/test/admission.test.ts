@@ -23,6 +23,7 @@ import {
   type Engine,
   EngineAuthError,
   EngineInputError,
+  newerSignInUrlKey,
   requireWritable,
   type WorkspaceAdmission,
 } from '../src/index';
@@ -682,6 +683,9 @@ describe('describeSessions', () => {
         workspaceName: 'Acme',
         workspaceUrlKey: 'acme',
         signInUrlKey: 'acme',
+        // The sign-in read the key and signed in at the same instant.
+        signedInAt: START,
+        urlKeyReadAt: START,
         userId: 'u-ana',
         userName: 'Ana Ruiz',
         expiresAt: '2026-11-20T15:00:00.000Z',
@@ -1136,11 +1140,18 @@ describe('a stale installation URL key', () => {
     return token;
   }
 
-  test('a session that signed in under the current key still pins an unpinned entry, its own key first', async () => {
+  /** Moves the clock on by `ms`. */
+  function later(ms = 60_000): void {
+    clock.set(new Date(clock.now().getTime() + ms).toISOString());
+  }
+
+  test("the installation's URL key is tried first, then a later sign-in's", async () => {
     await installed(ACME, { urlKey: 'acme-old' });
     await mirrored('org-acme', [ANA_ACME.user]);
+    // Signed in after the installation's key was read from Linear.
+    later();
     const token = await sessionSignedInAs('org-acme', 'acme');
-    // Both keys are listed; the session's own key is the one pinned.
+    // Both keys are listed: the installation's one is pinned.
     const engine = oauthEngine({
       mode: 'list',
       entries: ['acme', 'acme-old'],
@@ -1149,12 +1160,91 @@ describe('a stale installation URL key', () => {
     expect(await engine.describeSessions([token])).toMatchObject([
       { workspaceUrlKey: 'acme-old', signInUrlKey: 'acme' },
     ]);
-    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
-    expect(await store.getAdmittedPin('acme-old')).toBeNull();
+    expect(await store.getAdmittedPin('acme-old')).toBe('org-acme');
+    expect(await store.getAdmittedPin('acme')).toBeNull();
+    expect((await engine.authenticate(token))?.session.userId).toBe('u-ana');
+  });
+
+  test('a session that signed in after the installation key was read still pins an entry only its key matches', async () => {
+    await installed(ACME, { urlKey: 'acme-old' });
+    await mirrored('org-acme', [ANA_ACME.user]);
+    later();
+    const token = await sessionSignedInAs('org-acme', 'acme');
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
     expect((await engine.authenticate(token))?.session.userId).toBe('u-ana');
     expect(await engine.checkSession(token)).toEqual({
       workspaceId: 'org-acme',
     });
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+  });
+
+  test("an old session's sign-in key never pins an entry another org took since", async () => {
+    // ACME was linear.app/acme when Ana signed in. It was renamed to
+    // acme-old since, which a sync read from Linear; OTHER took acme, and
+    // the list's acme means OTHER.
+    await installed(ACME);
+    await mirrored('org-acme', [ANA_ACME.user]);
+    later();
+    const token = await sessionSignedInAs('org-acme', 'acme');
+    later();
+    expect(
+      await store.updateInstallationIdentity(
+        'org-acme',
+        { workspaceName: 'Acme', urlKey: 'acme-old' },
+        { readAt: clock.now().toISOString() }
+      )
+    ).toBe(true);
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    expect(await engine.authenticate(token)).toBeNull();
+    expect(await engine.checkSession(token)).toBeNull();
+    expect(await engine.describeSessions([token])).toEqual([null]);
+    expect(await store.getAdmittedPin('acme')).toBeNull();
+
+    // OTHER signs in under acme: the entry is pinned to it, and ACME's old
+    // session stays refused.
+    const yan: FakeIdentity = {
+      user: person('u-yan', 'Yan Other'),
+      workspace: { ...OTHER, urlKey: 'acme' },
+    };
+    await finish(engine, yan);
+    expect(await store.getAdmittedPin('acme')).toBe('org-other');
+    pastCache();
+    expect(await engine.authenticate(token)).toBeNull();
+    expect(await engine.describeSessions([token])).toEqual([null]);
+  });
+
+  test('a sign-in key counts only when the session signed in after the installation key was read', () => {
+    const base = {
+      signInUrlKey: 'acme',
+      signedInAt: '2026-10-21T10:00:00.000Z',
+      installed: true,
+    };
+    expect(
+      newerSignInUrlKey({ ...base, urlKeyReadAt: '2026-10-21T09:59:59.999Z' })
+    ).toBe('acme');
+    // Read at the same instant or later: the installation's is as new.
+    for (const urlKeyReadAt of [
+      '2026-10-21T10:00:00.000Z',
+      '2026-10-21T10:00:00.001Z',
+    ]) {
+      expect(newerSignInUrlKey({ ...base, urlKeyReadAt })).toBeNull();
+    }
+    // Never read since migration 8: nothing says which one is newer.
+    expect(newerSignInUrlKey({ ...base, urlKeyReadAt: null })).toBeNull();
+    expect(
+      newerSignInUrlKey({ ...base, signedInAt: undefined, urlKeyReadAt: null })
+    ).toBeNull();
+    // No installation: the description's key is the session's own anyway.
+    expect(
+      newerSignInUrlKey({ ...base, installed: false, urlKeyReadAt: null })
+    ).toBe('acme');
+    expect(
+      newerSignInUrlKey({
+        ...base,
+        signInUrlKey: null,
+        urlKeyReadAt: '2026-10-21T09:00:00.000Z',
+      })
+    ).toBeNull();
   });
 
   test("a session's own key never pins an entry already pinned to another org", async () => {

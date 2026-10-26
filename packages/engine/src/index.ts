@@ -32,9 +32,14 @@ export {
   processFlagProblem,
 } from './config';
 // Several workspaces (owner decision 2026-10-25): admission's verdicts and
-// cache window, the Slack fail-safe's digest note, and how many held
-// tokens describeSessions describes.
-export { ADMISSION_CACHE_MS, type AdmissionVerdict } from './admission';
+// cache window, when a session's own sign-in URL key counts, the Slack
+// fail-safe's digest note, and how many held tokens describeSessions
+// describes.
+export {
+  ADMISSION_CACHE_MS,
+  type AdmissionVerdict,
+  newerSignInUrlKey,
+} from './admission';
 export { SLACK_SHARED_OFF } from './fail-safes';
 export { MAX_DESCRIBED_SESSIONS } from './auth';
 // api_key mode (owner request 2026-10-23). The key vault itself is not

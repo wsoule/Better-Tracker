@@ -2237,6 +2237,53 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         });
       });
 
+      test('updateInstallationIdentity with readAt records the read, and an older read changes nothing', async () => {
+        const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
+        // An install counts as a read at its updatedAt.
+        const readAt = async (): Promise<string | null | undefined> => {
+          const [described] = await store.describeSessions(
+            [(await newSession(ws, `probe-${Math.random()}`)).token],
+            NOW
+          );
+          return described?.urlKeyReadAt;
+        };
+        expect(await readAt()).toBe('2026-10-01T09:00:00.000Z');
+        const later = '2026-10-21T07:00:00.000Z';
+        const renamed = { workspaceName: 'Acme Labs', urlKey: 'acme-labs' };
+        expect(
+          await store.updateInstallationIdentity(ws, renamed, { readAt: later })
+        ).toBe(true);
+        expect(await readAt()).toBe(later);
+        // The same values read again: the read is recorded, nothing changed.
+        const latest = '2026-10-21T07:30:00.000Z';
+        expect(
+          await store.updateInstallationIdentity(ws, renamed, {
+            readAt: latest,
+          })
+        ).toBe(false);
+        expect(await readAt()).toBe(latest);
+        // A read older than the recorded one (a slow sync that asked Linear
+        // before a sign-in did) changes nothing.
+        expect(
+          await store.updateInstallationIdentity(
+            ws,
+            { workspaceName: 'Acme', urlKey: 'acme' },
+            { readAt: later }
+          )
+        ).toBe(false);
+        expect(await store.getInstallation(ws)).toMatchObject({
+          ...renamed,
+          updatedAt: '2026-10-01T09:00:00.000Z',
+        });
+        expect(await readAt()).toBe(latest);
+        expect(
+          await store.updateInstallationIdentity(newWorkspaceId(), renamed, {
+            readAt: latest,
+          })
+        ).toBe(false);
+      });
+
       test('revokeInstallation ignores stale revokes, upgrades grant_dead and never downgrades', async () => {
         const ws = newWorkspaceId();
         const saved = installation(ws);
@@ -2446,6 +2493,8 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
       });
 
       test('describeSessions describes held tokens in one statement, without credentials', async () => {
+        // Every session below signs in at NOW.
+        clock = new Date(NOW);
         const acme = newWorkspaceId();
         const globex = newWorkspaceId();
         await store.saveInstallation(installation(acme));
@@ -2509,6 +2558,9 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           revokedReason: 'uninstalled' as const,
           workspaceId: acme,
           workspaceUrlKey: 'acme',
+          // Signed in after the install read the installation's key.
+          signedInAt: NOW,
+          urlKeyReadAt: '2026-10-01T09:00:00.000Z',
         };
         expect(described).toEqual([
           {
@@ -2517,6 +2569,8 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             workspaceName: 'Globex',
             workspaceUrlKey: 'globex',
             signInUrlKey: 'globex',
+            signedInAt: NOW,
+            urlKeyReadAt: null,
             userId: 'u-ana',
             userName: 'ana',
             expiresAt: '2099-01-01T00:00:00.000Z',

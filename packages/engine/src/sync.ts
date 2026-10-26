@@ -278,10 +278,11 @@ export function firstSyncWaitError(retryAt: IsoDateTime): EngineInputError {
 async function recordAttemptStart(
   rt: EngineRuntime,
   workspaceId: string,
-  log: Logger
+  log: Logger,
+  at: IsoDateTime
 ): Promise<void> {
   try {
-    await rt.store.recordFullSyncStart(workspaceId, rt.nowIso());
+    await rt.store.recordFullSyncStart(workspaceId, at);
   } catch (error) {
     log.warn('could not record the start of a full sync', { error });
   }
@@ -289,26 +290,31 @@ async function recordAttemptStart(
 
 /**
  * Keeps an installed workspace's name and URL key as Linear reports them
- * now (store.updateInstallationIdentity; no write when they did not
- * change), so admission's URL-key matching (LINEAR_WORKSPACES entries,
- * blocks), the worker and the operator's listings follow a rename instead
- * of the key saved at install. OAuth mode only (with personal API keys a
- * connect keeps the binding current). Best effort: a failure is logged and
- * the caller goes on. Logs the id only.
+ * now (store.updateInstallationIdentity), so admission's URL-key matching
+ * (LINEAR_WORKSPACES entries, blocks), the worker and the operator's
+ * listings follow a rename instead of the key saved at install. `readAt`
+ * is when Linear was asked (at the latest): it is recorded as the
+ * installation's url_key_read_at, which admission compares a session's
+ * sign-in with (newerSignInUrlKey), and a read older than the recorded one
+ * changes nothing. OAuth mode only (with personal API keys a connect keeps
+ * the binding current). Best effort: a failure is logged and the caller
+ * goes on. Logs the id only.
  */
 export async function refreshInstallationIdentity(
   rt: EngineRuntime,
   workspaceId: string,
   organization: { name: string; urlKey: string } | undefined,
+  readAt: IsoDateTime,
   log: Logger = rt.logger
 ): Promise<void> {
   if (rt.config.auth !== 'oauth' || organization === undefined) return;
   try {
     if (
-      await rt.store.updateInstallationIdentity(workspaceId, {
-        workspaceName: organization.name,
-        urlKey: organization.urlKey,
-      })
+      await rt.store.updateInstallationIdentity(
+        workspaceId,
+        { workspaceName: organization.name, urlKey: organization.urlKey },
+        { readAt }
+      )
     ) {
       log.info("updated the installation's workspace name or URL key", {
         workspaceId,
@@ -333,7 +339,10 @@ async function runFullSync(
   workspaceId: string
 ): Promise<SyncResult> {
   const log = rt.logger.child({ workspaceId, op: 'fullSync' });
-  await recordAttemptStart(rt, workspaceId, log);
+  // Linear is asked after this, so the identity it reports is at least as
+  // new as this instant.
+  const startedAt = rt.nowIso();
+  await recordAttemptStart(rt, workspaceId, log, startedAt);
   const startedMs = performance.now();
   try {
     const gateway = await rt.linear.forApp(workspaceId);
@@ -349,7 +358,13 @@ async function runFullSync(
       rt.store.getSyncState(workspaceId),
       rt.store.getInstallation(workspaceId),
     ]);
-    await refreshInstallationIdentity(rt, workspaceId, data.organization, log);
+    await refreshInstallationIdentity(
+      rt,
+      workspaceId,
+      data.organization,
+      startedAt,
+      log
+    );
     const timezone = isValidTimeZone(settings.timezone)
       ? settings.timezone
       : rt.config.defaultTimezone;

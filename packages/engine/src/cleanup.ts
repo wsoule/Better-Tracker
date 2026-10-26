@@ -254,6 +254,7 @@ async function refreshIdentity(
   budget: Budget
 ): Promise<IdentityRefresh> {
   if (budget.leftMs() < IDENTITY_READ_MIN_MS) return 'no_time';
+  const readAt = rt.nowIso();
   try {
     const gateway = await rt.linear.forApp(workspaceId);
     const identity = await within(gateway.whoAmI(), budget.leftMs());
@@ -271,7 +272,12 @@ async function refreshIdentity(
       );
       return 'refused';
     }
-    await refreshInstallationIdentity(rt, workspaceId, identity.workspace);
+    await refreshInstallationIdentity(
+      rt,
+      workspaceId,
+      identity.workspace,
+      readAt
+    );
     const verdict = await admission(
       rt,
       { id: workspaceId, urlKey: identity.workspace.urlKey, installed: true },
