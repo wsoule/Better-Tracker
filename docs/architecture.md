@@ -2188,11 +2188,15 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
 - **Fail-safes** (owner decision 2026-10-25, `fail-safes.ts`; OAuth mode only):
   one `SLACK_BOT_TOKEN` channel is never used while the planner may serve more
   than one workspace: when `LINEAR_WORKSPACES` is `*` or lists more than one
-  entry, or is unset and more than one workspace has an active installation,
-  boot builds the outbox channel instead and logs a warn naming the reason, and
-  every live warning run checks again (a second install after boot) and then
+  entry, or is unset and more than one workspace has an active installation, no
+  digest goes through it. The fail-safe is read on every use, never kept from
+  boot: boot builds the Slack channel whenever the token is set (logging a warn
+  naming the reason while the fail-safe is on, and `slackFailSafe: true` on
+  `engine ready`), every live warning run checks `sharedSlackReason` and then
   records each digest `undeliverable` in the outbox with `SLACK_SHARED_OFF`
-  (logged at warn). One admitted workspace keeps Slack. `WATCHER_EMAILS` seeds
+  (logged at warn), and `digestChannel` (below) makes the same check, so a
+  long-lived web process and the worker agree after an install or uninstall
+  since boot. One admitted workspace keeps Slack. `WATCHER_EMAILS` seeds
   watchers only in a workspace `LINEAR_WORKSPACES` names by id or URL key, or,
   while it is unset, when exactly one workspace is installed (today's
   single-workspace behaviour); never under `*`. Elsewhere the installer is the
@@ -2431,26 +2435,26 @@ optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
   `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`; `DATABASE_URL` or PGlite at
   `PGLITE_DIR` (default `.data/pglite`); redirect URI
   `${APP_URL}/api/auth/linear/callback`; Slack channel when `SLACK_BOT_TOKEN` is
-  set and the Slack fail-safe (§7 "Fail-safes") allows it, else the outbox. Runs
-  `store.migrate()` before returning. Logs which workspaces it admits:
-  `LINEAR_WORKSPACES` unset → info "closed to new workspaces: only installed
-  workspaces may sign in; to add one, set LINEAR_WORKSPACES to every installed
-  workspace's id plus the new one", and, when no workspace is installed at all,
-  a warn "no workspace can sign in until LINEAR_WORKSPACES names one" (a new
-  deployment must name its first workspace); a list → info with the entry count,
-  plus one warn per active installation the list does not admit ("<id> is
-  installed but not in LINEAR_WORKSPACES: it is not served; add it back or run
-  'remove'", from `listWorkspaceStatus` after the engine is built; a failed read
-  is logged at warn and never stops the boot); `*` → warn. A deployed planner
-  (`isDeployedEnv`: `NODE_ENV=production` on a non-loopback `APP_URL`) without
-  `OPERATOR_EMAIL` logs one info line saying the contact page names no way to
-  reach whoever runs it. The test-only `LINEAR_API_URL` (same gate as in api_key
-  mode: a loopback `APP_URL`, a `127.0.0.1` or `[::1]` URL without user info,
-  else a config error; `EngineConfig.linearTestEndpoint`) points OAuth mode at a
-  local fake Linear (`test-endpoint.ts`): boot wraps the provider's and the
-  engine's fetch so GraphQL goes to the URL itself and every other
-  `https://api.linear.app` path (`/oauth/token`, `/oauth/revoke`) to the same
-  path at its origin, and `startOAuth` sends the browser to
+  set, else the outbox (the Slack fail-safe, §7 "Fail-safes", is applied at each
+  use, not here). Runs `store.migrate()` before returning. Logs which workspaces
+  it admits: `LINEAR_WORKSPACES` unset → info "closed to new workspaces: only
+  installed workspaces may sign in; to add one, set LINEAR_WORKSPACES to every
+  installed workspace's id plus the new one", and, when no workspace is
+  installed at all, a warn "no workspace can sign in until LINEAR_WORKSPACES
+  names one" (a new deployment must name its first workspace); a list → info
+  with the entry count, plus one warn per active installation the list does not
+  admit ("<id> is installed but not in LINEAR_WORKSPACES: it is not served; add
+  it back or run 'remove'", from `listWorkspaceStatus` after the engine is
+  built; a failed read is logged at warn and never stops the boot); `*` → warn.
+  A deployed planner (`isDeployedEnv`: `NODE_ENV=production` on a non-loopback
+  `APP_URL`) without `OPERATOR_EMAIL` logs one info line saying the contact page
+  names no way to reach whoever runs it. The test-only `LINEAR_API_URL` (same
+  gate as in api_key mode: a loopback `APP_URL`, a `127.0.0.1` or `[::1]` URL
+  without user info, else a config error; `EngineConfig.linearTestEndpoint`)
+  points OAuth mode at a local fake Linear (`test-endpoint.ts`): boot wraps the
+  provider's and the engine's fetch so GraphQL goes to the URL itself and every
+  other `https://api.linear.app` path (`/oauth/token`, `/oauth/revoke`) to the
+  same path at its origin, and `startOAuth` sends the browser to
   `<origin>/oauth/authorize` with the same query; one error-level line names the
   origin. Without it nothing is wrapped and every call and the authorize link
   name Linear byte for byte. Demo mode ignores it.

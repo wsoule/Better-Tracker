@@ -195,7 +195,9 @@ it is unset, more than one installed workspace), it never uses
 undeliverable while warnings are live, and boot and each live warning run log a
 warning naming why (arch §7 "Fail-safes"). One bot cannot DM people in a
 stranger's Slack. The planner's pages then promise no Slack DM either: Settings
-and the landing page say digests are kept in the planner.
+and the landing page say digests are kept in the planner. The check is made
+every time, so when a second workspace uninstalls, Slack DMs and the pages that
+mention them come back without a redeploy.
 
 ## 3. Railway
 

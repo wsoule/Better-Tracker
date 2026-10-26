@@ -469,7 +469,11 @@ export async function createEngineFromEnv(
     if (!fixture) logAdmission(env, config, logger);
     const slackToken = read(env, 'SLACK_BOT_TOKEN');
     // The Slack fail-safe: one bot never carries several workspaces'
-    // digests (the warning run checks again for installs after boot).
+    // digests. Boot only reports it; the channel is Slack whenever the
+    // token is set, and the fail-safe is read again on every use (each
+    // live warning run, and digestChannel for the planner's copy), so both
+    // follow the installs and settings as they are now, not as they were
+    // when this long-lived web process booted.
     const slackOff =
       options.channel === undefined && !fixture && slackToken !== undefined
         ? await sharedSlackReason(config, store)
@@ -482,7 +486,7 @@ export async function createEngineFromEnv(
     }
     const channel =
       options.channel ??
-      (!fixture && slackToken !== undefined && slackOff === null
+      (!fixture && slackToken !== undefined
         ? createSlackChannel({ botToken: slackToken, logger })
         : createOutboxChannel());
 
@@ -509,6 +513,7 @@ export async function createEngineFromEnv(
       mode: engine.mode,
       ...(dataset === null ? {} : { demoWorkspace: dataset }),
       channel: channel.name,
+      ...(slackOff === null ? {} : { slackFailSafe: true }),
       appUrl: config.appUrl,
     });
     return engine;

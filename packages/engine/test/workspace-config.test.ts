@@ -263,6 +263,33 @@ describe('OAuth boot', () => {
     expect(line(existing, 'is installed but not in')).toBeUndefined();
   });
 
+  test('digestChannel follows the Slack fail-safe as it is now, not as it was at boot', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'engine-workspaces-'));
+    const pgliteDir = join(dir, 'pglite');
+    try {
+      await installations(['org-acme', 'org-other'])(pgliteDir);
+      const { logger, lines } = recordingLogger();
+      const engine = await createEngineFromEnv(
+        { ...OAUTH_ENV, PGLITE_DIR: pgliteDir, SLACK_BOT_TOKEN: 'xoxb-test' },
+        { logger }
+      );
+      try {
+        // Two installs with LINEAR_WORKSPACES unset: the fail-safe is on.
+        expect(await engine.digestChannel()).toBe('outbox');
+        // One is uninstalled while this (long-lived web) process runs (no
+        // Linear call): a live warning run would now send Slack DMs, and
+        // the copy says so.
+        await engine.revokeWorkspace('org-other', 'uninstalled');
+        expect(await engine.digestChannel()).toBe('slack');
+        expect(lines.join('\n')).not.toContain('xoxb-test');
+      } finally {
+        await engine.close();
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test('a deployed planner without OPERATOR_EMAIL says so once', async () => {
     const deployed = await boot({ NODE_ENV: 'production' });
     expect(
@@ -286,14 +313,16 @@ describe('OAuth boot', () => {
       ready(await boot({ ...slack, LINEAR_WORKSPACES: 'acme' }))
     ).toContain('"channel":"slack"');
 
+    // The channel stays Slack (the fail-safe is read on every use); boot
+    // says the fail-safe is on.
     const any = await boot({ ...slack, LINEAR_WORKSPACES: '*' });
-    expect(ready(any)).toContain('"channel":"outbox"');
+    expect(ready(any)).toContain('"slackFailSafe":true');
     expect(line(any, 'SLACK_BOT_TOKEN is not used')).toContain(
       '"level":"warn"'
     );
     expect(
       ready(await boot({ ...slack, LINEAR_WORKSPACES: 'acme,other' }))
-    ).toContain('"channel":"outbox"');
+    ).toContain('"slackFailSafe":true');
 
     // Unset: two installed workspaces are enough.
     const two = await boot(slack, async (pgliteDir) => {
@@ -319,7 +348,7 @@ describe('OAuth boot', () => {
       }
       await store.close();
     });
-    expect(ready(two)).toContain('"channel":"outbox"');
+    expect(ready(two)).toContain('"slackFailSafe":true');
     expect(line(two, 'SLACK_BOT_TOKEN is not used')).toContain(
       '2 Linear workspaces are installed'
     );
