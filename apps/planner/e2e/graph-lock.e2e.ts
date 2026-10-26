@@ -331,6 +331,9 @@ test('on a phone the strip stays clear of the tab bar', async ({ page }) => {
   const viewport = page.locator('[data-graph-viewport]');
   const tabbar = page.locator('[data-ui-edge-bar="bottom"]');
   await expect(tabbar).toBeVisible();
+  // The frame is drawn once the layout has run; measure it only then.
+  await expect(viewport).toBeVisible();
+  await expect(viewport.locator('[data-graph-node]').first()).toBeVisible();
   const barTop = (await tabbar.boundingBox())?.y ?? 0;
   // At page scroll 0 the frame runs on under the bar.
   const frame = await viewport.boundingBox();

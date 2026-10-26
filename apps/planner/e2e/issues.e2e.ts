@@ -127,6 +127,7 @@ test.describe('as a member', () => {
 
   test('a title opens the issue in the slide-over', async ({ page }) => {
     await page.goto('/issues', { waitUntil: 'networkidle' });
+    await listHydrated(page);
     await page.getByRole('link', { name: 'Dual-write invoices' }).click();
     await expect(page).toHaveURL(/[?&]issue=ENG-10$/);
     const drawer = page.getByRole('dialog');
@@ -150,6 +151,7 @@ test.describe('as a member', () => {
       .click();
     await expect(page).toHaveURL(/\/graph\?highlight=risk$/);
     await page.goto('/issues?project=proj-atlas', { waitUntil: 'networkidle' });
+    await listHydrated(page);
     await page.getByRole('link', { name: 'Open as graph' }).click();
     await expect(page).toHaveURL(/\/graph\?project=proj-atlas&highlight=risk$/);
     await expect(page.locator('[data-highlight]')).toHaveAttribute(
@@ -157,6 +159,7 @@ test.describe('as a member', () => {
       'risk'
     );
     await page.goto('/issues?project=proj-atlas', { waitUntil: 'networkidle' });
+    await listHydrated(page);
     await page.getByRole('button', { name: 'Actions for ENG-12' }).click();
     await page.getByRole('option', { name: 'Blocking chain' }).click();
     await expect(page).toHaveURL(/\/graph\?chain=ENG-12&highlight=risk$/);
@@ -174,8 +177,9 @@ test.describe('as a member', () => {
   test('the search narrows the list and keeps one history entry', async ({
     page,
   }) => {
-    // Wait for the page to hydrate: `/` is the page's own key.
+    // `/` is the page's own key, so the page must have hydrated first.
     await page.goto('/issues', { waitUntil: 'networkidle' });
+    await listHydrated(page);
     await page.keyboard.press('/');
     await expect(
       page.getByRole('searchbox', { name: 'Search issues' })
@@ -231,6 +235,7 @@ test.describe('moving issues, as a member', () => {
     await page.goto('/issues?project=proj-garnet', {
       waitUntil: 'networkidle',
     });
+    await listHydrated(page);
     await expect(unplannedRows(page)).toHaveCount(2);
     await page.getByRole('checkbox', { name: 'Select ENG-54' }).click();
     await page
@@ -282,6 +287,7 @@ test.describe('moving issues, as a member', () => {
     await page.goto('/issues?project=proj-garnet', {
       waitUntil: 'networkidle',
     });
+    await listHydrated(page);
     await page.getByRole('link', { name: 'Crash on cold start' }).focus();
     await page.keyboard.press('m');
     const picker = page.getByRole('dialog', {
@@ -312,6 +318,7 @@ test.describe('moving issues, as a member', () => {
     await page.goto('/issues?project=proj-garnet', {
       waitUntil: 'networkidle',
     });
+    await listHydrated(page);
     const title = (scope: ReturnType<typeof rowsOf>) =>
       scope.getByRole('link', { name: 'Crash on cold start' });
     await title(unplannedRows(page)).focus();
@@ -348,6 +355,7 @@ test.describe('moving issues, as a member', () => {
     await page.goto('/issues?project=proj-garnet', {
       waitUntil: 'networkidle',
     });
+    await listHydrated(page);
     const row = page.locator('li[data-row-id]').filter({ hasText: 'ENG-55' });
     await row.hover();
     await row
