@@ -10,6 +10,11 @@
 //   every workspace; a `list` admits an entry equal to the org id, or a URL
 //   key entry pinned (store `admitted_workspaces`) to the org it first
 //   admitted, so after a rename it still admits that org and never another.
+//   An unpinned entry is matched against the workspace's URL key, and for a
+//   session also against the key that session signed in under (preferred:
+//   Linear's value at sign-in, while the installation's may be stale until
+//   a sync or the worker's identity read refreshes it); a pin always names
+//   the subject's own org id.
 // - `fresh` reads blocks, pins and installations from the store (sign-in,
 //   install, webhooks, the worker; a store error throws, so those fail
 //   closed). Otherwise (authenticate, checkSession, describeSessions) a
@@ -35,13 +40,26 @@ const ORG_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export interface AdmissionSubject {
   /** The Linear org id. */
   id: string;
-  /** Its current URL key, when the caller knows it (null: none known). */
+  /**
+   * Its current URL key, when the caller knows it (null: none known):
+   * URL key blocks and unpinned LINEAR_WORKSPACES entries match it.
+   */
   urlKey?: string | null;
   /**
-   * Looks the URL key up, called only when `urlKey` is not given and a URL
-   * key block or an unpinned URL key entry needs it.
+   * For a session's workspace, the URL key the session signed in under
+   * (Linear's value then). Unpinned LINEAR_WORKSPACES URL key entries are
+   * matched against it first, then against `urlKey`; blocks use `urlKey`
+   * only.
    */
-  lookupUrlKey?: () => Promise<string | null>;
+  signInUrlKey?: string | null;
+  /**
+   * Looks both keys up (one query), called only when `urlKey` is not given
+   * and a URL key block or an unpinned URL key entry needs them.
+   */
+  lookupUrlKeys?: () => Promise<{
+    urlKey: string | null;
+    signInUrlKey: string | null;
+  }>;
   /** Whether it has an installation row, when the caller already knows. */
   installed?: boolean;
 }
@@ -175,12 +193,36 @@ export function createAdmissionPass(
   return async (subject) => {
     if (!admissionApplies(rt)) return 'ok';
     const idKey = subject.id.toLowerCase();
-    let urlKey: string | null | undefined = subject.urlKey;
-    const urlKeyOf = async (): Promise<string | null> => {
-      if (urlKey === undefined) {
-        urlKey = (await subject.lookupUrlKey?.()) ?? null;
+    let keys: { urlKey: string | null; signInUrlKey: string | null } | null =
+      subject.urlKey === undefined
+        ? null
+        : {
+            urlKey: subject.urlKey,
+            signInUrlKey: subject.signInUrlKey ?? null,
+          };
+    const keysOf = async (): Promise<{
+      urlKey: string | null;
+      signInUrlKey: string | null;
+    }> => {
+      keys ??= (await subject.lookupUrlKeys?.()) ?? {
+        urlKey: null,
+        signInUrlKey: null,
+      };
+      return keys;
+    };
+    const urlKeyOf = async (): Promise<string | null> =>
+      (await keysOf()).urlKey?.toLowerCase() ?? null;
+    // The keys an unpinned entry may match, the session's own first.
+    const entryKeysOf = async (): Promise<string[]> => {
+      const { urlKey, signInUrlKey } = await keysOf();
+      const ordered: string[] = [];
+      for (const key of [signInUrlKey, urlKey]) {
+        const lower = key?.toLowerCase() ?? null;
+        if (lower !== null && lower !== '' && !ordered.includes(lower)) {
+          ordered.push(lower);
+        }
       }
-      return urlKey === null ? null : urlKey.toLowerCase();
+      return ordered;
     };
 
     const blocked = await readBlocks();
@@ -215,7 +257,7 @@ export function createAdmissionPass(
         return installed ? 'ok' : 'not_allowed';
       }
       case 'list':
-        return (await listedIn(rt, mode.entries, subject.id, urlKeyOf, {
+        return (await listedIn(rt, mode.entries, subject.id, entryKeysOf, {
           fresh: options.fresh,
         }))
           ? 'ok'
@@ -247,37 +289,54 @@ async function pinBlock(
   }
 }
 
+// The pin of one LINEAR_WORKSPACES URL key entry (the org id it admits), or
+// null while unpinned; cached like every non-fresh read.
+function readPin(
+  rt: EngineRuntime,
+  entry: string,
+  fresh: boolean
+): Promise<string | null> {
+  return cachedRead(
+    rt,
+    mapSlot(cacheOf(rt).pins, entry),
+    fresh,
+    () => rt.store.getAdmittedPin(entry),
+    'a LINEAR_WORKSPACES pin'
+  );
+}
+
 /**
  * Whether a LINEAR_WORKSPACES list names the workspace: an entry equal to
  * its org id, or a URL key entry pinned to it. An unpinned URL key entry
- * equal to the workspace's current URL key is pinned to it here (the first
- * pin wins, also across processes). Org-id-shaped entries are never read
- * as URL keys.
+ * equal to one of `keysOf()` (preferred first) is pinned to this
+ * workspace's id here (the first pin wins, also across processes, so a
+ * pin never names another org than the first one admitted). Org-id-shaped
+ * entries are never read as URL keys.
  */
 async function listedIn(
   rt: EngineRuntime,
   entries: readonly string[],
   workspaceId: string,
-  urlKeyOf: () => Promise<string | null>,
+  keysOf: () => Promise<readonly string[]>,
   options: { fresh: boolean }
 ): Promise<boolean> {
   const idKey = workspaceId.toLowerCase();
   if (entries.includes(idKey)) return true;
   const cache = cacheOf(rt);
+  const unpinned: string[] = [];
   for (const entry of entries) {
     if (ORG_ID.test(entry)) continue;
-    const pin = await cachedRead(
-      rt,
-      mapSlot(cache.pins, entry),
-      options.fresh,
-      () => rt.store.getAdmittedPin(entry),
-      'a LINEAR_WORKSPACES pin'
-    );
-    if (pin !== null) {
-      if (pin.toLowerCase() === idKey) return true;
+    const pin = await readPin(rt, entry, options.fresh);
+    if (pin === null) {
+      unpinned.push(entry);
       continue;
     }
-    if ((await urlKeyOf()) !== entry) continue;
+    if (pin.toLowerCase() === idKey) return true;
+  }
+  if (unpinned.length === 0) return false;
+  for (const key of await keysOf()) {
+    const entry = unpinned.find((candidate) => candidate === key);
+    if (entry === undefined) continue;
     const pinned = await rt.store.pinAdmitted(entry, workspaceId, rt.nowIso());
     cache.pins.set(entry, { value: pinned, at: rt.clock().getTime() });
     if (pinned.toLowerCase() === idKey) {
@@ -289,6 +348,25 @@ async function listedIn(
     }
   }
   return false;
+}
+
+/**
+ * The LINEAR_WORKSPACES URL key entries no workspace is pinned to yet
+ * (fresh reads), when LINEAR_WORKSPACES is a list; [] otherwise. An
+ * installed workspace the list refuses can still be admitted by one of
+ * them once its URL key is current (cleanup's identity read).
+ */
+export async function unpinnedUrlKeyEntries(
+  rt: EngineRuntime
+): Promise<string[]> {
+  const mode = admissionMode(rt);
+  if (!admissionApplies(rt) || mode.mode !== 'list') return [];
+  const unpinned: string[] = [];
+  for (const entry of mode.entries) {
+    if (ORG_ID.test(entry)) continue;
+    if ((await readPin(rt, entry, true)) === null) unpinned.push(entry);
+  }
+  return unpinned;
 }
 
 /**
@@ -318,10 +396,8 @@ export async function namedInWorkspaceList(
     rt,
     mode.entries,
     workspace.id,
-    () => Promise.resolve(urlKey),
-    {
-      fresh: true,
-    }
+    () => Promise.resolve(urlKey === null ? [] : [urlKey]),
+    { fresh: true }
   );
 }
 
@@ -393,8 +469,9 @@ export interface RefusedWorkspace {
  * Every workspace the store knows (an installation row, sessions, or both;
  * store.listWorkspaceStatus) that admission refuses now, fresh: for
  * cleanup (handleRefusedInstallations), which removes blocked
- * installations and only warns about the ones LINEAR_WORKSPACES leaves
- * out. [] outside OAuth mode.
+ * installations, reads the current URL key of active ones an unpinned
+ * LINEAR_WORKSPACES entry could admit, and only warns about the ones the
+ * list still leaves out. [] outside OAuth mode.
  */
 export async function refusedWorkspaces(
   rt: EngineRuntime

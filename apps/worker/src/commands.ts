@@ -597,21 +597,23 @@ const CLEANUP_STEP_LABEL: Record<CleanupStep, string> = {
   expired_sessions: 'expired sessions',
   workspace_sessions: 'sessions of uninstalled or removed workspaces',
   purges: 'purges',
+  identity_reads: 'URL key reads',
 };
 
 // Housekeeping at the start of a tick (engine.cleanup(), arch §9
-// "Cleanup"), before any workspace: one workspace too slow for
-// TICK_TIMEOUT_MINUTES can no longer starve every other workspace's
-// purges and session revocations by getting the tick killed first. Each
-// step is bounded per call, and in time by cleanupDeadline (at most 2
-// minutes, at most half the time left), so a slow Linear cannot starve
-// the workspaces either; what it leaves is named and done next tick.
-// Expired sessions and those of uninstalled or removed workspaces (their
-// Linear grants revoked), purges 30 days after an uninstall or removal,
-// and retention for webhook deliveries, notifications and job claims;
-// installed workspaces LINEAR_WORKSPACES leaves out are counted (never
-// removed). The counts added for several workspaces are listed only when
-// not zero.
+// "Cleanup"), before the workspaces are listed and run: one workspace too
+// slow for TICK_TIMEOUT_MINUTES can no longer starve every other
+// workspace's purges and session revocations by getting the tick killed
+// first, and a workspace cleanup admits again (its URL key read from
+// Linear) is served in the same tick. Each step is bounded per call, and
+// in time by cleanupDeadline (at most 2 minutes, at most half the time
+// left), so a slow Linear cannot starve the workspaces either; what it
+// leaves is named and done next tick. Expired sessions and those of
+// uninstalled or removed workspaces (their Linear grants revoked), purges
+// 30 days after an uninstall or removal, and retention for webhook
+// deliveries, notifications and job claims; installed workspaces
+// LINEAR_WORKSPACES leaves out are counted (never removed). The counts
+// added for several workspaces are listed only when not zero.
 async function runCleanup(
   ctx: CommandContext,
   result: CommandResult
@@ -641,6 +643,11 @@ async function runCleanup(
         cleaned.notServedWorkspaces,
         'installed workspace not served (LINEAR_WORKSPACES leaves it out)',
         'installed workspaces not served (LINEAR_WORKSPACES leaves them out)',
+      ],
+      [
+        cleaned.reAdmittedWorkspaces,
+        'installed workspace admitted again (its URL key read from Linear)',
+        'installed workspaces admitted again (their URL keys read from Linear)',
       ],
     ];
     for (const [count = 0, one, many] of extra) {
@@ -755,6 +762,10 @@ export async function runCommand(
     return result;
   }
 
+  // A tick's housekeeping comes first, before the listing: it may admit a
+  // workspace again, which then runs in this tick.
+  if (command.name === 'tick') await runCleanup(ctx, result);
+
   let targets: RunTarget[];
   let others: WorkspacePlan[] = [];
   try {
@@ -815,7 +826,6 @@ export async function runCommand(
       }));
       break;
     case 'tick':
-      await runCleanup(ctx, result);
       result.outcomes = await run((id, status) =>
         tickWorkspace(ctx, id, status)
       );

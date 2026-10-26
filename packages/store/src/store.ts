@@ -240,6 +240,7 @@ interface SessionDescriptionRow {
   workspace_id: string;
   workspace_name: string | null;
   workspace_url_key: string | null;
+  sign_in_url_key: string | null;
   user_id: string;
   user_name: string;
   expires_at: DbTimestamp;
@@ -1250,7 +1251,11 @@ class SqlStore implements Store {
    * that has no guest field (mirrors written before 2026-10-22). The
    * installation's name and URL key win over the session's sign-in values
    * (every full sync and sign-in refreshes them; listWorkspaceStatus picks
-   * the same way), so a rename shows, and admits, everywhere at once.
+   * the same way), so a rename shows everywhere at once. The session's own
+   * sign-in URL key comes back as well (signInUrlKey): admission also
+   * matches an unpinned LINEAR_WORKSPACES URL key entry against it, so a
+   * stale installation key (a rename no sync has seen) cannot sign out a
+   * session that signed in under the current one.
    */
   async describeSessions(
     tokens: readonly string[],
@@ -1262,6 +1267,7 @@ class SqlStore implements Store {
       `SELECT s.token_hash, s.workspace_id,
          COALESCE(i.workspace_name, s.workspace_name) AS workspace_name,
          COALESCE(i.url_key, s.workspace_url_key) AS workspace_url_key,
+         s.workspace_url_key AS sign_in_url_key,
          s.user_id, s.user_name, s.expires_at,
          CASE WHEN m.id IS NULL THEN NULL
            ELSE COALESCE(m.data->>'guest' = 'true', false) END AS guest,
@@ -1285,6 +1291,7 @@ class SqlStore implements Store {
         workspaceId: row.workspace_id,
         workspaceName: row.workspace_name,
         workspaceUrlKey: row.workspace_url_key,
+        signInUrlKey: row.sign_in_url_key,
         userId: row.user_id,
         userName: row.user_name,
         expiresAt: toIso(row.expires_at),

@@ -78,8 +78,9 @@ export interface NewSession {
   expiresAt: IsoDateTime;
   /**
    * Additive: the workspace's name and URL key from the sign-in identity,
-   * which describeSessions and listWorkspaceStatus read back (the
-   * installation's values are the fallback). Omitted is stored as null.
+   * which describeSessions and listWorkspaceStatus read back when no
+   * installation row has them (describeSessions also returns the URL key
+   * as signInUrlKey). Omitted is stored as null.
    */
   workspaceName?: string | null;
   workspaceUrlKey?: string | null;
@@ -114,6 +115,13 @@ export interface SessionDescription {
    */
   workspaceName: string | null;
   workspaceUrlKey: string | null;
+  /**
+   * Additive: the URL key the session itself signed in under (Linear's
+   * value then), whatever the installation says now; null for a session
+   * made before migration 5. Always set by the SQL store; optional only so
+   * descriptions built by hand elsewhere keep compiling.
+   */
+  signInUrlKey?: string | null;
   userId: string;
   userName: string;
   expiresAt: IsoDateTime;

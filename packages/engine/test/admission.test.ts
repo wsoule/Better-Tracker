@@ -681,6 +681,7 @@ describe('describeSessions', () => {
         workspaceId: 'org-acme',
         workspaceName: 'Acme',
         workspaceUrlKey: 'acme',
+        signInUrlKey: 'acme',
         userId: 'u-ana',
         userName: 'Ana Ruiz',
         expiresAt: '2026-11-20T15:00:00.000Z',
@@ -1108,6 +1109,138 @@ describe('the worker list and cleanup', () => {
     });
     await demo.cleanup();
     expect((await store.getInstallation('org-acme'))?.revokedAt).toBeNull();
+  });
+});
+
+describe('a stale installation URL key', () => {
+  // ACME was installed as linear.app/acme-old and renamed to acme in Linear
+  // since; no sync has seen the rename yet.
+  async function sessionSignedInAs(
+    workspaceId: string,
+    urlKey: string
+  ): Promise<string> {
+    const { token } = await store.createSession({
+      workspaceId,
+      userId: 'u-ana',
+      userName: 'Ana Ruiz',
+      tokens: {
+        accessToken: `a-${workspaceId}`,
+        refreshToken: null,
+        expiresAt: null,
+        scopes: ['read'],
+      },
+      expiresAt: '2026-12-01T00:00:00.000Z',
+      workspaceName: 'Acme',
+      workspaceUrlKey: urlKey,
+    });
+    return token;
+  }
+
+  test('a session that signed in under the current key still pins an unpinned entry, its own key first', async () => {
+    await installed(ACME, { urlKey: 'acme-old' });
+    await mirrored('org-acme', [ANA_ACME.user]);
+    const token = await sessionSignedInAs('org-acme', 'acme');
+    // Both keys are listed; the session's own key is the one pinned.
+    const engine = oauthEngine({
+      mode: 'list',
+      entries: ['acme', 'acme-old'],
+    });
+    // The installation's key still names the workspace in the switcher.
+    expect(await engine.describeSessions([token])).toMatchObject([
+      { workspaceUrlKey: 'acme-old', signInUrlKey: 'acme' },
+    ]);
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    expect(await store.getAdmittedPin('acme-old')).toBeNull();
+    expect((await engine.authenticate(token))?.session.userId).toBe('u-ana');
+    expect(await engine.checkSession(token)).toEqual({
+      workspaceId: 'org-acme',
+    });
+  });
+
+  test("a session's own key never pins an entry already pinned to another org", async () => {
+    await installed(ACME, { urlKey: 'acme-old' });
+    await mirrored('org-acme', [ANA_ACME.user]);
+    await store.pinAdmitted('acme', 'org-other', clock.now().toISOString());
+    const token = await sessionSignedInAs('org-acme', 'acme');
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    expect(await engine.authenticate(token)).toBeNull();
+    expect(await engine.describeSessions([token])).toEqual([null]);
+    expect(await store.getAdmittedPin('acme')).toBe('org-other');
+  });
+
+  test("cleanup reads a refused installation's URL key from Linear, and the list admits it again", async () => {
+    await installed(ACME, { urlKey: 'acme-old', workspaceName: 'Acme Old' });
+    fake.addAccessToken('app-token-org-acme', ACME_APP);
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    expect(await engine.listWorkspaceIds()).toEqual([]);
+
+    const result = await engine.cleanup();
+    expect(result).toMatchObject({
+      notServedWorkspaces: 0,
+      reAdmittedWorkspaces: 1,
+      deferred: [],
+    });
+    // One read with the app token; nothing revoked or ended.
+    expect(fake.graphqlTokens).toEqual(['app-token-org-acme']);
+    expect(fake.revoked).toEqual([]);
+    expect(await store.getInstallation('org-acme')).toMatchObject({
+      urlKey: 'acme',
+      workspaceName: ACME.name,
+      revokedAt: null,
+      tokens: { accessToken: 'app-token-org-acme' },
+    });
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    expect(await engine.listWorkspaceIds()).toEqual(['org-acme']);
+    // Admitted now: the next pass reads nothing.
+    expect(await engine.cleanup()).toMatchObject({ reAdmittedWorkspaces: 0 });
+    expect(fake.graphqlTokens).toHaveLength(1);
+  });
+
+  test('the identity read is skipped without an unpinned entry or time, and a failed one only warns', async () => {
+    await installed(ACME, { urlKey: 'acme-old' });
+    fake.addAccessToken('app-token-org-acme', ACME_APP);
+    // Every URL key entry is pinned elsewhere: no read can help.
+    await store.pinAdmitted('globex', 'org-globex', clock.now().toISOString());
+    const pinned = oauthEngine({ mode: 'list', entries: ['globex'] });
+    expect(await pinned.cleanup()).toMatchObject({ notServedWorkspaces: 1 });
+    expect(fake.graphqlTokens).toEqual([]);
+
+    // No time left: left for the next pass (as is any expired session),
+    // still warned about.
+    const listed = oauthEngine({ mode: 'list', entries: ['acme'] });
+    expect(
+      await listed.cleanup({ deadline: new Date(clock.now().getTime()) })
+    ).toMatchObject({
+      notServedWorkspaces: 1,
+      reAdmittedWorkspaces: 0,
+      deferred: ['identity_reads', 'expired_sessions'],
+    });
+    expect(fake.graphqlTokens).toEqual([]);
+
+    // Linear refuses the app token: warned, nothing changed.
+    await installed(ACME, {
+      urlKey: 'acme-old',
+      tokens: {
+        accessToken: 'app-token-unknown',
+        refreshToken: null,
+        expiresAt: null,
+        scopes: ['read', 'write'],
+      },
+    });
+    expect(await listed.cleanup()).toMatchObject({
+      notServedWorkspaces: 1,
+      reAdmittedWorkspaces: 0,
+    });
+    expect(
+      lines.some((l) =>
+        l.includes("could not read a refused workspace's URL key from Linear")
+      )
+    ).toBe(true);
+    expect(await store.getInstallation('org-acme')).toMatchObject({
+      urlKey: 'acme-old',
+      revokedAt: null,
+    });
+    expect(await store.getAdmittedPin('acme')).toBeNull();
   });
 });
 

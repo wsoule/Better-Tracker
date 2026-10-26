@@ -1740,7 +1740,9 @@ shared PGlite/Postgres suite):
   JSON parameter) left-joined with `installations` and the person's
   `mirror_entities` user row. Per token: workspace id, name and URL key (the
   installation's, kept current by every sync and sign-in, else the session's
-  sign-in values), user id and name, expiry, `guest` (the mirror's `User.guest`,
+  sign-in values), the URL key the session itself signed in under
+  (`signInUrlKey`, which admission also matches unpinned entries against, §7
+  "Admission"), user id and name, expiry, `guest` (the mirror's `User.guest`,
   false when the row lacks the field, null without a row), `installed`,
   `revokedAt`, `revokedReason`; null when expired or unknown. No token column is
   read.
@@ -2141,13 +2143,29 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   sign-in, the installation in webhooks and the worker, and for a session
   (looked up only when a URL-key block or an unpinned URL-key entry needs it)
   `describeSessions`' value: the installation's, else the session's sign-in
-  value. The installation's name and URL key are **kept current**: every
-  successful full sync writes what Linear reports now
-  (`WorkspaceData.organization` → `store.updateInstallationIdentity`, OAuth
-  mode, no write when unchanged, best effort), and so does every sign-in to an
-  installed workspace, so URL-key entries and blocks match the key the workspace
-  has now, not the one saved at install. Enforced in `finishSignIn` (every
-  intent, right after identifying the workspace: `discardTokens`, then
+  value (what the switcher shows, and what URL-key blocks match). An unpinned
+  URL-key entry is also matched against the key **the session itself signed in
+  under** (`SessionDescription.signInUrlKey`, Linear's value at sign-in), and
+  that one first: while the installation's key is stale (a rename no sync has
+  seen), a session that signed in under the current key still pins the entry and
+  stays signed in. A pin always names the session's own workspace id, and an
+  entry already pinned to another org stays so (the first pin wins). The
+  installation's name and URL key are **kept current**: every successful full
+  sync writes what Linear reports now (`WorkspaceData.organization` →
+  `store.updateInstallationIdentity`, OAuth mode, no write when unchanged, best
+  effort), and so does every sign-in to an installed workspace, so URL-key
+  entries and blocks match the key the workspace has now, not the one saved at
+  install. A refused workspace is never synced, so cleanup reads the key itself
+  when that could matter: an active installation `LINEAR_WORKSPACES` refuses
+  while one of its URL-key entries is still unpinned gets one organization read
+  with the app token per cleanup (`forApp` → `whoAmI`; the read is cut off at
+  cleanup's deadline), then `refreshInstallationIdentity` and a fresh admission
+  check, which pins the entry when it matches now (`reAdmittedWorkspaces`; the
+  tick lists its workspaces after cleanup, so it is served in the same tick).
+  Nothing is revoked or ended by it; a failed read is logged at warn and tried
+  again next cleanup. With every URL-key entry pinned, no read is made (it could
+  not help). Enforced in `finishSignIn` (every intent, right after identifying
+  the workspace: `discardTokens`, then
   `EngineAuthError('workspace_not_allowed' | 'workspace_blocked')`, no session),
   `finishInstall` (the same, the new app token revoked), `authenticate` (a
   refused session reads as signed out; its row is kept), `listWorkspaceIds`
@@ -2168,7 +2186,8 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   fix (add it back to `LINEAR_WORKSPACES`, or run `remove`), and counts it
   (`CleanupResult.notServedWorkspaces`). Putting it back on the list restores
   everything as it was: the installation serves again and its sessions sign back
-  in. Its sessions stay unusable until then or until they expire (the
+  in (a refusal that was only a stale URL key is lifted by cleanup's own read,
+  above). Its sessions stay unusable until then or until they expire (the
   expired-session step then revokes their grants as for any session). Only the
   operator's `remove`, `block` and `purge` revoke, end sessions or delete. A
   **block** stays a hard gate: `block` removes the workspace and ends its
@@ -2190,14 +2209,14 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   a transient failure keeps it); it never calls `mirrorForPerson` or starts a
   sync, and is null in api_key mode. `describeSessions(tokens)` →
   `(SessionDescription | null)[]` in input order is the store's one-statement
-  description of a browser's held tokens (workspace id, name and URL key, user
-  id and name, expiry, the mirror's guest flag, `installed`, `revokedAt`,
-  `revokedReason`; no credential), with null for an unknown or expired token,
-  one past `MAX_DESCRIBED_SESSIONS` (20), or one whose workspace admission
-  refuses (cached reads); it makes no Linear call and never touches the mirror
-  cache, and returns `[]` in api_key and demo modes. Neither is a write, so
-  neither calls `requireWritable`: a guest may switch. `ping()` is the store's
-  liveness probe (`/api/health`).
+  description of a browser's held tokens (workspace id, name and URL key, the
+  session's own sign-in URL key, user id and name, expiry, the mirror's guest
+  flag, `installed`, `revokedAt`, `revokedReason`; no credential), with null for
+  an unknown or expired token, one past `MAX_DESCRIBED_SESSIONS` (20), or one
+  whose workspace admission refuses (cached reads); it makes no Linear call and
+  never touches the mirror cache, and returns `[]` in api_key and demo modes.
+  Neither is a write, so neither calls `requireWritable`: a guest may switch.
+  `ping()` is the store's liveness probe (`/api/health`).
 - **Fail-safes** (owner decision 2026-10-25, `fail-safes.ts`; OAuth mode only):
   one `SLACK_BOT_TOKEN` channel is never used while the planner may serve more
   than one workspace: when `LINEAR_WORKSPACES` is `*` or lists more than one
@@ -2610,24 +2629,26 @@ Engine decisions made while building it (binding for callers):
   token), because Linear may auto-revoke a user's oldest tokens past about 10
   per app. In OAuth mode it first handles the installed workspaces admission now
   refuses (`handleRefusedInstallations`, §7 "Admission"): a blocked one still
-  installed is revoked as `'removed'`; one `LINEAR_WORKSPACES` leaves out is
-  only warned about (its id and the fix) and counted, never revoked, and none of
-  its sessions is ended. Revocation is best effort: a failure is logged at warn
-  and counted, never fails cleanup. Additive: `CleanupOptions.deadline` (a
-  `Date` on the engine's clock; the worker passes one, §9 "Cleanup") bounds it
-  in time: work that calls Linear starts only when it ends before the deadline
-  even if Linear answers each revocation only at its timeout (`REVOKE_WORST_MS`,
-  `OAUTH_TIMEOUT_MS` + 1 s), and the steps cut short are listed in `deferred`
-  (`CleanupStep[]`: `expired_sessions`, `workspace_sessions`, `purges`; a step
-  stopped before it started cannot tell whether it had work, expired sessions
-  being found only by taking them). Demo mode only deletes
-  (`deleteExpiredSessions`). Webhook delivery records older than 30 days
-  (`WEBHOOK_RETENTION_DAYS`) are pruned: dedupe needs only Linear's ~6 h retry
-  window, the rest keeps each delivery's processing error around to investigate.
-  Additive (several workspaces, §9): `endedWorkspaceSessions`,
-  `purgedWorkspaces`, `oldNotifications`, `oldJobClaims`, `notServedWorkspaces`
-  and `deferred` (always set, optional in the type), and
-  `revokedTokens`/`revokeFailures` count every session the pass ended.
+  installed is revoked as `'removed'`; one `LINEAR_WORKSPACES` leaves out gets
+  the identity read (§7 "Admission") when an unpinned URL-key entry could admit
+  it, and is otherwise only warned about (its id and the fix) and counted, never
+  revoked, and none of its sessions is ended. Revocation is best effort: a
+  failure is logged at warn and counted, never fails cleanup. Additive:
+  `CleanupOptions.deadline` (a `Date` on the engine's clock; the worker passes
+  one, §9 "Cleanup") bounds it in time: work that calls Linear starts only when
+  it ends before the deadline even if Linear answers each revocation only at its
+  timeout (`REVOKE_WORST_MS`, `OAUTH_TIMEOUT_MS` + 1 s), and the steps cut short
+  are listed in `deferred` (`CleanupStep[]`: `expired_sessions`,
+  `workspace_sessions`, `purges`, `identity_reads`; a step stopped before it
+  started cannot tell whether it had work, expired sessions being found only by
+  taking them). Demo mode only deletes (`deleteExpiredSessions`). Webhook
+  delivery records older than 30 days (`WEBHOOK_RETENTION_DAYS`) are pruned:
+  dedupe needs only Linear's ~6 h retry window, the rest keeps each delivery's
+  processing error around to investigate. Additive (several workspaces, §9):
+  `endedWorkspaceSessions`, `purgedWorkspaces`, `oldNotifications`,
+  `oldJobClaims`, `notServedWorkspaces`, `reAdmittedWorkspaces` and `deferred`
+  (always set, optional in the type), and `revokedTokens`/`revokeFailures` count
+  every session the pass ended.
 
 ### 7.2 Issue page (owner decision 2026-10-21)
 
@@ -6029,19 +6050,19 @@ notice above the sign-in card.
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
   UTC): first `cleanup` (bounded per call and in time, so it always runs,
   whatever a slow workspace does to the rest of the budget, and never takes more
-  than 2 minutes of it for work that calls Linear; "Cleanup" below), then for
-  each active, admitted installation (least recently attempted first,
-  `WORKER_CONCURRENCY` at a time, each started only with enough time left; see
-  "Scaling"), if the local time in its timezone is at or past `DAILY_RUN_AT`
-  (default `08:00`) and today's daily job is unclaimed (or its claim was
-  abandoned by a run that died, past the engine's lease), `runDaily` (which
-  syncs first); otherwise a plain `fullSync` (the periodic resync that heals
-  milestone/relation drift, since Linear has no webhooks for those), skipped
-  when a successful one finished less than 10 minutes ago. Uninstalled, removed,
-  blocked and not admitted workspaces are skipped. Closes the store and exits. A
-  hard timeout (`TICK_TIMEOUT_MINUTES`, default 10) exits non-zero so a hung run
-  never blocks later ones (Railway skips a cron tick while the previous one
-  runs).
+  than 2 minutes of it for work that calls Linear; "Cleanup" below), then the
+  listing, then for each active, admitted installation (least recently attempted
+  first, `WORKER_CONCURRENCY` at a time, each started only with enough time
+  left; see "Scaling"), if the local time in its timezone is at or past
+  `DAILY_RUN_AT` (default `08:00`) and today's daily job is unclaimed (or its
+  claim was abandoned by a run that died, past the engine's lease), `runDaily`
+  (which syncs first); otherwise a plain `fullSync` (the periodic resync that
+  heals milestone/relation drift, since Linear has no webhooks for those),
+  skipped when a successful one finished less than 10 minutes ago. Uninstalled,
+  removed, blocked and not admitted workspaces are skipped. Closes the store and
+  exits. A hard timeout (`TICK_TIMEOUT_MINUTES`, default 10) exits non-zero so a
+  hung run never blocks later ones (Railway skips a cron tick while the previous
+  one runs).
 - `serve` — long-running alternative to cron for other hosts: runs `tick` every
   `SYNC_INTERVAL_MINUTES` (default 15) until SIGTERM.
 - Operator commands (OAuth mode, owner decision 2026-10-25; see "Operator
@@ -6152,11 +6173,12 @@ Worker decisions made while building it (binding):
   are counted in the summary.
 
 - **Cleanup** (`engine.cleanup({ deadline })`, at the start of every tick,
-  before any workspace: a workspace whose sync cannot finish within
+  before the workspaces are listed: a workspace whose sync cannot finish within
   `TICK_TIMEOUT_MINUTES` gets the tick killed, and with cleanup last that
-  stopped purges and session revocations for every workspace; nothing of this
-  runs with personal API keys). Each step is bounded per call in count, and in
-  time by its deadline, `cleanupDeadline` (scaling.ts): 2 minutes from its start
+  stopped purges and session revocations for every workspace; listed after it, a
+  workspace cleanup admits again runs in the same tick; nothing of this runs
+  with personal API keys). Each step is bounded per call in count, and in time
+  by its deadline, `cleanupDeadline` (scaling.ts): 2 minutes from its start
   (`CLEANUP_MAX_MS`), never later than half the time left before the run's
   deadline, so a slow Linear (each revocation is one token-endpoint call, 15 s
   timeout, no retry) cannot starve the workspaces either. Work that calls Linear
@@ -6172,10 +6194,13 @@ Worker decisions made while building it (binding):
   installations (§7 "Admission"): a blocked workspace that still has an active
   installation is revoked as `removed` (a block is a hard gate). An installed
   workspace (active or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a
-  soft gate: one warn per call names its id and the fix (add it back, or run
-  `remove`), it is counted (`notServedWorkspaces`), and nothing is revoked,
-  wiped, ended or purged, so re-admitting it restores it as it was. Its sessions
-  stay unusable until then or until they expire (step 1).
+  soft gate: when an unpinned URL-key entry could admit an active one, its
+  current URL key is read from Linear once (`identity_reads`; admitted again →
+  `reAdmittedWorkspaces`, an info line); otherwise one warn per call names its
+  id and the fix (add it back, or run `remove`), it is counted
+  (`notServedWorkspaces`), and nothing is revoked, wiped, ended or purged, so
+  re-admitting it restores it as it was. Its sessions stay unusable until then
+  or until they expire (step 1).
   1. Expired sessions are taken in batches of 50 (at most 500, each batch at
      most what the time left can revoke one after another) and their Linear
      grants revoked, best effort.
@@ -6211,10 +6236,11 @@ Worker decisions made while building it (binding):
 - The tick's summary lists cleanup's counts: expired sessions (and failed
   revocations) and old webhook delivery records always; sessions of uninstalled
   or removed workspaces ended, workspaces purged, old notifications, old job
-  claims and installed workspaces not served ("LINEAR_WORKSPACES leaves it out";
-  never a failure) when not zero, and `left for the next tick: …` naming the
-  steps cleanup cut short (expired sessions, sessions of uninstalled or removed
-  workspaces, purges).
+  claims, installed workspaces not served ("LINEAR_WORKSPACES leaves it out";
+  never a failure) and installed workspaces admitted again ("its URL key read
+  from Linear") when not zero, and `left for the next tick: …` naming the steps
+  cleanup cut short (expired sessions, sessions of uninstalled or removed
+  workspaces, purges, URL key reads).
 - **Operator commands** (`apps/worker/src/operator.ts`; OAuth mode; owner
   decision 2026-10-25: an operator CLI instead of an in-app operator UI, which
   would be a person permission distinction). They use the engine's
@@ -6418,7 +6444,12 @@ not read; a deploy that still sets it boots normally and logs one warning
   startup option), writes racing an uncommitted writer, and a subprocess that
   must print no `DeprecationWarning`. `TEST_PGBOUNCER_URL` (a transaction-mode
   PgBouncer with its default configuration) runs the store behind a pooler that
-  refuses the startup option.
+  refuses the startup option. Migrations (`test/db.test.ts`): each one's
+  backfills, and migration 6 converging from both texts of migration 5 (one
+  `url_key` column, one `CHECK`, rows kept), migration 7's empty start column;
+  `recordFullSyncStart` changing nothing but its column and never moving back,
+  `listWorkspaceStatus` ordering by the later of start and finish, and
+  `describeSessions`' `signInUrlKey` (`test/store.test.ts`).
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe

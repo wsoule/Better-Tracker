@@ -457,9 +457,14 @@ export interface DailyResult {
 /**
  * A cleanup step that calls Linear, and so stops at cleanup's deadline:
  * revoking expired sessions, ending the sessions of uninstalled or removed
- * workspaces, and purging them.
+ * workspaces, purging them, and reading the URL key of installed
+ * workspaces LINEAR_WORKSPACES refuses.
  */
-export type CleanupStep = 'expired_sessions' | 'workspace_sessions' | 'purges';
+export type CleanupStep =
+  | 'expired_sessions'
+  | 'workspace_sessions'
+  | 'purges'
+  | 'identity_reads';
 
 /** Additive: how one cleanup() pass is bounded in time. */
 export interface CleanupOptions {
@@ -469,8 +474,8 @@ export interface CleanupOptions {
    * workspaces need). Sessions are taken from the store (which deletes
    * them) only as many as can still be revoked before it, each revocation
    * counted at its full timeout; a purge starts only when its
-   * revocations fit too. Steps that only touch the store always run.
-   * Omitted: no time limit.
+   * revocations fit too; an identity read is cut off at it. Steps that
+   * only touch the store always run. Omitted: no time limit.
    */
   deadline?: Date;
 }
@@ -510,6 +515,11 @@ export interface CleanupResult {
    * operator's remove, block or purge take them away.
    */
   notServedWorkspaces?: number;
+  /**
+   * Installed workspaces LINEAR_WORKSPACES admits again once their URL
+   * key was read from Linear (a rename no sync had seen).
+   */
+  reAdmittedWorkspaces?: number;
   /**
    * The steps that stopped before they could finish, at the deadline or at
    * their per-call count, so work may be left: the next call carries on.

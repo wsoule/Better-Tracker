@@ -684,7 +684,13 @@ again). Boot logs a warning for every installed workspace a list leaves out
 and every tick's housekeeping repeats it
 (`cleanup: … 1 installed workspace not served (LINEAR_WORKSPACES leaves it out)`).
 Only `remove`, `block` and `purge` (below) uninstall a workspace, sign its
-people out for good or delete its data.
+people out for good or delete its data. A workspace listed by a URL key it got
+from a rename the planner has not seen yet (no sync runs for a workspace that is
+not served) is not stuck: while that URL-key entry is not tied to a workspace,
+each tick's housekeeping reads the workspace's current URL key from Linear once
+with the app's token and serves it again in the same tick when the entry matches
+(`1 installed workspace admitted again (its URL key read from Linear)`), and its
+people who signed in under the new key stay signed in meanwhile.
 
 The value (arch §7 "Admission"):
 

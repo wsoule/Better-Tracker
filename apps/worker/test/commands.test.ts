@@ -443,8 +443,8 @@ describe('runCommand: tick', () => {
     // Cleanup first: a workspace too slow for the tick's timeout must not
     // keep the housekeeping of every other workspace from running.
     expect(engine.calls).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'workspaceTimezone:ws-b',
@@ -463,8 +463,8 @@ describe('runCommand: tick', () => {
       { name: 'tick', workspaceId: null }
     );
     expect(engine.calls).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'fullSync:ws-a',
     ]);
@@ -481,12 +481,12 @@ describe('runCommand: tick', () => {
     now = new Date('2026-10-21T08:15:00Z');
     const second = await runCommand(ctx, { name: 'tick', workspaceId: null });
     expect(engine.calls).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'fullSync:ws-a',
@@ -515,8 +515,8 @@ describe('runCommand: tick', () => {
     expect(
       engine.calls.filter((c) => !c.startsWith('workspaceTimezone'))
     ).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'runDaily:nz@2026-10-21',
       'runDaily:ny@2026-10-20',
       'fullSync:jp',
@@ -1161,6 +1161,7 @@ describe('runCommand: several workspaces', () => {
         revokedTokens: 7,
         revokeFailures: 0,
         oldDeliveries: 0,
+        reAdmittedWorkspaces: 1,
         deferred: ['expired_sessions', 'purges'],
       });
     };
@@ -1176,9 +1177,43 @@ describe('runCommand: several workspaces', () => {
     });
     expect(deadlines).toEqual([after(2 * MINUTE), after(1.5 * MINUTE)]);
     expect(result.notes).toEqual([
-      'cleanup: 7 expired sessions, 0 old webhook delivery records, left for the next tick: expired sessions, purges',
+      'cleanup: 7 expired sessions, 0 old webhook delivery records, 1 installed workspace admitted again (its URL key read from Linear), left for the next tick: expired sessions, purges',
     ]);
     expect(exitCodeFor(result)).toBe(0);
+  });
+
+  test('a workspace cleanup admits again is served in the same tick', async () => {
+    let admission: 'ok' | 'not_allowed' = 'not_allowed';
+    const engine = fakeEngine({ workspaces: [] });
+    engine.listWorkspaceStatus = () => {
+      engine.calls.push('listWorkspaceStatus');
+      return Promise.resolve([overview('ws-renamed', { admission })]);
+    };
+    engine.cleanup = () => {
+      engine.calls.push('cleanup');
+      admission = 'ok';
+      return Promise.resolve({
+        expiredSessions: 0,
+        revokedTokens: 0,
+        revokeFailures: 0,
+        oldDeliveries: 0,
+        reAdmittedWorkspaces: 1,
+      });
+    };
+    const result = await runCommand(
+      context(engine, { now: new Date('2026-10-21T07:00:00Z') }),
+      { name: 'tick', workspaceId: null }
+    );
+    expect(engine.calls).toEqual([
+      'cleanup',
+      'listWorkspaceStatus',
+      'workspaceTimezone:ws-renamed',
+      'fullSync:ws-renamed',
+    ]);
+    expect(result.outcomes[0]).toMatchObject({
+      workspaceId: 'ws-renamed',
+      kind: 'done',
+    });
   });
 });
 

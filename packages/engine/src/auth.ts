@@ -611,19 +611,23 @@ export async function devSignIn(
   };
 }
 
-// The URL key admission matches a session's workspace with when a URL key
-// block or an unpinned LINEAR_WORKSPACES URL key needs it: the
-// installation's (refreshed by every full sync and sign-in), else the
-// session's sign-in value (one query, no decryption).
-async function sessionUrlKey(
+// The URL keys admission matches a session's workspace with when a URL key
+// block or an unpinned LINEAR_WORKSPACES URL key needs them (one query, no
+// decryption): the installation's (refreshed by every full sync and
+// sign-in), else the session's sign-in value, and the session's own
+// sign-in value, which an unpinned entry is matched against first.
+async function sessionUrlKeys(
   rt: EngineRuntime,
   sessionToken: string
-): Promise<string | null> {
+): Promise<{ urlKey: string | null; signInUrlKey: string | null }> {
   const [described] = await rt.store.describeSessions(
     [sessionToken],
     rt.nowIso()
   );
-  return described?.workspaceUrlKey ?? null;
+  return {
+    urlKey: described?.workspaceUrlKey ?? null,
+    signInUrlKey: described?.signInUrlKey ?? null,
+  };
 }
 
 /**
@@ -641,7 +645,7 @@ async function sessionAdmitted(
     rt,
     {
       id: session.workspaceId,
-      lookupUrlKey: () => sessionUrlKey(rt, sessionToken),
+      lookupUrlKeys: () => sessionUrlKeys(rt, sessionToken),
     },
     { fresh: false }
   );
@@ -736,6 +740,7 @@ export async function describeSessions(
     const verdict = await check({
       id: entry.workspaceId,
       urlKey: entry.workspaceUrlKey,
+      signInUrlKey: entry.signInUrlKey ?? null,
       installed: entry.installed,
     });
     out.push(verdict === 'ok' ? entry : null);

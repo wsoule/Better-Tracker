@@ -122,6 +122,7 @@ describe('cleanup in real mode', () => {
       oldNotifications: 0,
       oldJobClaims: 0,
       notServedWorkspaces: 0,
+      reAdmittedWorkspaces: 0,
       deferred: [],
     });
     // The refresh token ends the grant; without one, the access token.
@@ -369,6 +370,7 @@ describe('cleanup in demo mode', () => {
         oldNotifications: 0,
         oldJobClaims: 0,
         notServedWorkspaces: 0,
+        reAdmittedWorkspaces: 0,
         deferred: [],
       });
     } finally {
