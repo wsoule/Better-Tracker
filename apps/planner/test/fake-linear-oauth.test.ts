@@ -1045,6 +1045,7 @@ describe('fake Linear: what a Playwright spec loads', () => {
       'fake-linear-log.ts',
       'linear-authorize.ts',
       'leak-needles.ts',
+      'oauth-leak-needles.ts',
     ]) {
       const text = readFileSync(join(dir, file), 'utf8');
       for (const match of text.matchAll(

@@ -105,7 +105,8 @@ jobs:
         run: >-
           moon ci --include-relations --downstream deep --summary detailed
           :build :test :typecheck ui:typecheck-host planner:test-e2e
-          planner:test-e2e-api-key root:lint root:lint-css
+          planner:test-e2e-api-key planner:test-e2e-oauth root:lint
+          root:lint-css
 
       # Playwright keeps a trace of each failed e2e test (trace:
       # retain-on-failure); open it with `playwright show-trace`.

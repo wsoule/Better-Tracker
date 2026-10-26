@@ -79,6 +79,7 @@ moonx :build :typecheck :test
 moonx planner:dev --ignore-ci-checks
 moonx planner:test-e2e   # Playwright smoke in demo mode (also runs in CI)
 moonx planner:test-e2e-api-key   # the API-key mode against a fake Linear (CI too)
+moonx planner:test-e2e-oauth   # OAuth mode, two workspaces in one browser (CI too)
 ```
 
 When moon cannot download its toolchain plugins, run the tools directly as
