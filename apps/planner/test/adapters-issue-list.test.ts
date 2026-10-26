@@ -29,6 +29,7 @@ import {
   groupLabel,
   groupMenuOptions,
   type IssueListPageInput,
+  issueListAddressRewrite,
   issueListChips,
   issueDueNote,
   issueDueTone,
@@ -249,6 +250,47 @@ describe('the URL grammar', () => {
     expect(issueListHref(parseIssueListSearch('q=item+4'))).toBe(
       '/issues?q=item%204'
     );
+  });
+
+  test('the address bar is rewritten only while it shows the view rendered', () => {
+    const at = (path: string) => {
+      const url = new URL(path, 'http://planner.test');
+      return { pathname: url.pathname, search: url.search };
+    };
+    // The rendered view spelled another way: its canonical href.
+    expect(
+      issueListAddressRewrite(
+        'state=started,triage,backlog,unstarted&project=proj-garnet',
+        at('/issues?state=started,triage,backlog,unstarted&project=proj-garnet')
+      )
+    ).toBe('/issues?project=proj-garnet');
+    expect(
+      issueListAddressRewrite(
+        'issue=ENG-24&project=proj-garnet',
+        at('/issues?issue=ENG-24&project=proj-garnet')
+      )
+    ).toBe('/issues?project=proj-garnet&issue=ENG-24');
+    // Already canonical: nothing to write.
+    expect(
+      issueListAddressRewrite(
+        'project=proj-garnet',
+        at('/issues?project=proj-garnet')
+      )
+    ).toBeNull();
+    expect(issueListAddressRewrite('', at('/issues'))).toBeNull();
+    // Back from a reloaded ?project=proj-garnet while the list hydrates:
+    // the address bar already shows the entry Back went to, which the
+    // router has not rendered yet. Writing the rendered URL there would
+    // replace that entry's URL.
+    expect(
+      issueListAddressRewrite('project=proj-garnet', at('/issues'))
+    ).toBeNull();
+    expect(
+      issueListAddressRewrite('', at('/issues?project=proj-garnet'))
+    ).toBeNull();
+    expect(
+      issueListAddressRewrite('project=proj-garnet', at('/timeline'))
+    ).toBeNull();
   });
 });
 

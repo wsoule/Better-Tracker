@@ -4431,18 +4431,21 @@ links and follow-ups, new or unread, progress and the timeline's today.
     values per field, 200 characters per value and for `q`, `limit` stepped by
     500 to 2,000, a sections level that cannot divide the grouping dropped); a
     non-canonical URL is rewritten in place (`history.replaceState`, no
-    refetch). Every discrete change (a value, a tab, the grouping, the sort,
-    Clear all, "Only this …") is a `router.push` in a transition; the search
-    applies 250 ms after typing stops, its first change pushed and the rest
-    replaced (one history entry per search, so Back leaves it); Show more
-    replaces. While the server answers, the old list stays at full contrast (no
-    fade: a fade would drop the status, accent and muted text under 4.5:1),
-    marked by `aria-busy`, a progress cursor and the toolbar's 2px accent
-    progress line. The island follows the address bar (Back, Forward, a tab or
-    sidebar link), skipping the URLs it wrote and keeping a half-typed search
-    while the URL still means the view shown. Changing a filter starts the row
-    budget over; removing a project from the project filter drops that project's
-    milestones from the milestone filter (`withFilterValues`).
+    refetch), only while the address bar still shows the view rendered
+    (`issueListAddressRewrite`: a Back that lands while the list hydrates is the
+    router's to render, never overwritten with the page's own URL). Every
+    discrete change (a value, a tab, the grouping, the sort, Clear all, "Only
+    this …") is a `router.push` in a transition; the search applies 250 ms after
+    typing stops, its first change pushed and the rest replaced (one history
+    entry per search, so Back leaves it); Show more replaces. While the server
+    answers, the old list stays at full contrast (no fade: a fade would drop the
+    status, accent and muted text under 4.5:1), marked by `aria-busy`, a
+    progress cursor and the toolbar's 2px accent progress line. The island
+    follows the address bar (Back, Forward, a tab or sidebar link), skipping the
+    URLs it wrote and keeping a half-typed search while the URL still means the
+    view shown. Changing a filter starts the row budget over; removing a project
+    from the project filter drops that project's milestones from the milestone
+    filter (`withFilterValues`).
   - **Header**: "Issues", "Every issue across {n} projects.", and a quiet
     receipts line (`--fs-xs`, `--text-3`): "{all} open issues · {unplanned}
     without a milestone · {blocked} blocked · {at risk} at risk" with the
