@@ -223,6 +223,30 @@ export function authErrorLocation(code: string): string {
   return `/?auth_error=${encodeURIComponent(code)}`;
 }
 
+/** What a `workspace` value can be (an org id); anything else is dropped. */
+const WORKSPACE_ID_PATTERN = /^[A-Za-z0-9_-]{1,100}$/;
+
+/**
+ * "/?auth_error=workspace_changed": an install or write grant started
+ * from a tab that shows another workspace than this browser's active one
+ * (it switched in another tab). The tab's workspace id (an org id, else
+ * dropped) lets the landing name it from the browser's own sessions and
+ * offer the switch back; `returnTo` (sanitised) is where that switch
+ * lands, the page the tab showed.
+ */
+export function workspaceChangedLocation(
+  tabWorkspaceId: string,
+  returnTo: string
+): string {
+  const params = new URLSearchParams({ auth_error: 'workspace_changed' });
+  if (WORKSPACE_ID_PATTERN.test(tabWorkspaceId)) {
+    params.set('workspace', tabWorkspaceId);
+  }
+  const safe = sanitizeReturnTo(returnTo, DEFAULT_RETURN_TO);
+  if (safe !== DEFAULT_RETURN_TO) params.set('returnTo', safe);
+  return `/?${params.toString()}`;
+}
+
 /**
  * The landing page for a signed-out visitor of `returnTo` (a page's own
  * path and query, e.g. a digest's /timeline?milestone=… link): "/" with

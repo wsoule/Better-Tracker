@@ -125,8 +125,9 @@ interface PlannerShellProps {
  * decision 2026-10-25): the brand row is the workspace switcher, the
  * palette has a Workspaces section, and the footer's sign-out names the
  * workspace it ends. The frame's workspace id also goes into every
- * api-client request (X-Planner-Workspace) and into the context each
- * page's navigation guard compares with (workspace-frame.tsx).
+ * api-client request (X-Planner-Workspace), into the context each page's
+ * navigation guard compares with, and (OAuth and demo mode) into every
+ * link a Copy link action copies (workspace-frame.tsx).
  */
 export default function PlannerShell(props: PlannerShellProps) {
   // In the browser only: the module is shared by every request on the
@@ -135,7 +136,10 @@ export default function PlannerShell(props: PlannerShellProps) {
     setFrameWorkspace(props.frame.workspaceId);
   }
   return (
-    <FrameWorkspaceProvider workspaceId={props.frame.workspaceId}>
+    <FrameWorkspaceProvider
+      workspaceId={props.frame.workspaceId}
+      linksNameWorkspace={!props.frame.apiKeyMode}
+    >
       <CrumbProvider>
         <ReadOnlyReasonProvider
           reason={props.frame.readOnlyReason}

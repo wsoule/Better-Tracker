@@ -21,6 +21,7 @@ import {
   loadInstallation,
   requirePageActor,
 } from '../../../lib/load';
+import { installHref } from '../../../lib/oauth-links';
 import { FIRST_SYNC_RETRY_SENTENCE } from '../../../lib/read-only';
 import { PageCrumb } from '../components/page-crumb';
 import PolicyLinks from '../components/policy-links';
@@ -31,8 +32,6 @@ import WorkspaceGuard from '../components/workspace-guard';
 import styles from './page.module.css';
 
 export const metadata = { title: 'Setup' };
-
-const INSTALL_HREF = '/api/auth/linear?intent=install';
 
 /** The installer's name and the workspace timezone, when the mirror has them. */
 async function installContext(
@@ -212,7 +211,7 @@ export default async function SetupPage() {
                     Open the timeline
                   </Button>
                   {demo || readOnly ? null : (
-                    <Button href={INSTALL_HREF}>
+                    <Button href={installHref(workspaceId)}>
                       Reinstall to change teams
                     </Button>
                   )}
@@ -285,7 +284,7 @@ export default async function SetupPage() {
             <ReadOnlyNotice />
           ) : (
             <div className={styles.installRow}>
-              <Button href={INSTALL_HREF} variant="primary">
+              <Button href={installHref(workspaceId)} variant="primary">
                 {revoked ? 'Reinstall in Linear' : 'Install in Linear'}
               </Button>
               <p className={styles.note}>

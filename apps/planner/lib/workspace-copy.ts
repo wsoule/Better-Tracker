@@ -142,6 +142,21 @@ export function workspaceChangedMessage(
     : `This tab shows ${tabName}, but this browser switched to ${activeName} in another tab. Reload to continue in ${activeName}, or switch back to ${tabName}.`;
 }
 
+/**
+ * "/?auth_error=workspace_changed" for someone signed in: an install or
+ * write grant started from a tab that showed `tabName` (null when the
+ * browser no longer holds it) after this browser switched to `activeName`
+ * in another tab. Nothing was asked of Linear.
+ */
+export function workspaceChangedStartMessage(
+  tabName: string | null,
+  activeName: string
+): string {
+  return tabName === null
+    ? `This tab showed another workspace, but this browser had switched to ${activeName} in another tab, so Linear was not asked. Continue in ${activeName}, or switch from the workspace menu and try again.`
+    : `This tab showed ${tabName}, but this browser had switched to ${activeName} in another tab, so Linear was not asked. Switch back to ${tabName} to try again there, or continue in ${activeName}.`;
+}
+
 /** The request header every api-client call names its tab's workspace in. */
 export const WORKSPACE_HEADER = 'x-planner-workspace';
 

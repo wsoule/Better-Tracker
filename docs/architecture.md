@@ -2959,9 +2959,9 @@ merge of the branch. Gr8r is a reference only; nothing is imported from it.
 | `/settings`                      | signed in         | modes, watchers, schedule, status, digest preview, notifications, audit; editable by everyone but a guest (read-only for them)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `/setup`                         | signed in         | install the app into the workspace (admin; nothing to start for a guest); names the session's workspace, says why a revoked installation was revoked and when its data is deleted, and offers "Sign out of all workspaces" with two or more held (§8.4)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `/setup/connect`                 | all (OAuth mode)  | connect another workspace: the hint and a "Continue to Linear" link to `/api/auth/linear?intent=add_workspace` (carrying `?returnTo=`); signed in or out, no JavaScript needed; 404 in api_key and demo mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `/open?ws=&to=`                  | all               | the interstitial a page link naming a workspace (`ws=<org id>`, digest links, §7) is sent to by `proxy.ts`: to `to` when `ws` is the active workspace, a "Switch to <name>" form when the browser holds it, else a connect link; never renders `ws`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `/open?ws=&to=`                  | all               | the interstitial a page link naming a workspace (`ws=<org id>`, digest links, §7) is sent to by `proxy.ts`: to `to` when `ws` is the active workspace, a "Switch to <name>" form when the browser holds it, else a connect link that keeps `ws` in its `returnTo`; never shows `ws`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `GET /api/palette`               | signed in         | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets the OAuth state cookie); a link, not origin-checked; `install` and `grant_write` need a session, sign its workspace id into the state (`expectWorkspaceId`) and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else; `add_workspace` (OAuth mode, `prompt=consent`) works signed in or out and is refused with `too_many_workspaces` while the browser holds 10                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets the OAuth state cookie); a link, not origin-checked; `install` and `grant_write` need a session, are refused with `/?auth_error=workspace_changed` when their `workspace` (the tab's) is not the active one, sign its workspace id into the state (`expectWorkspaceId`) and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else; `add_workspace` (OAuth mode, `prompt=consent`) works signed in or out and is refused with `too_many_workspaces` while the browser holds 10                                                                                                                                                                                                                                                                                                                                                           |
 | `GET /api/auth/linear/callback`  | —                 | finishes OAuth (not origin-checked, never rate-limited: the signed state protects it); the session rules below ("Session cookies")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `POST /api/auth/logout`          | —                 | ends sessions; OAuth mode takes `scope=current\|all` and `workspace=<org id>` (below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `POST /api/auth/switch`          | OAuth mode only   | `workspace=<org id>`, optional `returnTo`: makes another of the browser's sessions active (not a write: a guest may switch); JSON with `Accept: application/json`, else a 303; 404 in api_key and demo mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -3073,9 +3073,20 @@ referrer policy and a Permissions-Policy.
 - **Start** (`GET /api/auth/linear`): `install` and `grant_write` sign the
   active session's workspace id into the state as `expectWorkspaceId` (a state
   without it reads as `oauth_expired`), so a switch in another tab during
-  Linear's consent screen cannot change which workspace they act for;
-  `add_workspace` is refused with `too_many_workspaces` when the browser already
-  holds 10.
+  Linear's consent screen cannot change which workspace they act for. Their
+  links name the workspace the tab shows (`workspace=<org id>`,
+  `lib/oauth-links.ts`: Setup's Install with the page's own workspace, every
+  "Allow edits in Linear" with the frame's through `useStartHref`, the "Not
+  saved" toast's with the api client's), and a start whose `workspace` is not
+  the active session's is refused first, before the guest check, with a 303 to
+  `/?auth_error=workspace_changed&workspace=<it>&returnTo=<the page>`: the
+  landing names both workspaces from the browser's own sessions ("This tab
+  showed <A>, but this browser had switched to <B> in another tab, so Linear was
+  not asked. Switch back to <A> to try again there, or continue in <B>.") with a
+  "Switch to <A>" form back to that page. A plain navigation is not covered by
+  the 409 guard below, so without this a stale tab would start the grant for the
+  other workspace (or be refused as a guest there). `add_workspace` is refused
+  with `too_many_workspaces` when the browser already holds 10.
 - **Callback**: for `signin`, `add_workspace` and `grant_write` the engine's
   `finishSignIn` (with `expectWorkspaceId` for `grant_write`) makes a session N
   for workspace W. `signin` and `add_workspace` that come back with a workspace
@@ -3141,11 +3152,14 @@ referrer policy and a Permissions-Policy.
   version, and its folded groups are remembered under
   `milestone-planner:issues:collapsed:<workspace id>:<grouping>`. Switching is a
   full page load.
-- **Links that leave the app** (digests, §7) carry `ws=<org id>`; `proxy.ts`
-  sends a page request carrying `ws` (OAuth and demo mode; not `/open`, API
-  routes, static assets or prefetches) with a 307 and `no-store` to
-  `/open?ws=<it>&to=<the path and query without ws>` (§8.4 "Several
-  workspaces"). In-app links never carry it.
+- **Links that leave the app** (digests, §7, and every Copy link action: the
+  issue page and drawer, the Issues page's row menu and toolbar, the milestone
+  drawer, through `useShareableLink` in `workspace-frame.tsx`; not with personal
+  API keys) carry `ws=<org id>`, since keys repeat across workspaces (Acme's and
+  Globex's ENG-1); `proxy.ts` sends a page request carrying `ws` (OAuth and demo
+  mode; not `/open`, API routes, static assets or prefetches) with a 307 and
+  `no-store` to `/open?ws=<it>&to=<the path and query without ws>` (§8.4
+  "Several workspaces"). In-app links never carry it.
 
 **Rate limits and the nonce CSP** (owner decision 2026-10-25, before strangers
 use the planner, design doc §12; binding):
@@ -4249,12 +4263,13 @@ links and follow-ups, new or unread, progress and the timeline's today.
     filters name, one milestone's issues, `/graph?milestone=<id>`, else one
     project's, `/graph?project=<id>`, a `none` value of either being no
     container; else one initiative's projects, `/graph?initiative=<id|none>`;
-    otherwise `/graph`) and **Copy link** (the address bar's URL; "Link
-    copied."), both Gr8r ghost buttons (`Button variant="quiet" size="sm"`) with
-    a leading icon. The search is the toolbar's 26px field with a leading icon
-    and a `--control-border` edge; the toolbar and the chips bar are rows over a
-    soft rule spanning the content column (`--view-toolbar-gutter: 0`). Every
-    menu is a `PickerPopover` with `searchable={false}`: Filter lists the fields
+    otherwise `/graph`) and **Copy link** (the address bar's URL with
+    `ws=<org id>`, §8.1 "Links that leave the app"; "Link copied."), both Gr8r
+    ghost buttons (`Button variant="quiet" size="sm"`) with a leading icon. The
+    search is the toolbar's 26px field with a leading icon and a
+    `--control-border` edge; the toolbar and the chips bar are rows over a soft
+    rule spanning the content column (`--view-toolbar-gutter: 0`). Every menu is
+    a `PickerPopover` with `searchable={false}`: Filter lists the fields
     (Initiative only for a viewer with initiatives, Team only with two or more
     teams) and the quick filters (Blocked, At risk, In next milestones; hinted
     "On" while set); Sort and Group are one multi-select list with one choice
@@ -5484,10 +5499,15 @@ links and follow-ups, new or unread, progress and the timeline's today.
     state "This link is for <name>." with a primary "Switch to <name>" (a POST
     switch form, `returnTo=to`) and, signed in, "Stay here"; otherwise "This
     link is for a Linear workspace this browser is not signed in to." with
-    "Connect another workspace" (`/setup/connect?returnTo=<to>`). The `ws` value
-    is never rendered (a value that is not id-shaped matches nothing). In
-    api_key and demo mode it just opens `to` (signed-out visitors via the
-    sign-in page).
+    "Connect another workspace"
+    (`/setup/connect?returnTo=<to with ws put back>`: Linear connects whichever
+    workspace is open at linear.app, so the connect lands on the link again,
+    which comes back here and opens the page only when the workspace connected
+    is the link's; otherwise this state shows again instead of the same path in
+    another workspace). The `ws` value is never shown (a value that is not
+    id-shaped matches nothing and goes into no link); it only goes back into
+    that connect link. In api_key and demo mode it just opens `to` (signed-out
+    visitors via the sign-in page).
   - **`/setup`** names the session's workspace before any install ("Acme · not
     installed yet"). A revoked installation's red "Reinstall needed" notice says
     why, by the reason `describeSessions` reports: uninstalled "An admin

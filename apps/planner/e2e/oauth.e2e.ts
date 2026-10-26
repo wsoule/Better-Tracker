@@ -24,23 +24,25 @@ import type { FakeGrantSummary } from './fake-linear-oauth';
 import type { AuthorizeBehaviourChange } from './linear-authorize';
 import { oauthNeedlesIn } from './oauth-leak-needles';
 
-// The OAuth browser test (architecture §11; playwright.oauth.config.ts):
-// one browser holding sessions for two Linear workspaces of the fake
-// Linear, Acme (Ana is its admin) and Globex (Ana is a guest there, Gia
-// its admin), end to end through the fake's own authorize page (its
-// workspace chooser, reached through the test-only LINEAR_API_URL). The
-// tests run in order and share the servers: Ana signs in to Acme, installs
-// it and allows edits; connects Globex, which Gia installs; every page
-// shows only the active workspace's data, through the brand-row switcher
-// and the palette; connecting while Acme is open at Linear keeps her Acme
-// session and its write grant; she is read-only in Globex and editable in
-// Acme; a stale tab's write is refused 409 and its next navigation reloads
-// it into the active workspace; a link for Globex opens the interstitial;
-// a return path that normalises to another host stays on the planner;
-// signing out of Globex keeps Acme and revokes only Globex's grant; a
-// planner that admits only Acme refuses Globex; and finally no Linear
-// token or code, no secret and no session token is in any response, the
-// servers' logs or their files.
+// The OAuth browser test (architecture §11; playwright.oauth.config.ts): one
+// browser holding sessions for two Linear workspaces of the fake Linear, Acme
+// (Ana is its admin) and Globex (Ana is a guest there, Gia its admin), end to
+// end through the fake's own authorize page (its workspace chooser, reached
+// through the test-only LINEAR_API_URL). The tests run in order and share the
+// servers: Ana signs in to Acme, installs it and allows edits; connects Globex,
+// which Gia installs; every page shows only the active workspace's data,
+// through the brand-row switcher and the palette; connecting while Acme is open
+// at Linear keeps her Acme session and its write grant; she is read-only in
+// Globex and editable in Acme; a stale tab's write is refused 409 and its next
+// navigation reloads it into the active workspace, and its Reinstall is refused
+// before Linear with a switch back; a link for Globex opens the interstitial; a
+// return path that normalises to another host stays on the planner; Copy link
+// names its workspace, so pasted while another is active it opens the
+// interstitial; signing out of Globex keeps Acme and revokes only Globex's
+// grant; a planner that admits only Acme refuses Globex; a link's connect keeps
+// its workspace, so a connect that returns another shows the interstitial
+// again; and finally no Linear token or code, no secret and no session token is
+// in any response, the servers' logs or their files.
 
 test.describe.configure({ mode: 'serial' });
 
@@ -594,6 +596,40 @@ test('7. a stale tab is refused 409 workspace_changed, and its next navigation r
   await stale.close();
 });
 
+test("7a. a stale tab's Reinstall is refused before Linear, naming both workspaces, with a switch back", async () => {
+  // Ana's Acme tab shows Setup; another tab switches the browser to
+  // Globex, where she is a guest. The tab's install link names Acme.
+  const stale = await ana.newPage();
+  await stale.goto('/week');
+  await switchWithMenu(stale, 'globex', 'acme');
+  await stale.goto('/setup', { waitUntil: 'networkidle' });
+  const reinstall = stale.getByRole('link', {
+    name: 'Reinstall to change teams',
+  });
+  await expect(reinstall).toBeVisible();
+  const other = await ana.newPage();
+  await other.goto('/week');
+  await switchWithMenu(other, 'acme', 'globex');
+  await other.close();
+
+  await reinstall.click();
+  await expect(stale).toHaveURL(
+    `${APP}/?auth_error=workspace_changed&workspace=${ORG_ID.acme}`
+  );
+  await expect(
+    stale.getByText(
+      'This tab showed Acme, but this browser had switched to Globex in another tab, so Linear was not asked.',
+      { exact: false }
+    )
+  ).toBeVisible();
+  await stale.getByRole('button', { name: 'Switch to Acme' }).click();
+  await expect(stale).toHaveURL(`${APP}/week`);
+  await expect(switcher(stale, 'acme')).toBeVisible();
+  // Leave Globex active, as the next test expects.
+  await switchWithMenu(stale, 'acme', 'globex');
+  await stale.close();
+});
+
 test('8. a link for Globex opened while Acme is active shows the interstitial, whose Switch lands on Globex', async () => {
   await page.goto('/week');
   await switchWithMenu(page, 'globex', 'acme');
@@ -632,6 +668,32 @@ test('8a. a link whose return path normalises to another host stays on the plann
   } finally {
     await page.unrouteAll();
   }
+});
+
+test('8b. Copy link names its workspace: opened while another is active, it goes through the interstitial', async () => {
+  await ana.grantPermissions(['clipboard-read', 'clipboard-write'], {
+    origin: APP,
+  });
+  await page.goto('/week');
+  await switchWithMenu(page, 'globex', 'acme');
+  await page.goto('/issues/ENG-1', { waitUntil: 'networkidle' });
+  await page.getByRole('button', { name: 'Copy link' }).click();
+  await expect(page.getByText('Link to ENG-1 copied.').first()).toBeVisible();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toBe(`${APP}/issues/ENG-1?ws=${ORG_ID.acme}`);
+
+  // Pasted while Globex is active (Globex has an ENG-1 too): the link
+  // says it is for Acme instead of opening Globex's issue.
+  await switchWithMenu(page, 'acme', 'globex');
+  await page.goto(copied);
+  await expect(page).toHaveURL(/\/open\?/);
+  await expect(page.getByText('This link is for Acme.')).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(
+    'Launch the Globex storefront'
+  );
+  await page.getByRole('link', { name: 'Stay here' }).click();
+  await expect(page).toHaveURL(`${APP}/week`);
+  await expect(switcher(page, 'globex')).toBeVisible();
 });
 
 test("9. signing out of Globex keeps Acme and revokes only Globex's grant", async () => {
@@ -713,6 +775,37 @@ test('10. a planner that admits only Acme refuses Globex at sign-in', async ({
         effect: 'revoked',
       },
     ]);
+  await context.close();
+});
+
+test("10a. a link's connect keeps its workspace: a connect that returns another one shows the interstitial again", async ({
+  browser,
+}) => {
+  // A browser with no session opens a digest link for Acme's ENG-1.
+  const context = await newContext(browser);
+  const fresh = await context.newPage();
+  const notHeld =
+    'This link is for a Linear workspace this browser is not signed in to.';
+  await fresh.goto(`/issues/ENG-1?ws=${ORG_ID.acme}`);
+  await expect(fresh).toHaveURL(/\/open\?/);
+  await expect(fresh.getByText(notHeld)).toBeVisible();
+  await fresh.getByRole('link', { name: 'Connect another workspace' }).click();
+  await fresh.getByRole('link', { name: 'Continue to Linear' }).click();
+  // Linear connects whichever workspace is open there: Globex.
+  await choose(fresh, 'globex', 'ana');
+  await expect(fresh).toHaveURL(/\/open\?/);
+  await expect(fresh.getByText(notHeld)).toBeVisible();
+  await expect(switcher(fresh, 'globex')).toBeVisible();
+  await expect(fresh.locator('body')).not.toContainText(
+    'Launch the Globex storefront'
+  );
+  // Connecting Acme opens the page there.
+  await fresh.getByRole('link', { name: 'Connect another workspace' }).click();
+  await fresh.getByRole('link', { name: 'Continue to Linear' }).click();
+  await choose(fresh, 'acme', 'ana');
+  await expect(fresh).toHaveURL(`${APP}/issues/ENG-1`);
+  await expect(switcher(fresh, 'acme')).toBeVisible();
+  await expect(fresh.locator('main')).toContainText('Ship the billing export');
   await context.close();
 });
 

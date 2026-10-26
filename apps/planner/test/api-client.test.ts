@@ -45,6 +45,32 @@ describe('notSavedToast', () => {
     toast.action?.onClick();
     expect(followed).toEqual([href]);
   });
+
+  test("the link names the tab's workspace, so a stale tab is refused", () => {
+    // A browser holds several workspaces (owner decision 2026-10-25): the
+    // start route refuses the grant when the tab's workspace is no longer
+    // the active one (workspace_changed) instead of starting it for that.
+    const followed: string[] = [];
+    try {
+      setFrameWorkspace('org-acme');
+      notSavedToast(
+        {
+          ok: false,
+          status: 403,
+          code: 'needs_write_scope',
+          message: 'Allow the planner to edit Linear first.',
+          grantWriteHref:
+            '/api/auth/linear?intent=grant_write&returnTo=%2Fissues',
+        },
+        (to) => followed.push(to)
+      ).action?.onClick();
+    } finally {
+      setFrameWorkspace(null);
+    }
+    expect(followed).toEqual([
+      '/api/auth/linear?intent=grant_write&returnTo=%2Fissues&workspace=org-acme',
+    ]);
+  });
 });
 
 // Several workspaces in one browser (owner decision 2026-10-25): every

@@ -7,7 +7,7 @@ import {
   withIssueParam,
 } from './adapters/issue';
 import { engineInputCode } from './engine-errors';
-import { grantWriteHref } from './http';
+import { grantWriteHref } from './oauth-links';
 
 // Server-side loading of the issue view (architecture §8.5) for the
 // /issues/[id] page and the ?issue= slide-overs: resolves an id or an
@@ -42,7 +42,7 @@ export async function loadIssueModel(
     today: loaded.today,
     timeZone: loaded.settings.timezone,
     viewerId: actor.session.userId,
-    grantWriteHref: grantWriteHref(returnTo),
+    grantWriteHref: grantWriteHref(returnTo, actor.session.workspaceId),
     pageHref: withIssueParam(returnTo, null),
     names: new Map(
       loaded.snapshot.data.users.map((user) => [user.id, user.name])

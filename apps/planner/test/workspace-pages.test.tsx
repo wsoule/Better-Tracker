@@ -269,8 +269,13 @@ describe('/open (the interstitial)', () => {
     expect(html).toContain(
       'This link is for a Linear workspace this browser is not signed in to.'
     );
-    expect(html).toContain('href="/setup/connect?returnTo=%2Ftimeline"');
-    expect(html).not.toContain('org-not-held');
+    // The connect keeps the link's workspace in its returnTo, so it comes
+    // back here and opens the page only if Linear connected that one; the
+    // value is never shown as text.
+    expect(html).toContain(
+      'href="/setup/connect?returnTo=%2Ftimeline%3Fws%3Dorg-not-held"'
+    );
+    expect(html.replaceAll(/href="[^"]*"/g, '')).not.toContain('org-not-held');
     const odd = await render(
       OpenPage({
         searchParams: params({ ws: '<b>Acme</b>', to: '/week' }),
@@ -278,6 +283,25 @@ describe('/open (the interstitial)', () => {
     );
     expect(odd).not.toContain('<b>Acme');
     expect(odd).not.toContain('&lt;b&gt;');
+    // An odd value matches nothing and goes into no link either.
+    expect(odd).toContain('href="/setup/connect"');
+  });
+
+  test('the connect from a not-held link lands back on the link, not on its path', async () => {
+    // A digest link for Acme's ENG-1 in a browser holding only Globex:
+    // Linear may connect any workspace, and Globex has an ENG-1 too.
+    jar = { mp_session: GLOBEX };
+    const html = await render(
+      OpenPage({
+        searchParams: params({ ws: 'org-acme', to: '/issues/ENG-1' }),
+      })
+    );
+    const connect = /href="(\/setup\/connect[^"]*)"/.exec(html)?.[1] ?? '';
+    const returnTo = new URL(
+      connect.replaceAll('&amp;', '&'),
+      'http://localhost:3000'
+    ).searchParams.get('returnTo');
+    expect(returnTo).toBe('/issues/ENG-1?ws=org-acme');
   });
 
   test('demo mode holds one workspace: the link just opens', async () => {
@@ -315,6 +339,44 @@ describe('the signed-out landing', () => {
   });
 });
 
+describe('the landing, signed in', () => {
+  test("a stale tab's install or write grant: both workspaces named, a switch back to the tab's", async () => {
+    // GET /api/auth/linear refused it: the tab showed Globex, this browser
+    // had switched to Acme in another tab.
+    const html = await render(
+      HomePage({
+        searchParams: params({
+          auth_error: 'workspace_changed',
+          workspace: 'org-globex',
+          returnTo: '/issues/ENG-1',
+        }),
+      })
+    );
+    expect(html).toContain(
+      'This tab showed Globex, but this browser had switched to Acme in another tab, so Linear was not asked. Switch back to Globex to try again there, or continue in Acme.'
+    );
+    expect(html).toContain('action="/api/auth/switch"');
+    expect(html).toContain('name="workspace" value="org-globex"');
+    expect(html).toContain('name="returnTo" value="/issues/ENG-1"');
+    expect(html).toContain('Switch to Globex');
+    expect(html).not.toContain('Linear did not finish.');
+    // A workspace the browser does not hold is not named (nor echoed).
+    const unknown = await render(
+      HomePage({
+        searchParams: params({
+          auth_error: 'workspace_changed',
+          workspace: 'org-not-held',
+        }),
+      })
+    );
+    expect(unknown).toContain(
+      'This tab showed another workspace, but this browser had switched to Acme in another tab'
+    );
+    expect(unknown).not.toContain('org-not-held');
+    expect(unknown).not.toContain('action="/api/auth/switch"');
+  });
+});
+
 describe('/setup', () => {
   const base = {
     workspaceId: 'org-acme',
@@ -337,6 +399,11 @@ describe('/setup', () => {
     const html = await render(SetupPage());
     expect(html).toContain('Acme · not installed yet');
     expect(html).not.toContain('Sign out of all workspaces');
+    // Install names the workspace this page shows, so a stale tab's click
+    // is refused instead of installing for the browser's active one.
+    expect(html).toContain(
+      'href="/api/auth/linear?intent=install&amp;workspace=org-acme"'
+    );
   });
 
   test('revoked: why, and when the data goes, per reason', async () => {

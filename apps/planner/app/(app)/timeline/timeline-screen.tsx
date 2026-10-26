@@ -49,6 +49,7 @@ import {
 } from '../components/issue-drawer';
 import { PageCrumb } from '../components/page-crumb';
 import ReadOnlyNotice from '../components/read-only-notice';
+import { useStartHref } from '../components/workspace-frame';
 import MilestoneDrawer from './milestone-drawer';
 import css from './page.module.css';
 import TimelineBanners from './timeline-banners';
@@ -91,6 +92,7 @@ export default function TimelineScreen({
 }: TimelineScreenProps) {
   const router = useRouter();
   const { toast } = useToast();
+  const startHref = useStartHref();
   const searchId = useId();
   const initiativeId = useId();
 
@@ -298,7 +300,7 @@ export default function TimelineScreen({
               tone="default"
               action={
                 // A plain anchor: the OAuth start must never be prefetched.
-                <Button size="sm" href={GRANT_WRITE_HREF}>
+                <Button size="sm" href={startHref(GRANT_WRITE_HREF)}>
                   Allow edits in Linear
                 </Button>
               }

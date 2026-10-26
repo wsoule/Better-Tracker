@@ -10,6 +10,7 @@ import type { ZodType } from 'zod';
 import { readLimitedText } from './body';
 import { engineAuthCode, engineInputCode } from './engine-errors';
 import { heldFor } from './held-sessions';
+import { grantWriteHref } from './oauth-links';
 import { jsonError, rejectCrossOrigin } from './origin';
 import { limitApiRequest } from './rate-limit';
 import { getHeldSessions, getRequestContext } from './session';
@@ -19,23 +20,14 @@ import {
   workspaceChangedMessage,
 } from './workspace-copy';
 
-export { jsonError, rejectCrossOrigin };
+export { grantWriteHref, jsonError, rejectCrossOrigin };
 
 const logger = createLogger({ name: 'planner.http' });
 
 /**
- * Where a signed-in person grants the planner write access to Linear (the
- * grant_write OAuth upgrade, offered to everyone since the owner decision
- * of 2026-10-21), coming back to `returnTo` (a relative path; the OAuth
- * start route sanitizes it again).
- */
-export function grantWriteHref(returnTo: string = '/week'): string {
-  return `/api/auth/linear?intent=grant_write&returnTo=${encodeURIComponent(returnTo)}`;
-}
-
-/**
- * 403 needs_write_scope with the grant_write link, so a client can offer
- * "Allow edits" right where the save failed.
+ * 403 needs_write_scope with the grant_write link (lib/oauth-links.ts), so
+ * a client can offer "Allow edits" right where the save failed; the api
+ * client adds the tab's workspace to it (notSavedToast).
  */
 export function needsWriteScope(message: string, returnTo?: string): Response {
   return jsonError(403, 'needs_write_scope', message, {
