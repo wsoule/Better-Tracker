@@ -781,6 +781,7 @@ describe('operator commands', () => {
       () => keyed.purgeWorkspaceNow('acme'),
       () => keyed.blockWorkspace('acme'),
       () => keyed.unblockWorkspace('acme'),
+      () => keyed.unpinWorkspaceEntry('acme'),
       () => keyed.revokeWorkspace(ACME.id, 'removed'),
     ]) {
       expect(await rejection(call())).toMatchObject({

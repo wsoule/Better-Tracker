@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  errorFromBody,
   getJson,
   notSavedToast,
   sendJson,
@@ -131,6 +132,39 @@ describe('the tab names its workspace', () => {
     } finally {
       stub.restore();
     }
+  });
+
+  test("a workspace_changed answer carries the tab's workspace name, or null", () => {
+    expect(
+      errorFromBody(409, {
+        error: {
+          code: 'workspace_changed',
+          message: 'This tab shows Globex, but…',
+          tabWorkspaceName: 'Globex',
+        },
+      })
+    ).toEqual({
+      code: 'workspace_changed',
+      message: 'This tab shows Globex, but…',
+      tabWorkspaceName: 'Globex',
+    });
+    for (const tabWorkspaceName of [null, undefined, '', 42]) {
+      expect(
+        errorFromBody(409, {
+          error: {
+            code: 'workspace_changed',
+            message: 'This tab shows another workspace, but…',
+            tabWorkspaceName,
+          },
+        }).tabWorkspaceName
+      ).toBeNull();
+    }
+    // Only workspace_changed carries it.
+    expect(
+      errorFromBody(400, {
+        error: { code: 'invalid', message: 'No.', tabWorkspaceName: 'Acme' },
+      })
+    ).toEqual({ code: 'invalid', message: 'No.' });
   });
 
   test('a workspace_changed refusal offers Reload instead of a grant link', () => {

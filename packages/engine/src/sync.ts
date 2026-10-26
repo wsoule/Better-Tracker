@@ -267,27 +267,54 @@ export function firstSyncWaitError(retryAt: IsoDateTime): EngineInputError {
 }
 
 /**
+ * Records that a full sync attempt starts now (store.recordFullSyncStart),
+ * before anything that can hang. The finish is recorded only by an attempt
+ * that ends, so without this a sync killed with its process (the worker's
+ * tick deadline) left the workspace looking least recently attempted, and
+ * the worker started it first again on every tick, before the workspaces
+ * it never reached. Touches nothing the backoff, chronic and skip-recent
+ * rules read. Best effort: a failure is logged and the sync goes on.
+ */
+async function recordAttemptStart(
+  rt: EngineRuntime,
+  workspaceId: string,
+  log: Logger,
+  at: IsoDateTime
+): Promise<void> {
+  try {
+    await rt.store.recordFullSyncStart(workspaceId, at);
+  } catch (error) {
+    log.warn('could not record the start of a full sync', { error });
+  }
+}
+
+/**
  * Keeps an installed workspace's name and URL key as Linear reports them
- * now (store.updateInstallationIdentity; no write when they did not
- * change), so admission's URL-key matching (LINEAR_WORKSPACES entries,
- * blocks), the worker and the operator's listings follow a rename instead
- * of the key saved at install. OAuth mode only (with personal API keys a
- * connect keeps the binding current). Best effort: a failure is logged and
- * the caller goes on. Logs the id only.
+ * now (store.updateInstallationIdentity), so admission's URL-key matching
+ * (LINEAR_WORKSPACES entries, blocks), the worker and the operator's
+ * listings follow a rename instead of the key saved at install. `readAt`
+ * is when Linear was asked (at the latest): it is recorded as the
+ * installation's url_key_read_at, which admission compares a session's
+ * sign-in with (newerSignInUrlKey), and a read older than the recorded one
+ * changes nothing. OAuth mode only (with personal API keys a connect keeps
+ * the binding current). Best effort: a failure is logged and the caller
+ * goes on. Logs the id only.
  */
 export async function refreshInstallationIdentity(
   rt: EngineRuntime,
   workspaceId: string,
   organization: { name: string; urlKey: string } | undefined,
+  readAt: IsoDateTime,
   log: Logger = rt.logger
 ): Promise<void> {
   if (rt.config.auth !== 'oauth' || organization === undefined) return;
   try {
     if (
-      await rt.store.updateInstallationIdentity(workspaceId, {
-        workspaceName: organization.name,
-        urlKey: organization.urlKey,
-      })
+      await rt.store.updateInstallationIdentity(
+        workspaceId,
+        { workspaceName: organization.name, urlKey: organization.urlKey },
+        { readAt }
+      )
     ) {
       log.info("updated the installation's workspace name or URL key", {
         workspaceId,
@@ -302,15 +329,20 @@ export async function refreshInstallationIdentity(
 }
 
 /**
- * One full resync. On success the mirror is replaced and the sync recorded
- * as ok; on failure the failure is recorded on sync_state and the error
- * rethrown (the mirror is left as it was).
+ * One full resync. Its start is recorded first (recordAttemptStart). On
+ * success the mirror is replaced and the sync recorded as ok; on failure
+ * the failure is recorded on sync_state and the error rethrown (the mirror
+ * is left as it was).
  */
 async function runFullSync(
   rt: EngineRuntime,
   workspaceId: string
 ): Promise<SyncResult> {
   const log = rt.logger.child({ workspaceId, op: 'fullSync' });
+  // Linear is asked after this, so the identity it reports is at least as
+  // new as this instant.
+  const startedAt = rt.nowIso();
+  await recordAttemptStart(rt, workspaceId, log, startedAt);
   const startedMs = performance.now();
   try {
     const gateway = await rt.linear.forApp(workspaceId);
@@ -326,7 +358,13 @@ async function runFullSync(
       rt.store.getSyncState(workspaceId),
       rt.store.getInstallation(workspaceId),
     ]);
-    await refreshInstallationIdentity(rt, workspaceId, data.organization, log);
+    await refreshInstallationIdentity(
+      rt,
+      workspaceId,
+      data.organization,
+      startedAt,
+      log
+    );
     const timezone = isValidTimeZone(settings.timezone)
       ? settings.timezone
       : rt.config.defaultTimezone;

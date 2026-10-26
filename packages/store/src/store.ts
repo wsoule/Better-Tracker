@@ -200,6 +200,7 @@ interface SyncStateRow {
   last_full_sync_ms: number | null;
   last_success_at: DbTimestamp | null;
   mirror_issue_count: number | null;
+  last_full_sync_started_at: DbTimestamp | null;
 }
 
 /**
@@ -217,6 +218,7 @@ interface WorkspaceStatusRow {
   updated_at: DbTimestamp | null;
   revoked_at: DbTimestamp | null;
   revoked_reason: RevokedReason | null;
+  url_key_checked_at: DbTimestamp | null;
   session_count: number | null;
   session_workspace_name: string | null;
   session_url_key: string | null;
@@ -230,6 +232,7 @@ interface WorkspaceStatusRow {
   last_full_sync_ms: number | null;
   last_success_at: DbTimestamp | null;
   mirror_issue_count: number | null;
+  last_full_sync_started_at: DbTimestamp | null;
 }
 
 /** describeSessions: one session joined with its workspace; no tokens. */
@@ -238,6 +241,9 @@ interface SessionDescriptionRow {
   workspace_id: string;
   workspace_name: string | null;
   workspace_url_key: string | null;
+  sign_in_url_key: string | null;
+  signed_in_at: DbTimestamp;
+  url_key_read_at: DbTimestamp | null;
   user_id: string;
   user_name: string;
   expires_at: DbTimestamp;
@@ -348,7 +354,7 @@ const SESSION_COLUMNS = `id, workspace_id, user_id, user_name, access_token_enc,
 const SYNC_STATE_COLUMNS = `workspace_id, version, last_full_sync_at,
   last_full_sync_status, last_full_sync_error, last_webhook_at,
   consecutive_failures, last_full_sync_ms, last_success_at,
-  mirror_issue_count`;
+  mirror_issue_count, last_full_sync_started_at`;
 
 const REVOKED_REASONS: readonly RevokedReason[] = [
   'uninstalled',
@@ -737,6 +743,7 @@ function syncStateFromRow(row: SyncStateRow): Required<SyncState> {
     lastFullSyncMs: numberOrNull(row.last_full_sync_ms),
     lastSuccessAt: toIsoOrNull(row.last_success_at),
     mirrorIssueCount: numberOrNull(row.mirror_issue_count),
+    lastFullSyncStartedAt: toIsoOrNull(row.last_full_sync_started_at),
   };
 }
 
@@ -759,6 +766,7 @@ function workspaceStatusFromRow(row: WorkspaceStatusRow): WorkspaceStatus {
           updatedAt: toIso(row.updated_at),
           revokedAt: toIsoOrNull(row.revoked_at),
           revokedReason: row.revoked_reason,
+          urlKeyCheckedAt: toIsoOrNull(row.url_key_checked_at),
         };
   const sync =
     row.sync_workspace_id === null || row.version === null
@@ -774,6 +782,7 @@ function workspaceStatusFromRow(row: WorkspaceStatusRow): WorkspaceStatus {
           last_full_sync_ms: row.last_full_sync_ms,
           last_success_at: row.last_success_at,
           mirror_issue_count: row.mirror_issue_count,
+          last_full_sync_started_at: row.last_full_sync_started_at,
         });
   return {
     workspaceId: row.workspace_id,
@@ -967,17 +976,22 @@ class SqlStore implements Store {
   /**
    * Upserts the whole row. revoked_reason follows revoked_at: a reinstall
    * (revokedAt null) clears both; a row saved revoked keeps its recorded
-   * reason, or gets 'grant_dead' (cause unknown) when it has none.
+   * reason, or gets 'grant_dead' (cause unknown) when it has none. The
+   * name and URL key count as read from Linear at updatedAt
+   * (url_key_read_at): an install reads them just before it saves.
    */
   async saveInstallation(installation: Installation): Promise<void> {
     await this.write(
-      `INSERT INTO installations (${INSTALLATION_COLUMNS}, revoked_reason)
+      `INSERT INTO installations (${INSTALLATION_COLUMNS}, revoked_reason,
+         url_key_read_at)
        VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9::timestamptz,
          $10::text::jsonb, $11::timestamptz, $12::timestamptz,
-         CASE WHEN $6::timestamptz IS NULL THEN NULL ELSE 'grant_dead' END)
+         CASE WHEN $6::timestamptz IS NULL THEN NULL ELSE 'grant_dead' END,
+         $12::timestamptz)
        ON CONFLICT (workspace_id) DO UPDATE SET
          workspace_name = EXCLUDED.workspace_name,
          url_key = EXCLUDED.url_key,
+         url_key_read_at = EXCLUDED.url_key_read_at,
          app_user_id = EXCLUDED.app_user_id,
          installed_by_user_id = EXCLUDED.installed_by_user_id,
          revoked_at = EXCLUDED.revoked_at,
@@ -1004,18 +1018,57 @@ class SqlStore implements Store {
     );
   }
 
+  /**
+   * With `readAt`: one statement that locks the row (a CTE `FOR UPDATE`,
+   * so the old values compared are the latest committed ones) and writes
+   * the name, URL key and url_key_read_at unless a newer read is recorded
+   * already, so a slow sync's earlier read never overwrites a sign-in's
+   * later one. Without it, only a change is written, as before.
+   */
   async updateInstallationIdentity(
     workspaceId: string,
-    identity: { workspaceName: string; urlKey: string }
+    identity: { workspaceName: string; urlKey: string },
+    options: { readAt?: IsoDateTime } = {}
   ): Promise<boolean> {
-    const rows = await this.write<{ workspace_id: string }>(
-      `UPDATE installations SET workspace_name = $2, url_key = $3
-       WHERE workspace_id = $1
-         AND (workspace_name <> $2 OR url_key <> $3)
-       RETURNING workspace_id`,
-      [workspaceId, identity.workspaceName, identity.urlKey]
+    if (options.readAt === undefined) {
+      const rows = await this.write<{ workspace_id: string }>(
+        `UPDATE installations SET workspace_name = $2, url_key = $3
+         WHERE workspace_id = $1
+           AND (workspace_name <> $2 OR url_key <> $3)
+         RETURNING workspace_id`,
+        [workspaceId, identity.workspaceName, identity.urlKey]
+      );
+      return rows.length === 1;
+    }
+    const rows = await this.write<{ changed: boolean }>(
+      `WITH old AS (
+         SELECT workspace_name, url_key FROM installations
+         WHERE workspace_id = $1 FOR UPDATE)
+       UPDATE installations i SET workspace_name = $2, url_key = $3,
+         url_key_read_at = $4::timestamptz
+       FROM old
+       WHERE i.workspace_id = $1
+         AND (i.url_key_read_at IS NULL OR i.url_key_read_at <= $4::timestamptz)
+       RETURNING (old.workspace_name <> $2 OR old.url_key <> $3) AS changed`,
+      [workspaceId, identity.workspaceName, identity.urlKey, options.readAt]
     );
-    return rows.length === 1;
+    return rows[0]?.changed === true;
+  }
+
+  async recordUrlKeyCheck(
+    workspaceId: string,
+    check: { at: IsoDateTime; ok: boolean }
+  ): Promise<number> {
+    const rows = await this.write<{ failures: number }>(
+      `UPDATE installations SET
+         url_key_checked_at = GREATEST(url_key_checked_at, $2::timestamptz),
+         url_key_check_failures = CASE WHEN $3::boolean THEN 0
+           ELSE url_key_check_failures + 1 END
+       WHERE workspace_id = $1
+       RETURNING url_key_check_failures AS failures`,
+      [workspaceId, check.at, check.ok]
+    );
+    return Number(rows[0]?.failures ?? 0);
   }
 
   /**
@@ -1128,18 +1181,19 @@ class SqlStore implements Store {
        SELECT ids.workspace_id,
          i.workspace_name AS installation_name, i.url_key, i.app_user_id,
          i.installed_by_user_id, i.created_at AS installed_at, i.updated_at,
-         i.revoked_at, i.revoked_reason,
+         i.revoked_at, i.revoked_reason, i.url_key_checked_at,
          s.session_count, s.session_workspace_name, s.session_url_key,
          st.workspace_id AS sync_workspace_id, st.version,
          st.last_full_sync_at, st.last_full_sync_status,
          st.last_full_sync_error, st.last_webhook_at,
          st.consecutive_failures, st.last_full_sync_ms, st.last_success_at,
-         st.mirror_issue_count
+         st.mirror_issue_count, st.last_full_sync_started_at
        FROM ids
        LEFT JOIN installations i ON i.workspace_id = ids.workspace_id
        LEFT JOIN s ON s.workspace_id = ids.workspace_id
        LEFT JOIN sync_state st ON st.workspace_id = ids.workspace_id
-       ORDER BY st.last_full_sync_at ASC NULLS FIRST, ids.workspace_id`,
+       ORDER BY GREATEST(st.last_full_sync_at, st.last_full_sync_started_at)
+         ASC NULLS FIRST, ids.workspace_id`,
       [now ?? null]
     );
     return rows.map(workspaceStatusFromRow);
@@ -1245,7 +1299,14 @@ class SqlStore implements Store {
    * that has no guest field (mirrors written before 2026-10-22). The
    * installation's name and URL key win over the session's sign-in values
    * (every full sync and sign-in refreshes them; listWorkspaceStatus picks
-   * the same way), so a rename shows, and admits, everywhere at once.
+   * the same way), so a rename shows everywhere at once. The session's own
+   * sign-in URL key comes back as well (signInUrlKey), with when the
+   * session signed in (signedInAt) and when the installation's URL key was
+   * last read from Linear (urlKeyReadAt): admission falls back to the
+   * sign-in key only when the session signed in after that read, so a
+   * stale installation key (a rename no sync has seen) cannot sign out a
+   * session that signed in under the current one, and a stale sign-in key
+   * cannot pin an entry another org took since.
    */
   async describeSessions(
     tokens: readonly string[],
@@ -1257,6 +1318,8 @@ class SqlStore implements Store {
       `SELECT s.token_hash, s.workspace_id,
          COALESCE(i.workspace_name, s.workspace_name) AS workspace_name,
          COALESCE(i.url_key, s.workspace_url_key) AS workspace_url_key,
+         s.workspace_url_key AS sign_in_url_key,
+         s.created_at AS signed_in_at, i.url_key_read_at,
          s.user_id, s.user_name, s.expires_at,
          CASE WHEN m.id IS NULL THEN NULL
            ELSE COALESCE(m.data->>'guest' = 'true', false) END AS guest,
@@ -1280,6 +1343,9 @@ class SqlStore implements Store {
         workspaceId: row.workspace_id,
         workspaceName: row.workspace_name,
         workspaceUrlKey: row.workspace_url_key,
+        signInUrlKey: row.sign_in_url_key,
+        signedInAt: toIso(row.signed_in_at),
+        urlKeyReadAt: toIsoOrNull(row.url_key_read_at),
         userId: row.user_id,
         userName: row.user_name,
         expiresAt: toIso(row.expires_at),
@@ -1391,13 +1457,32 @@ class SqlStore implements Store {
    * deleted is the version that refresh committed (its rotated tokens).
    * lock_timeout bounds the wait as for the token locks. Tokens are
    * decrypted per row, so an unreadable row only loses its own tokens.
+   * With `purgeDueBefore`, the installation row is locked first and
+   * checked as purgeWorkspace checks it (in the same lock order), so a
+   * reinstall in flight commits first and then nothing is taken.
    */
   async takeSessionsForWorkspace(
     workspaceId: string,
-    options: { createdBefore?: IsoDateTime; limit: number }
+    options: {
+      createdBefore?: IsoDateTime;
+      limit: number;
+      purgeDueBefore?: IsoDateTime;
+    }
   ): Promise<TakenSession[]> {
     const rows = await this.sql.transaction(async (tx) => {
       await tx.query(TOKEN_LOCK_TIMEOUT);
+      if (options.purgeDueBefore !== undefined) {
+        const due = await tx.query<{ workspace_id: string }>(
+          `SELECT workspace_id FROM installations
+           WHERE workspace_id = $1
+             AND revoked_at IS NOT NULL
+             AND revoked_at < $2::timestamptz
+             AND revoked_reason IN ('uninstalled', 'removed')
+           FOR UPDATE`,
+          [workspaceId, options.purgeDueBefore]
+        );
+        if (due.length === 0) return [];
+      }
       return tx.query<SessionRow>(
         `DELETE FROM sessions WHERE id IN (
            SELECT id FROM sessions
@@ -1686,6 +1771,26 @@ class SqlStore implements Store {
         intOrNull(result.durationMs),
         intOrNull(result.issueCount),
       ]
+    );
+  }
+
+  /**
+   * One upsert of last_full_sync_started_at alone (GREATEST, so a late
+   * writer never moves it back): the status, error, failure count and the
+   * finish time stay as the last finished attempt left them.
+   */
+  async recordFullSyncStart(
+    workspaceId: string,
+    at: IsoDateTime
+  ): Promise<void> {
+    await this.write(
+      `INSERT INTO sync_state (workspace_id, last_full_sync_started_at)
+       VALUES ($1, $2::timestamptz)
+       ON CONFLICT (workspace_id) DO UPDATE SET
+         last_full_sync_started_at = GREATEST(
+           sync_state.last_full_sync_started_at,
+           EXCLUDED.last_full_sync_started_at)`,
+      [workspaceId, at]
     );
   }
 
@@ -2298,6 +2403,15 @@ class SqlStore implements Store {
       if (pinned !== null) return pinned;
     }
     throw new Error('Could not pin the admission entry');
+  }
+
+  async deleteAdmittedPin(entry: string): Promise<string | null> {
+    const rows = await this.write<{ workspace_id: string }>(
+      `DELETE FROM admitted_workspaces WHERE entry = $1
+       RETURNING workspace_id`,
+      [entry.toLowerCase()]
+    );
+    return rows[0]?.workspace_id ?? null;
   }
 
   // --- audit ------------------------------------------------------------------------

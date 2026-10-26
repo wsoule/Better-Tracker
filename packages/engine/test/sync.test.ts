@@ -269,6 +269,37 @@ describe('fullSync', () => {
     });
   });
 
+  test('records when an attempt started, before Linear answers, and leaves the last finish alone', async () => {
+    let hang = false;
+    let reached: () => void = () => undefined;
+    const fetching = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const wrap: GatewayWrapper = (gateway): LinearGateway => ({
+      ...gateway,
+      fetchWorkspace: () => {
+        if (!hang) return gateway.fetchWorkspace();
+        reached();
+        return new Promise(() => undefined);
+      },
+    });
+    const s = await setup({ wrap });
+    await s.engine.fullSync(WORKSPACE_ID);
+    const finished = await s.store.getSyncState(WORKSPACE_ID);
+    if (finished === null) throw new Error('no sync state');
+    expect(finished.lastFullSyncStartedAt).toBe(finished.lastFullSyncAt);
+
+    // An attempt that never ends (the worker's tick would be killed).
+    s.clock.set('2026-10-21T16:00:00.000Z');
+    hang = true;
+    void s.engine.fullSync(WORKSPACE_ID);
+    await fetching;
+    expect(await s.store.getSyncState(WORKSPACE_ID)).toEqual({
+      ...finished,
+      lastFullSyncStartedAt: '2026-10-21T16:00:00.000Z',
+    });
+  });
+
   test('load() runs the first sync itself; a foreign workspace id is refused', async () => {
     let foreign = false;
     const wrap: GatewayWrapper = (gateway): LinearGateway => ({

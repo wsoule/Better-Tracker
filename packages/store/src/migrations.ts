@@ -1,7 +1,10 @@
 // Schema migrations: an append-only, ordered list. Each migration is a list
 // of single SQL statements (PGlite's extended protocol runs one statement
 // per query), applied together in one transaction and recorded in
-// schema_migrations. Never edit a shipped migration; add a new one.
+// schema_migrations. Never edit a shipped migration; add a new one. The
+// runner compares version numbers only (no checksum), so a database that
+// applied an earlier text of a migration skips the edited one: migration 6
+// exists for that reason (see BLOCK_URL_KEY).
 import type { Sql, SqlLogger } from './db';
 
 export interface Migration {
@@ -233,10 +236,8 @@ const ISSUE_ENTRY_INDEX: readonly string[] = [
 //   mirror's;
 // - blocked_workspaces is the operator block list and admitted_workspaces
 //   pins a LINEAR_WORKSPACES URL-key entry to the org id it first admitted.
-//   Keys are stored lower-cased. A block by org id also remembers the URL
-//   key it was made under or pinned from (url_key), so `unblock <URL key>`
-//   still finds it once nothing else knows that key (after a purge, or for
-//   a workspace refused at sign-in). Both outlive a workspace's purge;
+//   Keys are stored lower-cased. Both outlive a workspace's purge (the
+//   blocks' url_key column is migration 6's);
 // - notifications get an index on created_at for bounded retention.
 const MULTI_WORKSPACE: readonly string[] = [
   'ALTER TABLE sessions ADD COLUMN workspace_name text',
@@ -263,8 +264,7 @@ const MULTI_WORKSPACE: readonly string[] = [
     key text PRIMARY KEY CHECK (key = lower(key)),
     kind text NOT NULL CHECK (kind IN ('id', 'url_key')),
     reason text,
-    created_at timestamptz NOT NULL,
-    url_key text CHECK (url_key = lower(url_key))
+    created_at timestamptz NOT NULL
   )`,
   `CREATE TABLE admitted_workspaces (
     entry text PRIMARY KEY CHECK (entry = lower(entry)),
@@ -272,6 +272,49 @@ const MULTI_WORKSPACE: readonly string[] = [
     created_at timestamptz NOT NULL
   )`,
   'CREATE INDEX notifications_created_idx ON notifications (created_at)',
+];
+
+// A block by org id also remembers the URL key it was made under or pinned
+// from (url_key, lower-cased), so `unblock <URL key>` still finds it once
+// nothing else knows that key (after a purge, or for a workspace refused at
+// sign-in). The column first shipped inside migration 5 on a development
+// branch; migration 5 is back to its first text and this adds the column
+// only where it is missing, so a database that applied either text of
+// migration 5 ends with the same column and CHECK (Postgres skips the whole
+// column definition, its constraint too, when the column exists).
+const BLOCK_URL_KEY: readonly string[] = [
+  `ALTER TABLE blocked_workspaces
+    ADD COLUMN IF NOT EXISTS url_key text CHECK (url_key = lower(url_key))`,
+];
+
+// When the latest full sync attempt started (recordFullSyncStart). The
+// finish time (last_full_sync_at) is written only by an attempt that
+// ends, so a sync killed with the worker's tick left no trace, and the
+// worker kept starting that workspace first on every tick. Ordering by the
+// later of the two lets the workspaces it never reached go first.
+const SYNC_ATTEMPT_START: readonly string[] = [
+  'ALTER TABLE sync_state ADD COLUMN last_full_sync_started_at timestamptz',
+];
+
+// When the installation's name and URL key were last read from Linear (an
+// install, a full sync, a sign-in, cleanup's identity read). Admission
+// matches a session's own sign-in URL key only when the session signed in
+// after that read, so a key Linear gave the workspace before a rename never
+// pins a LINEAR_WORKSPACES entry another org took since. Null (rows from
+// before this migration) until the next read.
+const URL_KEY_READ_AT: readonly string[] = [
+  'ALTER TABLE installations ADD COLUMN url_key_read_at timestamptz',
+];
+
+// When cleanup last tried to read a refused installation's URL key from
+// Linear, whether the read worked or not, and how many tries in a row
+// failed (recordUrlKeyCheck). The worker exits after every tick, so this
+// is how cleanup reads the ones checked longest ago first, a few per tick,
+// and logs a read that keeps failing at warn only the first time.
+const URL_KEY_CHECKS: readonly string[] = [
+  'ALTER TABLE installations ADD COLUMN url_key_checked_at timestamptz',
+  `ALTER TABLE installations
+    ADD COLUMN url_key_check_failures integer NOT NULL DEFAULT 0`,
 ];
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -288,6 +331,14 @@ export const MIGRATIONS: readonly Migration[] = [
     statements: ISSUE_ENTRY_INDEX,
   },
   { version: 5, name: 'multi_workspace', statements: MULTI_WORKSPACE },
+  { version: 6, name: 'blocked_workspace_url_key', statements: BLOCK_URL_KEY },
+  {
+    version: 7,
+    name: 'full_sync_attempt_start',
+    statements: SYNC_ATTEMPT_START,
+  },
+  { version: 8, name: 'url_key_read_at', statements: URL_KEY_READ_AT },
+  { version: 9, name: 'url_key_checks', statements: URL_KEY_CHECKS },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise

@@ -55,6 +55,7 @@ import {
   ORDER_FROM_WEIGHT,
   priorityChange,
   refusalRefreshes,
+  staleUndoToast,
   rowMenuOptions,
   rowOverlay,
   stateChange,
@@ -1423,6 +1424,47 @@ describe('menus', () => {
 });
 
 describe('a refused change or Undo in a tab left on another workspace', () => {
+  test('an Undo refused after earlier requests went through says what was undone', () => {
+    const MESSAGE =
+      'This tab shows Acme, but this browser switched to Globex in another tab. Reload to continue in Globex, or switch back to Acme.';
+    const refusal = { message: MESSAGE, tabWorkspaceName: 'Acme' };
+    // Nothing went through: the refusal's own toast (with Reload) says it.
+    expect(staleUndoToast([], 3, refusal)).toBeNull();
+    const first = result({
+      outcomes: [
+        {
+          status: 'changed',
+          issueId: 'iss-eng-54',
+          identifier: 'ENG-54',
+          changed: ['projectMilestoneId'],
+          before: BEFORE_54,
+        },
+        { status: 'unchanged', issueId: 'iss-eng-55', identifier: 'ENG-55' },
+      ],
+    });
+    // The first request undid two issues; the third issue's request was
+    // refused, and the rows here cannot refresh to show the two back. A
+    // reload would continue in Globex, so it points back to Acme.
+    expect(staleUndoToast([first], 3, refusal)).toEqual({
+      kind: 'error',
+      label: 'Partly undone',
+      message:
+        'Undid 2 of 3: This tab shows Acme, but this browser switched to Globex in another tab. Reload to continue in Globex, or switch back to Acme. The rows here keep their old values; switch back to Acme to see what was undone.',
+      action: null,
+      duration: 12_000,
+    });
+    // The browser no longer holds this tab's workspace: no name to give.
+    expect(
+      staleUndoToast([first], 3, {
+        message:
+          'This tab shows another workspace, but this browser switched to Globex in another tab. Reload to continue in Globex.',
+        tabWorkspaceName: null,
+      })?.message
+    ).toBe(
+      'Undid 2 of 3: This tab shows another workspace, but this browser switched to Globex in another tab. Reload to continue in Globex. The rows here keep their old values; open the workspace this tab shows again to see what was undone.'
+    );
+  });
+
   test('never refreshes on workspace_changed; every other refusal may', () => {
     expect(refusalRefreshes('workspace_changed')).toBe(false);
     for (const code of ['not_found', 'conflict', 'rate_limited', null]) {
@@ -1452,9 +1494,15 @@ describe('a refused change or Undo in a tab left on another workspace', () => {
     );
     const asked = undo.indexOf('!refusalRefreshes(refusal.code)');
     expect(asked).toBeGreaterThan(0);
-    const branch = undo.slice(asked, undo.indexOf('return;', asked));
+    const branch = undo.slice(
+      asked,
+      undo.indexOf('refreshAfter(batch, origin)')
+    );
     expect(branch).toContain('dropBatch(batch)');
     expect(branch).toContain('refused(refusal)');
+    // Earlier requests that went through are reported, with Reload.
+    expect(branch).toContain('staleUndoToast(results, requested, refusal)');
+    expect(branch).toContain("label: 'Reload'");
     expect(branch).not.toContain('refreshAfter');
     expect(asked).toBeLessThan(undo.indexOf('refreshAfter(batch, origin)'));
     const commit = source.slice(source.indexOf('const commit = useCallback('));

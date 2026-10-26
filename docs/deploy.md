@@ -303,24 +303,40 @@ Each service builds its own image from the same Dockerfile.
   your workspace** by watching `railway cron list` after a failed run.
 - No public domain, no healthcheck and no `PORT` are needed.
 
-Each tick does the following for every installed workspace (arch §9):
+Each tick does the following (arch §9):
 
-- When the local time in that workspace's timezone (Settings) has reached
+- First, housekeeping (arch §9 "Cleanup"), before any workspace: expired
+  sessions are deleted and their Linear grants revoked; the sessions of a
+  workspace that was uninstalled in Linear or removed are ended (their grants
+  revoked), except sessions started after the revoke (an admin signing in to
+  reinstall); such a workspace's data is purged 30 days after the revoke unless
+  it was installed again (a few per tick; a workspace whose grant Linear refused
+  is never purged on its own); webhook delivery records older than 30 days,
+  digests older than 90 days and daily job records older than 30 days are
+  pruned. The audit log and the run log are kept for as long as the workspace
+  stays installed. A blocked workspace that is still installed is removed. An
+  installed workspace `LINEAR_WORKSPACES` leaves out is **not** removed: it is
+  only not served (a soft gate; a warning per tick names it and the fix, section
+  5), and when one of the list's URL keys is not tied to a workspace yet, the
+  tick reads the current URL key of a few such workspaces from Linear last,
+  after the revocations and purges (a rename no sync has seen), and serves one
+  again if the list names it. Housekeeping gets at most 2 minutes, and at most
+  half of `TICK_TIMEOUT_MINUTES`, for work that calls Linear: it starts a batch
+  of revocations or a purge only when it can finish it in time even if Linear
+  answers each revocation only at its 15-second timeout, and leaves the rest for
+  the next tick (the summary line says `left for the next tick: …`). A purge
+  whose workspace still has more sessions than one tick can revoke (about 24)
+  ends them over a few ticks, then purges; the log names
+  `purge --workspace <id> --yes` to do it at once.
+- Then, for every installed workspace it admits, least recently attempted first:
+  when the local time in that workspace's timezone (Settings) has reached
   `DAILY_RUN_AT` (default `08:00`), the tick runs **the daily job**: sync,
   allocation in the workspace's mode, then warnings. A claim makes it run once
   per local day, so the job runs on the first tick at or after 08:00 local.
 - Otherwise the tick runs a plain **full resync**. That resync is what picks up
-  milestone and relation changes, which have no webhooks.
-- Afterwards it runs housekeeping (arch §9): expired sessions are deleted and
-  their Linear grants revoked; an installed workspace `LINEAR_WORKSPACES` no
-  longer admits is removed; the sessions of a workspace that was uninstalled in
-  Linear or removed are ended (their grants revoked), except sessions started
-  after the revoke (an admin signing in to reinstall); such a workspace's data
-  is purged 30 days after the revoke unless it was installed again (a few per
-  tick; a workspace whose grant Linear refused is never purged on its own);
-  webhook delivery records older than 30 days, digests older than 90 days and
-  daily job records older than 30 days are pruned. The audit log and the run log
-  are kept for as long as the workspace stays installed.
+  milestone and relation changes, which have no webhooks. Every sync records
+  when it started, so a workspace whose sync is cut off by the deadline goes
+  after the others next tick instead of first again.
 
 Two details about the daily time:
 
@@ -535,7 +551,7 @@ operator commands are in "Operating several workspaces" below):
 - `migrate`
 - `sync`
 - `daily [--force]`
-- `allocate --dry-run`, or `allocate --live --workspace <id>`
+- `allocate --dry-run`, or `allocate --live --workspace <id> [--override-mode]`
 - `warn`
 - `tick`
 - `serve`
@@ -543,15 +559,19 @@ operator commands are in "Operating several workspaces" below):
 All of them take `[--workspace <id>]`, except `migrate`. `allocate --live`
 requires it: a live run writes to Linear (assignments, state moves, comments) as
 the app, so it runs in the one workspace you name, never in every workspace at
-once (some may have left allocation on dry run in Settings). They need the
-production variables and the private network. `sync`, `daily`, `allocate` and
-`warn` stop with exit 1 after `TICK_TIMEOUT_MINUTES`, like `tick`, naming the
-stage they were stuck in, so a manual run never overlaps a tick that takes over
-the daily job. `migrate` has no time limit: if a migration takes longer than one
-run's budget (every command applies pending migrations when it starts), apply it
-with `migrate`. `railway cron run` runs the worker's configured `tick`. For
-anything else, run the command in the `web` service with `railway ssh`, as
-"Running them on Railway" below shows (the web image contains the worker):
+once (some may have left allocation on dry run in Settings). It also refuses a
+workspace whose saved allocation mode (Settings) is still dry run (exit 1,
+nothing written), since `/terms` tells people allocation writes only once
+someone switched it to live; add `--override-mode` only when you mean to write
+to Linear there anyway (the terms say you can). They need the production
+variables and the private network. `sync`, `daily`, `allocate` and `warn` stop
+with exit 1 after `TICK_TIMEOUT_MINUTES`, like `tick`, naming the stage they
+were stuck in, so a manual run never overlaps a tick that takes over the daily
+job. `migrate` has no time limit: if a migration takes longer than one run's
+budget (every command applies pending migrations when it starts), apply it with
+`migrate`. `railway cron run` runs the worker's configured `tick`. For anything
+else, run the command in the `web` service with `railway ssh`, as "Running them
+on Railway" below shows (the web image contains the worker):
 `railway ssh --service web -- node /app/apps/worker/dist/index.js sync --workspace <org id>`.
 If that session does not see the service's variables (the check is in that
 section), temporarily change the worker's start command and use
@@ -638,8 +658,9 @@ wiped, for one of three reasons (arch §7 "Revoking"):
   the reinstall), so the cron job turns red instead of quietly doing nothing
   while allocation and warnings have stopped (arch §7.1, §9). An uninstall also
   ends up here when Linear's `OAuthApp` revoked webhook never arrived (the
-  webhook was disabled, or `LINEAR_WEBHOOK_SECRET` did not match), so its data
-  would be kept past the 30 days `/privacy` promises. When the workspace's admin
+  webhook was disabled, or `LINEAR_WEBHOOK_SECRET` did not match). `/privacy`
+  says such a workspace's data is kept until you remove it (its 30 days count
+  from Linear's uninstall notice), so act on it. When the workspace's admin
   confirms they uninstalled the app (or nobody will reinstall), run
   `remove --workspace <id>`, which starts the 30-day purge, or `remove` and, 15
   minutes later, `purge --workspace <id> --yes` to delete it now. **After
@@ -684,7 +705,16 @@ again). Boot logs a warning for every installed workspace a list leaves out
 and every tick's housekeeping repeats it
 (`cleanup: … 1 installed workspace not served (LINEAR_WORKSPACES leaves it out)`).
 Only `remove`, `block` and `purge` (below) uninstall a workspace, sign its
-people out for good or delete its data.
+people out for good or delete its data. A workspace listed by a URL key it got
+from a rename the planner has not seen yet (no sync runs for a workspace that is
+not served) is not stuck: while that URL-key entry is not tied to a workspace,
+each tick's housekeeping, after its other work, reads the current URL key of up
+to 5 such workspaces from Linear with the app's token (those read longest ago
+first, each read given 10 seconds at most) and serves one again in the same tick
+when the entry matches
+(`1 installed workspace admitted again (its URL key read from Linear)`); its
+people who signed in under the new key stay signed in meanwhile. A read that
+keeps failing is logged at `warn` once, then at `info`.
 
 The value (arch §7 "Admission"):
 
@@ -732,8 +762,9 @@ can use the planner.
 **How a tick handles many workspaces** (arch §9 "Scaling"):
 
 - It works on `WORKER_CONCURRENCY` workspaces at once (default 3), least
-  recently synced first, so the workspaces a tick could not reach run first on
-  the next one.
+  recently attempted first (a sync counts from when it started, so one that the
+  time limit cut off goes after the others), so the workspaces a tick could not
+  reach run first on the next one.
 - It starts a workspace only with at least 3 minutes, or twice that workspace's
   last full sync time, left before `TICK_TIMEOUT_MINUTES`, and a daily job only
   with at least 5 minutes left. Anything it cannot start is logged as
@@ -764,7 +795,9 @@ Which outcomes turn the cron red (exit 1):
   (`stuck while running tick (workspaces still running: <id>)`). One named on
   every tick has a sync that never fits: raise `TICK_TIMEOUT_MINUTES` (at
   most 14) or `remove` it. Housekeeping runs first in every tick, so purges and
-  session revocations go on meanwhile.
+  session revocations go on meanwhile, and the stuck workspace goes after the
+  others on the next tick, so they keep syncing too (each of its ticks still
+  ends in exit 1 until you act).
 
 **Operator commands.** These list and manage the workspaces this deployment
 holds. They run from the worker's command line only; nothing in the planner
@@ -779,6 +812,7 @@ admin can rename a URL key). They are refused with personal API keys.
 | `purge --workspace <name> --yes`             | deletes everything the planner keeps for a revoked workspace now (mirror, settings, run log, audit log). Run `remove` first and wait 15 minutes. Without `--yes` it does nothing              |
 | `block --workspace <name> [--reason <text>]` | refuses the workspace from now on (sign-in, install, webhooks, the worker); removes it when installed and ends its sessions                                                                   |
 | `unblock --workspace <name>`                 | lifts a block, also one made under a URL key nothing here knows any more (a purged workspace, or one refused at sign-in). The workspace stays removed until an admin installs the app again   |
+| `unpin --entry <url key>`                    | frees a `LINEAR_WORKSPACES` URL-key entry from the workspace it was first matched to, so the workspace that holds that URL key now can be admitted by it. Nothing else changes                |
 
 Typical uses:
 
@@ -790,6 +824,12 @@ Typical uses:
   warn about it). To also uninstall it and start the 30-day purge, run `remove`;
   to keep it out for good, also while `LINEAR_WORKSPACES` is `*`, `block` it
   (which removes it and ends its sessions).
+- **A URL-key entry admits the wrong workspace now**: the list names `acme`,
+  which was tied to the workspace that first signed in under it; that workspace
+  renamed its URL key and another one took `acme`, but the entry still admits
+  only the first. Run `unpin --entry acme`: the next workspace that signs in or
+  installs under `acme` is tied to it. Better, replace the entry with the
+  organization id you mean.
 
 **Running them on Railway.** The worker service is a cron job: its container
 runs only while a tick does, so there is normally nothing to connect to. Run the
@@ -806,6 +846,7 @@ railway ssh --service web -- node /app/apps/worker/dist/index.js remove --worksp
 railway ssh --service web -- node /app/apps/worker/dist/index.js purge --workspace <org id> --yes
 railway ssh --service web -- node /app/apps/worker/dist/index.js block --workspace <org id or URL key> --reason "<why>"
 railway ssh --service web -- node /app/apps/worker/dist/index.js unblock --workspace <org id or URL key>
+railway ssh --service web -- node /app/apps/worker/dist/index.js unpin --entry <URL key>
 ```
 
 From Railway's documentation of `railway ssh`: it runs one command in the

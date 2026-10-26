@@ -1,7 +1,9 @@
 // cleanup(): expired sessions are deleted and (in real mode) their Linear
 // grants revoked best effort; webhook delivery records are kept 30 days.
+// With a deadline, work that calls Linear stops before it, and nothing
+// taken from the store is left unrevoked.
 
-import type { OAuthClientConfig } from '@better-tracker/linear';
+import type { FetchLike, OAuthClientConfig } from '@better-tracker/linear';
 import type { Store, StoredTokens } from '@better-tracker/store';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 
@@ -9,6 +11,8 @@ import {
   createEngine,
   createLinearProvider,
   type Engine,
+  PURGE_AFTER_DAYS,
+  REVOKE_WORST_MS,
   WEBHOOK_RETENTION_DAYS,
 } from '../src/index';
 import { createFakeLinear, type FakeLinear } from './fake-linear';
@@ -54,10 +58,11 @@ function userTokens(id: string, withRefresh: boolean): StoredTokens {
 async function session(
   id: string,
   expiresInMs: number,
-  withRefresh = true
+  withRefresh = true,
+  workspaceId = 'org-acme'
 ): Promise<string> {
   const created = await store.createSession({
-    workspaceId: 'org-acme',
+    workspaceId,
     userId: `u-${id}`,
     userName: id,
     tokens: userTokens(id, withRefresh),
@@ -66,27 +71,33 @@ async function session(
   return created.token;
 }
 
-beforeEach(async () => {
-  clock = createClock(START);
-  store = await openTestStore(clock);
-  fake = createFakeLinear();
+// An engine over the shared store and clock whose Linear calls go through
+// `fetch`.
+function engineWith(fetch: FetchLike): Engine {
   const logs = recordingLogger();
   lines = logs.lines;
-  engine = createEngine({
+  return createEngine({
     store,
     linear: createLinearProvider({
       store,
       oauth: OAUTH,
       logger: logs.logger,
       now: clock.now,
-      fetch: fake.fetch,
+      fetch,
     }),
     channel: recordingChannel(),
     logger: logs.logger,
     config: { ...TEST_CONFIG, oauth: OAUTH },
     now: clock.now,
-    fetch: fake.fetch,
+    fetch,
   });
+}
+
+beforeEach(async () => {
+  clock = createClock(START);
+  store = await openTestStore(clock);
+  fake = createFakeLinear();
+  engine = engineWith(fake.fetch);
 });
 afterEach(async () => {
   // Revoked or not, no credential is ever logged.
@@ -111,6 +122,8 @@ describe('cleanup in real mode', () => {
       oldNotifications: 0,
       oldJobClaims: 0,
       notServedWorkspaces: 0,
+      reAdmittedWorkspaces: 0,
+      deferred: [],
     });
     // The refresh token ends the grant; without one, the access token.
     expect(fake.revoked).toEqual([
@@ -209,6 +222,204 @@ describe('cleanup in real mode', () => {
   });
 });
 
+describe('cleanup within a deadline', () => {
+  // Linear's revoke endpoint answering only at its timeout: every
+  // revocation moves the clock on by that long.
+  const SLOW_REVOKE_MS = REVOKE_WORST_MS - 1000;
+  function slowRevokes(): FetchLike {
+    return (input, init) => {
+      if (String(input) === 'https://api.linear.app/oauth/revoke') {
+        clock.set(at(SLOW_REVOKE_MS));
+      }
+      return fake.fetch(input, init);
+    };
+  }
+  const deadlineIn = (ms: number): Date => new Date(clock.now().getTime() + ms);
+  // The same endpoint answering at its timeout, with revocations in flight
+  // at once taking that long together (each one moves the clock to its
+  // own start plus the timeout), as they would against real Linear.
+  function slowParallelRevokes(): FetchLike {
+    return async (input, init) => {
+      if (String(input) === 'https://api.linear.app/oauth/revoke') {
+        const started = clock.now().getTime();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const done = started + SLOW_REVOKE_MS;
+        if (done > clock.now().getTime()) {
+          clock.set(new Date(done).toISOString());
+        }
+      }
+      return fake.fetch(input, init);
+    };
+  }
+
+  // An installation of `workspaceId`, revoked as `reason` `ageDays` ago.
+  async function revokedWorkspace(
+    workspaceId: string,
+    reason: 'uninstalled' | 'removed',
+    ageDays: number
+  ): Promise<void> {
+    await store.saveInstallation({
+      workspaceId,
+      workspaceName: workspaceId,
+      urlKey: workspaceId,
+      appUserId: 'u-app',
+      installedByUserId: 'u-admin',
+      revokedAt: null,
+      tokens: userTokens(`app-${workspaceId}`, true),
+      createdAt: at(-90 * DAY_MS),
+      updatedAt: at(-90 * DAY_MS),
+    });
+    await store.revokeInstallation(workspaceId, reason, at(-ageDays * DAY_MS));
+  }
+
+  test('a slow revoke endpoint stops it at the deadline, every session it took revoked', async () => {
+    for (let i = 0; i < 60; i += 1) {
+      await session(String(i), -DAY_MS - i * 1000);
+    }
+    // Shares the store (the afterEach closes it once).
+    const slow = engineWith(slowRevokes());
+    const deadline = deadlineIn(2 * 60_000);
+    const first = await slow.cleanup({ deadline });
+    // Each batch is what the time left can revoke at the endpoint's
+    // timeout, so the pass ends before the deadline, having revoked
+    // every session it deleted, and says it left some.
+    expect(first.expiredSessions).toBe(Math.floor(120_000 / REVOKE_WORST_MS));
+    expect(first.revokedTokens).toBe(first.expiredSessions);
+    expect(fake.revoked).toHaveLength(first.expiredSessions);
+    expect(first.deferred).toEqual(['expired_sessions']);
+    expect(clock.now().getTime()).toBeLessThanOrEqual(deadline.getTime());
+    // The rest is still there for the next pass, which carries on.
+    const left = 60 - first.expiredSessions;
+    const second = await slow.cleanup({ deadline: deadlineIn(60 * 60_000) });
+    expect(second).toMatchObject({
+      expiredSessions: left,
+      revokedTokens: left,
+      deferred: [],
+    });
+    expect(new Set(fake.revoked.map((r) => r.token)).size).toBe(60);
+  });
+
+  test('with no time left it starts no revocation or purge, and still prunes', async () => {
+    await session('old', -DAY_MS);
+    await revokedWorkspace('org-gone', 'uninstalled', PURGE_AFTER_DAYS + 1);
+    // Created before its workspace's removal (revoked one minute from now).
+    await session('removed', DAY_MS, true, 'org-removed');
+    await store.saveInstallation({
+      workspaceId: 'org-removed',
+      workspaceName: 'Removed',
+      urlKey: 'removed',
+      appUserId: 'u-app',
+      installedByUserId: 'u-admin',
+      revokedAt: null,
+      tokens: userTokens('app-removed', true),
+      createdAt: at(-DAY_MS),
+      updatedAt: at(-DAY_MS),
+    });
+    await store.revokeInstallation('org-removed', 'removed', at(60_000));
+    await store.recordWebhookDelivery({
+      deliveryId: 'd-old',
+      workspaceId: 'org-acme',
+      type: 'Issue',
+      action: 'update',
+      entityId: 'iss-1',
+      receivedAt: at(-31 * DAY_MS),
+    });
+
+    const result = await engine.cleanup({ deadline: deadlineIn(0) });
+    expect(result).toMatchObject({
+      expiredSessions: 0,
+      endedWorkspaceSessions: 0,
+      purgedWorkspaces: 0,
+      oldDeliveries: 1,
+      deferred: ['expired_sessions', 'workspace_sessions', 'purges'],
+    });
+    expect(fake.revoked).toEqual([]);
+    expect(await store.getInstallation('org-gone')).not.toBeNull();
+
+    // Without a deadline the same pass does all of it.
+    expect(await engine.cleanup()).toMatchObject({
+      expiredSessions: 1,
+      endedWorkspaceSessions: 1,
+      purgedWorkspaces: 1,
+      deferred: [],
+    });
+    expect(fake.revoked).toHaveLength(2);
+  });
+
+  test('a purge starts only when its sessions can be revoked in the time left', async () => {
+    await revokedWorkspace('org-gone', 'uninstalled', PURGE_AFTER_DAYS + 1);
+    // Signed in after the uninstall (kept by the session step), deleted
+    // and revoked by the purge.
+    for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) {
+      await session(id, DAY_MS, true, 'org-gone');
+    }
+    const slow = engineWith(slowParallelRevokes());
+    // Two rounds of four revocations plus the transaction's allowance do
+    // not fit in 30 s: the pass ends the four one round can revoke, and
+    // the purge waits.
+    const tight = await slow.cleanup({ deadline: deadlineIn(30_000) });
+    expect(tight).toMatchObject({
+      purgedWorkspaces: 0,
+      endedWorkspaceSessions: 4,
+      deferred: ['purges'],
+    });
+    expect(await store.getInstallation('org-gone')).not.toBeNull();
+    const roomy = await slow.cleanup({ deadline: deadlineIn(2 * 60_000) });
+    expect(roomy).toMatchObject({
+      purgedWorkspaces: 1,
+      endedWorkspaceSessions: 0,
+      deferred: [],
+    });
+    expect(fake.revoked.map((r) => r.token).toSorted()).toEqual([
+      'r-p1',
+      'r-p2',
+      'r-p3',
+      'r-p4',
+      'r-p5',
+    ]);
+  });
+
+  test('a due purge with too many sessions to fit ends them over several passes, then purges', async () => {
+    await revokedWorkspace('org-big', 'uninstalled', PURGE_AFTER_DAYS + 1);
+    // Signed in after the uninstall, so only the purge ends them.
+    for (let i = 0; i < 60; i += 1) {
+      await session(`big-${i}`, DAY_MS, true, 'org-big');
+    }
+    const slow = engineWith(slowParallelRevokes());
+    const passes: Array<{ ended: number; purged: number }> = [];
+    for (let pass = 0; pass < 6; pass += 1) {
+      const deadline = deadlineIn(2 * 60_000);
+      const result = await slow.cleanup({ deadline });
+      // Every pass ends before its deadline.
+      expect(clock.now().getTime()).toBeLessThanOrEqual(deadline.getTime());
+      passes.push({
+        ended: result.endedWorkspaceSessions ?? 0,
+        purged: result.purgedWorkspaces ?? 0,
+      });
+      if ((result.purgedWorkspaces ?? 0) > 0) break;
+      expect(result.deferred).toContain('purges');
+      clock.set(at(15 * 60_000));
+    }
+    // 60 sessions need 15 rounds of 4 revocations: more than one pass can
+    // hold. Each pass ends what its time can revoke (7 rounds of 4 in 2
+    // minutes), and the purge comes once the rest fits.
+    expect(passes).toEqual([
+      { ended: 28, purged: 0 },
+      { ended: 28, purged: 0 },
+      { ended: 0, purged: 1 },
+    ]);
+    expect(await store.getInstallation('org-big')).toBeNull();
+    // Every grant revoked once, by a batch or by the purge.
+    const revoked = fake.revoked.map((r) => r.token);
+    expect(revoked).toHaveLength(60);
+    expect(new Set(revoked).size).toBe(60);
+    // The hint names the operator's purge with its --yes.
+    expect(
+      lines.some((l) => l.includes("run 'purge --workspace org-big --yes'"))
+    ).toBe(true);
+  });
+});
+
 describe('cleanup in demo mode', () => {
   test('deletes expired demo sessions without calling Linear', async () => {
     const h = await createDemoHarness({ clock: createClock(START) });
@@ -225,6 +436,8 @@ describe('cleanup in demo mode', () => {
         oldNotifications: 0,
         oldJobClaims: 0,
         notServedWorkspaces: 0,
+        reAdmittedWorkspaces: 0,
+        deferred: [],
       });
     } finally {
       await h.close();

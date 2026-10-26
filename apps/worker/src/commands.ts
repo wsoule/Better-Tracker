@@ -1,16 +1,18 @@
 // The worker's commands (architecture §9) over the engine. A command over
 // every workspace plans them from the engine's overview (scaling.ts): the
 // active, admitted ones run, WORKER_CONCURRENCY at a time, least recently
-// synced first, each only when there is time left to finish it; the rest
+// attempted first, each only when there is time left to finish it; the rest
 // are skipped (uninstalled, removed, blocked, not admitted) or failed (a
 // dead app grant). A failure in one is logged and recorded, and the others
 // still run. The result carries one outcome per workspace, from which the
 // exit code and the one-line human summary are derived. The operator's
 // workspace commands are in operator.ts.
 
-import { isValidTimeZone } from '@better-tracker/core';
+import { type AllocationMode, isValidTimeZone } from '@better-tracker/core';
 import type {
+  CleanupOptions,
   CleanupResult,
+  CleanupStep,
   DailyResult,
   Engine,
   SyncResult,
@@ -24,10 +26,12 @@ import {
   type CommandName,
   isOperatorCommandName,
   LIVE_ALLOCATE_NEEDS_WORKSPACE,
+  LIVE_ALLOCATE_SAVED_DRY_RUN,
   type OperatorCommand,
 } from './cli';
 import type { WorkerConfig } from './config';
 import {
+  cleanupDeadline,
   dailyStartNeedMs,
   formatDuration,
   isChronic,
@@ -46,17 +50,20 @@ export type AllocationRunResult = Awaited<ReturnType<Engine['runAllocation']>>;
  * The slice of the engine the worker uses. `workspaceTimezone` resolves a
  * workspace's saved timezone (falling back to DEFAULT_TIMEZONE when the
  * saved one is invalid, as the engine itself does), so the schedule
- * decision and the engine's "today" agree. The workspace lifecycle methods
- * are the operator commands' (operator.ts); nothing else calls them.
+ * decision and the engine's "today" agree; `workspaceAllocationMode` is
+ * its saved allocation mode (`allocate --live` refuses dry run). The
+ * workspace lifecycle methods are the operator commands' (operator.ts);
+ * nothing else calls them.
  */
 export interface WorkerEngine {
   readonly mode: 'linear' | 'fixture';
   /**
-   * Every workspace the store knows, least recently synced first, with
+   * Every workspace the store knows, least recently attempted first, with
    * its installation, sync state, sessions and admission's verdict.
    */
   listWorkspaceStatus(): Promise<WorkspaceOverview[]>;
   workspaceTimezone(workspaceId: string): Promise<string>;
+  workspaceAllocationMode(workspaceId: string): Promise<AllocationMode>;
   fullSync(workspaceId: string): Promise<SyncResult>;
   runDaily(input: {
     workspaceId: string;
@@ -66,11 +73,12 @@ export interface WorkerEngine {
   }): Promise<DailyResult>;
   runAllocation: Engine['runAllocation'];
   runWarnings(input: { workspaceId: string }): Promise<WarningRunResult>;
-  cleanup(): Promise<CleanupResult>;
+  cleanup(options?: CleanupOptions): Promise<CleanupResult>;
   removeWorkspace: Engine['removeWorkspace'];
   purgeWorkspaceNow: Engine['purgeWorkspaceNow'];
   blockWorkspace: Engine['blockWorkspace'];
   unblockWorkspace: Engine['unblockWorkspace'];
+  unpinWorkspaceEntry: Engine['unpinWorkspaceEntry'];
   listBlockedWorkspaces: Engine['listBlockedWorkspaces'];
   close(): Promise<void>;
 }
@@ -88,16 +96,19 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
         ? settings.timezone
         : engine.config.defaultTimezone;
     },
+    workspaceAllocationMode: async (workspaceId) =>
+      (await engine.getSettings(workspaceId)).allocationMode,
     fullSync: (workspaceId) => engine.fullSync(workspaceId),
     runDaily: (input) => engine.runDaily(input),
     runAllocation: (input) => engine.runAllocation(input),
     runWarnings: (input) => engine.runWarnings(input),
-    cleanup: () => engine.cleanup(),
+    cleanup: (options) => engine.cleanup(options),
     removeWorkspace: (name) => engine.removeWorkspace(name),
     purgeWorkspaceNow: (name, options) =>
       engine.purgeWorkspaceNow(name, options),
     blockWorkspace: (name, reason) => engine.blockWorkspace(name, reason),
     unblockWorkspace: (name) => engine.unblockWorkspace(name),
+    unpinWorkspaceEntry: (entry) => engine.unpinWorkspaceEntry(entry),
     listBlockedWorkspaces: () => engine.listBlockedWorkspaces(),
     close: () => engine.close(),
   };
@@ -187,7 +198,7 @@ export function apiKeyModeOutcome(
   if (isOperatorCommandName(command)) {
     return {
       code: EXIT_FAILED,
-      line: `${command}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge or block`,
+      line: `${command}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge, block or unpin`,
     };
   }
   return {
@@ -589,22 +600,36 @@ async function dailyWorkspace(
   return describeDaily(await ctx.engine.runDaily({ workspaceId, force }));
 }
 
+/** How a tick's summary names a cleanup step left for the next tick. */
+const CLEANUP_STEP_LABEL: Record<CleanupStep, string> = {
+  expired_sessions: 'expired sessions',
+  workspace_sessions: 'sessions of uninstalled or removed workspaces',
+  purges: 'purges',
+  identity_reads: 'URL key reads',
+};
+
 // Housekeeping at the start of a tick (engine.cleanup(), arch §9
-// "Cleanup"), before any workspace: each of its steps is bounded per call,
-// while a workspace's sync is not, so one workspace too slow for
-// TICK_TIMEOUT_MINUTES can no longer starve every other workspace's
-// purges and session revocations by getting the tick killed first. Expired
-// sessions and those of uninstalled or removed workspaces (their Linear
-// grants revoked), purges 30 days after an uninstall or removal, and
-// retention for webhook deliveries, notifications and job claims; installed
-// workspaces LINEAR_WORKSPACES leaves out are counted (never removed). The
-// counts added for several workspaces are listed only when not zero.
+// "Cleanup"), before the workspaces are listed and run: one workspace too
+// slow for TICK_TIMEOUT_MINUTES can no longer starve every other
+// workspace's purges and session revocations by getting the tick killed
+// first, and a workspace cleanup admits again (its URL key read from
+// Linear) is served in the same tick. Each step is bounded per call, and
+// in time by cleanupDeadline (at most 2 minutes, at most half the time
+// left), so a slow Linear cannot starve the workspaces either; what it
+// leaves is named and done next tick. Expired sessions and those of
+// uninstalled or removed workspaces (their Linear grants revoked), purges
+// 30 days after an uninstall or removal, and retention for webhook
+// deliveries, notifications and job claims; installed workspaces
+// LINEAR_WORKSPACES leaves out are counted (never removed). The counts
+// added for several workspaces are listed only when not zero.
 async function runCleanup(
   ctx: CommandContext,
   result: CommandResult
 ): Promise<void> {
   try {
-    const cleaned = await ctx.engine.cleanup();
+    const cleaned = await ctx.engine.cleanup({
+      deadline: cleanupDeadline(ctx.now(), ctx.deadlineAt),
+    });
     const revoked =
       cleaned.revokeFailures > 0
         ? ` (${plural(cleaned.revokeFailures, 'revocation')} failed)`
@@ -627,9 +652,20 @@ async function runCleanup(
         'installed workspace not served (LINEAR_WORKSPACES leaves it out)',
         'installed workspaces not served (LINEAR_WORKSPACES leaves them out)',
       ],
+      [
+        cleaned.reAdmittedWorkspaces,
+        'installed workspace admitted again (its URL key read from Linear)',
+        'installed workspaces admitted again (their URL keys read from Linear)',
+      ],
     ];
     for (const [count = 0, one, many] of extra) {
       if (count > 0) parts.push(`${count} ${count === 1 ? one : many}`);
+    }
+    const deferred = cleaned.deferred ?? [];
+    if (deferred.length > 0) {
+      parts.push(
+        `left for the next tick: ${deferred.map((step) => CLEANUP_STEP_LABEL[step]).join(', ')}`
+      );
     }
     result.notes.push(`cleanup: ${parts.join(', ')}`);
   } catch (error) {
@@ -734,6 +770,10 @@ export async function runCommand(
     return result;
   }
 
+  // A tick's housekeeping comes first, before the listing: it may admit a
+  // workspace again, which then runs in this tick.
+  if (command.name === 'tick') await runCleanup(ctx, result);
+
   let targets: RunTarget[];
   let others: WorkspacePlan[] = [];
   try {
@@ -776,16 +816,29 @@ export async function runCommand(
       );
       break;
     case 'allocate':
-      result.outcomes = await run(async (id) =>
-        describeAllocation(
+      result.outcomes = await run(async (id) => {
+        // The person who runs the worker writes to Linear only where the
+        // workspace's own people switched allocation to live, unless they
+        // say they mean to override that (the terms page says so).
+        if (command.mode === 'live' && command.overrideMode !== true) {
+          const saved = await engine.workspaceAllocationMode(id);
+          if (saved !== 'live') {
+            return {
+              ok: false,
+              detail: 'allocation live not started',
+              error: LIVE_ALLOCATE_SAVED_DRY_RUN,
+            };
+          }
+        }
+        return describeAllocation(
           await engine.runAllocation({
             workspaceId: id,
             mode: command.mode,
             trigger: 'manual',
             actor: null,
           })
-        )
-      );
+        );
+      });
       break;
     case 'warn':
       result.outcomes = await run(async (id) => ({
@@ -794,7 +847,6 @@ export async function runCommand(
       }));
       break;
     case 'tick':
-      await runCleanup(ctx, result);
       result.outcomes = await run((id, status) =>
         tickWorkspace(ctx, id, status)
       );

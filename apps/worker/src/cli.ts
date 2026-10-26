@@ -9,15 +9,17 @@ import type { AllocationMode } from '@better-tracker/core';
  * The operator's workspace commands (OAuth mode; architecture §9
  * "Operator commands"): one deployment serves several Linear workspaces
  * (owner decision 2026-10-25), and these list, remove, purge, block and
- * unblock them. There is no operator role in the planner: they exist only
- * here, run by whoever can open a shell on the deployment.
+ * unblock them, and unpin a LINEAR_WORKSPACES URL-key entry. There is no
+ * operator role in the planner: they exist only here, run by whoever can
+ * open a shell on the deployment.
  */
 export type OperatorCommandName =
   | 'workspaces'
   | 'remove'
   | 'purge'
   | 'block'
-  | 'unblock';
+  | 'unblock'
+  | 'unpin';
 
 /** The worker's commands, in the order the usage text lists them. */
 export type CommandName =
@@ -39,7 +41,16 @@ export type CliCommand =
   | { name: 'migrate' }
   | { name: 'sync'; workspaceId: string | null }
   | { name: 'daily'; workspaceId: string | null; force: boolean }
-  | { name: 'allocate'; workspaceId: string | null; mode: AllocationMode }
+  | {
+      name: 'allocate';
+      workspaceId: string | null;
+      mode: AllocationMode;
+      /**
+       * `--override-mode`: a live run even where the workspace's saved
+       * allocation mode is dry run (absent: refused there).
+       */
+      overrideMode?: boolean;
+    }
   | { name: 'warn'; workspaceId: string | null }
   | { name: 'tick'; workspaceId: string | null }
   | { name: 'serve'; workspaceId: string | null }
@@ -47,7 +58,9 @@ export type CliCommand =
   | { name: 'remove'; workspace: string }
   | { name: 'purge'; workspace: string }
   | { name: 'block'; workspace: string; reason: string | null }
-  | { name: 'unblock'; workspace: string };
+  | { name: 'unblock'; workspace: string }
+  /** `entry`: a LINEAR_WORKSPACES URL-key entry, as typed. */
+  | { name: 'unpin'; entry: string };
 
 /** A parsed operator command. */
 export type OperatorCommand = Extract<
@@ -61,6 +74,7 @@ const OPERATOR_COMMANDS: readonly OperatorCommandName[] = [
   'purge',
   'block',
   'unblock',
+  'unpin',
 ];
 
 /** Whether `name` is one of the operator's workspace commands. */
@@ -93,6 +107,15 @@ const MAX_REASON_LENGTH = 500;
 export const LIVE_ALLOCATE_NEEDS_WORKSPACE =
   'allocate --live writes to Linear, so it runs for one workspace at a time: add --workspace <id> (allocate --dry-run may run for every workspace).';
 
+/**
+ * Why `allocate --live` refuses a workspace whose saved allocation mode
+ * is dry run: the terms page tells people allocation writes to Linear only
+ * once someone switches it to live in Settings. --override-mode is the
+ * operator saying so on purpose.
+ */
+export const LIVE_ALLOCATE_SAVED_DRY_RUN =
+  "the workspace's saved allocation mode is dry run, so allocate --live writes nothing there: switch it to live in Settings, or add --override-mode to write to Linear anyway";
+
 /** Why purge refuses to run without --yes. */
 export const PURGE_NEEDS_YES =
   'purge deletes everything the planner keeps for the workspace (its mirror, settings, run log and audit log) and cannot be undone; add --yes to confirm.';
@@ -113,14 +136,17 @@ Commands:
                                    workspace's allocation mode), warnings.
                                    Once per local day unless --force.
   allocate --dry-run [--workspace <id>]
-  allocate --live --workspace <id>
+  allocate --live --workspace <id> [--override-mode]
                                    Run allocation now in the given mode
-                                   (live writes to Linear: one workspace).
+                                   (live writes to Linear: one workspace,
+                                   and only if its saved mode is live,
+                                   unless --override-mode).
   warn     [--workspace <id>]      Run the warnings and digests now.
-  tick     [--workspace <id>]      What the cron runs every 15 minutes: the
-                                   daily job when it is due in the workspace's
-                                   timezone, otherwise a full resync; then
-                                   housekeeping.
+  tick     [--workspace <id>]      What the cron runs every 15 minutes:
+                                   housekeeping first (at most 2 minutes of
+                                   it calling Linear), then per workspace
+                                   the daily job when it is due in its
+                                   timezone, otherwise a full resync.
   serve    [--workspace <id>]      Run tick every SYNC_INTERVAL_MINUTES
                                    (default 15) until SIGTERM or SIGINT.
 
@@ -139,23 +165,30 @@ workspace's organization id or URL key:
                                    Refuse the workspace from now on; removes
                                    it when installed and ends its sessions.
   unblock  --workspace <name>      Lift a block (an admin reinstalls).
+  unpin    --entry <url key>       Free a LINEAR_WORKSPACES URL-key entry
+                                   from the workspace it was first matched
+                                   to, so the workspace that holds that URL
+                                   key now can be admitted by it.
 
 Every command except migrate and serve exits 1 when it is still running
 TICK_TIMEOUT_MINUTES (default 10, at most 14) after it started; serve
 applies that limit to its boot, each tick and its shutdown. A run over
 every workspace works on WORKER_CONCURRENCY (default 3) at once, least
-recently synced first, and leaves for the next tick any workspace it has
+recently attempted first, and leaves for the next tick any workspace it has
 no time left to start.
 
 Options:
   --workspace <id>   One Linear workspace id (default: every installed one;
-                     required for allocate --live); for operator commands,
-                     an org id or URL key (required).
+                     required for allocate --live); for remove, purge,
+                     block and unblock, an org id or URL key (required).
   --force            daily only: run even if today's run already happened.
   --dry-run, --live  allocate only: required, exactly one.
+  --override-mode    allocate --live only: run even where the workspace's
+                     saved allocation mode is dry run.
   --json             workspaces only: print JSON instead of a table.
   --yes              purge only: required.
   --reason <text>    block only: why, kept with the block (at most 500).
+  --entry <url key>  unpin only: the LINEAR_WORKSPACES entry (required).
   -h, --help         Show this help.
 
 Environment: see .env.example. DAILY_RUN_AT (default 08:00, HH:MM in each
@@ -182,9 +215,11 @@ function isCommandName(value: string): value is CommandName {
 interface RawOptions {
   command: CommandName | null;
   workspaceId: string | null;
+  entry: string | null;
   force: boolean;
   dryRun: boolean;
   live: boolean;
+  overrideMode: boolean;
   json: boolean;
   yes: boolean;
   reason: string | null;
@@ -242,6 +277,26 @@ function buildOperatorCommand(
   command: OperatorCommandName,
   raw: RawOptions
 ): ParseResult {
+  if (command === 'unpin') {
+    if (raw.workspaceId !== null) {
+      return {
+        kind: 'error',
+        message:
+          'unpin takes --entry <URL key> (a LINEAR_WORKSPACES entry), not --workspace.',
+      };
+    }
+    if (raw.entry === null) {
+      return { kind: 'error', message: 'unpin needs --entry <URL key>.' };
+    }
+    if (!WORKSPACE_NAME.test(raw.entry)) {
+      return {
+        kind: 'error',
+        message:
+          '--entry takes a LINEAR_WORKSPACES URL key (letters, digits and dashes, at most 64).',
+      };
+    }
+    return { kind: 'command', command: { name: 'unpin', entry: raw.entry } };
+  }
   if (command === 'workspaces') {
     if (raw.workspaceId !== null) {
       return {
@@ -290,8 +345,18 @@ function buildCommand(raw: RawOptions): ParseResult {
       message: `--reason is only valid for block, not ${command}.`,
     };
   }
-  if ((raw.dryRun || raw.live) && command !== 'allocate') {
-    const flag = raw.dryRun ? '--dry-run' : '--live';
+  if (raw.entry !== null && command !== 'unpin') {
+    return {
+      kind: 'error',
+      message: `--entry is only valid for unpin, not ${command}.`,
+    };
+  }
+  if ((raw.dryRun || raw.live || raw.overrideMode) && command !== 'allocate') {
+    const flag = raw.dryRun
+      ? '--dry-run'
+      : raw.live
+        ? '--live'
+        : '--override-mode';
     return {
       kind: 'error',
       message: `${flag} is only valid for allocate, not ${command}.`,
@@ -327,12 +392,20 @@ function buildCommand(raw: RawOptions): ParseResult {
       if (raw.live && workspaceId === null) {
         return { kind: 'error', message: LIVE_ALLOCATE_NEEDS_WORKSPACE };
       }
+      if (raw.overrideMode && !raw.live) {
+        return {
+          kind: 'error',
+          message:
+            '--override-mode is only valid for allocate --live (a dry run writes nothing).',
+        };
+      }
       return {
         kind: 'command',
         command: {
           name: 'allocate',
           workspaceId,
           mode: raw.live ? 'live' : 'dry_run',
+          ...(raw.overrideMode ? { overrideMode: true } : {}),
         },
       };
     case 'sync':
@@ -357,9 +430,11 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const raw: RawOptions = {
     command: null,
     workspaceId: null,
+    entry: null,
     force: false,
     dryRun: false,
     live: false,
+    overrideMode: false,
     json: false,
     yes: false,
     reason: null,
@@ -391,6 +466,15 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       index += read.used;
       continue;
     }
+    if (token === '--entry' || token.startsWith('--entry=')) {
+      const repeated = once('--entry');
+      if (repeated !== null) return repeated;
+      const read = readValue(argv, index, '--entry', '--entry needs a URL key');
+      if ('error' in read) return { kind: 'error', message: read.error };
+      raw.entry = read.value;
+      index += read.used;
+      continue;
+    }
     if (token === '--reason' || token.startsWith('--reason=')) {
       const repeated = once('--reason');
       if (repeated !== null) return repeated;
@@ -410,6 +494,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       token === '--force' ||
       token === '--dry-run' ||
       token === '--live' ||
+      token === '--override-mode' ||
       token === '--json' ||
       token === '--yes'
     ) {
@@ -418,6 +503,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       if (token === '--force') raw.force = true;
       else if (token === '--dry-run') raw.dryRun = true;
       else if (token === '--live') raw.live = true;
+      else if (token === '--override-mode') raw.overrideMode = true;
       else if (token === '--json') raw.json = true;
       else raw.yes = true;
       index += 1;

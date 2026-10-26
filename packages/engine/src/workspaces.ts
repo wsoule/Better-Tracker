@@ -11,7 +11,8 @@
 //   reads of a revoked workspace are already refused (requireInstallation),
 //   so the delay leaks nothing.
 // - The operator commands run from the worker's CLI only; no planner route
-//   calls them (there is no operator role in the planner).
+//   calls them (there is no operator role in the planner). `unpin` acts on
+//   a LINEAR_WORKSPACES entry's pin, not on a workspace.
 
 import type { IsoDateTime } from '@better-tracker/core';
 import type { OAuthClientConfig } from '@better-tracker/linear';
@@ -23,6 +24,7 @@ import type {
   WorkspaceStatus,
 } from '@better-tracker/store';
 
+import { admissionMode, forgetPin } from './admission';
 import { revokeGrant } from './auth';
 import type { EngineRuntime } from './runtime';
 import {
@@ -30,6 +32,7 @@ import {
   type WorkspaceBlock,
   type WorkspacePurge,
   type WorkspaceRemoval,
+  type WorkspaceUnpin,
 } from './types';
 
 /**
@@ -139,24 +142,48 @@ async function revokeTakenGrants(
 /**
  * Ends a workspace's sessions (only those created before `createdBefore`
  * when given), in batches, revoking each grant best effort. Stops at a
- * short batch (nothing left) or after `max` sessions. `why` names the
+ * short batch (nothing left), after `max` sessions, or when `batchLimit`
+ * (the caller's time budget: how many sessions it can still revoke)
+ * allows none; a batch never takes more than it allows, since taking
+ * deletes. With `purgeDueBefore`, each batch is taken only while the
+ * workspace's purge is still due (store.takeSessionsForWorkspace checks
+ * it under the installation's row lock), so a reinstall stops it.
+ * `cutShort` says it stopped while sessions may be left. `why` names the
  * sessions in the warning a failed revocation logs.
  */
 export async function endWorkspaceSessions(
   rt: EngineRuntime,
   workspaceId: string,
-  options: { createdBefore?: IsoDateTime; max: number; why: string }
-): Promise<SessionEnding> {
-  const ending: SessionEnding = {
+  options: {
+    createdBefore?: IsoDateTime;
+    purgeDueBefore?: IsoDateTime;
+    max: number;
+    why: string;
+    batchLimit?: () => number;
+  }
+): Promise<SessionEnding & { cutShort: boolean }> {
+  const ending: SessionEnding & { cutShort: boolean } = {
     ended: 0,
     revokedTokens: 0,
     revokeFailures: 0,
+    cutShort: false,
   };
-  while (ending.ended < options.max) {
-    const limit = Math.min(SESSION_BATCH, options.max - ending.ended);
+  for (;;) {
+    const limit = Math.min(
+      SESSION_BATCH,
+      options.max - ending.ended,
+      options.batchLimit?.() ?? Number.MAX_SAFE_INTEGER
+    );
+    if (limit <= 0) {
+      ending.cutShort = true;
+      break;
+    }
     const batch = await rt.store.takeSessionsForWorkspace(workspaceId, {
       createdBefore: options.createdBefore,
       limit,
+      ...(options.purgeDueBefore === undefined
+        ? {}
+        : { purgeDueBefore: options.purgeDueBefore }),
     });
     ending.ended += batch.length;
     await revokeTakenGrants(rt, batch, ending, options.why);
@@ -494,4 +521,38 @@ export async function unblockWorkspace(
     });
   }
   return removed;
+}
+
+/**
+ * The operator's `unpin` (Engine.unpinWorkspaceEntry): removes the pin of
+ * a LINEAR_WORKSPACES URL-key entry. A pin keeps naming the org it first
+ * admitted, also after that org renames away from the key, so another org
+ * that takes the key is refused for good; the operator lifts that here.
+ * Nothing else changes (no installation, session or block). This process
+ * forgets its cached pin; other processes' non-fresh checks may reuse
+ * theirs for up to ADMISSION_CACHE_MS. Logged at info with the id only.
+ */
+export async function unpinWorkspaceEntry(
+  rt: EngineRuntime,
+  entry: string
+): Promise<WorkspaceUnpin> {
+  requireOperatorMode(rt);
+  if (typeof entry !== 'string' || !WORKSPACE_NAME.test(entry)) {
+    throw new EngineInputError(
+      'invalid',
+      'Name a LINEAR_WORKSPACES URL key entry (letters, digits and dashes, at most 64).'
+    );
+  }
+  const key = entry.toLowerCase();
+  const workspaceId = await rt.store.deleteAdmittedPin(key);
+  forgetPin(rt, key);
+  const mode = admissionMode(rt);
+  const listed = mode.mode === 'list' && mode.entries.includes(key);
+  if (workspaceId !== null) {
+    rt.logger.info('a LINEAR_WORKSPACES pin was removed by the operator', {
+      workspaceId,
+      listed,
+    });
+  }
+  return { entry: key, workspaceId, listed };
 }

@@ -46,6 +46,15 @@ describe('parseArgs: commands', () => {
       ['allocate', '--live', '--workspace', 'org-1'],
       { name: 'allocate', workspaceId: 'org-1', mode: 'live' },
     ],
+    [
+      ['allocate', '--live', '--override-mode', '--workspace', 'org-1'],
+      {
+        name: 'allocate',
+        workspaceId: 'org-1',
+        mode: 'live',
+        overrideMode: true,
+      },
+    ],
     [['warn'], { name: 'warn', workspaceId: null }],
     [['tick'], { name: 'tick', workspaceId: null }],
     [['tick', '--workspace', 'org-1'], { name: 'tick', workspaceId: 'org-1' }],
@@ -82,6 +91,8 @@ describe('parseArgs: commands', () => {
       ['unblock', '--workspace', 'acme'],
       { name: 'unblock', workspace: 'acme' },
     ],
+    [['unpin', '--entry', 'acme'], { name: 'unpin', entry: 'acme' }],
+    [['--entry=Acme-Old', 'unpin'], { name: 'unpin', entry: 'Acme-Old' }],
   ])('%p', (argv, expected) => {
     expect(command(argv)).toEqual(expected);
   });
@@ -91,6 +102,7 @@ describe('parseArgs: commands', () => {
     expect(isOperatorCommand(command(['unblock', '--workspace', 'a']))).toBe(
       true
     );
+    expect(isOperatorCommand(command(['unpin', '--entry', 'a']))).toBe(true);
     expect(isOperatorCommand(command(['tick']))).toBe(false);
   });
 
@@ -128,9 +140,11 @@ describe('parseArgs: help', () => {
       'purge',
       'block',
       'unblock',
+      'unpin',
     ]) {
       expect(USAGE).toContain(`  ${name} `);
     }
+    expect(USAGE).toContain('--entry <url key>');
     expect(USAGE).toContain('WORKER_CONCURRENCY');
     expect(USAGE).toContain('2 usage error');
   });
@@ -169,10 +183,45 @@ describe('parseArgs: errors', () => {
     // A live run writes to Linear: never across every workspace, whose
     // saved allocation modes may be dry run.
     [['allocate', '--live'], LIVE_ALLOCATE_NEEDS_WORKSPACE],
+    [['allocate', '--live', '--override-mode'], LIVE_ALLOCATE_NEEDS_WORKSPACE],
+    [
+      ['allocate', '--dry-run', '--override-mode'],
+      '--override-mode is only valid for allocate --live (a dry run writes nothing).',
+    ],
+    [
+      ['tick', '--override-mode'],
+      '--override-mode is only valid for allocate, not tick.',
+    ],
+    [
+      ['allocate', '--live', '--override-mode', '--override-mode'],
+      '--override-mode was given more than once.',
+    ],
     [['migrate', '--workspace', 'a'], 'migrate does not take --workspace.'],
     [['migrate', '--', 'x'], 'Unknown option: --'],
     [['remove'], 'remove needs --workspace <org id or URL key>.'],
     [['unblock'], 'unblock needs --workspace <org id or URL key>.'],
+    [['unpin'], 'unpin needs --entry <URL key>.'],
+    [
+      ['unpin', '--workspace', 'acme'],
+      'unpin takes --entry <URL key> (a LINEAR_WORKSPACES entry), not --workspace.',
+    ],
+    [
+      ['unpin', '--entry', 'acme.example'],
+      '--entry takes a LINEAR_WORKSPACES URL key (letters, digits and dashes, at most 64).',
+    ],
+    [['unpin', '--entry'], '--entry needs a URL key'],
+    [
+      ['unpin', '--entry', 'a', '--entry', 'b'],
+      '--entry was given more than once.',
+    ],
+    [
+      ['unblock', '--workspace', 'a', '--entry', 'a'],
+      '--entry is only valid for unpin, not unblock.',
+    ],
+    [
+      ['unpin', '--entry', 'a', '--yes'],
+      '--yes is only valid for purge, not unpin.',
+    ],
     [
       ['remove', '--workspace', 'acme.example'],
       '--workspace takes an organization id or URL key (letters, digits and dashes, at most 64).',

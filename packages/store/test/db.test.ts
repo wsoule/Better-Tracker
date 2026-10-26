@@ -535,7 +535,12 @@ describe('runMigrations', () => {
         );
       }
 
-      expect(await runMigrations(fresh)).toEqual([5]);
+      expect(
+        await runMigrations(
+          fresh,
+          MIGRATIONS.filter((m) => m.version <= 5)
+        )
+      ).toEqual([5]);
 
       const installations = await fresh.query<Record<string, unknown>>(
         `SELECT workspace_id, revoked_reason, access_token_enc,
@@ -611,8 +616,6 @@ describe('runMigrations', () => {
          VALUES ('Acme', 'url_key', now())`,
         `INSERT INTO blocked_workspaces (key, kind, created_at)
          VALUES ('acme', 'name', now())`,
-        `INSERT INTO blocked_workspaces (key, kind, created_at, url_key)
-         VALUES ('org-acme', 'id', now(), 'Acme')`,
         `INSERT INTO admitted_workspaces (entry, workspace_id, created_at)
          VALUES ('Acme', 'ws-active', now())`,
       ]) {
@@ -620,6 +623,195 @@ describe('runMigrations', () => {
           /check constraint/
         );
       }
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  // Migration 5 as a development branch first shipped it, with url_key in
+  // blocked_workspaces' CREATE TABLE: a dev or e2e database may hold it.
+  const EDITED_MIGRATION_5: Migration = {
+    ...(MIGRATIONS.find((m) => m.version === 5) as Migration),
+    statements: (
+      MIGRATIONS.find((m) => m.version === 5) as Migration
+    ).statements.map((statement) =>
+      statement.includes('CREATE TABLE blocked_workspaces')
+        ? `CREATE TABLE blocked_workspaces (
+            key text PRIMARY KEY CHECK (key = lower(key)),
+            kind text NOT NULL CHECK (kind IN ('id', 'url_key')),
+            reason text,
+            created_at timestamptz NOT NULL,
+            url_key text CHECK (url_key = lower(url_key))
+          )`
+        : statement
+    ),
+  };
+
+  // blocked_workspaces' url_key column and its CHECK constraints, as the
+  // catalog has them.
+  async function blockUrlKeyShape(
+    sql: Sql
+  ): Promise<{ columns: string[]; checks: string[] }> {
+    const columns = await sql.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_name = 'blocked_workspaces' AND column_name = 'url_key'`
+    );
+    const checks = await sql.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+       WHERE conrelid = 'blocked_workspaces'::regclass AND contype = 'c'
+         AND pg_get_constraintdef(oid) LIKE '%lower(url_key)%'`
+    );
+    return {
+      columns: columns.map((row) => row.column_name),
+      checks: checks.map((row) => row.def),
+    };
+  }
+
+  test.each([
+    ['migration 5 as it shipped first', null],
+    ['migration 5 edited with url_key', EDITED_MIGRATION_5],
+  ] as const)(
+    'migration 6 gives blocks a lower-case url_key after %s',
+    async (_name, edited) => {
+      const fresh = await openPgliteSql();
+      try {
+        const upTo5 = MIGRATIONS.filter((m) => m.version <= 4);
+        upTo5.push(
+          edited ?? (MIGRATIONS.find((m) => m.version === 5) as Migration)
+        );
+        await runMigrations(fresh, upTo5);
+        // The edited text already made the column; the first text did not.
+        expect((await blockUrlKeyShape(fresh)).columns).toEqual(
+          edited === null ? [] : ['url_key']
+        );
+        await fresh.query(
+          `INSERT INTO blocked_workspaces (key, kind, created_at)
+           VALUES ('org-acme', 'id', now())`
+        );
+
+        expect(
+          await runMigrations(
+            fresh,
+            MIGRATIONS.filter((m) => m.version <= 6)
+          )
+        ).toEqual([6]);
+        // Both paths end with one column and one CHECK, and the row kept.
+        const shape = await blockUrlKeyShape(fresh);
+        expect(shape.columns).toEqual(['url_key']);
+        expect(shape.checks).toHaveLength(1);
+        expect(shape.checks[0]).toMatch(/lower\(url_key\)/);
+        const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+        expect(await store.listBlockedWorkspaces()).toMatchObject([
+          { key: 'org-acme', kind: 'id', urlKey: null },
+        ]);
+        expect(
+          (
+            await rejection(
+              fresh.query(
+                `INSERT INTO blocked_workspaces (key, kind, created_at, url_key)
+                 VALUES ('org-globex', 'id', now(), 'Globex')`
+              )
+            )
+          ).message
+        ).toMatch(/check constraint/);
+      } finally {
+        await fresh.close();
+      }
+    }
+  );
+
+  test('migration 7 adds when a full sync attempt started, empty for every row', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 6)
+      );
+      await fresh.query(
+        `INSERT INTO sync_state (workspace_id, version, last_full_sync_at,
+           last_full_sync_status)
+         VALUES ('ws-a', 1, '2026-10-21T08:00:00Z', 'ok')`
+      );
+      expect(
+        await runMigrations(
+          fresh,
+          MIGRATIONS.filter((m) => m.version <= 7)
+        )
+      ).toEqual([7]);
+      const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+      expect(await store.getSyncState('ws-a')).toMatchObject({
+        lastFullSyncAt: '2026-10-21T08:00:00.000Z',
+        lastFullSyncStartedAt: null,
+      });
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test('migration 8 adds when the URL key was read, empty for rows before it', async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 7)
+      );
+      await fresh.query(
+        `INSERT INTO installations (workspace_id, workspace_name, url_key,
+           app_user_id, installed_by_user_id, access_token_enc, created_at,
+           updated_at)
+         VALUES ('ws-a', 'Acme', 'acme', 'u-app', 'u-ana', '',
+           '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z')`
+      );
+      await fresh.query(
+        `INSERT INTO sessions (id, token_hash, workspace_id, user_id,
+           user_name, access_token_enc, created_at, expires_at)
+         VALUES ('s-1', 'hash-1', 'ws-a', 'u-ana', 'Ana', '',
+           '2026-10-20T09:00:00Z', '2099-01-01T00:00:00Z')`
+      );
+      expect(
+        await runMigrations(
+          fresh,
+          MIGRATIONS.filter((m) => m.version <= 8)
+        )
+      ).toEqual([8]);
+      const rows = await fresh.query<{ url_key_read_at: unknown }>(
+        'SELECT url_key_read_at FROM installations'
+      );
+      expect(rows).toEqual([{ url_key_read_at: null }]);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test("migration 9 adds cleanup's URL key checks, none tried and none failed for every row", async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 8)
+      );
+      await fresh.query(
+        `INSERT INTO installations (workspace_id, workspace_name, url_key,
+           app_user_id, installed_by_user_id, access_token_enc, created_at,
+           updated_at, url_key_read_at)
+         VALUES ('ws-a', 'Acme', 'acme', 'u-app', 'u-ana', '',
+           '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z',
+           '2026-10-01T09:00:00Z')`
+      );
+      expect(await runMigrations(fresh)).toEqual([9]);
+      const rows = await fresh.query<{
+        url_key_checked_at: unknown;
+        url_key_check_failures: number;
+      }>(
+        'SELECT url_key_checked_at, url_key_check_failures FROM installations'
+      );
+      expect(rows).toEqual([
+        { url_key_checked_at: null, url_key_check_failures: 0 },
+      ]);
+      const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+      expect(
+        (await store.listWorkspaceStatus())[0]?.installation
+      ).toMatchObject({ urlKeyCheckedAt: null });
     } finally {
       await fresh.close();
     }

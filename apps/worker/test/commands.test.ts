@@ -7,7 +7,10 @@ import {
 } from '@better-tracker/logger';
 import { describe, expect, test } from 'bun:test';
 
-import { LIVE_ALLOCATE_NEEDS_WORKSPACE } from '../src/cli';
+import {
+  LIVE_ALLOCATE_NEEDS_WORKSPACE,
+  LIVE_ALLOCATE_SAVED_DRY_RUN,
+} from '../src/cli';
 import {
   apiKeyModeOutcome,
   type CommandContext,
@@ -371,7 +374,10 @@ describe('runCommand', () => {
   });
 
   test('allocate runs the requested mode as a manual run with no actor', async () => {
-    const engine = fakeEngine({ workspaces: ['ws-a'] });
+    const engine = fakeEngine({
+      workspaces: ['ws-a'],
+      allocationModes: { 'ws-a': 'live' },
+    });
     const result = await runCommand(context(engine), {
       name: 'allocate',
       workspaceId: 'ws-a',
@@ -385,10 +391,56 @@ describe('runCommand', () => {
     });
   });
 
+  test('allocate --live refuses a workspace whose saved mode is dry run, unless --override-mode', async () => {
+    const engine = fakeEngine({ workspaces: ['ws-a'] });
+    const refused = await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: 'ws-a',
+      mode: 'live',
+    });
+    // Nothing written: the run never starts.
+    expect(engine.calls).toEqual(['workspaceAllocationMode:ws-a']);
+    expect(refused.outcomes).toEqual([
+      {
+        workspaceId: 'ws-a',
+        kind: 'failed',
+        ok: false,
+        detail: 'allocation live not started',
+        error: LIVE_ALLOCATE_SAVED_DRY_RUN,
+      },
+    ]);
+    expect(exitCodeFor(refused)).toBe(1);
+    expect(summaryLine(refused)).toContain('add --override-mode');
+
+    // The operator says they mean it: the saved mode is not even read.
+    engine.calls.length = 0;
+    const overridden = await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: 'ws-a',
+      mode: 'live',
+      overrideMode: true,
+    });
+    expect(engine.calls).toEqual(['runAllocation:ws-a:live:manual:no-actor']);
+    expect(exitCodeFor(overridden)).toBe(0);
+    // A dry run writes nothing and never asks.
+    engine.calls.length = 0;
+    await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: 'ws-a',
+      mode: 'dry_run',
+    });
+    expect(engine.calls).toEqual([
+      'runAllocation:ws-a:dry_run:manual:no-actor',
+    ]);
+  });
+
   test.each(['failed', 'partial'] as const)(
     'an allocation run that ended %s fails',
     async (status) => {
-      const engine = fakeEngine({ workspaces: ['ws-a'] });
+      const engine = fakeEngine({
+        workspaces: ['ws-a'],
+        allocationModes: { 'ws-a': 'live' },
+      });
       engine.runAllocation = (input) =>
         Promise.resolve(
           allocationRun(input.workspaceId, {
@@ -443,8 +495,8 @@ describe('runCommand: tick', () => {
     // Cleanup first: a workspace too slow for the tick's timeout must not
     // keep the housekeeping of every other workspace from running.
     expect(engine.calls).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'workspaceTimezone:ws-b',
@@ -463,8 +515,8 @@ describe('runCommand: tick', () => {
       { name: 'tick', workspaceId: null }
     );
     expect(engine.calls).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'fullSync:ws-a',
     ]);
@@ -481,12 +533,12 @@ describe('runCommand: tick', () => {
     now = new Date('2026-10-21T08:15:00Z');
     const second = await runCommand(ctx, { name: 'tick', workspaceId: null });
     expect(engine.calls).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'fullSync:ws-a',
@@ -515,8 +567,8 @@ describe('runCommand: tick', () => {
     expect(
       engine.calls.filter((c) => !c.startsWith('workspaceTimezone'))
     ).toEqual([
-      'listWorkspaceStatus',
       'cleanup',
+      'listWorkspaceStatus',
       'runDaily:nz@2026-10-21',
       'runDaily:ny@2026-10-20',
       'fullSync:jp',
@@ -595,7 +647,7 @@ describe('runCommand: several workspaces', () => {
   const ago = (ms: number): string =>
     new Date(EARLY.getTime() - ms).toISOString();
 
-  test('works on the least recently synced first, never synced first', async () => {
+  test('works on the least recently attempted first, never attempted first', async () => {
     const engine = fakeEngine({
       statuses: [
         overview('ws-recent', { sync: { lastFullSyncAt: ago(20 * MINUTE) } }),
@@ -1150,6 +1202,141 @@ describe('runCommand: several workspaces', () => {
     ]);
     expect(exitCodeFor(result)).toBe(0);
   });
+
+  test('cleanup gets at most 2 minutes and half the time left, and says what it left', async () => {
+    const engine = fakeEngine({ workspaces: [] });
+    const deadlines: (Date | undefined)[] = [];
+    engine.cleanup = (options) => {
+      deadlines.push(options?.deadline);
+      return Promise.resolve({
+        expiredSessions: 7,
+        revokedTokens: 7,
+        revokeFailures: 0,
+        oldDeliveries: 0,
+        reAdmittedWorkspaces: 1,
+        deferred: ['expired_sessions', 'purges'],
+      });
+    };
+    const now = new Date('2026-10-21T12:00:00Z');
+    const after = (ms: number) => new Date(now.getTime() + ms);
+    const result = await runCommand(
+      context(engine, { now, deadlineAt: after(10 * MINUTE) }),
+      { name: 'tick', workspaceId: null }
+    );
+    await runCommand(context(engine, { now, deadlineAt: after(3 * MINUTE) }), {
+      name: 'tick',
+      workspaceId: null,
+    });
+    expect(deadlines).toEqual([after(2 * MINUTE), after(1.5 * MINUTE)]);
+    expect(result.notes).toEqual([
+      'cleanup: 7 expired sessions, 0 old webhook delivery records, 1 installed workspace admitted again (its URL key read from Linear), left for the next tick: expired sessions, purges',
+    ]);
+    expect(exitCodeFor(result)).toBe(0);
+  });
+
+  test('a workspace cleanup admits again is served in the same tick', async () => {
+    let admission: 'ok' | 'not_allowed' = 'not_allowed';
+    const engine = fakeEngine({ workspaces: [] });
+    engine.listWorkspaceStatus = () => {
+      engine.calls.push('listWorkspaceStatus');
+      return Promise.resolve([overview('ws-renamed', { admission })]);
+    };
+    engine.cleanup = () => {
+      engine.calls.push('cleanup');
+      admission = 'ok';
+      return Promise.resolve({
+        expiredSessions: 0,
+        revokedTokens: 0,
+        revokeFailures: 0,
+        oldDeliveries: 0,
+        reAdmittedWorkspaces: 1,
+      });
+    };
+    const result = await runCommand(
+      context(engine, { now: new Date('2026-10-21T07:00:00Z') }),
+      { name: 'tick', workspaceId: null }
+    );
+    expect(engine.calls).toEqual([
+      'cleanup',
+      'listWorkspaceStatus',
+      'workspaceTimezone:ws-renamed',
+      'fullSync:ws-renamed',
+    ]);
+    expect(result.outcomes[0]).toMatchObject({
+      workspaceId: 'ws-renamed',
+      kind: 'done',
+    });
+  });
+});
+
+describe('runCommand: a workspace whose full sync never finishes', () => {
+  // Every 15 minutes a tick with the default 10-minute budget, one
+  // workspace at a time, before DAILY_RUN_AT (plain resyncs). ws-stuck
+  // has never synced, and its sync outlives every tick: the tick's
+  // deadline kills it (here: it takes the clock past the deadline and
+  // fails, so the rest of that tick has no time left). The others sync in
+  // 4 minutes each. The fake keeps sync state as the store does: the
+  // engine stamps an attempt's start (recordFullSyncStart), and only an
+  // attempt that ends records its finish.
+  test('it no longer goes first on every tick, so the others still sync', async () => {
+    const ids = ['ws-stuck', 'ws-a', 'ws-b', 'ws-c'];
+    const longAgo = '2026-10-20T03:00:00.000Z';
+    const state = new Map(
+      ids.map((id) => [
+        id,
+        {
+          lastFullSyncAt: id === 'ws-stuck' ? null : longAgo,
+          lastSuccessAt: id === 'ws-stuck' ? null : longAgo,
+          lastFullSyncMs: id === 'ws-stuck' ? null : 4 * MINUTE,
+          lastFullSyncStartedAt: null as string | null,
+        },
+      ])
+    );
+    let now = new Date('2026-10-21T03:00:00Z');
+    let deadlineAt = new Date(now.getTime() + 10 * MINUTE);
+    const engine = fakeEngine({ workspaces: [] });
+    engine.listWorkspaceStatus = () =>
+      Promise.resolve(
+        ids.map((id) => overview(id, { sync: { ...state.get(id) } }))
+      );
+    const synced: string[][] = [];
+    engine.fullSync = (id) => {
+      const entry = state.get(id);
+      if (entry === undefined) throw new Error(`unknown ${id}`);
+      entry.lastFullSyncStartedAt = now.toISOString();
+      if (id === 'ws-stuck') {
+        now = new Date(deadlineAt.getTime() + 1000);
+        return Promise.reject(new Error('killed at the tick deadline'));
+      }
+      now = new Date(now.getTime() + 4 * MINUTE);
+      entry.lastFullSyncAt = now.toISOString();
+      entry.lastSuccessAt = now.toISOString();
+      synced.at(-1)?.push(id);
+      return Promise.resolve(syncResult(id));
+    };
+
+    const firsts: string[] = [];
+    for (let tick = 0; tick < 4; tick += 1) {
+      now = new Date(Date.parse('2026-10-21T03:00:00Z') + tick * 15 * MINUTE);
+      deadlineAt = new Date(now.getTime() + 10 * MINUTE);
+      synced.push([]);
+      // The context's clock reads `now`, which the syncs move on.
+      const ctx: CommandContext = {
+        ...context(engine, { deadlineAt }),
+        now: () => now,
+      };
+      const result = await runCommand(ctx, {
+        name: 'tick',
+        workspaceId: null,
+      });
+      firsts.push(result.outcomes[0]?.workspaceId ?? '');
+    }
+    // Before attempt starts were recorded, ws-stuck (never finished) was
+    // first in every tick and nothing else ever synced.
+    expect(firsts[0]).toBe('ws-stuck');
+    expect(firsts.slice(1)).not.toContain('ws-stuck');
+    expect(new Set(synced.flat())).toEqual(new Set(['ws-a', 'ws-b', 'ws-c']));
+  });
 });
 
 describe('workerEngineFrom', () => {
@@ -1180,6 +1367,20 @@ describe('workerEngineFrom', () => {
         'ws-a'
       )
     ).toBe('Asia/Tokyo');
+  });
+
+  test('reads the saved allocation mode from the settings, without loading', async () => {
+    const engine = {
+      ...engineWith('UTC'),
+      getSettings: (workspaceId: string) =>
+        Promise.resolve({
+          workspaceId,
+          allocationMode: 'live',
+        } as WorkspaceSettings),
+    } as Engine;
+    expect(await workerEngineFrom(engine).workspaceAllocationMode('ws-a')).toBe(
+      'live'
+    );
   });
 });
 

@@ -10,6 +10,15 @@
 //   every workspace; a `list` admits an entry equal to the org id, or a URL
 //   key entry pinned (store `admitted_workspaces`) to the org it first
 //   admitted, so after a rename it still admits that org and never another.
+//   An unpinned entry is matched against the workspace's URL key (the
+//   installation's, which every full sync, sign-in and cleanup identity
+//   read keeps current). Only when that key matches no entry at all, and
+//   only for a session that signed in after the installation's key was
+//   last read from Linear (newerSignInUrlKey), is it matched against the
+//   key the session signed in under: so a rename no read has seen yet does
+//   not sign it out, and a key the workspace has since given up (another
+//   org may hold it now) never pins. A pin always names the subject's own
+//   org id.
 // - `fresh` reads blocks, pins and installations from the store (sign-in,
 //   install, webhooks, the worker; a store error throws, so those fail
 //   closed). Otherwise (authenticate, checkSession, describeSessions) a
@@ -17,7 +26,11 @@
 //   last good read is (any age).
 // - Demo and api_key modes admit everything: they serve one workspace.
 
-import type { BlockedWorkspace, WorkspaceStatus } from '@better-tracker/store';
+import type {
+  BlockedWorkspace,
+  SessionDescription,
+  WorkspaceStatus,
+} from '@better-tracker/store';
 
 import type { EngineRuntime } from './runtime';
 import type { WorkspaceAdmission, WorkspaceOverview } from './types';
@@ -35,13 +48,26 @@ const ORG_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export interface AdmissionSubject {
   /** The Linear org id. */
   id: string;
-  /** Its current URL key, when the caller knows it (null: none known). */
+  /**
+   * Its current URL key, when the caller knows it (null: none known):
+   * URL key blocks and unpinned LINEAR_WORKSPACES entries match it.
+   */
   urlKey?: string | null;
   /**
-   * Looks the URL key up, called only when `urlKey` is not given and a URL
-   * key block or an unpinned URL key entry needs it.
+   * For a session's workspace, the URL key the session signed in under,
+   * given only when it is newer than `urlKey` (newerSignInUrlKey). An
+   * unpinned LINEAR_WORKSPACES URL key entry is matched against it only
+   * when `urlKey` matches no entry; blocks use `urlKey` only.
    */
-  lookupUrlKey?: () => Promise<string | null>;
+  signInUrlKey?: string | null;
+  /**
+   * Looks both keys up (one query), called only when `urlKey` is not given
+   * and a URL key block or an unpinned URL key entry needs them.
+   */
+  lookupUrlKeys?: () => Promise<{
+    urlKey: string | null;
+    signInUrlKey: string | null;
+  }>;
   /** Whether it has an installation row, when the caller already knows. */
   installed?: boolean;
 }
@@ -175,12 +201,32 @@ export function createAdmissionPass(
   return async (subject) => {
     if (!admissionApplies(rt)) return 'ok';
     const idKey = subject.id.toLowerCase();
-    let urlKey: string | null | undefined = subject.urlKey;
-    const urlKeyOf = async (): Promise<string | null> => {
-      if (urlKey === undefined) {
-        urlKey = (await subject.lookupUrlKey?.()) ?? null;
-      }
-      return urlKey === null ? null : urlKey.toLowerCase();
+    let keys: { urlKey: string | null; signInUrlKey: string | null } | null =
+      subject.urlKey === undefined
+        ? null
+        : {
+            urlKey: subject.urlKey,
+            signInUrlKey: subject.signInUrlKey ?? null,
+          };
+    const keysOf = async (): Promise<{
+      urlKey: string | null;
+      signInUrlKey: string | null;
+    }> => {
+      keys ??= (await subject.lookupUrlKeys?.()) ?? {
+        urlKey: null,
+        signInUrlKey: null,
+      };
+      return keys;
+    };
+    const lower = (key: string | null): string | null =>
+      key === null || key === '' ? null : key.toLowerCase();
+    const urlKeyOf = async (): Promise<string | null> =>
+      lower((await keysOf()).urlKey);
+    // The keys an unpinned entry may match: the workspace's, then the
+    // session's newer sign-in key as the fallback.
+    const entryKeysOf = async (): Promise<EntryKeys> => {
+      const { urlKey, signInUrlKey } = await keysOf();
+      return { primary: lower(urlKey), fallback: lower(signInUrlKey) };
     };
 
     const blocked = await readBlocks();
@@ -215,7 +261,7 @@ export function createAdmissionPass(
         return installed ? 'ok' : 'not_allowed';
       }
       case 'list':
-        return (await listedIn(rt, mode.entries, subject.id, urlKeyOf, {
+        return (await listedIn(rt, mode.entries, subject.id, entryKeysOf, {
           fresh: options.fresh,
         }))
           ? 'ok'
@@ -247,48 +293,132 @@ async function pinBlock(
   }
 }
 
+// The pin of one LINEAR_WORKSPACES URL key entry (the org id it admits), or
+// null while unpinned; cached like every non-fresh read.
+function readPin(
+  rt: EngineRuntime,
+  entry: string,
+  fresh: boolean
+): Promise<string | null> {
+  return cachedRead(
+    rt,
+    mapSlot(cacheOf(rt).pins, entry),
+    fresh,
+    () => rt.store.getAdmittedPin(entry),
+    'a LINEAR_WORKSPACES pin'
+  );
+}
+
+/**
+ * The lower-cased URL keys an unpinned LINEAR_WORKSPACES entry may match:
+ * the workspace's own (`primary`), and a session's newer sign-in key
+ * (`fallback`), tried only when `primary` matches no URL key entry.
+ */
+interface EntryKeys {
+  primary: string | null;
+  fallback: string | null;
+}
+
+/**
+ * The URL key a session signed in under, when admission may match an
+ * unpinned LINEAR_WORKSPACES entry against it (AdmissionSubject
+ * .signInUrlKey): only when the session signed in after the
+ * installation's URL key was last read from Linear, so it is the newer of
+ * the two (a sync, a sign-in or cleanup's identity read since then has
+ * the current key, and the session's may be one the workspace gave up,
+ * which another org may hold now). Null when the read is not recorded
+ * (rows from before migration 8), at the same instant or later. A
+ * workspace with no installation has only the session's key anyway.
+ */
+export function newerSignInUrlKey(
+  described: Pick<
+    SessionDescription,
+    'signInUrlKey' | 'signedInAt' | 'urlKeyReadAt' | 'installed'
+  >
+): string | null {
+  const key = described.signInUrlKey ?? null;
+  if (key === null) return null;
+  if (!described.installed) return key;
+  const readAt = described.urlKeyReadAt ?? null;
+  const signedInAt = described.signedInAt;
+  if (readAt === null || signedInAt === undefined) return null;
+  const readMs = Date.parse(readAt);
+  const signedInMs = Date.parse(signedInAt);
+  if (Number.isNaN(readMs) || Number.isNaN(signedInMs)) return null;
+  return signedInMs > readMs ? key : null;
+}
+
 /**
  * Whether a LINEAR_WORKSPACES list names the workspace: an entry equal to
- * its org id, or a URL key entry pinned to it. An unpinned URL key entry
- * equal to the workspace's current URL key is pinned to it here (the first
- * pin wins, also across processes). Org-id-shaped entries are never read
- * as URL keys.
+ * its org id, or a URL key entry pinned to it. Else an unpinned URL key
+ * entry equal to the workspace's key, or (only when that key equals no URL
+ * key entry, pinned or not) to the fallback key, is pinned to this
+ * workspace's id here (the first pin wins, also across processes, so a
+ * pin never names another org than the first one admitted, and always the
+ * subject's own). Org-id-shaped entries are never read as URL keys.
  */
 async function listedIn(
   rt: EngineRuntime,
   entries: readonly string[],
   workspaceId: string,
-  urlKeyOf: () => Promise<string | null>,
+  keysOf: () => Promise<EntryKeys>,
   options: { fresh: boolean }
 ): Promise<boolean> {
   const idKey = workspaceId.toLowerCase();
   if (entries.includes(idKey)) return true;
   const cache = cacheOf(rt);
-  for (const entry of entries) {
-    if (ORG_ID.test(entry)) continue;
-    const pin = await cachedRead(
-      rt,
-      mapSlot(cache.pins, entry),
-      options.fresh,
-      () => rt.store.getAdmittedPin(entry),
-      'a LINEAR_WORKSPACES pin'
-    );
-    if (pin !== null) {
-      if (pin.toLowerCase() === idKey) return true;
+  const urlKeyEntries = entries.filter((entry) => !ORG_ID.test(entry));
+  const unpinned: string[] = [];
+  for (const entry of urlKeyEntries) {
+    const pin = await readPin(rt, entry, options.fresh);
+    if (pin === null) {
+      unpinned.push(entry);
       continue;
     }
-    if ((await urlKeyOf()) !== entry) continue;
-    const pinned = await rt.store.pinAdmitted(entry, workspaceId, rt.nowIso());
-    cache.pins.set(entry, { value: pinned, at: rt.clock().getTime() });
-    if (pinned.toLowerCase() === idKey) {
-      rt.logger.info('a LINEAR_WORKSPACES URL key now names its workspace', {
-        entry,
-        workspaceId,
-      });
-      return true;
-    }
+    if (pin.toLowerCase() === idKey) return true;
   }
-  return false;
+  if (unpinned.length === 0) return false;
+  const { primary, fallback } = await keysOf();
+  const key =
+    primary !== null && urlKeyEntries.includes(primary) ? primary : fallback;
+  const entry = unpinned.find((candidate) => candidate === key);
+  if (entry === undefined) return false;
+  const pinned = await rt.store.pinAdmitted(entry, workspaceId, rt.nowIso());
+  cache.pins.set(entry, { value: pinned, at: rt.clock().getTime() });
+  if (pinned.toLowerCase() !== idKey) return false;
+  rt.logger.info('a LINEAR_WORKSPACES URL key now names its workspace', {
+    entry,
+    workspaceId,
+  });
+  return true;
+}
+
+/**
+ * Forgets this process's cached pin of one LINEAR_WORKSPACES entry (the
+ * operator's unpin), so its next check reads the store. Other processes
+ * reuse theirs for up to ADMISSION_CACHE_MS on non-fresh checks.
+ */
+export function forgetPin(rt: EngineRuntime, entry: string): void {
+  cacheOf(rt).pins.delete(entry.toLowerCase());
+}
+
+/**
+ * The LINEAR_WORKSPACES URL key entries no workspace is pinned to yet
+ * (fresh reads), when LINEAR_WORKSPACES is a list; [] otherwise. An
+ * installed workspace the list refuses can still be admitted by one of
+ * them once its URL key is current (cleanup's identity read).
+ */
+export async function unpinnedUrlKeyEntries(
+  rt: EngineRuntime
+): Promise<string[]> {
+  const mode = admissionMode(rt);
+  if (!admissionApplies(rt) || mode.mode !== 'list') return [];
+  const unpinned: string[] = [];
+  for (const entry of mode.entries) {
+    if (ORG_ID.test(entry)) continue;
+    if ((await readPin(rt, entry, true)) === null) unpinned.push(entry);
+  }
+  return unpinned;
 }
 
 /**
@@ -318,16 +448,18 @@ export async function namedInWorkspaceList(
     rt,
     mode.entries,
     workspace.id,
-    () => Promise.resolve(urlKey),
-    {
-      fresh: true,
-    }
+    () =>
+      Promise.resolve({
+        primary: urlKey === '' ? null : urlKey,
+        fallback: null,
+      }),
+    { fresh: true }
   );
 }
 
 /**
  * The installed (active installation) workspaces admission admits, in the
- * store's order (last full sync attempt first, never attempted first): the
+ * store's order (least recently attempted first, never attempted first): the
  * worker's list (listWorkspaceIds). Session-only workspaces and revoked
  * installations are left out; refused ones are logged at info and left
  * out, never failures. Fresh.
@@ -393,8 +525,9 @@ export interface RefusedWorkspace {
  * Every workspace the store knows (an installation row, sessions, or both;
  * store.listWorkspaceStatus) that admission refuses now, fresh: for
  * cleanup (handleRefusedInstallations), which removes blocked
- * installations and only warns about the ones LINEAR_WORKSPACES leaves
- * out. [] outside OAuth mode.
+ * installations, reads the current URL key of active ones an unpinned
+ * LINEAR_WORKSPACES entry could admit, and only warns about the ones the
+ * list still leaves out. [] outside OAuth mode.
  */
 export async function refusedWorkspaces(
   rt: EngineRuntime

@@ -1,6 +1,13 @@
 import type { DependencyGraph, GraphScope } from '@better-tracker/core';
 import { LinearApiError as SourceLinearApiError } from '@better-tracker/linear';
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  setDefaultTimeout,
+  test,
+} from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +28,11 @@ import {
   rejectionMessage,
   rejection,
 } from './helpers';
+
+// Some tests open an on-disk PGlite store twice (about 5 s together);
+// helpers.ts sets the same default, but only for the first file that
+// imports it, so a full run would leave this file at bun's 5 s.
+setDefaultTimeout(60_000);
 
 const REAL_ENV = {
   APP_URL: 'https://planner.example.com/',

@@ -85,6 +85,7 @@ import {
   removeWorkspace,
   revokeWorkspace,
   unblockWorkspace,
+  unpinWorkspaceEntry,
 } from './workspaces';
 
 /**
@@ -239,7 +240,7 @@ export function createEngine(deps: EngineDeps): Engine {
           ? []
           : [binding.workspaceId];
       }
-      // Active installations admission admits, least recently synced
+      // Active installations admission admits, least recently attempted
       // first; refused ones are skipped (info), never failures.
       return admittedInstalledWorkspaceIds(rt);
     },
@@ -298,12 +299,13 @@ export function createEngine(deps: EngineDeps): Engine {
     blockWorkspace: (idOrUrlKey, reason) =>
       blockWorkspace(rt, idOrUrlKey, reason),
     unblockWorkspace: (idOrUrlKey) => unblockWorkspace(rt, idOrUrlKey),
+    unpinWorkspaceEntry: (entry) => unpinWorkspaceEntry(rt, entry),
     listBlockedWorkspaces: () => deps.store.listBlockedWorkspaces(),
 
-    cleanup: async () => {
+    cleanup: async (options) => {
       // Personal keys: forget expired ones too (the scheduler also does).
       rt.keys?.vault.sweep();
-      return cleanup(rt);
+      return cleanup(rt, options);
     },
     now: () => rt.nowIso(),
     ping: () => deps.store.ping(),

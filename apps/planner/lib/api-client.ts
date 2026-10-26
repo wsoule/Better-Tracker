@@ -45,6 +45,11 @@ export type ApiResult<T> =
       message: string;
       /** needs_write_scope: the grant_write link the route offered. */
       grantWriteHref?: string;
+      /**
+       * workspace_changed: the name of the workspace this tab shows (null
+       * when the browser no longer holds it), as the route named it.
+       */
+      tabWorkspaceName?: string | null;
     };
 
 const NETWORK_MESSAGE =
@@ -52,25 +57,38 @@ const NETWORK_MESSAGE =
 
 /**
  * The error a failed response carries: the routes answer
- * `{ error: { code, message } }` (lib/origin.ts jsonError); anything else
- * gets a sentence built from the status.
+ * `{ error: { code, message } }` (lib/origin.ts jsonError), with the
+ * grant_write link of needs_write_scope and the tab's workspace name of
+ * workspace_changed; anything else gets a sentence built from the status.
  */
 export function errorFromBody(
   status: number,
   body: unknown
-): { code: string; message: string; grantWriteHref?: string } {
+): {
+  code: string;
+  message: string;
+  grantWriteHref?: string;
+  tabWorkspaceName?: string | null;
+} {
   if (typeof body === 'object' && body !== null) {
     const error = (body as Record<string, unknown>).error;
     if (typeof error === 'object' && error !== null) {
-      const { code, message, grantWriteHref } = error as Record<
-        string,
-        unknown
-      >;
+      const { code, message, grantWriteHref, tabWorkspaceName } =
+        error as Record<string, unknown>;
       if (typeof message === 'string' && message !== '') {
         const found = {
           code: typeof code === 'string' ? code : 'error',
           message,
         };
+        if (found.code === 'workspace_changed') {
+          return {
+            ...found,
+            tabWorkspaceName:
+              typeof tabWorkspaceName === 'string' && tabWorkspaceName !== ''
+                ? tabWorkspaceName
+                : null,
+          };
+        }
         // Only a same-site path is followed (the routes send one).
         return typeof grantWriteHref === 'string' &&
           grantWriteHref.startsWith('/api/auth/linear?')

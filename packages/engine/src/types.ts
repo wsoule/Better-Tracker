@@ -454,6 +454,33 @@ export interface DailyResult {
   warnings: WarningRunResult | null;
 }
 
+/**
+ * A cleanup step that calls Linear, and so stops at cleanup's deadline:
+ * revoking expired sessions, ending the sessions of uninstalled or removed
+ * workspaces, purging them, and reading the URL key of installed
+ * workspaces LINEAR_WORKSPACES refuses (last, and at most 5 a pass).
+ */
+export type CleanupStep =
+  | 'expired_sessions'
+  | 'workspace_sessions'
+  | 'purges'
+  | 'identity_reads';
+
+/** Additive: how one cleanup() pass is bounded in time. */
+export interface CleanupOptions {
+  /**
+   * When to stop starting work that calls Linear, on the engine's clock
+   * (the worker's tick passes one, so cleanup cannot use up the time the
+   * workspaces need). Sessions are taken from the store (which deletes
+   * them) only as many as can still be revoked before it, each revocation
+   * counted at its full timeout; a purge starts only when its
+   * revocations fit too; an identity read is cut off at it (and after
+   * 10 s in any case). Steps that only touch the store always run.
+   * Omitted: no time limit, but identity reads still wait 10 s at most.
+   */
+  deadline?: Date;
+}
+
 /** What one cleanup() pass did (also logged as "cleanup finished"). */
 export interface CleanupResult {
   /** Expired sessions deleted. */
@@ -489,6 +516,19 @@ export interface CleanupResult {
    * operator's remove, block or purge take them away.
    */
   notServedWorkspaces?: number;
+  /**
+   * Installed workspaces LINEAR_WORKSPACES admits again once their URL
+   * key was read from Linear (a rename no sync had seen).
+   */
+  reAdmittedWorkspaces?: number;
+  /**
+   * The steps that stopped before they could finish, at the deadline or at
+   * their per-call count, so work may be left: the next call carries on.
+   * (One stopped before it started cannot tell whether it had anything to
+   * do: expired sessions are only found by taking them.) Empty when every
+   * step finished.
+   */
+  deferred?: CleanupStep[];
 }
 
 /**
@@ -545,6 +585,18 @@ export type WorkspacePurge =
  */
 export interface WorkspaceOverview extends WorkspaceStatus {
   admission: AdmissionVerdict;
+}
+
+/**
+ * What unpinWorkspaceEntry did (the operator's `unpin`, §9): the entry
+ * (lower-cased), the org id its pin named (null: it was not pinned) and
+ * whether LINEAR_WORKSPACES lists it now (then the next workspace
+ * admission matches it with is pinned to it).
+ */
+export interface WorkspaceUnpin {
+  entry: string;
+  workspaceId: string | null;
+  listed: boolean;
 }
 
 /** What blockWorkspace stored and did (the operator's `block`, §9). */
@@ -1070,6 +1122,16 @@ export interface Engine {
    * workspace stays revoked: an admin reinstalls.
    */
   unblockWorkspace(idOrUrlKey: string): Promise<boolean>;
+  /**
+   * Additive: the operator's `unpin`: removes the pin of a LINEAR_WORKSPACES
+   * URL-key entry (store.deleteAdmittedPin), so a workspace that took the
+   * URL key after the pinned one gave it up can be admitted by it. Nothing
+   * else changes: no installation, session or block is touched. Refused
+   * with personal API keys (EngineInputError 'invalid',
+   * OPERATOR_OFF_MESSAGE), and for an entry that is not letters, digits and
+   * dashes (at most 64).
+   */
+  unpinWorkspaceEntry(entry: string): Promise<WorkspaceUnpin>;
   /** Every block, ordered by key. */
   listBlockedWorkspaces(): Promise<BlockedWorkspace[]>;
 
@@ -1081,9 +1143,11 @@ export interface Engine {
    * that predate the revoke, purges such workspaces PURGE_AFTER_DAYS after
    * the revoke (a few per call; never 'grant_dead'), and prunes
    * notifications and job claims past their retention (bounded per call).
-   * The audit log and the run log are never pruned.
+   * The audit log and the run log are never pruned. Additive: with
+   * `options.deadline`, work that calls Linear stops before it
+   * (CleanupOptions), and the steps cut short are listed in `deferred`.
    */
-  cleanup(): Promise<CleanupResult>;
+  cleanup(options?: CleanupOptions): Promise<CleanupResult>;
   now(): IsoDateTime;
   /** Additive: the store's liveness probe (for /api/health); never throws. */
   ping(): Promise<boolean>;

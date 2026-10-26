@@ -12,6 +12,13 @@ export interface ApiErrorExtras {
   grantWriteHref?: string;
   /** rate_limited: when Linear said its limit resets, if it said. */
   retryAt?: string | null;
+  /**
+   * workspace_changed: the name of the workspace the tab that sent the
+   * request shows, as the message names it (null when this browser no
+   * longer holds a session for it), so a toast can say where to switch
+   * back to.
+   */
+  tabWorkspaceName?: string | null;
 }
 
 /** A JSON error body the client islands can show verbatim. */

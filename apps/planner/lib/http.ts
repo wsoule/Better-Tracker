@@ -1,3 +1,4 @@
+import { redactLinearSecrets } from '@better-tracker/core';
 import {
   isLinearApiError,
   type Actor,
@@ -167,7 +168,9 @@ export function refuseReadOnly(actor: Actor): Response | null {
  * 409 workspace_changed: the tab that sent the request shows another
  * workspace than this browser's active session (it switched in another
  * tab). The sentence names both from the engine (the held sessions, the
- * installation), never from the header.
+ * installation), never from the header, and `tabWorkspaceName` repeats
+ * the tab's (null when the browser no longer holds it), passed through
+ * redactLinearSecrets like the sentence.
  */
 async function workspaceChanged(
   engine: Engine,
@@ -184,7 +187,9 @@ async function workspaceChanged(
     409,
     'workspace_changed',
     workspaceChangedMessage(tabName, activeName),
-    {},
+    {
+      tabWorkspaceName: tabName === null ? null : redactLinearSecrets(tabName),
+    },
     { 'Cache-Control': 'no-store' }
   );
 }

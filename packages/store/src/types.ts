@@ -78,8 +78,9 @@ export interface NewSession {
   expiresAt: IsoDateTime;
   /**
    * Additive: the workspace's name and URL key from the sign-in identity,
-   * which describeSessions and listWorkspaceStatus read back (the
-   * installation's values are the fallback). Omitted is stored as null.
+   * which describeSessions and listWorkspaceStatus read back when no
+   * installation row has them (describeSessions also returns the URL key
+   * as signInUrlKey). Omitted is stored as null.
    */
   workspaceName?: string | null;
   workspaceUrlKey?: string | null;
@@ -114,6 +115,22 @@ export interface SessionDescription {
    */
   workspaceName: string | null;
   workspaceUrlKey: string | null;
+  /**
+   * Additive: the URL key the session itself signed in under (Linear's
+   * value then), whatever the installation says now; null for a session
+   * made before migration 5. Always set by the SQL store; optional only so
+   * descriptions built by hand elsewhere keep compiling.
+   */
+  signInUrlKey?: string | null;
+  /**
+   * Additive: when the session signed in (its row's createdAt), and when
+   * the installation's URL key was last read from Linear (null: no
+   * installation, or not read since migration 8). Admission matches an
+   * unpinned LINEAR_WORKSPACES entry against signInUrlKey only when the
+   * session signed in after that read. Always set by the SQL store.
+   */
+  signedInAt?: IsoDateTime;
+  urlKeyReadAt?: IsoDateTime | null;
   userId: string;
   userName: string;
   expiresAt: IsoDateTime;
@@ -171,6 +188,13 @@ export interface SyncState {
   lastSuccessAt?: IsoDateTime | null;
   /** Issues in the mirror at the last full sync that reported a count. */
   mirrorIssueCount?: number | null;
+  /**
+   * Additive (migration 7): when the latest full sync attempt started
+   * (recordFullSyncStart), finished or not. lastFullSyncAt is written only
+   * when an attempt ends, so an attempt killed with its process shows only
+   * here. The worker orders workspaces by the later of the two.
+   */
+  lastFullSyncStartedAt?: IsoDateTime | null;
 }
 
 /** An installation without its tokens (listWorkspaceStatus never decrypts). */
@@ -183,6 +207,14 @@ export interface InstallationSummary {
   updatedAt: IsoDateTime;
   revokedAt: IsoDateTime | null;
   revokedReason: RevokedReason | null;
+  /**
+   * Additive: when cleanup last tried to read the URL key from Linear for
+   * a refused installation, whether it worked or not (migration 9,
+   * recordUrlKeyCheck; null when it never tried). Always set by
+   * listWorkspaceStatus; optional only so summaries built by hand keep
+   * compiling.
+   */
+  urlKeyCheckedAt?: IsoDateTime | null;
 }
 
 /**
@@ -409,15 +441,29 @@ export interface Store {
    * Additive (multi-workspace): sets the installation's workspace name and
    * URL key to what Linear reports now (a full sync, a sign-in), so
    * admission's URL-key matching and the listings follow a rename. One
-   * statement; nothing else changes, updated_at included (it keeps meaning
-   * the grant's last write, which the stale-revoke guard compares with).
-   * True when the row existed and changed; false when there is no row or
-   * it already holds these values.
+   * statement; updated_at is left alone (it keeps meaning the grant's last
+   * write, which the stale-revoke guard compares with). Additive: with
+   * `readAt` (when Linear was asked), the read is recorded as the row's
+   * url_key_read_at, and a read older than the one recorded changes
+   * nothing (a newer read wins). True when the row existed and its name or
+   * URL key changed; false when there is no row, it already holds these
+   * values, or a newer read is recorded.
    */
   updateInstallationIdentity(
     workspaceId: string,
-    identity: { workspaceName: string; urlKey: string }
+    identity: { workspaceName: string; urlKey: string },
+    options?: { readAt?: IsoDateTime }
   ): Promise<boolean>;
+  /**
+   * Additive: records that cleanup tried to read the installation's URL key
+   * from Linear at `at` (url_key_checked_at, never moved back) and whether
+   * it worked, and returns how many tries in a row have failed now (0
+   * after one that worked, or without a row).
+   */
+  recordUrlKeyCheck(
+    workspaceId: string,
+    check: { at: IsoDateTime; ok: boolean }
+  ): Promise<number>;
   /**
    * Runs fn while holding a row lock on the installation, so two processes
    * never refresh (and rotate) the same refresh token concurrently. fn's
@@ -434,10 +480,10 @@ export interface Store {
   /**
    * Additive (multi-workspace): one query over every workspace with an
    * installation row or sessions, joined with its sync_state and session
-   * count, ordered by last full sync attempt (never attempted first), then
-   * workspace id. Decrypts nothing, so a row whose tokens no longer
-   * decrypt is listed like any other. With `now`, sessionCount counts only
-   * unexpired sessions.
+   * count, ordered by last full sync attempt (the later of its start and
+   * its finish; never attempted first), then workspace id. Decrypts
+   * nothing, so a row whose tokens no longer decrypt is listed like any
+   * other. With `now`, sessionCount counts only unexpired sessions.
    */
   listWorkspaceStatus(now?: IsoDateTime): Promise<WorkspaceStatus[]>;
   /**
@@ -502,11 +548,19 @@ export interface Store {
    * LOCKED, bounded by the 30 s lock_timeout): a refresh in withSessionLock
    * finishes first and its rotated tokens are the ones returned. A row
    * whose tokens no longer decrypt is still deleted and comes back with
-   * `tokens: null` (logged).
+   * `tokens: null` (logged). Additive: with `purgeDueBefore`, only while
+   * the installation is revoked as 'uninstalled' or 'removed' before that
+   * instant, as purgeWorkspace would purge it (checked under the
+   * installation's row lock, so a reinstall that wins the lock keeps every
+   * session); otherwise nothing is taken.
    */
   takeSessionsForWorkspace(
     workspaceId: string,
-    options: { createdBefore?: IsoDateTime; limit: number }
+    options: {
+      createdBefore?: IsoDateTime;
+      limit: number;
+      purgeDueBefore?: IsoDateTime;
+    }
   ): Promise<TakenSession[]>;
   getSession(token: string, now: IsoDateTime): Promise<Session | null>;
   /**
@@ -583,6 +637,15 @@ export interface Store {
       issueCount?: number;
     }
   ): Promise<void>;
+  /**
+   * Additive (migration 7): records that a full sync attempt started at
+   * `at` (lastFullSyncStartedAt; never moved back), creating the row when
+   * there is none. Changes nothing else: the last attempt's status, error,
+   * failure count, finish time and last success stay as they were, so
+   * backoff, the chronic rule and the skip-recent rule still read finished
+   * attempts only.
+   */
+  recordFullSyncStart(workspaceId: string, at: IsoDateTime): Promise<void>;
   /**
    * Records a webhook delivery keyed by the Linear-Delivery header and bumps
    * sync_state.lastWebhookAt. Returns false when the delivery id was already
@@ -779,6 +842,13 @@ export interface Store {
     workspaceId: string,
     now: IsoDateTime
   ): Promise<string>;
+  /**
+   * Additive: removes the pin of a LINEAR_WORKSPACES URL-key entry (entry
+   * matched lower-cased), the operator's `unpin`, and returns the org id it
+   * named, or null when the entry was not pinned. The entry is then
+   * pinned again by the next workspace admission matches it with.
+   */
+  deleteAdmittedPin(entry: string): Promise<string | null>;
 
   // --- audit ----------------------------------------------------------------
   appendAudit(entry: AuditEntry): Promise<void>;

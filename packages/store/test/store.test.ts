@@ -953,6 +953,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           lastFullSyncMs: null,
           lastSuccessAt: null,
           mirrorIssueCount: null,
+          lastFullSyncStartedAt: null,
         });
         // A failed sync wrote no mirror, so there is nothing to load.
         expect(await store.loadMirror(ws)).toBeNull();
@@ -976,6 +977,58 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           lastFullSyncMs: null,
           lastSuccessAt: '2026-10-21T08:15:00.000Z',
           mirrorIssueCount: null,
+          lastFullSyncStartedAt: null,
+        });
+      });
+
+      test('recordFullSyncStart stamps when an attempt started and changes nothing else', async () => {
+        const ws = newWorkspaceId();
+        // A first attempt that never ends (its process was killed) leaves
+        // only its start.
+        await store.recordFullSyncStart(ws, '2026-10-21T07:00:00.000Z');
+        expect(await store.getSyncState(ws)).toEqual({
+          workspaceId: ws,
+          version: 0,
+          lastFullSyncAt: null,
+          lastFullSyncStatus: null,
+          lastFullSyncError: null,
+          lastWebhookAt: null,
+          consecutiveFailures: 0,
+          lastFullSyncMs: null,
+          lastSuccessAt: null,
+          mirrorIssueCount: null,
+          lastFullSyncStartedAt: '2026-10-21T07:00:00.000Z',
+        });
+        await store.recordFullSync(ws, {
+          at: '2026-10-21T08:00:00.000Z',
+          ok: false,
+          error: 'Linear 503',
+          durationMs: 4000,
+        });
+        await store.recordFullSyncStart(ws, '2026-10-21T08:15:00.000Z');
+        // The last finished attempt is untouched: backoff, the chronic
+        // rule and the skip-recent rule read only that.
+        expect(await store.getSyncState(ws)).toMatchObject({
+          lastFullSyncAt: '2026-10-21T08:00:00.000Z',
+          lastFullSyncStatus: 'failed',
+          lastFullSyncError: 'Linear 503',
+          consecutiveFailures: 1,
+          lastFullSyncMs: 4000,
+          lastSuccessAt: null,
+          lastFullSyncStartedAt: '2026-10-21T08:15:00.000Z',
+        });
+        // A late writer never moves it back, and a finish leaves it alone.
+        await store.recordFullSyncStart(ws, '2026-10-21T08:10:00.000Z');
+        await store.recordFullSync(ws, {
+          at: '2026-10-21T08:20:00.000Z',
+          ok: true,
+          error: null,
+        });
+        expect(await store.getSyncState(ws)).toMatchObject({
+          lastFullSyncAt: '2026-10-21T08:20:00.000Z',
+          lastFullSyncStatus: 'ok',
+          consecutiveFailures: 0,
+          lastFullSyncStartedAt: '2026-10-21T08:15:00.000Z',
         });
       });
 
@@ -2184,6 +2237,93 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         });
       });
 
+      test('updateInstallationIdentity with readAt records the read, and an older read changes nothing', async () => {
+        const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
+        // An install counts as a read at its updatedAt.
+        const readAt = async (): Promise<string | null | undefined> => {
+          const [described] = await store.describeSessions(
+            [(await newSession(ws, `probe-${Math.random()}`)).token],
+            NOW
+          );
+          return described?.urlKeyReadAt;
+        };
+        expect(await readAt()).toBe('2026-10-01T09:00:00.000Z');
+        const later = '2026-10-21T07:00:00.000Z';
+        const renamed = { workspaceName: 'Acme Labs', urlKey: 'acme-labs' };
+        expect(
+          await store.updateInstallationIdentity(ws, renamed, { readAt: later })
+        ).toBe(true);
+        expect(await readAt()).toBe(later);
+        // The same values read again: the read is recorded, nothing changed.
+        const latest = '2026-10-21T07:30:00.000Z';
+        expect(
+          await store.updateInstallationIdentity(ws, renamed, {
+            readAt: latest,
+          })
+        ).toBe(false);
+        expect(await readAt()).toBe(latest);
+        // A read older than the recorded one (a slow sync that asked Linear
+        // before a sign-in did) changes nothing.
+        expect(
+          await store.updateInstallationIdentity(
+            ws,
+            { workspaceName: 'Acme', urlKey: 'acme' },
+            { readAt: later }
+          )
+        ).toBe(false);
+        expect(await store.getInstallation(ws)).toMatchObject({
+          ...renamed,
+          updatedAt: '2026-10-01T09:00:00.000Z',
+        });
+        expect(await readAt()).toBe(latest);
+        expect(
+          await store.updateInstallationIdentity(newWorkspaceId(), renamed, {
+            readAt: latest,
+          })
+        ).toBe(false);
+      });
+
+      test('recordUrlKeyCheck counts failed tries in a row and never moves the time back', async () => {
+        const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
+        const summary = async () =>
+          (await store.listWorkspaceStatus()).find(
+            (row) => row.workspaceId === ws
+          )?.installation;
+        expect(await summary()).toMatchObject({ urlKeyCheckedAt: null });
+        const at = (hour: string) => `2026-10-21T${hour}:00:00.000Z`;
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('05'), ok: false })
+        ).toBe(1);
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('07'), ok: false })
+        ).toBe(2);
+        // An older time is not taken; the count still goes on.
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('06'), ok: false })
+        ).toBe(3);
+        expect(await summary()).toMatchObject({
+          urlKeyCheckedAt: at('07'),
+          updatedAt: '2026-10-01T09:00:00.000Z',
+          revokedAt: null,
+        });
+        // One that worked starts the count again.
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('08'), ok: true })
+        ).toBe(0);
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('09'), ok: false })
+        ).toBe(1);
+        expect(await summary()).toMatchObject({ urlKeyCheckedAt: at('09') });
+        expect(
+          await store.recordUrlKeyCheck(newWorkspaceId(), {
+            at: NOW,
+            ok: false,
+          })
+        ).toBe(0);
+      });
+
       test('revokeInstallation ignores stale revokes, upgrades grant_dead and never downgrades', async () => {
         const ws = newWorkspaceId();
         const saved = installation(ws);
@@ -2325,6 +2465,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
               updatedAt: '2026-10-01T09:00:00.000Z',
               revokedAt: null,
               revokedReason: null,
+              urlKeyCheckedAt: null,
             },
             sync: {
               workspaceId: installed,
@@ -2337,6 +2478,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
               lastFullSyncMs: 5000,
               lastSuccessAt: NOW,
               mirrorIssueCount: 4,
+              lastFullSyncStartedAt: null,
             },
             sessionCount: 2,
           });
@@ -2368,7 +2510,32 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         }
       });
 
+      test('listWorkspaceStatus orders by the later of an attempt start and finish', async () => {
+        // In a shared database other tests' workspaces sort among these,
+        // so only the relative order of these three is checked. `stuck`
+        // finished long ago but started an attempt last (killed since);
+        // `finished` finished after `older` did.
+        const older = newWorkspaceId();
+        const finished = newWorkspaceId();
+        const stuck = newWorkspaceId();
+        for (const ws of [older, finished, stuck]) {
+          await store.saveInstallation(installation(ws));
+        }
+        const done = (ws: string, at: string) =>
+          store.recordFullSync(ws, { at, ok: true, error: null });
+        await done(stuck, '2026-10-20T05:00:00.000Z');
+        await done(older, '2026-10-20T06:00:00.000Z');
+        await done(finished, '2026-10-20T07:00:00.000Z');
+        await store.recordFullSyncStart(stuck, '2026-10-20T07:30:00.000Z');
+        const ids = (await store.listWorkspaceStatus())
+          .map((row) => row.workspaceId)
+          .filter((id) => id === older || id === finished || id === stuck);
+        expect(ids).toEqual([older, finished, stuck]);
+      });
+
       test('describeSessions describes held tokens in one statement, without credentials', async () => {
+        // Every session below signs in at NOW.
+        clock = new Date(NOW);
         const acme = newWorkspaceId();
         const globex = newWorkspaceId();
         await store.saveInstallation(installation(acme));
@@ -2432,6 +2599,9 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           revokedReason: 'uninstalled' as const,
           workspaceId: acme,
           workspaceUrlKey: 'acme',
+          // Signed in after the install read the installation's key.
+          signedInAt: NOW,
+          urlKeyReadAt: '2026-10-01T09:00:00.000Z',
         };
         expect(described).toEqual([
           {
@@ -2439,6 +2609,9 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             workspaceId: globex,
             workspaceName: 'Globex',
             workspaceUrlKey: 'globex',
+            signInUrlKey: 'globex',
+            signedInAt: NOW,
+            urlKeyReadAt: null,
             userId: 'u-ana',
             userName: 'ana',
             expiresAt: '2099-01-01T00:00:00.000Z',
@@ -2451,6 +2624,8 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             ...common,
             token: member.token,
             workspaceName: 'Acme Robotics',
+            // Admission also matches the key it signed in under.
+            signInUrlKey: 'acme-at-sign-in',
             userId: 'u-ana',
             userName: 'ana',
             guest: false,
@@ -2460,6 +2635,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             ...common,
             token: guest.token,
             workspaceName: 'Acme Robotics',
+            signInUrlKey: null,
             userId: 'u-guest',
             userName: 'guest',
             guest: true,
@@ -2469,6 +2645,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             ...common,
             token: unknown.token,
             workspaceName: 'Acme Robotics',
+            signInUrlKey: null,
             userId: 'u-nobody',
             userName: 'nobody',
             guest: null,
@@ -2536,6 +2713,54 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(taken).toEqual([{ ...foreign.session, tokens: null }]);
         expect(await rowsFor('sessions', ws)).toBe(0);
         await store.deleteSession(kept.token);
+      });
+
+      test('takeSessionsForWorkspace with purgeDueBefore takes only while a purge is due', async () => {
+        const due = newWorkspaceId();
+        const grace = newWorkspaceId();
+        const dead = newWorkspaceId();
+        const never = newWorkspaceId();
+        const cutoff = '2026-09-21T08:00:00.000Z';
+        for (const ws of [due, grace, dead]) {
+          await store.saveInstallation(installation(ws));
+        }
+        await store.revokeInstallation(
+          due,
+          'uninstalled',
+          '2026-09-01T00:00:00.000Z'
+        );
+        await store.revokeInstallation(
+          grace,
+          'removed',
+          '2026-10-01T00:00:00.000Z'
+        );
+        await store.revokeInstallation(
+          dead,
+          'grant_dead',
+          '2026-09-01T00:00:00.000Z'
+        );
+        for (const ws of [due, grace, dead, never]) {
+          await newSession(ws, 'a');
+          await newSession(ws, 'b');
+        }
+        const take = (ws: string) =>
+          store.takeSessionsForWorkspace(ws, {
+            limit: 1,
+            purgeDueBefore: cutoff,
+          });
+        expect(await take(due)).toHaveLength(1);
+        // Revoked too recently, revoked as grant_dead, never installed.
+        for (const ws of [grace, dead, never]) {
+          expect(await take(ws)).toEqual([]);
+          expect(await rowsFor('sessions', ws)).toBe(2);
+        }
+        // A reinstall since: nothing is taken any more.
+        await store.saveInstallation(installation(due));
+        expect(await take(due)).toEqual([]);
+        expect(await rowsFor('sessions', due)).toBe(1);
+        for (const ws of [due, grace, dead, never]) {
+          await store.takeSessionsForWorkspace(ws, { limit: 10 });
+        }
       });
 
       test('takeSessionsForWorkspace waits for a refresh in flight and takes its rotated tokens', async () => {
@@ -2882,6 +3107,19 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           store.blockWorkspace(urlKey, 'name' as 'id', null, NOW)
         );
         expect(bad).toBeInstanceOf(TypeError);
+      });
+
+      test('deleteAdmittedPin removes a pin and says which workspace it named', async () => {
+        const entry = `unpin-${newWorkspaceId()}`;
+        expect(await store.pinAdmitted(entry, 'org-1', NOW)).toBe('org-1');
+        expect(await store.deleteAdmittedPin(entry.toUpperCase())).toBe(
+          'org-1'
+        );
+        expect(await store.getAdmittedPin(entry)).toBeNull();
+        expect(await store.deleteAdmittedPin(entry)).toBeNull();
+        // Free again: the next pin wins.
+        expect(await store.pinAdmitted(entry, 'org-2', NOW)).toBe('org-2');
+        await store.deleteAdmittedPin(entry);
       });
 
       test('admission pins: the first pin of an entry wins', async () => {

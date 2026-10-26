@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  CLEANUP_MAX_MS,
+  cleanupDeadline,
   dailyStartNeedMs,
   formatDuration,
   isChronic,
@@ -94,6 +96,41 @@ describe('planWorkspaces', () => {
     ]);
   });
 
+  test('an attempt that started and never finished counts from its start', () => {
+    // org-stuck last finished long ago, but its sync started an hour ago
+    // and was killed with its tick: the workspaces that tick never
+    // reached go first now.
+    const plans = planWorkspaces([
+      overview('org-stuck', {
+        sync: {
+          lastFullSyncAt: ago(3 * HOUR),
+          lastFullSyncStartedAt: ago(HOUR),
+        },
+      }),
+      overview('org-never-reached', {
+        sync: { lastFullSyncAt: ago(2 * HOUR) },
+      }),
+      overview('org-done', {
+        sync: {
+          lastFullSyncAt: ago(30 * MINUTE),
+          lastFullSyncStartedAt: ago(34 * MINUTE),
+        },
+      }),
+      // Started first, never finished: after the never attempted.
+      overview('org-first-stuck', {
+        sync: { lastFullSyncAt: null, lastFullSyncStartedAt: ago(HOUR) },
+      }),
+      overview('org-new'),
+    ]);
+    expect(plans.map((plan) => plan.workspaceId)).toEqual([
+      'org-new',
+      'org-never-reached',
+      'org-stuck',
+      'org-first-stuck',
+      'org-done',
+    ]);
+  });
+
   test('ties keep the engine order', () => {
     const at = ago(HOUR);
     const plans = planWorkspaces(
@@ -102,6 +139,22 @@ describe('planWorkspaces', () => {
       )
     );
     expect(plans.map((plan) => plan.workspaceId)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('cleanup deadline', () => {
+  test('at most 2 minutes, and at most half the time left', () => {
+    expect(CLEANUP_MAX_MS).toBe(2 * MINUTE);
+    const at = (ms: number) => new Date(NOW.getTime() + ms);
+    // The default 10-minute tick: the 2-minute cap.
+    expect(cleanupDeadline(NOW, at(10 * MINUTE))).toEqual(at(2 * MINUTE));
+    // A 3-minute tick keeps at least half for the workspaces.
+    expect(cleanupDeadline(NOW, at(3 * MINUTE))).toEqual(at(1.5 * MINUTE));
+    // No time left (or past it): now, so nothing that calls Linear starts.
+    expect(cleanupDeadline(NOW, at(0))).toEqual(NOW);
+    expect(cleanupDeadline(NOW, at(-MINUTE))).toEqual(NOW);
+    // No run deadline: the cap alone.
+    expect(cleanupDeadline(NOW, null)).toEqual(at(2 * MINUTE));
   });
 });
 
@@ -152,6 +205,18 @@ describe('recentSyncAgeMs', () => {
         NOW
       )
     ).toBeNull();
+    // An attempt that only started is no recent sync.
+    expect(
+      recentSyncAgeMs(
+        overview('org-a', {
+          sync: {
+            lastSuccessAt: ago(HOUR),
+            lastFullSyncStartedAt: ago(MINUTE),
+          },
+        }),
+        NOW
+      )
+    ).toBeNull();
   });
 });
 
@@ -167,6 +232,16 @@ describe('isChronic', () => {
       });
     expect(isChronic(lastSuccess(25 * HOUR), NOW)).toBe(true);
     expect(isChronic(lastSuccess(23 * HOUR), NOW)).toBe(false);
+    // Attempts that keep starting (and dying) change nothing.
+    const started = (status: ReturnType<typeof lastSuccess>) => ({
+      ...status,
+      sync:
+        status.sync === null
+          ? null
+          : { ...status.sync, lastFullSyncStartedAt: ago(MINUTE) },
+    });
+    expect(isChronic(started(lastSuccess(25 * HOUR)), NOW)).toBe(true);
+    expect(isChronic(started(lastSuccess(23 * HOUR)), NOW)).toBe(false);
   });
 
   test('never synced: chronic once installed more than 24 hours ago', () => {

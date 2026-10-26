@@ -146,6 +146,7 @@ export function overview(
           lastFullSyncMs: null,
           lastSuccessAt: null,
           mirrorIssueCount: null,
+          lastFullSyncStartedAt: null,
           ...overrides.sync,
         };
   return {
@@ -179,6 +180,8 @@ export function fakeEngine(
     /** The whole overview instead of `workspaces` and `revoked`. */
     statuses?: WorkspaceOverview[];
     timezones?: Record<string, string>;
+    /** Saved allocation modes (default dry_run, as a new workspace's). */
+    allocationModes?: Record<string, AllocationMode>;
     now?: () => Date;
     overrides?: Partial<WorkerEngine>;
   } = {}
@@ -202,6 +205,10 @@ export function fakeEngine(
     workspaceTimezone: (id) => {
       calls.push(`workspaceTimezone:${id}`);
       return Promise.resolve(options.timezones?.[id] ?? 'UTC');
+    },
+    workspaceAllocationMode: (id) => {
+      calls.push(`workspaceAllocationMode:${id}`);
+      return Promise.resolve(options.allocationModes?.[id] ?? 'dry_run');
     },
     fullSync: (id) => {
       calls.push(`fullSync:${id}`);
@@ -282,6 +289,14 @@ export function fakeEngine(
     unblockWorkspace: (name) => {
       calls.push(`unblockWorkspace:${name}`);
       return Promise.resolve(true);
+    },
+    unpinWorkspaceEntry: (entry) => {
+      calls.push(`unpinWorkspaceEntry:${entry}`);
+      return Promise.resolve({
+        entry: entry.toLowerCase(),
+        workspaceId: `org-${entry.toLowerCase()}`,
+        listed: true,
+      });
     },
     listBlockedWorkspaces: () => {
       calls.push('listBlockedWorkspaces');

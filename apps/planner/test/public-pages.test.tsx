@@ -302,9 +302,18 @@ describe('the privacy page says what the code keeps', () => {
       // Deletion follows Linear's uninstall notice; without one (a grant
       // Linear only refuses) nothing is deleted automatically.
       expect(
-        row('Everything about a workspace after it uninstalls the app')
+        row('Everything else about a workspace after it uninstalls the app')
       ).toBe(
         `Deleted ${PURGE_AFTER_DAYS} days after Linear tells the planner about the uninstall, unless it is installed again first`
+      );
+      // The purge keeps the LINEAR_WORKSPACES pins and the blocks (store
+      // PURGE_ORDER leaves admitted_workspaces and blocked_workspaces).
+      expect(
+        row(
+          'Which workspaces are admitted or blocked (a Linear workspace id with a URL key, and a block’s reason)'
+        )
+      ).toBe(
+        'Kept with no time limit, also after the rest of the workspace is deleted, so an admission or a block keeps naming the same workspace after a rename; ask the person who runs the planner to remove them'
       );
       expect(
         row(
@@ -334,6 +343,7 @@ describe('the privacy page says what the code keeps', () => {
       'Client IP addresses, which the planner keeps only in its memory (never in its database)',
       'Railway',
       'Not stored: issue descriptions, comments, labels and estimates',
+      'for a workspace admitted by its URL key, that URL key and the Linear workspace id it was matched to; for a blocked one, its Linear workspace id and URL key, with the reason given for the block',
     ]) {
       expect(copy).toContain(phrase);
     }
@@ -365,6 +375,10 @@ describe('the privacy page says what the code keeps', () => {
     expect(copy).not.toContain(
       'signs everyone out of it, and deletes everything it holds about the workspace 30 days later. To'
     );
+    expect(copy).toContain(
+      'deletes what it holds about the workspace 30 days later, except which workspace id and URL key an admission or a block names (see How long)'
+    );
+    expect(copy).not.toContain('deletes everything it holds');
   });
 
   test('Slack is named only while a Slack channel is active', () => {
@@ -412,6 +426,10 @@ describe('the terms', () => {
     expect(copy).toContain('provided as is');
     expect(copy).toContain('no promise of uptime');
     expect(copy).toContain('only once someone switches it to live');
+    // The worker's allocate --live refuses dry run without --override-mode.
+    expect(copy).toContain(
+      'where Settings still says dry run, it writes only when they deliberately override that'
+    );
     expect(copy).toContain('each with that person’s own Linear access');
     expect(copy).toContain('Acme Ops may remove a workspace');
     expect(copy).toContain(`deleted ${PURGE_AFTER_DAYS} days later`);
