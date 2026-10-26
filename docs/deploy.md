@@ -71,7 +71,15 @@ workspace that installs it (arch §4.1).
    "Private applications are only installable by the owning workspace", so
    create the app in the workspace you will install it into. Public distribution
    is only needed for other workspaces (research: Linear OAuth 2.0, "OAuth app
-   distribution").
+   distribution"). To let other people's workspaces install it, make it public:
+   open **Settings → Administration → API**, open the app and switch it to
+   **Public**. Linear then asks for a developer URL: use `<APP_URL>/contact`,
+   the planner's contact page (who runs it, from `OPERATOR_NAME`,
+   `OPERATOR_EMAIL` and `OPERATOR_URL`; section 5 "Opening the planner to other
+   workspaces"). Making it public does not let anyone in by itself: the planner
+   only admits the workspaces `LINEAR_WORKSPACES` names (closed to new ones
+   while it is unset). It is not listed in Linear's Integration Directory; that
+   is a separate submission this guide does not cover.
 
 Nothing else needs configuring on the Linear side. The app requests its scopes
 when it sends people to Linear (arch §7 auth):
@@ -179,6 +187,15 @@ oauth_config:
 Without `SLACK_BOT_TOKEN`, digests are only recorded in the outbox. They show in
 Settings, and nothing is sent. With warnings set to live and no token, every
 digest is recorded as undeliverable, so the gap is visible (arch §7.1).
+
+**One Slack bot serves one workspace.** While the planner may serve more than
+one Linear workspace (`LINEAR_WORKSPACES=*`, a list of more than one, or, while
+it is unset, more than one installed workspace), it never uses
+`SLACK_BOT_TOKEN`: every workspace's digests stay in its outbox, recorded as
+undeliverable while warnings are live, and boot and each live warning run log a
+warning naming why (arch §7 "Fail-safes"). One bot cannot DM people in a
+stranger's Slack. The planner's pages then promise no Slack DM either: Settings
+and the landing page say digests are kept in the planner.
 
 ## 3. Railway
 
@@ -292,8 +309,16 @@ Each tick does the following for every installed workspace (arch §9):
   per local day, so the job runs on the first tick at or after 08:00 local.
 - Otherwise the tick runs a plain **full resync**. That resync is what picks up
   milestone and relation changes, which have no webhooks.
-- Afterwards it runs housekeeping: expired sessions are deleted and their Linear
-  grants revoked, and webhook delivery records older than 30 days are pruned.
+- Afterwards it runs housekeeping (arch §9): expired sessions are deleted and
+  their Linear grants revoked; an installed workspace `LINEAR_WORKSPACES` no
+  longer admits is removed; the sessions of a workspace that was uninstalled in
+  Linear or removed are ended (their grants revoked), except sessions started
+  after the revoke (an admin signing in to reinstall); such a workspace's data
+  is purged 30 days after the revoke unless it was installed again (a few per
+  tick; a workspace whose grant Linear refused is never purged on its own);
+  webhook delivery records older than 30 days, digests older than 90 days and
+  daily job records older than 30 days are pruned. The audit log and the run log
+  are kept for as long as the workspace stays installed.
 
 Two details about the daily time:
 
@@ -320,12 +345,17 @@ PR environments (research: Railway deployment, "Variable reference syntax").
 | `LINEAR_CLIENT_ID`        |  ✓  |   ✓    | from step 1. The worker needs it to refresh and revoke tokens.                                                                                                                                                                                                                                           |
 | `LINEAR_CLIENT_SECRET`    |  ✓  |   ✓    | sealed, from step 1                                                                                                                                                                                                                                                                                      |
 | `LINEAR_WEBHOOK_SECRET`   |  ✓  |        | sealed, from step 1                                                                                                                                                                                                                                                                                      |
-| `SLACK_BOT_TOKEN`         |  ✓  |   ✓    | sealed. `xoxb-…` from step 2.                                                                                                                                                                                                                                                                            |
+| `SLACK_BOT_TOKEN`         |  ✓  |   ✓    | sealed. `xoxb-…` from step 2. Not used while the planner may serve more than one workspace (step 2, "One Slack bot serves one workspace").                                                                                                                                                               |
 | `DEFAULT_TIMEZONE`        |  ✓  |   ✓    | IANA zone for new workspaces, e.g. `America/Chicago` (default `UTC`). Anyone can change it later in Settings.                                                                                                                                                                                            |
 | `WATCHER_EMAILS`          |  ✓  |   ✓    | comma-separated. The first watchers, saved on the first full sync after the install; if none match, the installer is the first watcher. Watchers get every warning (design §5: the project owner plus the configured watchers).                                                                          |
 | `DAILY_RUN_AT`            |     |   ✓    | `HH:MM` in each workspace's timezone (default `08:00`)                                                                                                                                                                                                                                                   |
 | `WORKER_CONCURRENCY`      |     |   ✓    | optional: how many workspaces one tick works on at once (default `3`, `1` to `8`). Each workspace in flight uses at most one of the worker's 10 Postgres connections at a time, so the cap leaves room for the rest of the tick (arch §9 "Scaling").                                                     |
 | `MIRROR_CACHE_WORKSPACES` |  ✓  |        | optional: how many workspaces' mirrors the web service keeps in memory, least recently read dropped first (default `16`, `1` to `64`). Raise it when more workspaces are in use at the same time; lower it when memory is tight. The worker exits after each tick, so it does not need it.               |
+| `LINEAR_WORKSPACES`       |  ✓  |   ✓    | which workspaces may use the planner: org ids (recommended) or URL keys, comma-separated, or `*` for everyone. Unset: closed to new workspaces. **The same value on both services**, best as a shared variable (section 5 "Operating several workspaces").                                               |
+| `OPERATOR_NAME`           |  ✓  |        | optional: who runs this planner, on `/contact`, the landing page, privacy and terms                                                                                                                                                                                                                      |
+| `OPERATOR_EMAIL`          |  ✓  |        | optional: the address `/contact` offers for questions and deletion requests. A deployed planner without it logs one info line at boot.                                                                                                                                                                   |
+| `OPERATOR_URL`            |  ✓  |        | optional: a website `/contact` links to (http or https)                                                                                                                                                                                                                                                  |
+| `DEMO_URL`                |  ✓  |        | optional: a public demo deployment, linked from the landing page as "Try the demo first"                                                                                                                                                                                                                 |
 | `PORT`                    |  ✓  |        | `3000`                                                                                                                                                                                                                                                                                                   |
 | `RAILWAY_DOCKERFILE_PATH` |  ✓  |   ✓    | `deploy/Dockerfile` (a Railway build setting, not read by the app)                                                                                                                                                                                                                                       |
 
@@ -426,10 +456,17 @@ tick FAILED (1 of 2 workspaces) — org-1: synced (…), daily due at 08:00 Amer
 
 **Exit codes** (arch §9): `0` ok. `1` means one of these happened:
 
-- a workspace failed;
+- a workspace failed, unless the failure is chronic (a tick's workspace with no
+  successful sync for 24 hours is logged at warn and does not fail the tick); a
+  workspace whose app grant Linear refused fails every run until an admin
+  reinstalls ("Operating several workspaces" below has the details);
 - housekeeping failed;
 - the worker could not start (bad configuration, database unreachable);
 - the run hit its `TICK_TIMEOUT_MINUTES` limit (any command except `migrate`).
+
+Workspaces uninstalled in Linear, removed or blocked by you, or not admitted by
+`LINEAR_WORKSPACES` are skipped and never fail a run; a workspace a tick had no
+time left for is deferred to the next one, which is not a failure either.
 
 `2` is a usage error. One workspace failing never stops the others. A workspace
 counts as failed when its job throws, or when an allocation run ends `failed` or
@@ -441,12 +478,43 @@ logged at `error`. Railway's cron history marks failed runs. Which status a
 non-zero exit shows (for example `CRASHED`) is not documented: **verify this in
 your workspace**.
 
-**Health.** `GET /api/health` returns `{ ok, db }`. Railway checks it only while
-a deploy goes live. For continuous monitoring, point an external uptime check at
-it.
+**Health.** `GET /api/health` returns `{ ok, db }`: 200 when the database
+answers a ping, 503 when it does not or the planner cannot start. Railway checks
+it only while a deploy goes live. For continuous monitoring, point an external
+uptime check at it.
+
+**Rate limits** (arch §8.1 "Rate limits"). The web service limits, per client
+IP, OAuth sign-in starts (30 per 10 minutes), workspace switches and sign-outs
+(60 per 10 minutes each) and refused webhook deliveries (100 a minute; a
+delivery Linear signed is never limited), and, per session, allocation runs (6
+per 10 minutes), digest previews (20 per 10 minutes) and every other change (300
+a minute). Sign-in callbacks and the demo sign-in are never limited. The counts
+live in the web process's memory: each replica counts on its own and a redeploy
+forgets them. The client IP is Railway's `X-Real-IP` header and nothing else; a
+request without one is not limited by IP.
+
+**Check once that `X-Real-IP` cannot be spoofed.** The limits rely on Railway's
+edge setting `X-Real-IP` to the real client address, replacing whatever a client
+sent. From one machine, send 31 sign-in starts, each claiming another address:
+
+```bash
+for i in $(seq 1 31); do
+  curl -s -o /dev/null -w '%{redirect_url}\n' \
+    -H "X-Real-IP: 198.51.100.$i" "$APP_URL/api/auth/linear?intent=signin"
+done | tail -1
+```
+
+The last line must end in `/?auth_error=auth_rate_limited`: the 31st start was
+counted against your real address, so the forged header was ignored. If it is
+Linear's authorize URL instead, the header reached the planner as sent and the
+IP limits can be bypassed; do not open the planner to strangers until that is
+fixed. (The check spends your own address's starts: signing in from that machine
+waits up to 10 minutes. With more than one web replica, the starts may spread
+over replicas; run it with one.)
 
 **Running jobs by hand.** The worker's commands are
-`node apps/worker/dist/index.js <command>`. Run `--help` for the full list:
+`node apps/worker/dist/index.js <command>`. Run `--help` for the full list (the
+operator commands are in "Operating several workspaces" below):
 
 - `migrate`
 - `sync`
@@ -462,10 +530,13 @@ production variables and the private network. `sync`, `daily`, `allocate` and
 stage they were stuck in, so a manual run never overlaps a tick that takes over
 the daily job. `migrate` has no time limit: if a migration takes longer than one
 run's budget (every command applies pending migrations when it starts), apply it
-with `migrate`. The verified way to run one is `railway cron run`, which runs
-the worker's configured `tick`. For anything else, temporarily change the
-worker's start command, or use a shell inside the service if your Railway plan
-offers one: **verify this in your workspace**.
+with `migrate`. `railway cron run` runs the worker's configured `tick`. For
+anything else, run the command in the `web` service with `railway ssh`, as
+"Running them on Railway" below shows (the web image contains the worker):
+`railway ssh --service web -- node /app/apps/worker/dist/index.js sync --workspace <org id>`.
+If that session does not see the service's variables (the check is in that
+section), temporarily change the worker's start command and use
+`railway cron run`.
 
 **The daily job did not run.**
 
@@ -531,18 +602,24 @@ response expires them. So once, after this release, everyone signed in under the
 old names lands on the sign-in page and signs in again; nothing else is lost.
 API-key mode keeps its cookies as they were.
 
-**A revoked install.** The installation is marked revoked when:
+**A revoked install.** The installation is marked revoked, its stored app token
+wiped, for one of three reasons (arch §7 "Revoking"):
 
-- an admin removes the app in Linear, which sends an `OAuthApp` revoked webhook;
-  or
-- a token refresh is rejected (`invalid_grant`).
+- **uninstalled**: an admin removed the app in Linear, which sends an `OAuthApp`
+  revoked webhook. The worker skips the workspace (info, not a failure), the
+  next housekeeping ends the sessions started before the uninstall, and its data
+  is purged 30 days later unless an admin installs the app again first;
+- **removed**: you ran `remove` (or `block`), or `LINEAR_WORKSPACES` no longer
+  admits it. Handled like an uninstall;
+- **grant_dead**: Linear rejected the app's token refresh (`invalid_grant`).
+  Members keep their sessions, the workspace is never purged on its own, and
+  every worker run reports it as a failed workspace (exit 1, an error log naming
+  the reinstall), so the cron job turns red instead of quietly doing nothing
+  while allocation and warnings have stopped (arch §7.1, §9).
 
-Settings and `/setup` then show that a reinstall is needed. The worker stops
-syncing that workspace, and every worker run reports it as a failed workspace
-(exit 1, an error log naming the reinstall), so the cron job turns red instead
-of quietly doing nothing while allocation and warnings have stopped (arch §7.1,
-§9). A Linear admin reinstalls from `/setup` and picks the teams again. A person
-whose own grant died simply signs in again.
+Settings and `/setup` then show that a reinstall is needed, why, and (for the
+first two) when the data is deleted. A Linear admin reinstalls from `/setup` and
+picks the teams again. A person whose own grant died simply signs in again.
 
 **Backups.** Back up the Railway Postgres database with whatever your Railway
 plan provides, or with `pg_dump` over a temporary public TCP proxy. With libpq,
@@ -568,6 +645,22 @@ its housekeeping removes an installed workspace the value no longer admits. Give
 both the same value, most simply as one Railway shared variable referenced from
 each service as `${{shared.LINEAR_WORKSPACES}}`. Otherwise the worker keeps
 syncing, and never removes, a workspace the web refuses.
+
+The value (arch §7 "Admission"):
+
+- **unset or empty**: closed to new workspaces. Only workspaces that already
+  have an installation (active, or revoked but not purged yet, so an admin can
+  reinstall) may sign in. Existing deployments keep working.
+- **a list**: comma-separated, at most 100 entries, case-insensitive, each a
+  Linear organization id or a URL key. **Use ids**: an admin can rename a URL
+  key in Linear. (A URL-key entry is pinned to the workspace it first admits:
+  after a rename it still admits that workspace, and never another one that
+  takes the old key.) The id is shown on Settings → Status and `/setup`
+  ("Workspace id") and by the `workspaces` command; a person whose workspace is
+  refused sees "This planner is not open to that Linear workspace yet" and a
+  link to `/contact`, so they can ask you.
+- **`*`**: every Linear workspace may sign in and install. Boot logs a warning.
+  Use `block` to keep one out.
 
 **How a tick handles many workspaces** (arch §9 "Scaling"):
 
@@ -659,6 +752,35 @@ temporarily set the worker's start command to it (for example
 `node apps/worker/dist/index.js workspaces`), run `railway cron run`, read the
 output in the worker's logs, and set the start command back to
 `node apps/worker/dist/index.js tick`.
+
+### Opening the planner to other workspaces
+
+Before strangers use the planner (design §12, 2026-10-25), in this order:
+
+1. Make the Linear app **public** and set its developer URL to
+   `<APP_URL>/contact` (step 1, item 6).
+2. Set **`OPERATOR_NAME`**, **`OPERATOR_EMAIL`** and, if you have one,
+   **`OPERATOR_URL`** on the web service. `/contact` shows them, the landing
+   page says "Run by <name>.", and the privacy and terms pages name you where
+   they say who to ask. Without them the pages stay neutral ("the person who
+   runs this planner") and `/contact` says no contact details are published.
+3. Optionally set **`DEMO_URL`** to a public demo deployment (one with
+   `LINEAR_FIXTURE=showcase`): the landing page links to it.
+4. Decide **`LINEAR_WORKSPACES`** (above) and set it on both services.
+5. Leave `SLACK_BOT_TOKEN` as it is: with more than one possible workspace the
+   planner stops using it by itself (step 2).
+6. Run the **`X-Real-IP` check** (section 5 "Rate limits").
+7. Read `/privacy` and `/terms` on the deployment and have the wording reviewed
+   for your situation: they describe what this code stores and does (with every
+   retention period taken from the code and `SESSION_DAYS`), in plain words, and
+   they are not legal advice. The privacy page says the planner runs on Railway;
+   if you host it elsewhere, change that line in
+   `apps/planner/lib/adapters/public-pages.ts`.
+
+The landing page says what the planner stores (linking to `/privacy`), that
+Linear signs a person in to the workspace they have open at linear.app, and
+"Admins: sign in, then install it for your workspace."; every signed-out page
+ends with privacy · terms · contact links.
 
 ## 6. Open questions that need a live test
 
