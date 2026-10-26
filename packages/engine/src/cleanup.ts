@@ -207,10 +207,12 @@ async function endRevokedWorkspaceSessions(
 
 // Purges workspaces uninstalled or removed more than PURGE_AFTER_DAYS ago,
 // oldest revoke first, at most MAX_PURGES_PER_CLEANUP per call (the rest
-// wait for the next tick). purgeRevokedWorkspace ends their remaining
-// sessions first and logs the id only; the store re-checks the revoke
-// under a row lock, so a reinstall racing the purge wins. 'grant_dead' is
-// never purged here (only by the operator's purge).
+// wait for the next tick). The store re-checks the revoke under a row lock
+// and deletes the remaining sessions in the same transaction, so a
+// reinstall racing the purge wins and keeps every session (the installer's
+// too); purgeRevokedWorkspace revokes the deleted sessions' grants after
+// the commit and logs the id only. 'grant_dead' is never purged here (only
+// by the operator's purge).
 async function purgeRevokedWorkspaces(
   rt: EngineRuntime,
   now: Date,

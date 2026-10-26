@@ -611,6 +611,8 @@ describe('runMigrations', () => {
          VALUES ('Acme', 'url_key', now())`,
         `INSERT INTO blocked_workspaces (key, kind, created_at)
          VALUES ('acme', 'name', now())`,
+        `INSERT INTO blocked_workspaces (key, kind, created_at, url_key)
+         VALUES ('org-acme', 'id', now(), 'Acme')`,
         `INSERT INTO admitted_workspaces (entry, workspace_id, created_at)
          VALUES ('Acme', 'ws-active', now())`,
       ]) {

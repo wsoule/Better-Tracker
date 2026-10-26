@@ -84,6 +84,8 @@ export interface WorkspaceRow {
 export interface BlockRow {
   key: string;
   kind: BlockedWorkspace['kind'];
+  /** An id block's URL key (made under or pinned from); `unblock` takes it. */
+  urlKey: string | null;
   reason: string | null;
   createdAt: string;
 }
@@ -256,7 +258,11 @@ export function workspacesTable(
         ['Key', 'By', 'Since', 'Reason'],
         blocks.map((block) => [
           block.key,
-          block.kind === 'id' ? 'organization id' : 'URL key (not seen yet)',
+          block.kind === 'url_key'
+            ? 'URL key (not seen yet)'
+            : block.urlKey === null
+              ? 'organization id'
+              : `organization id (URL key ${block.urlKey})`,
           day(block.createdAt),
           block.reason ?? '',
         ])
@@ -355,6 +361,7 @@ async function runOperator(
       const blocks: BlockRow[] = blocked.map((block) => ({
         key: block.key,
         kind: block.kind,
+        urlKey: block.urlKey ?? null,
         reason: block.reason === null ? null : redactText(block.reason),
         createdAt: block.createdAt,
       }));
@@ -399,7 +406,7 @@ async function runOperator(
         code: EXIT_OK,
         lines: [
           ...purgeCounts(purge.counts),
-          `purge ok — ${purge.workspaceId}: ${plural(total, 'row')} deleted; ${plural(purge.endedSessions, 'session')} ended first`,
+          `purge ok — ${purge.workspaceId}: ${plural(total, 'row')} deleted; ${plural(purge.endedSessions, 'session')} ended`,
         ],
       };
     }
@@ -434,7 +441,7 @@ async function runOperator(
         lines: [
           removed
             ? `unblock ok — ${command.workspace}: block removed; the workspace stays removed until an admin installs the app again`
-            : `unblock ok — ${command.workspace}: nothing was blocked under that name; nothing changed`,
+            : `unblock ok — ${command.workspace}: no block names it (neither that name, the organization it resolves to, nor a block made under that URL key); nothing changed. The workspaces command lists every block`,
         ],
       };
     }

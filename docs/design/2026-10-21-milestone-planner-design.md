@@ -843,7 +843,8 @@ workspace".
 *Builder's calls, flagged for review:*
 - a URL key in `LINEAR_WORKSPACES` (or in a block) is tied to the workspace it
   first matches, because Linear lets admins rename URL keys: afterwards it
-  admits (or blocks) only that workspace, also after a rename;
+  admits (or blocks) only that workspace, also after a rename and after that
+  workspace's data is purged (the tie is kept, like a block);
 - a workspace taken out of `LINEAR_WORKSPACES` after installing (also by a
   typo, or a URL key that no longer matches after a rename) is not served
   (sign-in refused, its people signed out, skipped by the worker) but keeps its

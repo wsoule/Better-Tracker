@@ -524,7 +524,10 @@ export type WorkspacePurge =
   | {
       purged: true;
       workspaceId: string;
-      /** Sessions ended (their grants revoked) just before the purge. */
+      /**
+       * Sessions the purge deleted (in its own transaction), their grants
+       * then revoked best effort.
+       */
       endedSessions: number;
       counts: Record<WorkspaceTable, number>;
     }
@@ -1038,8 +1041,8 @@ export interface Engine {
   removeWorkspace(idOrUrlKey: string): Promise<WorkspaceRemoval>;
   /**
    * The operator's `purge`: deletes everything the workspace holds now
-   * (store.purgeWorkspace, 'grant_dead' allowed), after ending its
-   * remaining sessions. Refuses a workspace that is not revoked, or was
+   * (store.purgeWorkspace, 'grant_dead' allowed), its sessions included,
+   * then revokes their grants. Refuses a workspace that is not revoked, or was
    * revoked less than OPERATOR_PURGE_MIN_MINUTES before `now` (default:
    * the engine clock).
    */
@@ -1060,8 +1063,11 @@ export interface Engine {
     reason?: string | null
   ): Promise<WorkspaceBlock>;
   /**
-   * Removes the block on the name and on the org id it resolves to; true
-   * when one existed. The workspace stays revoked: an admin reinstalls.
+   * Removes the block on the name and on the one org it names: the org id
+   * it resolves to, or an id block that recorded it as its URL key (pinned
+   * at a sign-in attempt, or purged since); true when one existed. A URL
+   * key naming two blocked orgs is EngineInputError('conflict'). The
+   * workspace stays revoked: an admin reinstalls.
    */
   unblockWorkspace(idOrUrlKey: string): Promise<boolean>;
   /** Every block, ordered by key. */

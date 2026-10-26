@@ -1669,19 +1669,27 @@ Tables (all keyed by `workspace_id`, except the two admission tables):
   first (`created_at`, then run start, run id, seq), each with its run's
   `runMode` and `runTrigger`. Migration 4 adds
   `allocation_entries_issue_idx (workspace_id, issue_id, created_at DESC)`.
-- `blocked_workspaces (key pk, kind 'id'|'url_key', reason, created_at)` — the
-  operator block list (migration 5), keys lower-cased (`CHECK`).
-  `blockWorkspace(key, kind, reason, now)` upserts (a repeat updates kind and
-  reason, keeps `created_at`; the reason is scrubbed like planner-owned text),
-  `unblockWorkspace(key)` → whether one existed, `listBlockedWorkspaces()` by
-  key, `pinBlockedUrlKey(urlKey, workspaceId)` turns a `url_key` block into an
-  `id` block on that org (reason and time kept; an existing id block wins) and
-  says whether it did. A purge never deletes blocks.
+- `blocked_workspaces (key pk, kind 'id'|'url_key', reason, created_at, url_key)`
+  — the operator block list (migration 5), keys lower-cased (`CHECK`); `url_key`
+  (lower-cased, null when unknown and for a `url_key` block) is the URL key an
+  id block was made under or pinned from, so `unblock <URL key>` still finds it
+  once nothing else knows that key.
+  `blockWorkspace(key, kind, reason, now, { urlKey? })` upserts (a repeat
+  updates kind and reason, keeps `created_at`, and keeps the recorded URL key
+  unless given a new one; the reason is scrubbed like planner-owned text),
+  `unblockWorkspace(key)` → whether one existed (by key),
+  `listBlockedWorkspaces()` by key (with `urlKey`),
+  `pinBlockedUrlKey(urlKey, workspaceId)` turns a `url_key` block into an `id`
+  block on that org (reason and time kept, the URL key recorded; an existing id
+  block wins and takes the URL key when it has none) and says whether it did. A
+  purge never deletes blocks.
 - `admitted_workspaces (entry pk, workspace_id, created_at)` — a
   `LINEAR_WORKSPACES` URL-key entry pinned to the org it first admitted
   (migration 5, entry lower-cased). `getAdmittedPin(entry)` → id or null;
   `pinAdmitted(entry, workspaceId, now)` inserts if absent and returns the id
-  the entry is pinned to afterwards (the first pin wins, also under races).
+  the entry is pinned to afterwards (the first pin wins, also under races). A
+  purge never deletes pins either: an entry pinned to a workspace that was
+  purged keeps refusing any other org that takes the key.
 
 Several workspaces (owner decision 2026-10-25; additive methods, all in the
 shared PGlite/Postgres suite):
@@ -1731,9 +1739,15 @@ shared PGlite/Postgres suite):
   deletes the workspace from every `WorkspaceTable` (installations, sessions,
   settings, milestone_meta, sync_state before mirror_entities, webhook
   deliveries, allocation entries before runs, warning_memory, notifications,
-  job_claims, audit_log, admitted_workspaces; the order other writers lock in)
-  and returns the count per table. A test reads the catalog and fails when a
-  table with a `workspace_id` column is missing from the purge.
+  job_claims, audit_log; the order other writers lock in) and returns the count
+  per table plus the deleted sessions with their decrypted tokens
+  (`TakenSession[]`, `tokens: null` for a row that no longer decrypts; the
+  sessions' `DELETE … RETURNING` waits for row locks like
+  `takeSessionsForWorkspace`, so a refresh in flight commits first), for the
+  caller to revoke after the commit. A refused purge deletes nothing, sessions
+  included. `admitted_workspaces` and `blocked_workspaces` are kept. A test
+  reads the catalog and fails when a table with a `workspace_id` column is
+  neither purged nor one of those kept on purpose (`admitted_workspaces`).
 - Retention: `pruneNotifications(before, limit)` (migration 5 indexes
   `notifications (created_at)`) and `pruneJobClaims(before, limit)` delete at
   most `limit` rows created/claimed before `before`, oldest first, in every
@@ -2101,8 +2115,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
      id, or a URL-key entry pinned (`admitted_workspaces`) to the org it first
      admitted: an unpinned entry equal to the current URL key is pinned to that
      org (`pinAdmitted`, the first pin wins across processes), and afterwards it
-     admits only that org, also after a rename, never another org that takes the
-     key. An org-id-shaped entry (a UUID) is never read as a URL key.
+     admits only that org, also after a rename and after a purge of that org
+     (pins outlive purges), never another org that takes the key. An
+     org-id-shaped entry (a UUID) is never read as a URL key.
 
   `fresh` (sign-in, install, webhooks, the worker's list, cleanup) reads blocks,
   pins and installation rows from the store, and a store error throws, so those
@@ -2248,9 +2263,9 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
       (`{ purged: false, reason }`) `not_installed`, `not_revoked` ("run remove
       first") and `too_recent` (revoked less than `OPERATOR_PURGE_MIN_MINUTES` =
       15 minutes before `now`, default the engine clock: a tick or a sync join
-      may still be writing); else ends the remaining sessions (grants revoked)
-      and runs
+      may still be writing); else runs
       `store.purgeWorkspace(ws, { revokedBefore: now − 15 min, allowGrantDead: true })`,
+      which deletes the sessions too, then revokes their grants (best effort),
       returning `{ purged: true, endedSessions, counts }`. Logs
       `workspace purged` with the id only.
     - `blockWorkspace(name, reason?)` →
@@ -2260,10 +2275,15 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
       id's shape (a UUID), else by URL key (pinned to the org id on its first
       admission match). The block is stored first, then a resolved workspace is
       removed (`removeWorkspace`'s steps: with an installation the app token and
-      the revoke, and its sessions ended either way). Unlike `remove`, a block
-      keeps the workspace out until `unblockWorkspace(name)`, which deletes the
-      block on the name and on the org id it resolves to (true when one existed)
-      and leaves the workspace revoked.
+      the revoke, and its sessions ended either way). An id block records the
+      URL key it was made under (the name when it is not the id, else the
+      workspace's current key). Unlike `remove`, a block keeps the workspace out
+      until `unblockWorkspace(name)`, which deletes the block on the name and on
+      the one org the name means: the org id it resolves to, or an id block that
+      recorded the name as its URL key (a URL-key block pinned at a refused
+      sign-in, or a workspace purged since; nothing else knows the key then).
+      True when one existed; a URL key that names two blocked orgs is `conflict`
+      (name the id). The workspace stays revoked.
   - **The mirror cache** (`createMirrorCache`): one indexed snapshot per
     workspace, used only while the store's mirror version **and** its
     `lastSuccessAt` both equal the ones it was loaded under. Any difference is
@@ -6044,15 +6064,16 @@ Worker decisions made while building it (binding):
      session.
   5. Purge: workspaces revoked as `uninstalled` or `removed` more than
      `PURGE_AFTER_DAYS` (30, an engine constant so the privacy page and the
-     worker agree) ago, oldest revoke first, at most 3 per call. Each first has
-     its remaining sessions ended (grants revoked: the purge deletes session
-     rows without revoking anything), then
+     worker agree) ago, oldest revoke first, at most 3 per call.
      `store.purgeWorkspace(ws, { revokedBefore: now − 30 days })` re-checks the
-     revoke under the installation's row lock (a reinstall racing it wins) and
-     deletes every workspace-keyed table; the process's cached mirror is
-     forgotten and `workspace purged` is logged with the **id only** (a name
-     must not outlive its data in the host's logs). `grant_dead` is never purged
-     here; the operator's `purge` may.
+     revoke under the installation's row lock and deletes every workspace-keyed
+     table, the remaining sessions included, in one transaction; only then are
+     those sessions' grants revoked (best effort, counted like step 4), so a
+     reinstall racing the purge wins with every session kept, the installer's
+     too. The `LINEAR_WORKSPACES` pins and the blocks are kept. The process's
+     cached mirror is forgotten and `workspace purged` is logged with the **id
+     only** (a name must not outlive its data in the host's logs). `grant_dead`
+     is never purged here; the operator's `purge` may.
 - The tick's summary lists cleanup's counts: expired sessions (and failed
   revocations) and old webhook delivery records always; sessions of uninstalled
   or removed workspaces ended, workspaces purged, old notifications, old job
@@ -6083,9 +6104,10 @@ Worker decisions made while building it (binding):
     (revoked as `uninstalled`/`removed`: revoked + `PURGE_AFTER_DAYS`), last
     sync (attempt time, ok/failed, duration, failures in a row, `chronic`),
     issues (the mirror's count at the last full sync) and unexpired sessions;
-    then the blocks (key, by organization id or URL key, since, reason) and a
-    summary line counting each status. `--json` prints one document
-    `{ workspaces: [{ id, urlKey, name, status, admission, installedAt, revokedAt, revokedReason, purgeOn, lastSync: { at, status, durationMs, consecutiveFailures, lastSuccessAt, error } | null, chronic, issues, sessions }], blocks: [{ key, kind, reason, createdAt }] }`
+    then the blocks (key, by organization id (with the URL key it was made under
+    or pinned from, when known) or URL key, since, reason) and a summary line
+    counting each status. `--json` prints one document
+    `{ workspaces: [{ id, urlKey, name, status, admission, installedAt, revokedAt, revokedReason, purgeOn, lastSync: { at, status, durationMs, consecutiveFailures, lastSuccessAt, error } | null, chronic, issues, sessions }], blocks: [{ key, kind, urlKey, reason, createdAt }] }`
     and nothing else.
   - `remove --workspace <name>`: revokes the app's token with Linear (best
     effort), revokes the installation as `removed` (purged `PURGE_AFTER_DAYS`
@@ -6095,18 +6117,22 @@ Worker decisions made while building it (binding):
     revocation, grants that could not be revoked); exit 0.
   - `purge --workspace <name> --yes`: without `--yes` a usage error (exit 2,
     before boot). Deletes everything the workspace holds now (`grant_dead`
-    allowed) after ending its remaining sessions, and prints the rows deleted
-    per table. Refuses (exit 1) a workspace that is not revoked ("run remove
-    first"), one revoked less than 15 minutes ago (a sync may still be
-    finishing) and one never installed (remove ends its sessions).
+    allowed), its sessions included (their grants then revoked), and prints the
+    rows deleted per table. Refuses (exit 1) a workspace that is not revoked
+    ("run remove first"), one revoked less than 15 minutes ago (a sync may still
+    be finishing) and one never installed (remove ends its sessions).
   - `block --workspace <name> [--reason <text>]` (≤ 500 characters): blocks by
     org id when the name resolves (or is org-id shaped), else by URL key (pinned
     to the org id on its first match); a resolved workspace is removed and its
     sessions ended. A blocked workspace cannot sign in or reinstall; the worker
     skips it.
-  - `unblock --workspace <name>`: lifts the block on the name and the org id it
-    resolves to (exit 0 either way, saying whether one existed). The workspace
-    stays removed until an admin reinstalls.
+  - `unblock --workspace <name>`: lifts the block on the name and on the org it
+    means: the org id it resolves to, or a block by id made under (or pinned
+    from) that URL key, also once the workspace is purged or was only refused at
+    a sign-in (exit 0 either way, saying whether one existed and pointing to the
+    block list when none did). A URL key two blocked orgs went by is refused
+    (exit 1): name the id. The workspace stays removed until an admin
+    reinstalls.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
   `TICK_TIMEOUT_MINUTES` (the commands see it as `deadlineAt`, "Scaling"). The

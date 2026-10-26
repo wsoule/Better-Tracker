@@ -342,6 +342,59 @@ describe('the operator block list', () => {
   });
 });
 
+describe('blocks and pins over time', () => {
+  test('unblock by URL key lifts a block pinned to its org at a sign-in attempt', async () => {
+    const engine = oauthEngine({ mode: 'any' });
+    expect(await engine.blockWorkspace('other')).toMatchObject({
+      key: 'other',
+      kind: 'url_key',
+      workspaceId: null,
+    });
+    // OTHER's admin tries to sign in: refused, and the block now names
+    // the org by id (no session or installation was written).
+    expect(await rejection(finish(engine, ANA_OTHER))).toMatchObject({
+      code: 'workspace_blocked',
+    });
+    expect(await store.listBlockedWorkspaces()).toEqual([
+      expect.objectContaining({
+        key: 'org-other',
+        kind: 'id',
+        urlKey: 'other',
+      }),
+    ]);
+    expect(await engine.unblockWorkspace('other')).toBe(true);
+    expect(await store.listBlockedWorkspaces()).toEqual([]);
+    expect((await finish(engine, ANA_OTHER)).session.workspaceId).toBe(
+      'org-other'
+    );
+  });
+
+  test('a LINEAR_WORKSPACES URL-key pin outlives the purge of its workspace', async () => {
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    await installed(ACME);
+    await finish(engine, ANA_ACME);
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    await store.revokeInstallation(
+      'org-acme',
+      'uninstalled',
+      clock.now().toISOString()
+    );
+    clock.set(new Date(clock.now().getTime() + 31 * 86_400_000).toISOString());
+    expect((await engine.cleanup()).purgedWorkspaces).toBe(1);
+    expect(await store.getInstallation('org-acme')).toBeNull();
+    // Another organization that takes linear.app/acme is still refused.
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    const stranger: FakeIdentity = {
+      user: person('u-stranger', 'Stranger'),
+      workspace: { id: 'org-stranger', name: 'Stranger', urlKey: 'acme' },
+    };
+    expect(await rejection(finish(engine, stranger))).toMatchObject({
+      code: 'workspace_not_allowed',
+    });
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+  });
+});
+
 describe('authenticate', () => {
   test('refuses a blocked workspace before any sync, and keeps the row', async () => {
     const engine = oauthEngine({ mode: 'any' });

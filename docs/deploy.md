@@ -669,11 +669,12 @@ The value (arch §7 "Admission"):
 - **a list**: comma-separated, at most 100 entries, case-insensitive, each a
   Linear organization id or a URL key. **Use ids**: an admin can rename a URL
   key in Linear. (A URL-key entry is pinned to the workspace it first admits:
-  after a rename it still admits that workspace, and never another one that
-  takes the old key.) The id is shown on Settings → Status and `/setup`
-  ("Workspace id") and by the `workspaces` command; a person whose workspace is
-  refused sees "This planner is not open to that Linear workspace yet" and a
-  link to `/contact`, so they can ask you.
+  after a rename, and even after that workspace's data is purged, it still
+  admits only that workspace, never another one that takes the old key.) The id
+  is shown on Settings → Status and `/setup` ("Workspace id") and by the
+  `workspaces` command; a person whose workspace is refused sees "This planner
+  is not open to that Linear workspace yet" and a link to `/contact`, so they
+  can ask you.
 - **`*`**: every Linear workspace may sign in and install. Boot logs a warning.
   Use `block` to keep one out.
 
@@ -742,7 +743,7 @@ admin can rename a URL key). They are refused with personal API keys.
 | `remove --workspace <name>`                  | revokes the app's Linear token, marks the install removed and ends its sessions now. Its data is deleted 30 days later unless an admin installs the app again, which stays allowed            |
 | `purge --workspace <name> --yes`             | deletes everything the planner keeps for a revoked workspace now (mirror, settings, run log, audit log). Run `remove` first and wait 15 minutes. Without `--yes` it does nothing              |
 | `block --workspace <name> [--reason <text>]` | refuses the workspace from now on (sign-in, install, webhooks, the worker); removes it when installed and ends its sessions                                                                   |
-| `unblock --workspace <name>`                 | lifts a block. The workspace stays removed until an admin installs the app again                                                                                                              |
+| `unblock --workspace <name>`                 | lifts a block, also one made under a URL key nothing here knows any more (a purged workspace, or one refused at sign-in). The workspace stays removed until an admin installs the app again   |
 
 Typical uses:
 

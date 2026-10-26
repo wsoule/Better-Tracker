@@ -252,6 +252,7 @@ interface BlockRow {
   kind: BlockKind;
   reason: string | null;
   created_at: DbTimestamp;
+  url_key: string | null;
 }
 
 interface MirrorLoadRow {
@@ -363,7 +364,8 @@ const BLOCK_KINDS: readonly BlockKind[] = ['id', 'url_key'];
  * sync_state before mirror_entities (mirror writers bump the version row
  * first), allocation entries before their runs. The installation row is
  * locked first (FOR UPDATE) and deleted last. A test checks this list
- * against every table with a workspace_id column.
+ * against every table with a workspace_id column (admitted_workspaces,
+ * the LINEAR_WORKSPACES pins, is kept on purpose, like the blocks).
  */
 const PURGE_ORDER: readonly WorkspaceTable[] = [
   'sessions',
@@ -378,7 +380,6 @@ const PURGE_ORDER: readonly WorkspaceTable[] = [
   'notifications',
   'job_claims',
   'audit_log',
-  'admitted_workspaces',
   'installations',
 ];
 
@@ -1177,7 +1178,22 @@ class SqlStore implements Store {
       }
       if (!row.before_cutoff) return { purged: false, reason: 'too_recent' };
       const counts = {} as Record<WorkspaceTable, number>;
+      let sessions: TakenSession[] = [];
       for (const table of PURGE_ORDER) {
+        if (table === 'sessions') {
+          // Deleted rows come back (with their tokens) so the caller can
+          // revoke the grants once this commits; the DELETE waits for a
+          // refresh holding a row (withSessionLock) and returns the tokens
+          // it committed.
+          const rows = await tx.query<SessionRow>(
+            `DELETE FROM sessions WHERE workspace_id = $1
+             RETURNING ${SESSION_COLUMNS}`,
+            [workspaceId]
+          );
+          sessions = this.takenSessions(rows);
+          counts.sessions = rows.length;
+          continue;
+        }
         // Table names come from PURGE_ORDER, never from input.
         const deleted = await tx.query<{ n: number }>(
           `WITH d AS (DELETE FROM ${table} WHERE workspace_id = $1 RETURNING 1)
@@ -1186,7 +1202,7 @@ class SqlStore implements Store {
         );
         counts[table] = Number(deleted[0]?.n ?? 0);
       }
-      return { purged: true, counts };
+      return { purged: true, counts, sessions };
     });
   }
 
@@ -1393,6 +1409,15 @@ class SqlStore implements Store {
         [workspaceId, options.createdBefore ?? null, sqlLimit(options.limit)]
       );
     });
+    return this.takenSessions(rows);
+  }
+
+  /**
+   * Session rows just deleted, as TakenSession, oldest created first, then
+   * id (RETURNING has no defined order). Tokens are decrypted per row, so
+   * an unreadable row (another key) only loses its own tokens (logged).
+   */
+  private takenSessions(rows: readonly SessionRow[]): TakenSession[] {
     const taken = rows.map((row): TakenSession => {
       let tokens: StoredTokens | null = null;
       try {
@@ -1413,7 +1438,6 @@ class SqlStore implements Store {
         expiresAt: toIso(row.expires_at),
       };
     });
-    // RETURNING has no defined order; oldest created first, then id.
     return taken.sort((a, b) => {
       if (a.createdAt !== b.createdAt) {
         return a.createdAt < b.createdAt ? -1 : 1;
@@ -2161,17 +2185,23 @@ class SqlStore implements Store {
     key: string,
     kind: BlockKind,
     reason: string | null,
-    now: IsoDateTime
+    now: IsoDateTime,
+    options: { urlKey?: string | null } = {}
   ): Promise<void> {
     if (!BLOCK_KINDS.includes(kind)) {
       throw new TypeError(`Unknown block kind ${String(kind)}`);
     }
+    const urlKey =
+      kind === 'id' ? (options.urlKey?.toLowerCase() ?? null) : null;
     await this.write(
-      `INSERT INTO blocked_workspaces (key, kind, reason, created_at)
-       VALUES ($1, $2, $3, $4::timestamptz)
+      `INSERT INTO blocked_workspaces (key, kind, reason, created_at, url_key)
+       VALUES ($1, $2, $3, $4::timestamptz, $5)
        ON CONFLICT (key) DO UPDATE SET
-         kind = EXCLUDED.kind, reason = EXCLUDED.reason`,
-      [key.toLowerCase(), kind, credentialFree(reason), now]
+         kind = EXCLUDED.kind, reason = EXCLUDED.reason,
+         url_key = CASE WHEN EXCLUDED.kind = 'id'
+           THEN COALESCE(EXCLUDED.url_key, blocked_workspaces.url_key)
+           ELSE NULL END`,
+      [key.toLowerCase(), kind, credentialFree(reason), now, urlKey]
     );
   }
 
@@ -2185,7 +2215,7 @@ class SqlStore implements Store {
 
   async listBlockedWorkspaces(): Promise<BlockedWorkspace[]> {
     const rows = await this.sql.query<BlockRow>(
-      `SELECT key, kind, reason, created_at FROM blocked_workspaces
+      `SELECT key, kind, reason, created_at, url_key FROM blocked_workspaces
        ORDER BY key`
     );
     return rows.map((row) => ({
@@ -2193,13 +2223,15 @@ class SqlStore implements Store {
       kind: row.kind,
       reason: row.reason,
       createdAt: toIso(row.created_at),
+      urlKey: row.url_key,
     }));
   }
 
   /**
    * One statement: the URL-key row is deleted and re-inserted under the id
-   * (both data-modifying CTEs always run). When the org already has an id
-   * block, that one is kept and the URL-key row still goes. A URL key equal
+   * with the URL key recorded (both data-modifying CTEs always run). When
+   * the org already has an id block, that one is kept (it takes the URL key
+   * when it records none) and the URL-key row still goes. A URL key equal
    * to the id only changes the row's kind.
    */
   async pinBlockedUrlKey(
@@ -2221,9 +2253,11 @@ class SqlStore implements Store {
          DELETE FROM blocked_workspaces WHERE key = $1 AND kind = 'url_key'
          RETURNING reason, created_at),
        pinned AS (
-         INSERT INTO blocked_workspaces (key, kind, reason, created_at)
-         SELECT $2, 'id', reason, created_at FROM moved
-         ON CONFLICT (key) DO NOTHING
+         INSERT INTO blocked_workspaces (key, kind, reason, created_at,
+           url_key)
+         SELECT $2, 'id', reason, created_at, $1 FROM moved
+         ON CONFLICT (key) DO UPDATE SET
+           url_key = COALESCE(blocked_workspaces.url_key, EXCLUDED.url_key)
          RETURNING key)
        SELECT count(*)::int AS n FROM moved`,
       [from, to]
@@ -2243,7 +2277,7 @@ class SqlStore implements Store {
    * Insert-if-absent, then (when another process pinned the entry first)
    * a fresh read in its own statement: the insert's snapshot may predate
    * that pin, so it cannot be read in the same statement. A pin deleted
-   * between the two (a purge of the pinned workspace) is retried.
+   * between the two (by hand: a purge keeps pins) is retried.
    */
   async pinAdmitted(
     entry: string,

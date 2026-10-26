@@ -233,7 +233,10 @@ const ISSUE_ENTRY_INDEX: readonly string[] = [
 //   mirror's;
 // - blocked_workspaces is the operator block list and admitted_workspaces
 //   pins a LINEAR_WORKSPACES URL-key entry to the org id it first admitted.
-//   Keys are stored lower-cased;
+//   Keys are stored lower-cased. A block by org id also remembers the URL
+//   key it was made under or pinned from (url_key), so `unblock <URL key>`
+//   still finds it once nothing else knows that key (after a purge, or for
+//   a workspace refused at sign-in). Both outlive a workspace's purge;
 // - notifications get an index on created_at for bounded retention.
 const MULTI_WORKSPACE: readonly string[] = [
   'ALTER TABLE sessions ADD COLUMN workspace_name text',
@@ -260,7 +263,8 @@ const MULTI_WORKSPACE: readonly string[] = [
     key text PRIMARY KEY CHECK (key = lower(key)),
     kind text NOT NULL CHECK (kind IN ('id', 'url_key')),
     reason text,
-    created_at timestamptz NOT NULL
+    created_at timestamptz NOT NULL,
+    url_key text CHECK (url_key = lower(url_key))
   )`,
   `CREATE TABLE admitted_workspaces (
     entry text PRIMARY KEY CHECK (entry = lower(entry)),
