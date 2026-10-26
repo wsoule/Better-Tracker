@@ -39,6 +39,7 @@ import {
   refusalRefreshes,
   type RowOverlay,
   rowOverlay,
+  staleUndoToast,
   undoRequests,
   undoResultToast,
 } from '../../../../lib/adapters/issue-moves';
@@ -454,10 +455,22 @@ export function useIssueMoves({
       }
       if (refusal !== null && !refusalRefreshes(refusal.code)) {
         // A tab left on another workspace: no refresh (it would show that
-        // workspace here), the "Undoing…" rows back as they were, and the
-        // refusal's toast with Reload.
+        // workspace here) and the "Undoing…" rows back as they were. The
+        // refusal's toast with Reload, or, when earlier requests went
+        // through, one that says how many were undone (staleUndoToast).
         dropBatch(batch);
-        refused(refusal);
+        const stale = staleUndoToast(results, requested, refusal.message);
+        if (stale === null) {
+          refused(refusal);
+          return;
+        }
+        toast({
+          kind: stale.kind,
+          label: stale.label,
+          message: stale.message,
+          duration: stale.duration,
+          action: { label: 'Reload', onClick: () => window.location.reload() },
+        });
         return;
       }
       refreshAfter(batch, origin);

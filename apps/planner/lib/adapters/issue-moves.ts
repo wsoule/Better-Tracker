@@ -1099,6 +1099,30 @@ export function undoResultToast(
 }
 
 /**
+ * The toast when a later request of an Undo is refused workspace_changed
+ * after earlier ones went through. The tab cannot refresh to show those
+ * rows back (refusalRefreshes: it shows a workspace the browser switched
+ * away from), so its rows keep the values from before the Undo; the toast
+ * says how many were undone all the same (undoResultToast, with the
+ * refusal as the reason for the rest) and that a reload shows them. The
+ * hook adds the refusal's Reload. Null when no request went through: the
+ * refusal's own toast says everything then.
+ */
+export function staleUndoToast(
+  results: readonly IssueBulkResult[],
+  requested: number,
+  refusalMessage: string
+): MoveToastModel | null {
+  if (results.length === 0) return null;
+  const model = undoResultToast(results, requested, refusalMessage);
+  return {
+    ...model,
+    message: `${model.message} The rows here still show the values from before the Undo until you reload.`,
+    duration: 12_000,
+  };
+}
+
+/**
  * Whether the Issues page refreshes after a bulk change or an Undo was
  * refused with `code`: never for 409 workspace_changed (this tab shows a
  * workspace the browser switched away from in another tab). A refresh
