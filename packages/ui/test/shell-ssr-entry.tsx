@@ -105,7 +105,16 @@ const switcher = renderToString(
 );
 
 const signedOut = renderToString(
-  <SignedOutFrame appName="Milestone Planner" brandHref="/" label="Sign in">
+  <SignedOutFrame
+    appName="Milestone Planner"
+    brandHref="/"
+    label="Sign in"
+    footerLinks={[
+      { label: 'Privacy', href: '/privacy' },
+      { label: 'Terms', href: '/terms' },
+      { label: 'Contact', href: '/contact' },
+    ]}
+  >
     <p>Sign in</p>
   </SignedOutFrame>
 );
