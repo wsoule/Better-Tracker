@@ -82,10 +82,14 @@ export default function AppError({
         <p>
           The planner reads everything from its copy of the Linear workspace,
           and that copy has not arrived yet: the first sync after the install
-          failed or is still running. {FIRST_SYNC_RETRY_SENTENCE} The web
-          service&apos;s logs say why it failed. When the cause is the
-          app&apos;s grant (for example the initiative:read scope missing), a
-          workspace admin can reinstall from Setup.
+          failed or is still running. {FIRST_SYNC_RETRY_SENTENCE} If it keeps
+          failing, the person who runs this planner can see why (
+          <a className="accentLink" href="/contact">
+            how to reach them
+          </a>
+          ). When the cause is the app&apos;s grant (for example the
+          initiative:read scope missing), a workspace admin can reinstall from
+          Setup.
         </p>
       </MessageBlock>
     );

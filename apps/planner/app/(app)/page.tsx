@@ -15,6 +15,8 @@ import type { ReactNode } from 'react';
 
 import {
   authErrorMessage,
+  authErrorNeedsContact,
+  CONTACT_LINK_LABEL,
   DEMO_GUEST_NOTE,
   type DemoUserRow,
   demoUserRows,
@@ -24,12 +26,21 @@ import {
   signedOutNotice,
 } from '../../lib/adapters/landing';
 import {
+  LANDING_ADMIN_LINE,
+  LANDING_CONNECT_HINT,
+  LANDING_DEMO_LINK,
+  LANDING_PRIVACY_LINK,
+  LANDING_STORES_LINE,
+  operatorLine,
+} from '../../lib/adapters/public-pages';
+import {
   connectHref,
   DEFAULT_RETURN_TO,
   sanitizeReturnTo,
   signInHref,
 } from '../../lib/auth-cookies';
 import { getPageContext, loadHeldSessions } from '../../lib/load';
+import { loadPublicFacts } from '../../lib/public-facts';
 import {
   CONNECT_LABEL,
   continueInLabel,
@@ -94,7 +105,13 @@ async function loadDemo(
    session but this browser still holds others, the card lists them as
    "Continue in <name>" forms (POST /api/auth/switch) above the sign-in
    button, with a link to connect another workspace; ?switch_error=<code>
-   says why a switch did not happen. */
+   says why a switch did not happen. Under the button (owner decision
+   2026-10-25, before strangers use it): which workspace Linear signs in
+   to, what the planner stores with a link to /privacy, the line for
+   admins, who runs it (OPERATOR_NAME) and a link to DEMO_URL when set;
+   the frame's footer links privacy · terms · contact. The warnings card
+   promises Slack only while a Slack channel is active. An error only the
+   person who runs the planner can resolve links to /contact. */
 export default async function HomePage({
   searchParams,
 }: {
@@ -105,10 +122,19 @@ export default async function HomePage({
     searchParams,
   ]);
   const apiKeyMode = engine.config.auth === 'api_key';
-  const errorMessage = authErrorMessage(firstParam(params.auth_error), {
+  const errorCode = firstParam(params.auth_error);
+  const errorMessage = authErrorMessage(errorCode, {
     apiKeyMode,
     appName: engine.config.appName,
   });
+  const contactLink = authErrorNeedsContact(errorCode) ? (
+    <>
+      {' '}
+      <a className="accentLink" href="/contact">
+        {CONTACT_LINK_LABEL}
+      </a>
+    </>
+  ) : null;
   const returnTo = sanitizeReturnTo(
     firstParam(params.returnTo),
     DEFAULT_RETURN_TO
@@ -152,10 +178,13 @@ export default async function HomePage({
 
   if (actor !== null) {
     if (errorMessage === null) redirect(returnTo);
+    const rateLimited = errorCode === 'auth_rate_limited';
     return (
       <MessageBlock
-        label="Linear sign-in"
-        headline="Linear did not finish."
+        label={rateLimited ? 'Too many requests' : 'Linear sign-in'}
+        headline={
+          rateLimited ? 'That did not go through.' : 'Linear did not finish.'
+        }
         icon={<CircleAlert strokeWidth={1.8} />}
         tone="danger"
         actions={
@@ -167,14 +196,23 @@ export default async function HomePage({
           </>
         }
       >
-        <p role="alert">{errorMessage}</p>
+        <p role="alert">
+          {errorMessage}
+          {contactLink}
+        </p>
         <PageCrumb label="Linear sign-in" />
         <WorkspaceGuard />
       </MessageBlock>
     );
   }
 
-  const demo = engine.mode === 'fixture' ? await loadDemo(engine) : null;
+  const [demo, facts] = await Promise.all([
+    engine.mode === 'fixture' ? loadDemo(engine) : Promise.resolve(null),
+    loadPublicFacts(engine),
+  ]);
+  const runBy = operatorLine(facts.operator);
+  // DEMO_URL, except on the demo itself.
+  const demoLink = demo === null ? facts.demoUrl : null;
   // OAuth mode: the other workspaces this browser still holds (the
   // stash: the active cookie names no live session here, or this page
   // would have gone to returnTo). Names and ids only; the tokens stay on
@@ -201,6 +239,7 @@ export default async function HomePage({
         {errorMessage !== null ? (
           <Notice label="Sign-in did not finish" tone="danger" role="alert">
             {errorMessage}
+            {contactLink}
           </Notice>
         ) : null}
         {switchError !== null ? (
@@ -251,17 +290,40 @@ export default async function HomePage({
             >
               Sign in with Linear
             </Button>
+            <p className={styles.hint}>{LANDING_CONNECT_HINT}</p>
             <p className={styles.foot}>
               The planner reads issues, projects and milestones from Linear. It
               writes back only an issue&apos;s assignee and state when it
               allocates, a comment saying why, and the edits you make yourself
               (milestone dates, project leads, issues), always as you.
             </p>
+            <p className={styles.foot}>
+              {LANDING_STORES_LINE}{' '}
+              <a className="accentLink" href="/privacy">
+                {LANDING_PRIVACY_LINK}
+              </a>
+            </p>
+            <p className={styles.foot}>{LANDING_ADMIN_LINE}</p>
           </>
         )}
+        {runBy !== null || demoLink !== null ? (
+          <p className={styles.foot}>
+            {runBy}
+            {runBy !== null && demoLink !== null ? ' ' : null}
+            {demoLink !== null ? (
+              <a
+                className="accentLink"
+                href={demoLink}
+                rel="noopener noreferrer"
+              >
+                {LANDING_DEMO_LINK}
+              </a>
+            ) : null}
+          </p>
+        ) : null}
       </section>
 
-      <Features apiKeyMode={false} />
+      <Features apiKeyMode={false} slack={facts.slack} />
       <WorkspaceGuard />
     </div>
   );
@@ -331,7 +393,13 @@ function ContinueList({
    heading and the features as a grid of option cards, each with its
    screen's icon (with personal API keys, the list says what changes in
    that mode: landingFeatures). */
-function Features({ apiKeyMode }: { apiKeyMode: boolean }) {
+function Features({
+  apiKeyMode,
+  slack = false,
+}: {
+  apiKeyMode: boolean;
+  slack?: boolean;
+}) {
   return (
     <section className={styles.features} aria-labelledby="features-title">
       <header className={styles.featuresHead}>
@@ -341,7 +409,7 @@ function Features({ apiKeyMode }: { apiKeyMode: boolean }) {
         <p className={styles.featuresSub}>Linear stays the source of truth.</p>
       </header>
       <Receipts
-        items={landingFeatures({ apiKeyMode }).map((feature) => ({
+        items={landingFeatures({ apiKeyMode, slack }).map((feature) => ({
           ...feature,
           icon: FEATURE_ICONS[feature.key],
         }))}

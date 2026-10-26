@@ -34,7 +34,7 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
   demo_inactive:
     'That demo person cannot sign in: they are deactivated in the demo workspace, or they are the app’s own user. Pick someone from the list.',
   session_secret:
-    'This server is missing its SESSION_SECRET (or it is shorter than 32 characters), so it cannot sign anyone in. Whoever runs the deployment needs to set it.',
+    'This server is missing its SESSION_SECRET (or it is shorter than 32 characters), so it cannot sign anyone in. The person who runs it needs to set it.',
   linear_rate_limited:
     'Linear is rate-limiting the planner right now. Wait a minute and sign in again.',
   // Several workspaces (owner decision 2026-10-25).
@@ -47,7 +47,7 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
   too_many_workspaces:
     'This browser is signed in to 10 workspaces, the most it holds. Sign out of a workspace first, then connect another.',
   linear_unauthorized:
-    'Linear refused the planner’s credentials. Whoever runs the deployment should check the Linear OAuth app settings.',
+    'Linear refused the planner’s credentials. The person who runs it needs to check its Linear OAuth app.',
   // Rate limits (lib/rate-limit.ts): the OAuth start, switch and sign-out.
   auth_rate_limited:
     'Too many sign-in, switch or sign-out requests came from this network in the last few minutes. Wait a few minutes, then try again.',
@@ -90,6 +90,26 @@ const API_KEY_ERROR_MESSAGE: Record<string, string> = {
   not_installed:
     'This planner serves no Linear workspace yet: a workspace member connects their key first.',
 };
+
+/**
+ * The codes only the person who runs the planner can resolve: their
+ * notice ends with a link to /contact (owner decision 2026-10-25,
+ * stranger-facing copy names no deployment internals).
+ */
+const CONTACT_CODES: ReadonlySet<string> = new Set([
+  'workspace_not_allowed',
+  'workspace_blocked',
+  'session_secret',
+  'linear_unauthorized',
+]);
+
+/** Whether an ?auth_error code's notice links to the contact page. */
+export function authErrorNeedsContact(code: string | undefined): boolean {
+  return code !== undefined && CONTACT_CODES.has(code);
+}
+
+/** The label of that link. */
+export const CONTACT_LINK_LABEL = 'How to reach them';
 
 /** The connect form's codes that refuse the key itself (its shape, or
     Linear's answer about it), as opposed to the server, the limits or
@@ -229,7 +249,7 @@ export const LANDING_FEATURES: readonly LandingFeature[] = [
   {
     key: 'warnings',
     title: 'Warnings',
-    body: 'When a milestone due within a week is at risk, the project lead and the watchers hear about it once, in a daily Slack digest. Overdue milestones keep coming back until they are closed or re-dated.',
+    body: 'When a milestone due within a week is at risk, the project lead and the watchers get it once, in a daily digest in the planner. Overdue milestones keep coming back until they are closed or re-dated.',
   },
   {
     key: 'rubric',
@@ -238,16 +258,30 @@ export const LANDING_FEATURES: readonly LandingFeature[] = [
   },
 ];
 
+/** The warnings card while a Slack channel is active (digestChannel). */
+const SLACK_WARNINGS_BODY =
+  'When a milestone due within a week is at risk, the project lead and the watchers hear about it once, in a daily Slack digest. Overdue milestones keep coming back until they are closed or re-dated.';
+
 /**
- * What the planner does, for the landing page: LANDING_FEATURES, or with
- * personal API keys (`apiKeyMode`) the same list with allocation run only
- * when someone starts it, warnings as a preview only, and "connect"
- * instead of "sign in" (owner request 2026-10-23).
+ * What the planner does, for the landing page: LANDING_FEATURES (whose
+ * warnings card promises Slack only with `slack`, a Slack channel that is
+ * active: owner decision 2026-10-25), or with personal API keys
+ * (`apiKeyMode`) the same list with allocation run only when someone
+ * starts it, warnings as a preview only, and "connect" instead of "sign
+ * in" (owner request 2026-10-23).
  */
 export function landingFeatures(options: {
   apiKeyMode: boolean;
+  slack?: boolean;
 }): readonly LandingFeature[] {
-  if (!options.apiKeyMode) return LANDING_FEATURES;
+  if (!options.apiKeyMode) {
+    if (options.slack !== true) return LANDING_FEATURES;
+    return LANDING_FEATURES.map((feature) =>
+      feature.key === 'warnings'
+        ? { ...feature, body: SLACK_WARNINGS_BODY }
+        : feature
+    );
+  }
   return LANDING_FEATURES.map((feature) => {
     switch (feature.key) {
       case 'timeline':

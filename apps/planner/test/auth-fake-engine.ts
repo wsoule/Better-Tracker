@@ -129,6 +129,8 @@ export function fakeEngine(state: FakeEngineState): Engine {
         defaultTimezone: 'UTC',
       };
     },
+    // No Slack channel: the landing page's copy names none.
+    digestChannel: () => Promise.resolve('outbox' as const),
     startOAuth: (intent: OAuthIntent) => ({
       url: `https://linear.app/oauth/authorize?state=st-${intent}`,
       state: `st-${intent}`,

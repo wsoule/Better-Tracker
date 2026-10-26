@@ -7,6 +7,10 @@ import type { Metadata } from 'next';
 import { headers } from 'next/headers';
 import type { ReactNode } from 'react';
 
+import {
+  POLICY_LINKS,
+  POLICY_LINKS_LABEL,
+} from '../../lib/adapters/public-pages';
 import { SIDEBAR_STORAGE_KEY } from '../../lib/adapters/shell';
 import { getPageContext, loadShellFrame } from '../../lib/load';
 import { geist, geistMono, THEME_STORAGE_KEY } from '../fonts';
@@ -31,12 +35,12 @@ export const metadata: Metadata = {
 
 /* The root layout of every app route (architecture §8.3). Signed in: the
    sidebar shell (nav with this week's count, the PROJECTS list, breadcrumb,
-   palette, phone tabs). Signed out: the Analytics bar alone, around the
-   landing page or an error. The two inline scripts apply the saved theme
-   and the collapsed rail before first paint; they carry the request's
-   CSP nonce (`x-nonce`, set by proxy.ts on every page in every mode).
-   Pages decide on /setup redirects themselves (lib/load.ts); the frame
-   only renders. */
+   palette, phone tabs). Signed out: the signed-out bar, around the
+   landing page or an error, with the privacy · terms · contact footer.
+   The two inline scripts apply the saved theme and the collapsed rail
+   before first paint; they carry the request's CSP nonce (`x-nonce`, set
+   by proxy.ts on every page in every mode). Pages decide on /setup
+   redirects themselves (lib/load.ts); the frame only renders. */
 export default async function AppLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
@@ -52,6 +56,8 @@ export default async function AppLayout({
         brandHref="/"
         label={demo ? 'Demo' : undefined}
         themeStorageKey={THEME_STORAGE_KEY}
+        footerLinks={POLICY_LINKS}
+        footerLabel={POLICY_LINKS_LABEL}
       >
         {children}
       </SignedOutFrame>

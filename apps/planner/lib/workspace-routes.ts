@@ -227,7 +227,8 @@ export async function resync<E extends SyncEngine>(
   }
 }
 
-export type PreviewEngine = Pick<Engine, 'runWarnings'>;
+export type PreviewEngine = Pick<Engine, 'runWarnings'> &
+  Partial<Pick<Engine, 'digestChannel'>>;
 
 /**
  * POST /api/warnings/preview {}: today's digests, built but not recorded
@@ -252,7 +253,9 @@ export async function previewWarnings<E extends PreviewEngine>(
       previewOnly: true,
       viewer: actor,
     });
-    return Response.json({ preview: digestPreview(result) });
+    // "Slack DMs" only while a Slack channel is active.
+    const slack = (await engine.digestChannel?.()) === 'slack';
+    return Response.json({ preview: digestPreview(result, { slack }) });
   } catch (error) {
     return errorResponse(error);
   }

@@ -46,6 +46,7 @@ import {
   requireInstalledActor,
 } from '../../../lib/load';
 import { PageCrumb } from '../components/page-crumb';
+import PolicyLinks from '../components/policy-links';
 import ReadOnlyNotice from '../components/read-only-notice';
 import SignOutAllForm from '../components/sign-out-all-form';
 import WorkspaceGuard from '../components/workspace-guard';
@@ -224,12 +225,14 @@ async function renderSection(
       </Notice>
     ) : null;
   switch (id) {
-    case 'modes':
+    case 'modes': {
+      // "Slack DM" only while a Slack channel is active.
+      const slack = (await engine.digestChannel()) === 'slack';
       if (readOnly) {
         return (
           <ReadOnlySettings
             label="Modes"
-            rows={modesReadOnlyRows(settings, { apiKeyMode })}
+            rows={modesReadOnlyRows(settings, { apiKeyMode, slack })}
           />
         );
       }
@@ -240,8 +243,10 @@ async function renderSection(
             warningsMode: settings.warningsMode,
           }}
           apiKeyMode={apiKeyMode}
+          slack={slack}
         />
       );
+    }
     case 'watchers':
       if (readOnly) {
         return (
@@ -314,7 +319,13 @@ async function renderSection(
                 help={row.sub}
                 helpTone={row.toneDetail === true ? row.tone : undefined}
                 control={
-                  <SettingValue tone={row.tone}>{row.value}</SettingValue>
+                  <SettingValue tone={row.tone}>
+                    {row.mono === true ? (
+                      <span className="mono">{row.value}</span>
+                    ) : (
+                      row.value
+                    )}
+                  </SettingValue>
                 }
               />
             ))}
@@ -327,6 +338,7 @@ async function renderSection(
               workspaces held) signing out of all of them. */}
           {apiKeyMode ? <ForgetKeyForm /> : null}
           {signOutAll ? <SignOutAllForm /> : null}
+          <PolicyLinks />
         </>
       );
     }

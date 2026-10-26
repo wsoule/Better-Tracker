@@ -59,6 +59,16 @@
   text-wrap: pretty;
 }
 
+/* Which workspace Linear signs in to, right under the sign-in button. */
+.hint {
+  margin-top: -8px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+  text-align: center;
+  text-wrap: pretty;
+}
+
 .people {
   display: flex;
   flex-direction: column;
