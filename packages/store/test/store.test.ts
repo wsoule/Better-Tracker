@@ -3109,6 +3109,19 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(bad).toBeInstanceOf(TypeError);
       });
 
+      test('deleteAdmittedPin removes a pin and says which workspace it named', async () => {
+        const entry = `unpin-${newWorkspaceId()}`;
+        expect(await store.pinAdmitted(entry, 'org-1', NOW)).toBe('org-1');
+        expect(await store.deleteAdmittedPin(entry.toUpperCase())).toBe(
+          'org-1'
+        );
+        expect(await store.getAdmittedPin(entry)).toBeNull();
+        expect(await store.deleteAdmittedPin(entry)).toBeNull();
+        // Free again: the next pin wins.
+        expect(await store.pinAdmitted(entry, 'org-2', NOW)).toBe('org-2');
+        await store.deleteAdmittedPin(entry);
+      });
+
       test('admission pins: the first pin of an entry wins', async () => {
         const entry = uniqueKey('Acme');
         expect(await store.getAdmittedPin(entry)).toBeNull();

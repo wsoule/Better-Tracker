@@ -9,15 +9,17 @@ import type { AllocationMode } from '@better-tracker/core';
  * The operator's workspace commands (OAuth mode; architecture §9
  * "Operator commands"): one deployment serves several Linear workspaces
  * (owner decision 2026-10-25), and these list, remove, purge, block and
- * unblock them. There is no operator role in the planner: they exist only
- * here, run by whoever can open a shell on the deployment.
+ * unblock them, and unpin a LINEAR_WORKSPACES URL-key entry. There is no
+ * operator role in the planner: they exist only here, run by whoever can
+ * open a shell on the deployment.
  */
 export type OperatorCommandName =
   | 'workspaces'
   | 'remove'
   | 'purge'
   | 'block'
-  | 'unblock';
+  | 'unblock'
+  | 'unpin';
 
 /** The worker's commands, in the order the usage text lists them. */
 export type CommandName =
@@ -56,7 +58,9 @@ export type CliCommand =
   | { name: 'remove'; workspace: string }
   | { name: 'purge'; workspace: string }
   | { name: 'block'; workspace: string; reason: string | null }
-  | { name: 'unblock'; workspace: string };
+  | { name: 'unblock'; workspace: string }
+  /** `entry`: a LINEAR_WORKSPACES URL-key entry, as typed. */
+  | { name: 'unpin'; entry: string };
 
 /** A parsed operator command. */
 export type OperatorCommand = Extract<
@@ -70,6 +74,7 @@ const OPERATOR_COMMANDS: readonly OperatorCommandName[] = [
   'purge',
   'block',
   'unblock',
+  'unpin',
 ];
 
 /** Whether `name` is one of the operator's workspace commands. */
@@ -160,6 +165,10 @@ workspace's organization id or URL key:
                                    Refuse the workspace from now on; removes
                                    it when installed and ends its sessions.
   unblock  --workspace <name>      Lift a block (an admin reinstalls).
+  unpin    --entry <url key>       Free a LINEAR_WORKSPACES URL-key entry
+                                   from the workspace it was first matched
+                                   to, so the workspace that holds that URL
+                                   key now can be admitted by it.
 
 Every command except migrate and serve exits 1 when it is still running
 TICK_TIMEOUT_MINUTES (default 10, at most 14) after it started; serve
@@ -170,8 +179,8 @@ no time left to start.
 
 Options:
   --workspace <id>   One Linear workspace id (default: every installed one;
-                     required for allocate --live); for operator commands,
-                     an org id or URL key (required).
+                     required for allocate --live); for remove, purge,
+                     block and unblock, an org id or URL key (required).
   --force            daily only: run even if today's run already happened.
   --dry-run, --live  allocate only: required, exactly one.
   --override-mode    allocate --live only: run even where the workspace's
@@ -179,6 +188,7 @@ Options:
   --json             workspaces only: print JSON instead of a table.
   --yes              purge only: required.
   --reason <text>    block only: why, kept with the block (at most 500).
+  --entry <url key>  unpin only: the LINEAR_WORKSPACES entry (required).
   -h, --help         Show this help.
 
 Environment: see .env.example. DAILY_RUN_AT (default 08:00, HH:MM in each
@@ -205,6 +215,7 @@ function isCommandName(value: string): value is CommandName {
 interface RawOptions {
   command: CommandName | null;
   workspaceId: string | null;
+  entry: string | null;
   force: boolean;
   dryRun: boolean;
   live: boolean;
@@ -266,6 +277,26 @@ function buildOperatorCommand(
   command: OperatorCommandName,
   raw: RawOptions
 ): ParseResult {
+  if (command === 'unpin') {
+    if (raw.workspaceId !== null) {
+      return {
+        kind: 'error',
+        message:
+          'unpin takes --entry <URL key> (a LINEAR_WORKSPACES entry), not --workspace.',
+      };
+    }
+    if (raw.entry === null) {
+      return { kind: 'error', message: 'unpin needs --entry <URL key>.' };
+    }
+    if (!WORKSPACE_NAME.test(raw.entry)) {
+      return {
+        kind: 'error',
+        message:
+          '--entry takes a LINEAR_WORKSPACES URL key (letters, digits and dashes, at most 64).',
+      };
+    }
+    return { kind: 'command', command: { name: 'unpin', entry: raw.entry } };
+  }
   if (command === 'workspaces') {
     if (raw.workspaceId !== null) {
       return {
@@ -312,6 +343,12 @@ function buildCommand(raw: RawOptions): ParseResult {
     return {
       kind: 'error',
       message: `--reason is only valid for block, not ${command}.`,
+    };
+  }
+  if (raw.entry !== null && command !== 'unpin') {
+    return {
+      kind: 'error',
+      message: `--entry is only valid for unpin, not ${command}.`,
     };
   }
   if ((raw.dryRun || raw.live || raw.overrideMode) && command !== 'allocate') {
@@ -393,6 +430,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
   const raw: RawOptions = {
     command: null,
     workspaceId: null,
+    entry: null,
     force: false,
     dryRun: false,
     live: false,
@@ -425,6 +463,15 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       );
       if ('error' in read) return { kind: 'error', message: read.error };
       raw.workspaceId = read.value;
+      index += read.used;
+      continue;
+    }
+    if (token === '--entry' || token.startsWith('--entry=')) {
+      const repeated = once('--entry');
+      if (repeated !== null) return repeated;
+      const read = readValue(argv, index, '--entry', '--entry needs a URL key');
+      if ('error' in read) return { kind: 'error', message: read.error };
+      raw.entry = read.value;
       index += read.used;
       continue;
     }

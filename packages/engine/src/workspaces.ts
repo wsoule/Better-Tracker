@@ -11,7 +11,8 @@
 //   reads of a revoked workspace are already refused (requireInstallation),
 //   so the delay leaks nothing.
 // - The operator commands run from the worker's CLI only; no planner route
-//   calls them (there is no operator role in the planner).
+//   calls them (there is no operator role in the planner). `unpin` acts on
+//   a LINEAR_WORKSPACES entry's pin, not on a workspace.
 
 import type { IsoDateTime } from '@better-tracker/core';
 import type { OAuthClientConfig } from '@better-tracker/linear';
@@ -23,6 +24,7 @@ import type {
   WorkspaceStatus,
 } from '@better-tracker/store';
 
+import { admissionMode, forgetPin } from './admission';
 import { revokeGrant } from './auth';
 import type { EngineRuntime } from './runtime';
 import {
@@ -30,6 +32,7 @@ import {
   type WorkspaceBlock,
   type WorkspacePurge,
   type WorkspaceRemoval,
+  type WorkspaceUnpin,
 } from './types';
 
 /**
@@ -518,4 +521,38 @@ export async function unblockWorkspace(
     });
   }
   return removed;
+}
+
+/**
+ * The operator's `unpin` (Engine.unpinWorkspaceEntry): removes the pin of
+ * a LINEAR_WORKSPACES URL-key entry. A pin keeps naming the org it first
+ * admitted, also after that org renames away from the key, so another org
+ * that takes the key is refused for good; the operator lifts that here.
+ * Nothing else changes (no installation, session or block). This process
+ * forgets its cached pin; other processes' non-fresh checks may reuse
+ * theirs for up to ADMISSION_CACHE_MS. Logged at info with the id only.
+ */
+export async function unpinWorkspaceEntry(
+  rt: EngineRuntime,
+  entry: string
+): Promise<WorkspaceUnpin> {
+  requireOperatorMode(rt);
+  if (typeof entry !== 'string' || !WORKSPACE_NAME.test(entry)) {
+    throw new EngineInputError(
+      'invalid',
+      'Name a LINEAR_WORKSPACES URL key entry (letters, digits and dashes, at most 64).'
+    );
+  }
+  const key = entry.toLowerCase();
+  const workspaceId = await rt.store.deleteAdmittedPin(key);
+  forgetPin(rt, key);
+  const mode = admissionMode(rt);
+  const listed = mode.mode === 'list' && mode.entries.includes(key);
+  if (workspaceId !== null) {
+    rt.logger.info('a LINEAR_WORKSPACES pin was removed by the operator', {
+      workspaceId,
+      listed,
+    });
+  }
+  return { entry: key, workspaceId, listed };
 }

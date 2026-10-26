@@ -78,6 +78,7 @@ export interface WorkerEngine {
   purgeWorkspaceNow: Engine['purgeWorkspaceNow'];
   blockWorkspace: Engine['blockWorkspace'];
   unblockWorkspace: Engine['unblockWorkspace'];
+  unpinWorkspaceEntry: Engine['unpinWorkspaceEntry'];
   listBlockedWorkspaces: Engine['listBlockedWorkspaces'];
   close(): Promise<void>;
 }
@@ -107,6 +108,7 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
       engine.purgeWorkspaceNow(name, options),
     blockWorkspace: (name, reason) => engine.blockWorkspace(name, reason),
     unblockWorkspace: (name) => engine.unblockWorkspace(name),
+    unpinWorkspaceEntry: (entry) => engine.unpinWorkspaceEntry(entry),
     listBlockedWorkspaces: () => engine.listBlockedWorkspaces(),
     close: () => engine.close(),
   };
@@ -196,7 +198,7 @@ export function apiKeyModeOutcome(
   if (isOperatorCommandName(command)) {
     return {
       code: EXIT_FAILED,
-      line: `${command}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge or block`,
+      line: `${command}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge, block or unpin`,
     };
   }
   return {

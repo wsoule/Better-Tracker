@@ -436,6 +436,41 @@ describe('block and unblock', () => {
   });
 });
 
+describe('unpin', () => {
+  test('says which workspace the entry named and what happens next', async () => {
+    const engine = fakeEngine();
+    expect(await run(engine, { name: 'unpin', entry: 'acme' })).toEqual({
+      code: 0,
+      lines: [
+        'unpin ok — acme: the entry no longer names org-acme; while LINEAR_WORKSPACES lists it, it is pinned to the next workspace that signs in or installs under that URL key (or whose URL key the worker reads as it). Nothing else changed',
+      ],
+    });
+    expect(engine.calls).toContain('unpinWorkspaceEntry:acme');
+    engine.unpinWorkspaceEntry = (entry) =>
+      Promise.resolve({ entry, workspaceId: 'org-acme', listed: false });
+    expect((await run(engine, { name: 'unpin', entry: 'acme' })).lines).toEqual(
+      [
+        'unpin ok — acme: the entry no longer names org-acme; LINEAR_WORKSPACES does not list it, so nothing is pinned to it again unless it is listed. Nothing else changed',
+      ]
+    );
+    engine.unpinWorkspaceEntry = (entry) =>
+      Promise.resolve({ entry, workspaceId: null, listed: true });
+    expect((await run(engine, { name: 'unpin', entry: 'acme' })).lines).toEqual(
+      ['unpin ok — acme: no workspace is pinned to that entry; nothing changed']
+    );
+  });
+
+  test('an engine refusal is a FAILED line', async () => {
+    const engine = fakeEngine();
+    engine.unpinWorkspaceEntry = () =>
+      Promise.reject(new EngineInputError('invalid', 'Off with keys.'));
+    expect(await run(engine, { name: 'unpin', entry: 'acme' })).toEqual({
+      code: 1,
+      lines: ['unpin FAILED — Off with keys.'],
+    });
+  });
+});
+
 test('redactText removes credentials and email addresses', () => {
   expect(redactText(`token ${TOKEN} of <${EMAIL}>`)).toBe(
     'token lin_oauth_[redacted] of <[email]>'

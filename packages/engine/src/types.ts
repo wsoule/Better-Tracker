@@ -587,6 +587,18 @@ export interface WorkspaceOverview extends WorkspaceStatus {
   admission: AdmissionVerdict;
 }
 
+/**
+ * What unpinWorkspaceEntry did (the operator's `unpin`, §9): the entry
+ * (lower-cased), the org id its pin named (null: it was not pinned) and
+ * whether LINEAR_WORKSPACES lists it now (then the next workspace
+ * admission matches it with is pinned to it).
+ */
+export interface WorkspaceUnpin {
+  entry: string;
+  workspaceId: string | null;
+  listed: boolean;
+}
+
 /** What blockWorkspace stored and did (the operator's `block`, §9). */
 export interface WorkspaceBlock {
   /** The stored key (lower-cased): the org id, or a URL key nobody here knows yet. */
@@ -1110,6 +1122,16 @@ export interface Engine {
    * workspace stays revoked: an admin reinstalls.
    */
   unblockWorkspace(idOrUrlKey: string): Promise<boolean>;
+  /**
+   * Additive: the operator's `unpin`: removes the pin of a LINEAR_WORKSPACES
+   * URL-key entry (store.deleteAdmittedPin), so a workspace that took the
+   * URL key after the pinned one gave it up can be admitted by it. Nothing
+   * else changes: no installation, session or block is touched. Refused
+   * with personal API keys (EngineInputError 'invalid',
+   * OPERATOR_OFF_MESSAGE), and for an entry that is not letters, digits and
+   * dashes (at most 64).
+   */
+  unpinWorkspaceEntry(entry: string): Promise<WorkspaceUnpin>;
   /** Every block, ordered by key. */
   listBlockedWorkspaces(): Promise<BlockedWorkspace[]>;
 

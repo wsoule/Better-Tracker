@@ -871,13 +871,14 @@ describe('runCli with LINEAR_AUTH=api_key', () => {
       ['purge', '--workspace', 'acme', '--yes'],
       ['block', '--workspace', 'acme'],
       ['unblock', '--workspace', 'acme'],
+      ['unpin', '--entry', 'acme'],
     ]) {
       const d = deps(fakeEngine(), { env: { LINEAR_AUTH: 'api_key' } });
       expect(await runCli(argv, d)).toBe(1);
       expect(d.created()).toBe(0);
       expect(d.output.outLines).toEqual([]);
       expect(d.output.errLines).toEqual([
-        `${argv[0]}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge or block`,
+        `${argv[0]}: off when LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so there is nothing to list, remove, purge, block or unpin`,
       ]);
     }
   });

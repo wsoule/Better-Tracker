@@ -400,6 +400,58 @@ describe('blocks and pins over time', () => {
   });
 });
 
+describe('unpin', () => {
+  test('unpin frees a URL-key entry for the workspace that holds the key now, and changes nothing else', async () => {
+    await installed(ACME);
+    await mirrored('org-acme', [ANA_ACME.user]);
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    const ana = await finish(engine, ANA_ACME);
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    // ACME renamed to acme-old since (a sync read it); OTHER took acme and
+    // is refused, since the pin still names ACME.
+    clock.set(new Date(clock.now().getTime() + 60_000).toISOString());
+    await store.updateInstallationIdentity(
+      'org-acme',
+      { workspaceName: 'Acme', urlKey: 'acme-old' },
+      { readAt: clock.now().toISOString() }
+    );
+    const yan: FakeIdentity = {
+      user: person('u-yan', 'Yan Other'),
+      workspace: { ...OTHER, urlKey: 'acme' },
+    };
+    expect(await rejection(finish(engine, yan))).toMatchObject({
+      code: 'workspace_not_allowed',
+    });
+    // The refused sign-in's own grant was revoked; the unpin revokes none.
+    const revokedBefore = [...fake.revoked];
+
+    expect(await engine.unpinWorkspaceEntry('ACME')).toEqual({
+      entry: 'acme',
+      workspaceId: 'org-acme',
+      listed: true,
+    });
+    expect(await store.getAdmittedPin('acme')).toBeNull();
+    // Nothing else changed: ACME stays installed, its session kept.
+    expect((await store.getInstallation('org-acme'))?.revokedAt).toBeNull();
+    expect(await sessionRows()).toBe(1);
+    expect(fake.revoked).toEqual(revokedBefore);
+    // The next workspace admission sees under acme takes the entry.
+    await finish(engine, yan);
+    expect(await store.getAdmittedPin('acme')).toBe('org-other');
+    pastCache();
+    expect(await engine.authenticate(ana.sessionToken)).toBeNull();
+
+    expect(await engine.unpinWorkspaceEntry('globex')).toEqual({
+      entry: 'globex',
+      workspaceId: null,
+      listed: false,
+    });
+    expect(
+      await rejection(engine.unpinWorkspaceEntry('acme.example'))
+    ).toMatchObject({ code: 'invalid' });
+  });
+});
+
 describe('authenticate', () => {
   test('refuses a blocked workspace before any sync, and keeps the row', async () => {
     const engine = oauthEngine({ mode: 'any' });

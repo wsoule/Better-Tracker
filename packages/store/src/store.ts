@@ -2405,6 +2405,15 @@ class SqlStore implements Store {
     throw new Error('Could not pin the admission entry');
   }
 
+  async deleteAdmittedPin(entry: string): Promise<string | null> {
+    const rows = await this.write<{ workspace_id: string }>(
+      `DELETE FROM admitted_workspaces WHERE entry = $1
+       RETURNING workspace_id`,
+      [entry.toLowerCase()]
+    );
+    return rows[0]?.workspace_id ?? null;
+  }
+
   // --- audit ------------------------------------------------------------------------
 
   async appendAudit(entry: AuditEntry): Promise<void> {

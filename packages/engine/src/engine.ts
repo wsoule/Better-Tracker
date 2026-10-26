@@ -85,6 +85,7 @@ import {
   removeWorkspace,
   revokeWorkspace,
   unblockWorkspace,
+  unpinWorkspaceEntry,
 } from './workspaces';
 
 /**
@@ -298,6 +299,7 @@ export function createEngine(deps: EngineDeps): Engine {
     blockWorkspace: (idOrUrlKey, reason) =>
       blockWorkspace(rt, idOrUrlKey, reason),
     unblockWorkspace: (idOrUrlKey) => unblockWorkspace(rt, idOrUrlKey),
+    unpinWorkspaceEntry: (entry) => unpinWorkspaceEntry(rt, entry),
     listBlockedWorkspaces: () => deps.store.listBlockedWorkspaces(),
 
     cleanup: async (options) => {

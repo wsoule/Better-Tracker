@@ -290,6 +290,14 @@ export function fakeEngine(
       calls.push(`unblockWorkspace:${name}`);
       return Promise.resolve(true);
     },
+    unpinWorkspaceEntry: (entry) => {
+      calls.push(`unpinWorkspaceEntry:${entry}`);
+      return Promise.resolve({
+        entry: entry.toLowerCase(),
+        workspaceId: `org-${entry.toLowerCase()}`,
+        listed: true,
+      });
+    },
     listBlockedWorkspaces: () => {
       calls.push('listBlockedWorkspaces');
       return Promise.resolve([]);

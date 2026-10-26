@@ -811,6 +811,7 @@ admin can rename a URL key). They are refused with personal API keys.
 | `purge --workspace <name> --yes`             | deletes everything the planner keeps for a revoked workspace now (mirror, settings, run log, audit log). Run `remove` first and wait 15 minutes. Without `--yes` it does nothing              |
 | `block --workspace <name> [--reason <text>]` | refuses the workspace from now on (sign-in, install, webhooks, the worker); removes it when installed and ends its sessions                                                                   |
 | `unblock --workspace <name>`                 | lifts a block, also one made under a URL key nothing here knows any more (a purged workspace, or one refused at sign-in). The workspace stays removed until an admin installs the app again   |
+| `unpin --entry <url key>`                    | frees a `LINEAR_WORKSPACES` URL-key entry from the workspace it was first matched to, so the workspace that holds that URL key now can be admitted by it. Nothing else changes                |
 
 Typical uses:
 
@@ -822,6 +823,12 @@ Typical uses:
   warn about it). To also uninstall it and start the 30-day purge, run `remove`;
   to keep it out for good, also while `LINEAR_WORKSPACES` is `*`, `block` it
   (which removes it and ends its sessions).
+- **A URL-key entry admits the wrong workspace now**: the list names `acme`,
+  which was tied to the workspace that first signed in under it; that workspace
+  renamed its URL key and another one took `acme`, but the entry still admits
+  only the first. Run `unpin --entry acme`: the next workspace that signs in or
+  installs under `acme` is tied to it. Better, replace the entry with the
+  organization id you mean.
 
 **Running them on Railway.** The worker service is a cron job: its container
 runs only while a tick does, so there is normally nothing to connect to. Run the
@@ -838,6 +845,7 @@ railway ssh --service web -- node /app/apps/worker/dist/index.js remove --worksp
 railway ssh --service web -- node /app/apps/worker/dist/index.js purge --workspace <org id> --yes
 railway ssh --service web -- node /app/apps/worker/dist/index.js block --workspace <org id or URL key> --reason "<why>"
 railway ssh --service web -- node /app/apps/worker/dist/index.js unblock --workspace <org id or URL key>
+railway ssh --service web -- node /app/apps/worker/dist/index.js unpin --entry <URL key>
 ```
 
 From Railway's documentation of `railway ssh`: it runs one command in the

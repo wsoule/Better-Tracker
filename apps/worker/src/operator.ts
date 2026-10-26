@@ -1,8 +1,10 @@
 // The operator's workspace commands (architecture §9 "Operator commands"):
 // one deployment serves several Linear workspaces (owner decision
 // 2026-10-25), and whoever runs it lists them (`workspaces`), removes one
-// (`remove`), deletes a revoked one's data now (`purge`), and refuses one
-// from now on (`block` / `unblock`). There is no operator role in the
+// (`remove`), deletes a revoked one's data now (`purge`), refuses one
+// from now on (`block` / `unblock`), and frees a LINEAR_WORKSPACES URL-key
+// entry from the workspace it was first matched to (`unpin`). There is no
+// operator role in the
 // planner; these run only from the worker's CLI, in a shell on the
 // deployment. The engine resolves the names (an org id or URL key) and
 // does the work; this module prints what happened.
@@ -431,6 +433,26 @@ async function runOperator(
         code: EXIT_OK,
         lines: [
           `block ok — ${block.workspaceId ?? block.key}: ${parts.join('; ')}`,
+        ],
+      };
+    }
+    case 'unpin': {
+      const unpin = await engine.unpinWorkspaceEntry(command.entry);
+      if (unpin.workspaceId === null) {
+        return {
+          code: EXIT_OK,
+          lines: [
+            `unpin ok — ${unpin.entry}: no workspace is pinned to that entry; nothing changed`,
+          ],
+        };
+      }
+      const next = unpin.listed
+        ? 'while LINEAR_WORKSPACES lists it, it is pinned to the next workspace that signs in or installs under that URL key (or whose URL key the worker reads as it)'
+        : 'LINEAR_WORKSPACES does not list it, so nothing is pinned to it again unless it is listed';
+      return {
+        code: EXIT_OK,
+        lines: [
+          `unpin ok — ${unpin.entry}: the entry no longer names ${unpin.workspaceId}; ${next}. Nothing else changed`,
         ],
       };
     }

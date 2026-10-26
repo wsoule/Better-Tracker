@@ -394,6 +394,15 @@ async function listedIn(
 }
 
 /**
+ * Forgets this process's cached pin of one LINEAR_WORKSPACES entry (the
+ * operator's unpin), so its next check reads the store. Other processes
+ * reuse theirs for up to ADMISSION_CACHE_MS on non-fresh checks.
+ */
+export function forgetPin(rt: EngineRuntime, entry: string): void {
+  cacheOf(rt).pins.delete(entry.toLowerCase());
+}
+
+/**
  * The LINEAR_WORKSPACES URL key entries no workspace is pinned to yet
  * (fresh reads), when LINEAR_WORKSPACES is a list; [] otherwise. An
  * installed workspace the list refuses can still be admitted by one of

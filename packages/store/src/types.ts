@@ -842,6 +842,13 @@ export interface Store {
     workspaceId: string,
     now: IsoDateTime
   ): Promise<string>;
+  /**
+   * Additive: removes the pin of a LINEAR_WORKSPACES URL-key entry (entry
+   * matched lower-cased), the operator's `unpin`, and returns the org id it
+   * named, or null when the entry was not pinned. The entry is then
+   * pinned again by the next workspace admission matches it with.
+   */
+  deleteAdmittedPin(entry: string): Promise<string | null>;
 
   // --- audit ----------------------------------------------------------------
   appendAudit(entry: AuditEntry): Promise<void>;

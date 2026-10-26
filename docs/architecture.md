@@ -1713,7 +1713,9 @@ Tables (all keyed by `workspace_id`, except the two admission tables):
   `pinAdmitted(entry, workspaceId, now)` inserts if absent and returns the id
   the entry is pinned to afterwards (the first pin wins, also under races). A
   purge never deletes pins either: an entry pinned to a workspace that was
-  purged keeps refusing any other org that takes the key.
+  purged keeps refusing any other org that takes the key. Only the operator's
+  `unpin` does: `deleteAdmittedPin(entry)` deletes the pin and returns the id it
+  named, or null.
 
 Several workspaces (owner decision 2026-10-25; additive methods, all in the
 shared PGlite/Postgres suite):
@@ -2363,6 +2365,13 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
       sign-in, or a workspace purged since; nothing else knows the key then).
       True when one existed; a URL key that names two blocked orgs is `conflict`
       (name the id). The workspace stays revoked.
+    - `unpinWorkspaceEntry(entry)` →
+      `WorkspaceUnpin { entry, workspaceId, listed }`: deletes the entry's pin
+      (`store.deleteAdmittedPin`, the entry lower-cased; `workspaceId` is the
+      org it named, null when none) and forgets this process's cached pin;
+      `listed` says whether `LINEAR_WORKSPACES` lists the entry now. A malformed
+      entry (not letters, digits and dashes, ≤ 64) → `invalid`. Touches no
+      installation, session or block; logged at info with the id only.
   - **The mirror cache** (`createMirrorCache`): one indexed snapshot per
     workspace, used only while the store's mirror version **and** its
     `lastSuccessAt` both equal the ones it was loaded under. Any difference is
@@ -6136,7 +6145,8 @@ notice above the sign-in card.
   commands" below): `workspaces [--json]`, `remove --workspace <name>`,
   `purge --workspace <name> --yes`,
   `block --workspace <name> [--reason <text>]`, `unblock --workspace <name>`,
-  where `<name>` is an org id or URL key.
+  where `<name>` is an org id or URL key, and `unpin --entry <url key>` (a
+  `LINEAR_WORKSPACES` URL-key entry).
 
 Exit code is non-zero when any workspace failed (not when it was skipped,
 deferred or its failure is chronic), so cron failures are loud. Every command
@@ -6326,21 +6336,21 @@ Worker decisions made while building it (binding):
   decision 2026-10-25: an operator CLI instead of an in-app operator UI, which
   would be a person permission distinction). They use the engine's
   `listWorkspaceStatus`, `removeWorkspace`, `purgeWorkspaceNow`,
-  `blockWorkspace`, `unblockWorkspace` and `listBlockedWorkspaces` (§7 "Several
-  workspaces") and are the only callers of those methods. `<name>` is an org id
-  or URL key (letters, digits and dashes, ≤ 64, checked by the parser: exit 2);
-  the engine resolves it (the id first, else the URL key; two workspaces sharing
-  a URL key → name the id). They boot like the one-shot commands and run under
-  the same deadline. In api_key mode they are refused **before boot** like
-  `sync` (exit 1: "<command>: off when LINEAR_AUTH=api_key: the planner serves
-  one workspace with personal keys, so there is nothing to list, remove, purge
-  or block"). Their JSON logs go to stderr, so stdout holds only their output.
-  An engine refusal (`EngineInputError`: unknown name, shared URL key) prints
-  "<command> FAILED — <why>" and exits 1; any other error (the database) is
-  reported like a failed command. Output never holds a token or an email
-  address: the engine returns none, and the free text that could (a sync error,
-  a block reason) has Linear credential runs (core `redactLinearSecrets`) and
-  address-shaped runs replaced.
+  `blockWorkspace`, `unblockWorkspace`, `unpinWorkspaceEntry` and
+  `listBlockedWorkspaces` (§7 "Several workspaces") and are the only callers of
+  those methods. `<name>` is an org id or URL key (letters, digits and dashes, ≤
+  64, checked by the parser: exit 2); the engine resolves it (the id first, else
+  the URL key; two workspaces sharing a URL key → name the id). They boot like
+  the one-shot commands and run under the same deadline. In api_key mode they
+  are refused **before boot** like `sync` (exit 1: "<command>: off when
+  LINEAR_AUTH=api_key: the planner serves one workspace with personal keys, so
+  there is nothing to list, remove, purge, block or unpin"). Their JSON logs go
+  to stderr, so stdout holds only their output. An engine refusal
+  (`EngineInputError`: unknown name, shared URL key) prints "<command> FAILED —
+  <why>" and exits 1; any other error (the database) is reported like a failed
+  command. Output never holds a token or an email address: the engine returns
+  none, and the free text that could (a sync error, a block reason) has Linear
+  credential runs (core `redactLinearSecrets`) and address-shaped runs replaced.
   - `workspaces [--json]`: one row per workspace the store knows: id, URL key,
     name, status (`active`, `revoked:<reason>`, `blocked`, `not admitted`,
     `not installed`; a block wins, then the revoke), installed (date), purge on
@@ -6376,6 +6386,18 @@ Worker decisions made while building it (binding):
     block list when none did). A URL key two blocked orgs went by is refused
     (exit 1): name the id. The workspace stays removed until an admin
     reinstalls.
+  - `unpin --entry <url key>` (letters, digits and dashes, ≤ 64, checked by the
+    parser; `--entry` is valid for `unpin` only, and `unpin` takes no
+    `--workspace`): removes the pin of that `LINEAR_WORKSPACES` URL-key entry
+    (`store.deleteAdmittedPin`), so a workspace that took the URL key after the
+    pinned one renamed away from it can be admitted by it. Prints the org id the
+    pin named and whether the list still names the entry (then the next
+    workspace that signs in or installs under that key, or whose key cleanup's
+    identity read finds, is pinned to it), or that nothing was pinned; exit 0
+    either way. Nothing else changes: no installation, session or block is
+    touched, and the workspace the pin named is no longer admitted by that entry
+    (only by its id or another entry). This is how the operator removes a pin
+    the privacy page says is kept with no time limit; `unblock` removes a block.
 - `tick`'s hard timeout is **one** budget counted from the start: boot, the tick
   and closing the store together, so the process always ends within
   `TICK_TIMEOUT_MINUTES` (the commands see it as `deadlineAt`, "Scaling"). The
@@ -6536,7 +6558,8 @@ not read; a deploy that still sets it boots normally and logs one warning
   read and never applying an older one, and `describeSessions`' `signInUrlKey`,
   `signedInAt` and `urlKeyReadAt`, and `takeSessionsForWorkspace` with
   `purgeDueBefore` taking nothing too recently revoked, `grant_dead`, never
-  installed or reinstalled (`test/store.test.ts`).
+  installed or reinstalled, and `deleteAdmittedPin` returning the org the pin
+  named (`test/store.test.ts`).
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe
@@ -6620,29 +6643,32 @@ not read; a deploy that still sets it boots normally and logs one warning
   succeeded, cleanup's new counts and what it left), `test/operator.test.ts`
   (every command's output and exit code, the name passed to the engine untouched
   and the resolved id printed, every purge refusal, the JSON shape, engine
-  refusals as FAILED lines, no token or email in any output), `test/cli.test.ts`
-  (the operator commands' options and refusals, `--yes`, `allocate --live`
-  without `--workspace`, `--override-mode` only with `allocate --live`), and
-  `test/run.test.ts` (`deadlineAt` from `TICK_TIMEOUT_MINUTES` and per serve
-  tick, a workspace that never finishes named by the deadline after cleanup ran,
-  purge without `--yes` never boots, api_key mode refuses every operator command
-  before boot, `workspaces --json` keeps stdout for the JSON, and list → remove
-  → tick skips it → purge refused then done → block/unblock against the real
-  demo engine). Engine: `listWorkspaceStatus` carries admission's verdicts,
-  cleanup removes blocked installations and only warns about the ones
-  `LINEAR_WORKSPACES` leaves out (re-admitting restores them, sessions
-  included), a renamed workspace listed by its new URL key is never removed and
-  its sign-in refreshes the installation's name and key, a URL-key pin outlives
-  a purge, unblock by URL key after a pin, the installation's URL key tried
-  before a session's, a session that signed in after the installation's key was
-  read pinning an entry only its key matches, an older session's key never
-  pinning an entry another org took after a rename that a sync read
-  (`newerSignInUrlKey`), and never one pinned to another org, cleanup's identity
-  read admitting a refused installation again with one app-token read, and
-  skipping the read without an unpinned entry or time, a failed one warning once
-  and then logged at info, the reads coming after the revocations (a slow answer
-  cannot cost an expired session its revocation), at most 5 per pass the ones
-  checked longest ago first, and an unanswered read given up after 10 s
+  refusals as FAILED lines, `unpin`'s three answers, no token or email in any
+  output), `test/cli.test.ts` (the operator commands' options and refusals,
+  `--yes`, `--entry` only for `unpin` and `unpin` without `--workspace`,
+  `allocate --live` without `--workspace`, `--override-mode` only with
+  `allocate --live`), and `test/run.test.ts` (`deadlineAt` from
+  `TICK_TIMEOUT_MINUTES` and per serve tick, a workspace that never finishes
+  named by the deadline after cleanup ran, purge without `--yes` never boots,
+  api_key mode refuses every operator command before boot, `workspaces --json`
+  keeps stdout for the JSON, and list → remove → tick skips it → purge refused
+  then done → block/unblock against the real demo engine). Engine:
+  `listWorkspaceStatus` carries admission's verdicts, cleanup removes blocked
+  installations and only warns about the ones `LINEAR_WORKSPACES` leaves out
+  (re-admitting restores them, sessions included), a renamed workspace listed by
+  its new URL key is never removed and its sign-in refreshes the installation's
+  name and key, a URL-key pin outlives a purge, unblock by URL key after a pin,
+  the installation's URL key tried before a session's, a session that signed in
+  after the installation's key was read pinning an entry only its key matches,
+  an older session's key never pinning an entry another org took after a rename
+  that a sync read (`newerSignInUrlKey`), and never one pinned to another org,
+  `unpin` freeing an entry for the workspace that took its key after a rename
+  while touching no installation, session or grant, cleanup's identity read
+  admitting a refused installation again with one app-token read, and skipping
+  the read without an unpinned entry or time, a failed one warning once and then
+  logged at info, the reads coming after the revocations (a slow answer cannot
+  cost an expired session its revocation), at most 5 per pass the ones checked
+  longest ago first, and an unanswered read given up after 10 s
   (`test/admission.test.ts`); cleanup's deadline: a slow revoke endpoint
   stopping it in time with every session it took revoked and the rest left for
   the next pass, a due purge of 60 sessions ending 28 a pass and purging on the

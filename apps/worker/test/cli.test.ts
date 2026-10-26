@@ -91,6 +91,8 @@ describe('parseArgs: commands', () => {
       ['unblock', '--workspace', 'acme'],
       { name: 'unblock', workspace: 'acme' },
     ],
+    [['unpin', '--entry', 'acme'], { name: 'unpin', entry: 'acme' }],
+    [['--entry=Acme-Old', 'unpin'], { name: 'unpin', entry: 'Acme-Old' }],
   ])('%p', (argv, expected) => {
     expect(command(argv)).toEqual(expected);
   });
@@ -100,6 +102,7 @@ describe('parseArgs: commands', () => {
     expect(isOperatorCommand(command(['unblock', '--workspace', 'a']))).toBe(
       true
     );
+    expect(isOperatorCommand(command(['unpin', '--entry', 'a']))).toBe(true);
     expect(isOperatorCommand(command(['tick']))).toBe(false);
   });
 
@@ -137,9 +140,11 @@ describe('parseArgs: help', () => {
       'purge',
       'block',
       'unblock',
+      'unpin',
     ]) {
       expect(USAGE).toContain(`  ${name} `);
     }
+    expect(USAGE).toContain('--entry <url key>');
     expect(USAGE).toContain('WORKER_CONCURRENCY');
     expect(USAGE).toContain('2 usage error');
   });
@@ -195,6 +200,28 @@ describe('parseArgs: errors', () => {
     [['migrate', '--', 'x'], 'Unknown option: --'],
     [['remove'], 'remove needs --workspace <org id or URL key>.'],
     [['unblock'], 'unblock needs --workspace <org id or URL key>.'],
+    [['unpin'], 'unpin needs --entry <URL key>.'],
+    [
+      ['unpin', '--workspace', 'acme'],
+      'unpin takes --entry <URL key> (a LINEAR_WORKSPACES entry), not --workspace.',
+    ],
+    [
+      ['unpin', '--entry', 'acme.example'],
+      '--entry takes a LINEAR_WORKSPACES URL key (letters, digits and dashes, at most 64).',
+    ],
+    [['unpin', '--entry'], '--entry needs a URL key'],
+    [
+      ['unpin', '--entry', 'a', '--entry', 'b'],
+      '--entry was given more than once.',
+    ],
+    [
+      ['unblock', '--workspace', 'a', '--entry', 'a'],
+      '--entry is only valid for unpin, not unblock.',
+    ],
+    [
+      ['unpin', '--entry', 'a', '--yes'],
+      '--yes is only valid for purge, not unpin.',
+    ],
     [
       ['remove', '--workspace', 'acme.example'],
       '--workspace takes an organization id or URL key (letters, digits and dashes, at most 64).',
