@@ -25,20 +25,33 @@
 //   retention. A 'grant_dead' workspace (Linear refused the app's token,
 //   nobody asked for anything) keeps its sessions and is never purged
 //   here. The audit log and the run log are never pruned (kept for good,
-//   2026-10-22); the purge is what deletes them. Every step is bounded per
-//   call, so a backlog cannot stretch one tick past its timeout.
+//   2026-10-22); the purge is what deletes them.
+// - Every step is bounded per call in count. With a deadline (the worker
+//   passes one: CleanupOptions) it is bounded in time too: work that calls
+//   Linear (revocations and purges) starts only when it ends
+//   before the deadline even if every revocation takes its full timeout
+//   (REVOKE_WORST_MS), so a slow Linear cannot use up the tick that every
+//   workspace's sync and daily job wait for. Taking sessions from the
+//   store deletes them, so a batch is sized to what the time left can
+//   revoke: nothing taken is left unrevoked. A step cut short (by time or
+//   by its count) is named in CleanupResult.deferred, and the next call
+//   carries on.
 
-import type { OAuthClientConfig } from '@better-tracker/linear';
+import {
+  OAUTH_TIMEOUT_MS,
+  type OAuthClientConfig,
+} from '@better-tracker/linear';
 import type { RevokedReason } from '@better-tracker/store';
 
 import { refusedWorkspaces } from './admission';
 import { revokeGrant } from './auth';
 import type { EngineRuntime } from './runtime';
-import type { CleanupResult } from './types';
+import type { CleanupOptions, CleanupResult, CleanupStep } from './types';
 import {
   endWorkspaceSessions,
   purgeRevokedWorkspace,
   revokeWorkspace,
+  SESSION_REVOKE_CONCURRENCY,
 } from './workspaces';
 
 /** How long webhook delivery records are kept, in days. */
@@ -71,21 +84,87 @@ const MAX_PURGES_PER_CLEANUP = 3;
 const RETENTION_PRUNE_LIMIT = 2000;
 /** The revoke reasons whose workspaces are ended and purged here. */
 const ENDED_REASONS: readonly RevokedReason[] = ['uninstalled', 'removed'];
+/**
+ * The longest one grant revocation may take: one call to Linear's revoke
+ * endpoint (revokeToken: OAUTH_TIMEOUT_MS, no retry) plus a second for the
+ * rest. Batches are sized with it (Budget.sessionsThatFit).
+ */
+export const REVOKE_WORST_MS: number = OAUTH_TIMEOUT_MS + 1000;
+/** What a purge's own transaction is allowed before its revocations. */
+const PURGE_TRANSACTION_MS = 10_000;
+
+/**
+ * One cleanup pass's time limit (CleanupOptions.deadline) on the engine's
+ * clock. Without a deadline everything fits.
+ */
+interface Budget {
+  /** Milliseconds left before the deadline (Infinity without one). */
+  leftMs(): number;
+  /** The whole pass's length (Infinity without a deadline). */
+  readonly totalMs: number;
+  /**
+   * How many sessions can be taken now so that revoking them all,
+   * `parallel` at a time at REVOKE_WORST_MS each, ends before the deadline.
+   */
+  sessionsThatFit(parallel: number): number;
+}
+
+function budgetFor(rt: EngineRuntime, options: CleanupOptions): Budget {
+  const deadline = options.deadline;
+  const deadlineMs = deadline === undefined ? null : deadline.getTime();
+  const startedMs = rt.clock().getTime();
+  const leftMs = (): number =>
+    deadlineMs === null
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, deadlineMs - rt.clock().getTime());
+  return {
+    leftMs,
+    totalMs:
+      deadlineMs === null
+        ? Number.POSITIVE_INFINITY
+        : Math.max(0, deadlineMs - startedMs),
+    sessionsThatFit: (parallel) => {
+      const left = leftMs();
+      if (left === Number.POSITIVE_INFINITY) return Number.MAX_SAFE_INTEGER;
+      if (left <= 0) return 0;
+      return Math.floor(left / REVOKE_WORST_MS) * parallel;
+    },
+  };
+}
+
+// Adds a step to the result's deferred list once.
+function defer(result: CleanupResult, step: CleanupStep): void {
+  const deferred = (result.deferred ??= []);
+  if (!deferred.includes(step)) deferred.push(step);
+}
 
 // Takes expired sessions in batches and revokes each one's Linear grant,
-// adding to `result`. Stops at a short batch (nothing left) or the cap.
+// adding to `result`. Each batch is at most what the time left can revoke
+// one after another (Budget.sessionsThatFit), since taking it deletes it.
+// Stops at a short batch (nothing left), the cap or the deadline (the last
+// two defer the step).
 async function revokeExpiredSessions(
   rt: EngineRuntime,
   oauth: OAuthClientConfig,
   now: Date,
+  budget: Budget,
   result: CleanupResult
 ): Promise<void> {
   const nowIso = now.toISOString();
-  while (result.expiredSessions < MAX_SESSIONS_PER_CLEANUP) {
+  for (;;) {
+    if (result.expiredSessions >= MAX_SESSIONS_PER_CLEANUP) {
+      defer(result, 'expired_sessions');
+      return;
+    }
     const limit = Math.min(
       SESSION_BATCH,
-      MAX_SESSIONS_PER_CLEANUP - result.expiredSessions
+      MAX_SESSIONS_PER_CLEANUP - result.expiredSessions,
+      budget.sessionsThatFit(1)
     );
+    if (limit <= 0) {
+      defer(result, 'expired_sessions');
+      return;
+    }
     const batch = await rt.store.takeExpiredSessions(nowIso, limit);
     result.expiredSessions += batch.length;
     for (const session of batch) {
@@ -162,18 +241,19 @@ export async function handleRefusedInstallations(
 // Ends the sessions of workspaces uninstalled or removed that were created
 // before the revoke, revoking each grant (endWorkspaceSessions: bounded
 // concurrency, failures logged without tokens), up to
-// MAX_WORKSPACE_SESSIONS_PER_CLEANUP. A session created after the revoke
-// is kept: an admin who signed in to reinstall. Personal API keys keep no
-// sessions here, so the step does nothing then.
+// MAX_WORKSPACE_SESSIONS_PER_CLEANUP, each batch at most what the time
+// left can revoke. A session created after the revoke is kept: an admin
+// who signed in to reinstall. Personal API keys keep no sessions here, so
+// the step does nothing then.
 async function endRevokedWorkspaceSessions(
   rt: EngineRuntime,
+  budget: Budget,
   result: CleanupResult
 ): Promise<void> {
   if (rt.config.auth === 'api_key') return;
   const statuses = await rt.store.listWorkspaceStatus();
   for (const status of statuses) {
     const ended = result.endedWorkspaceSessions ?? 0;
-    if (ended >= MAX_WORKSPACE_SESSIONS_PER_CLEANUP) return;
     const installation = status.installation;
     if (
       installation === null ||
@@ -184,14 +264,23 @@ async function endRevokedWorkspaceSessions(
     ) {
       continue;
     }
+    if (
+      ended >= MAX_WORKSPACE_SESSIONS_PER_CLEANUP ||
+      budget.sessionsThatFit(SESSION_REVOKE_CONCURRENCY) <= 0
+    ) {
+      defer(result, 'workspace_sessions');
+      return;
+    }
     const ending = await endWorkspaceSessions(rt, status.workspaceId, {
       createdBefore: installation.revokedAt,
       max: MAX_WORKSPACE_SESSIONS_PER_CLEANUP - ended,
+      batchLimit: () => budget.sessionsThatFit(SESSION_REVOKE_CONCURRENCY),
       why:
         installation.revokedReason === 'uninstalled'
           ? 'a session of an uninstalled workspace'
           : 'a session of a removed workspace',
     });
+    if (ending.cutShort) defer(result, 'workspace_sessions');
     result.endedWorkspaceSessions = ended + ending.ended;
     result.revokedTokens += ending.revokedTokens;
     result.revokeFailures += ending.revokeFailures;
@@ -211,11 +300,16 @@ async function endRevokedWorkspaceSessions(
 // and deletes the remaining sessions in the same transaction, so a
 // reinstall racing the purge wins and keeps every session (the installer's
 // too); purgeRevokedWorkspace revokes the deleted sessions' grants after
-// the commit and logs the id only. 'grant_dead' is never purged here (only
-// by the operator's purge).
+// the commit and logs the id only. A purge starts only when its
+// transaction and the revocation of every session it would delete end
+// before the deadline (their number is known from the listing): the rest
+// wait. One that could not fit even a whole pass is logged with the
+// operator's purge, which has the whole tick. 'grant_dead' is never purged
+// here (only by the operator's purge).
 async function purgeRevokedWorkspaces(
   rt: EngineRuntime,
   now: Date,
+  budget: Budget,
   result: CleanupResult
 ): Promise<void> {
   if (rt.config.auth === 'api_key') return;
@@ -235,11 +329,35 @@ async function purgeRevokedWorkspaces(
       ) {
         return [];
       }
-      return [{ workspaceId: status.workspaceId, at: installation.revokedAt }];
+      return [
+        {
+          workspaceId: status.workspaceId,
+          at: installation.revokedAt,
+          sessions: status.sessionCount,
+        },
+      ];
     })
-    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at))
-    .slice(0, MAX_PURGES_PER_CLEANUP);
-  for (const { workspaceId } of due) {
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+  if (due.length > MAX_PURGES_PER_CLEANUP) defer(result, 'purges');
+  for (const { workspaceId, sessions } of due.slice(
+    0,
+    MAX_PURGES_PER_CLEANUP
+  )) {
+    // The transaction, then every session it deletes revoked
+    // SESSION_REVOKE_CONCURRENCY at a time at their longest.
+    const needMs =
+      PURGE_TRANSACTION_MS +
+      Math.ceil(sessions / SESSION_REVOKE_CONCURRENCY) * REVOKE_WORST_MS;
+    if (needMs > budget.leftMs()) {
+      defer(result, 'purges');
+      if (needMs > budget.totalMs) {
+        rt.logger.warn(
+          `a purge is due but revoking its sessions could take longer than cleanup's time limit; run 'purge --workspace ${workspaceId}' to purge it now`,
+          { workspaceId, sessions }
+        );
+      }
+      continue;
+    }
     const { result: purge, ending } = await purgeRevokedWorkspace(
       rt,
       workspaceId,
@@ -278,10 +396,15 @@ async function pruneRetention(
  * prunes notifications and job claims, ends the sessions of uninstalled
  * or removed workspaces and purges such workspaces once their grace is
  * over; removes blocked installations and warns about installed ones
- * LINEAR_WORKSPACES does not admit (the module comment above).
+ * LINEAR_WORKSPACES does not admit (the module comment above). With
+ * `options.deadline`, work that calls Linear stops before it.
  */
-export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
+export async function cleanup(
+  rt: EngineRuntime,
+  options: CleanupOptions = {}
+): Promise<CleanupResult> {
   const now = rt.clock();
+  const budget = budgetFor(rt, options);
   const result: CleanupResult = {
     expiredSessions: 0,
     revokedTokens: 0,
@@ -292,6 +415,7 @@ export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
     oldNotifications: 0,
     oldJobClaims: 0,
     notServedWorkspaces: 0,
+    deferred: [],
   };
   const refused = await handleRefusedInstallations(rt);
   result.notServedWorkspaces = refused.notServed.length;
@@ -307,14 +431,14 @@ export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
       now.toISOString()
     );
   } else {
-    await revokeExpiredSessions(rt, oauth, now, result);
+    await revokeExpiredSessions(rt, oauth, now, budget, result);
   }
   result.oldDeliveries = await rt.store.pruneWebhookDeliveries(
     new Date(now.getTime() - WEBHOOK_RETENTION_DAYS * DAY_MS).toISOString()
   );
   await pruneRetention(rt, now, result);
-  await endRevokedWorkspaceSessions(rt, result);
-  await purgeRevokedWorkspaces(rt, now, result);
+  await endRevokedWorkspaceSessions(rt, budget, result);
+  await purgeRevokedWorkspaces(rt, now, budget, result);
   rt.logger.info('cleanup finished', { ...result });
   return result;
 }

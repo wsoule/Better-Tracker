@@ -454,6 +454,27 @@ export interface DailyResult {
   warnings: WarningRunResult | null;
 }
 
+/**
+ * A cleanup step that calls Linear, and so stops at cleanup's deadline:
+ * revoking expired sessions, ending the sessions of uninstalled or removed
+ * workspaces, and purging them.
+ */
+export type CleanupStep = 'expired_sessions' | 'workspace_sessions' | 'purges';
+
+/** Additive: how one cleanup() pass is bounded in time. */
+export interface CleanupOptions {
+  /**
+   * When to stop starting work that calls Linear, on the engine's clock
+   * (the worker's tick passes one, so cleanup cannot use up the time the
+   * workspaces need). Sessions are taken from the store (which deletes
+   * them) only as many as can still be revoked before it, each revocation
+   * counted at its full timeout; a purge starts only when its
+   * revocations fit too. Steps that only touch the store always run.
+   * Omitted: no time limit.
+   */
+  deadline?: Date;
+}
+
 /** What one cleanup() pass did (also logged as "cleanup finished"). */
 export interface CleanupResult {
   /** Expired sessions deleted. */
@@ -489,6 +510,14 @@ export interface CleanupResult {
    * operator's remove, block or purge take them away.
    */
   notServedWorkspaces?: number;
+  /**
+   * The steps that stopped before they could finish, at the deadline or at
+   * their per-call count, so work may be left: the next call carries on.
+   * (One stopped before it started cannot tell whether it had anything to
+   * do: expired sessions are only found by taking them.) Empty when every
+   * step finished.
+   */
+  deferred?: CleanupStep[];
 }
 
 /**
@@ -1081,9 +1110,11 @@ export interface Engine {
    * that predate the revoke, purges such workspaces PURGE_AFTER_DAYS after
    * the revoke (a few per call; never 'grant_dead'), and prunes
    * notifications and job claims past their retention (bounded per call).
-   * The audit log and the run log are never pruned.
+   * The audit log and the run log are never pruned. Additive: with
+   * `options.deadline`, work that calls Linear stops before it
+   * (CleanupOptions), and the steps cut short are listed in `deferred`.
    */
-  cleanup(): Promise<CleanupResult>;
+  cleanup(options?: CleanupOptions): Promise<CleanupResult>;
   now(): IsoDateTime;
   /** Additive: the store's liveness probe (for /api/health); never throws. */
   ping(): Promise<boolean>;

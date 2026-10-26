@@ -10,7 +10,9 @@
 
 import { isValidTimeZone } from '@better-tracker/core';
 import type {
+  CleanupOptions,
   CleanupResult,
+  CleanupStep,
   DailyResult,
   Engine,
   SyncResult,
@@ -28,6 +30,7 @@ import {
 } from './cli';
 import type { WorkerConfig } from './config';
 import {
+  cleanupDeadline,
   dailyStartNeedMs,
   formatDuration,
   isChronic,
@@ -66,7 +69,7 @@ export interface WorkerEngine {
   }): Promise<DailyResult>;
   runAllocation: Engine['runAllocation'];
   runWarnings(input: { workspaceId: string }): Promise<WarningRunResult>;
-  cleanup(): Promise<CleanupResult>;
+  cleanup(options?: CleanupOptions): Promise<CleanupResult>;
   removeWorkspace: Engine['removeWorkspace'];
   purgeWorkspaceNow: Engine['purgeWorkspaceNow'];
   blockWorkspace: Engine['blockWorkspace'];
@@ -92,7 +95,7 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
     runDaily: (input) => engine.runDaily(input),
     runAllocation: (input) => engine.runAllocation(input),
     runWarnings: (input) => engine.runWarnings(input),
-    cleanup: () => engine.cleanup(),
+    cleanup: (options) => engine.cleanup(options),
     removeWorkspace: (name) => engine.removeWorkspace(name),
     purgeWorkspaceNow: (name, options) =>
       engine.purgeWorkspaceNow(name, options),
@@ -589,22 +592,34 @@ async function dailyWorkspace(
   return describeDaily(await ctx.engine.runDaily({ workspaceId, force }));
 }
 
+/** How a tick's summary names a cleanup step left for the next tick. */
+const CLEANUP_STEP_LABEL: Record<CleanupStep, string> = {
+  expired_sessions: 'expired sessions',
+  workspace_sessions: 'sessions of uninstalled or removed workspaces',
+  purges: 'purges',
+};
+
 // Housekeeping at the start of a tick (engine.cleanup(), arch §9
-// "Cleanup"), before any workspace: each of its steps is bounded per call,
-// while a workspace's sync is not, so one workspace too slow for
+// "Cleanup"), before any workspace: one workspace too slow for
 // TICK_TIMEOUT_MINUTES can no longer starve every other workspace's
-// purges and session revocations by getting the tick killed first. Expired
-// sessions and those of uninstalled or removed workspaces (their Linear
-// grants revoked), purges 30 days after an uninstall or removal, and
-// retention for webhook deliveries, notifications and job claims; installed
-// workspaces LINEAR_WORKSPACES leaves out are counted (never removed). The
-// counts added for several workspaces are listed only when not zero.
+// purges and session revocations by getting the tick killed first. Each
+// step is bounded per call, and in time by cleanupDeadline (at most 2
+// minutes, at most half the time left), so a slow Linear cannot starve
+// the workspaces either; what it leaves is named and done next tick.
+// Expired sessions and those of uninstalled or removed workspaces (their
+// Linear grants revoked), purges 30 days after an uninstall or removal,
+// and retention for webhook deliveries, notifications and job claims;
+// installed workspaces LINEAR_WORKSPACES leaves out are counted (never
+// removed). The counts added for several workspaces are listed only when
+// not zero.
 async function runCleanup(
   ctx: CommandContext,
   result: CommandResult
 ): Promise<void> {
   try {
-    const cleaned = await ctx.engine.cleanup();
+    const cleaned = await ctx.engine.cleanup({
+      deadline: cleanupDeadline(ctx.now(), ctx.deadlineAt),
+    });
     const revoked =
       cleaned.revokeFailures > 0
         ? ` (${plural(cleaned.revokeFailures, 'revocation')} failed)`
@@ -630,6 +645,12 @@ async function runCleanup(
     ];
     for (const [count = 0, one, many] of extra) {
       if (count > 0) parts.push(`${count} ${count === 1 ? one : many}`);
+    }
+    const deferred = cleaned.deferred ?? [];
+    if (deferred.length > 0) {
+      parts.push(
+        `left for the next tick: ${deferred.map((step) => CLEANUP_STEP_LABEL[step]).join(', ')}`
+      );
     }
     result.notes.push(`cleanup: ${parts.join(', ')}`);
   } catch (error) {

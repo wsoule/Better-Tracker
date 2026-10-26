@@ -66,6 +66,7 @@ export {
   JOB_CLAIM_RETENTION_DAYS,
   NOTIFICATION_RETENTION_DAYS,
   PURGE_AFTER_DAYS,
+  REVOKE_WORST_MS,
   WEBHOOK_RETENTION_DAYS,
 } from './cleanup';
 // Several workspaces (owner decision 2026-10-25): the operator commands'

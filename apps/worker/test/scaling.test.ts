@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  CLEANUP_MAX_MS,
+  cleanupDeadline,
   dailyStartNeedMs,
   formatDuration,
   isChronic,
@@ -137,6 +139,22 @@ describe('planWorkspaces', () => {
       )
     );
     expect(plans.map((plan) => plan.workspaceId)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('cleanup deadline', () => {
+  test('at most 2 minutes, and at most half the time left', () => {
+    expect(CLEANUP_MAX_MS).toBe(2 * MINUTE);
+    const at = (ms: number) => new Date(NOW.getTime() + ms);
+    // The default 10-minute tick: the 2-minute cap.
+    expect(cleanupDeadline(NOW, at(10 * MINUTE))).toEqual(at(2 * MINUTE));
+    // A 3-minute tick keeps at least half for the workspaces.
+    expect(cleanupDeadline(NOW, at(3 * MINUTE))).toEqual(at(1.5 * MINUTE));
+    // No time left (or past it): now, so nothing that calls Linear starts.
+    expect(cleanupDeadline(NOW, at(0))).toEqual(NOW);
+    expect(cleanupDeadline(NOW, at(-MINUTE))).toEqual(NOW);
+    // No run deadline: the cap alone.
+    expect(cleanupDeadline(NOW, null)).toEqual(at(2 * MINUTE));
   });
 });
 

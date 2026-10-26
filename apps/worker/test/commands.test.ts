@@ -1150,6 +1150,36 @@ describe('runCommand: several workspaces', () => {
     ]);
     expect(exitCodeFor(result)).toBe(0);
   });
+
+  test('cleanup gets at most 2 minutes and half the time left, and says what it left', async () => {
+    const engine = fakeEngine({ workspaces: [] });
+    const deadlines: (Date | undefined)[] = [];
+    engine.cleanup = (options) => {
+      deadlines.push(options?.deadline);
+      return Promise.resolve({
+        expiredSessions: 7,
+        revokedTokens: 7,
+        revokeFailures: 0,
+        oldDeliveries: 0,
+        deferred: ['expired_sessions', 'purges'],
+      });
+    };
+    const now = new Date('2026-10-21T12:00:00Z');
+    const after = (ms: number) => new Date(now.getTime() + ms);
+    const result = await runCommand(
+      context(engine, { now, deadlineAt: after(10 * MINUTE) }),
+      { name: 'tick', workspaceId: null }
+    );
+    await runCommand(context(engine, { now, deadlineAt: after(3 * MINUTE) }), {
+      name: 'tick',
+      workspaceId: null,
+    });
+    expect(deadlines).toEqual([after(2 * MINUTE), after(1.5 * MINUTE)]);
+    expect(result.notes).toEqual([
+      'cleanup: 7 expired sessions, 0 old webhook delivery records, left for the next tick: expired sessions, purges',
+    ]);
+    expect(exitCodeFor(result)).toBe(0);
+  });
 });
 
 describe('runCommand: a workspace whose full sync never finishes', () => {

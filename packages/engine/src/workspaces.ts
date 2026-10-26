@@ -139,21 +139,38 @@ async function revokeTakenGrants(
 /**
  * Ends a workspace's sessions (only those created before `createdBefore`
  * when given), in batches, revoking each grant best effort. Stops at a
- * short batch (nothing left) or after `max` sessions. `why` names the
- * sessions in the warning a failed revocation logs.
+ * short batch (nothing left), after `max` sessions, or when `batchLimit`
+ * (the caller's time budget: how many sessions it can still revoke)
+ * allows none; a batch never takes more than it allows, since taking
+ * deletes. `cutShort` says it stopped while sessions may be left. `why`
+ * names the sessions in the warning a failed revocation logs.
  */
 export async function endWorkspaceSessions(
   rt: EngineRuntime,
   workspaceId: string,
-  options: { createdBefore?: IsoDateTime; max: number; why: string }
-): Promise<SessionEnding> {
-  const ending: SessionEnding = {
+  options: {
+    createdBefore?: IsoDateTime;
+    max: number;
+    why: string;
+    batchLimit?: () => number;
+  }
+): Promise<SessionEnding & { cutShort: boolean }> {
+  const ending: SessionEnding & { cutShort: boolean } = {
     ended: 0,
     revokedTokens: 0,
     revokeFailures: 0,
+    cutShort: false,
   };
-  while (ending.ended < options.max) {
-    const limit = Math.min(SESSION_BATCH, options.max - ending.ended);
+  for (;;) {
+    const limit = Math.min(
+      SESSION_BATCH,
+      options.max - ending.ended,
+      options.batchLimit?.() ?? Number.MAX_SAFE_INTEGER
+    );
+    if (limit <= 0) {
+      ending.cutShort = true;
+      break;
+    }
     const batch = await rt.store.takeSessionsForWorkspace(workspaceId, {
       createdBefore: options.createdBefore,
       limit,

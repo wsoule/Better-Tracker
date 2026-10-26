@@ -2602,7 +2602,7 @@ Engine decisions made while building it (binding for callers):
 - Additive API: `EngineDeps.fetch` (OAuth calls), `Engine.close()`,
   `createEngineFromEnv(env, { logger, now, fetch, channel })`. Demo mode never
   uses `DATABASE_URL` or Slack.
-- `cleanup()` resolves with `CleanupResult`
+- `cleanup(options?)` resolves with `CleanupResult`
   `{ expiredSessions, revokedTokens, revokeFailures, oldDeliveries }` (also
   logged as `cleanup finished`). Real mode takes expired sessions with
   `takeExpiredSessions` in batches of 50 (at most 500 per run; the rest wait for
@@ -2613,13 +2613,20 @@ Engine decisions made while building it (binding for callers):
   installed is revoked as `'removed'`; one `LINEAR_WORKSPACES` leaves out is
   only warned about (its id and the fix) and counted, never revoked, and none of
   its sessions is ended. Revocation is best effort: a failure is logged at warn
-  and counted, never fails cleanup. Demo mode only deletes
+  and counted, never fails cleanup. Additive: `CleanupOptions.deadline` (a
+  `Date` on the engine's clock; the worker passes one, §9 "Cleanup") bounds it
+  in time: work that calls Linear starts only when it ends before the deadline
+  even if Linear answers each revocation only at its timeout (`REVOKE_WORST_MS`,
+  `OAUTH_TIMEOUT_MS` + 1 s), and the steps cut short are listed in `deferred`
+  (`CleanupStep[]`: `expired_sessions`, `workspace_sessions`, `purges`; a step
+  stopped before it started cannot tell whether it had work, expired sessions
+  being found only by taking them). Demo mode only deletes
   (`deleteExpiredSessions`). Webhook delivery records older than 30 days
   (`WEBHOOK_RETENTION_DAYS`) are pruned: dedupe needs only Linear's ~6 h retry
   window, the rest keeps each delivery's processing error around to investigate.
   Additive (several workspaces, §9): `endedWorkspaceSessions`,
-  `purgedWorkspaces`, `oldNotifications`, `oldJobClaims` and
-  `notServedWorkspaces` (always set, optional in the type), and
+  `purgedWorkspaces`, `oldNotifications`, `oldJobClaims`, `notServedWorkspaces`
+  and `deferred` (always set, optional in the type), and
   `revokedTokens`/`revokeFailures` count every session the pass ended.
 
 ### 7.2 Issue page (owner decision 2026-10-21)
@@ -6020,19 +6027,21 @@ notice above the sign-in card.
   `--workspace` it is a usage error, exit 2)
 - `warn [--workspace <id>]`
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
-  UTC): first `cleanup` (bounded per call, so it always runs, whatever a slow
-  workspace does to the rest of the budget), then for each active, admitted
-  installation (least recently synced first, `WORKER_CONCURRENCY` at a time,
-  each started only with enough time left; see "Scaling"), if the local time in
-  its timezone is at or past `DAILY_RUN_AT` (default `08:00`) and today's daily
-  job is unclaimed (or its claim was abandoned by a run that died, past the
-  engine's lease), `runDaily` (which syncs first); otherwise a plain `fullSync`
-  (the periodic resync that heals milestone/relation drift, since Linear has no
-  webhooks for those), skipped when a successful one finished less than 10
-  minutes ago. Uninstalled, removed, blocked and not admitted workspaces are
-  skipped. Closes the store and exits. A hard timeout (`TICK_TIMEOUT_MINUTES`,
-  default 10) exits non-zero so a hung run never blocks later ones (Railway
-  skips a cron tick while the previous one runs).
+  UTC): first `cleanup` (bounded per call and in time, so it always runs,
+  whatever a slow workspace does to the rest of the budget, and never takes more
+  than 2 minutes of it for work that calls Linear; "Cleanup" below), then for
+  each active, admitted installation (least recently attempted first,
+  `WORKER_CONCURRENCY` at a time, each started only with enough time left; see
+  "Scaling"), if the local time in its timezone is at or past `DAILY_RUN_AT`
+  (default `08:00`) and today's daily job is unclaimed (or its claim was
+  abandoned by a run that died, past the engine's lease), `runDaily` (which
+  syncs first); otherwise a plain `fullSync` (the periodic resync that heals
+  milestone/relation drift, since Linear has no webhooks for those), skipped
+  when a successful one finished less than 10 minutes ago. Uninstalled, removed,
+  blocked and not admitted workspaces are skipped. Closes the store and exits. A
+  hard timeout (`TICK_TIMEOUT_MINUTES`, default 10) exits non-zero so a hung run
+  never blocks later ones (Railway skips a cron tick while the previous one
+  runs).
 - `serve` — long-running alternative to cron for other hosts: runs `tick` every
   `SYNC_INTERVAL_MINUTES` (default 15) until SIGTERM.
 - Operator commands (OAuth mode, owner decision 2026-10-25; see "Operator
@@ -6142,21 +6151,34 @@ Worker decisions made while building it (binding):
   digests do not fail a run (they include people with no Slack account); they
   are counted in the summary.
 
-- **Cleanup** (`engine.cleanup()`, at the start of every tick, before any
-  workspace: a workspace whose sync cannot finish within `TICK_TIMEOUT_MINUTES`
-  gets the tick killed, and with cleanup last that stopped purges and session
-  revocations for every workspace; each step bounded per call so a backlog never
-  stretches a tick past its timeout, the rest waiting for the next tick; nothing
-  of this runs with personal API keys): 0. Refused installations (§7
-  "Admission"): a blocked workspace that still has an active installation is
-  revoked as `removed` (a block is a hard gate). An installed workspace (active
-  or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a soft gate: one warn
-  per call names its id and the fix (add it back, or run `remove`), it is
-  counted (`notServedWorkspaces`), and nothing is revoked, wiped, ended or
-  purged, so re-admitting it restores it as it was. Its sessions stay unusable
-  until then or until they expire (step 1).
-  1. Expired sessions are taken in batches of 50 (at most 500) and their Linear
-     grants revoked, best effort (unchanged).
+- **Cleanup** (`engine.cleanup({ deadline })`, at the start of every tick,
+  before any workspace: a workspace whose sync cannot finish within
+  `TICK_TIMEOUT_MINUTES` gets the tick killed, and with cleanup last that
+  stopped purges and session revocations for every workspace; nothing of this
+  runs with personal API keys). Each step is bounded per call in count, and in
+  time by its deadline, `cleanupDeadline` (scaling.ts): 2 minutes from its start
+  (`CLEANUP_MAX_MS`), never later than half the time left before the run's
+  deadline, so a slow Linear (each revocation is one token-endpoint call, 15 s
+  timeout, no retry) cannot starve the workspaces either. Work that calls Linear
+  starts only when it ends before that deadline even at its worst
+  (`REVOKE_WORST_MS` = 16 s per revocation): taking sessions from the store
+  deletes them, so a batch is never larger than the time left can revoke, and
+  nothing taken is left unrevoked if the tick is killed later; a purge starts
+  only when its transaction (a 10 s allowance) and every session it would delete
+  (counted from the listing, 4 at a time) fit, and one that could never fit a
+  whole cleanup is logged with the operator's `purge` command. What is left
+  waits for the next tick, named in `deferred` and in the summary
+  (`left for the next tick: …`). The store-only steps always run. 0. Refused
+  installations (§7 "Admission"): a blocked workspace that still has an active
+  installation is revoked as `removed` (a block is a hard gate). An installed
+  workspace (active or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a
+  soft gate: one warn per call names its id and the fix (add it back, or run
+  `remove`), it is counted (`notServedWorkspaces`), and nothing is revoked,
+  wiped, ended or purged, so re-admitting it restores it as it was. Its sessions
+  stay unusable until then or until they expire (step 1).
+  1. Expired sessions are taken in batches of 50 (at most 500, each batch at
+     most what the time left can revoke one after another) and their Linear
+     grants revoked, best effort.
   2. Webhook delivery records older than `WEBHOOK_RETENTION_DAYS` (30) are
      deleted (unchanged).
   3. Retention: notifications (digests, the outbox) older than
@@ -6167,14 +6189,16 @@ Worker decisions made while building it (binding):
   4. Sessions of workspaces revoked as `uninstalled` or `removed` that were
      **created before `revoked_at`** are ended
      (`takeSessionsForWorkspace(ws, { createdBefore: revokedAt })`, at most 500
-     per call), each grant revoked best effort, 4 at a time, failures logged at
-     warn without tokens and counted (`endedWorkspaceSessions`; the revocations
-     count into `revokedTokens`/`revokeFailures`). A session created after the
-     revoke (an admin signing in to reinstall) is kept. `grant_dead` keeps every
+     per call, each batch at most what the time left can revoke 4 at a time),
+     each grant revoked best effort, 4 at a time, failures logged at warn
+     without tokens and counted (`endedWorkspaceSessions`; the revocations count
+     into `revokedTokens`/`revokeFailures`). A session created after the revoke
+     (an admin signing in to reinstall) is kept. `grant_dead` keeps every
      session.
   5. Purge: workspaces revoked as `uninstalled` or `removed` more than
      `PURGE_AFTER_DAYS` (30, an engine constant so the privacy page and the
-     worker agree) ago, oldest revoke first, at most 3 per call.
+     worker agree) ago, oldest revoke first, at most 3 per call, each only when
+     it fits the time left (above).
      `store.purgeWorkspace(ws, { revokedBefore: now − 30 days })` re-checks the
      revoke under the installation's row lock and deletes every workspace-keyed
      table, the remaining sessions included, in one transaction; only then are
@@ -6188,7 +6212,9 @@ Worker decisions made while building it (binding):
   revocations) and old webhook delivery records always; sessions of uninstalled
   or removed workspaces ended, workspaces purged, old notifications, old job
   claims and installed workspaces not served ("LINEAR_WORKSPACES leaves it out";
-  never a failure) when not zero.
+  never a failure) when not zero, and `left for the next tick: …` naming the
+  steps cleanup cut short (expired sessions, sessions of uninstalled or removed
+  workspaces, purges).
 - **Operator commands** (`apps/worker/src/operator.ts`; OAuth mode; owner
   decision 2026-10-25: an operator CLI instead of an in-app operator UI, which
   would be a person permission distinction). They use the engine's

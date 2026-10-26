@@ -10,6 +10,7 @@
 //   the attempt's start and its finish, so a workspace whose sync was
 //   killed with its tick goes after the ones that tick never reached),
 //   never attempted first, so a run cut short never starves the same ones;
+// - how long a tick's housekeeping may take before the workspaces;
 // - whether there is time left to start one before the run's deadline;
 // - when a tick's plain resync is not needed (a recent successful one);
 // - when a workspace's failure is chronic (warned about, not failed).
@@ -32,6 +33,8 @@ export const START_MARGIN_MS: number = MINUTE_MS;
 export const RECENT_SYNC_MS: number = 10 * MINUTE_MS;
 /** A failure is chronic after this long without a successful full sync. */
 export const CHRONIC_AFTER_MS: number = 24 * 60 * MINUTE_MS;
+/** The longest a tick's cleanup may start work that calls Linear. */
+export const CLEANUP_MAX_MS: number = 2 * MINUTE_MS;
 
 /** Why a run over every workspace leaves one out without failing. */
 export type SkipReason = 'blocked' | 'not admitted' | 'uninstalled' | 'removed';
@@ -142,6 +145,22 @@ export function startNeedMs(
 /** The time left a daily job needs to start (5 min, capped like a start). */
 export function dailyStartNeedMs(budgetMs: number): number {
   return Math.min(MIN_DAILY_START_MS, startCapMs(budgetMs));
+}
+
+/**
+ * When a tick's cleanup must stop starting work that calls Linear
+ * (engine.cleanup's deadline): CLEANUP_MAX_MS from now, and never later
+ * than half the time left before the run's deadline, so the workspaces
+ * always keep at least half of the tick. Now when no time is left; no
+ * deadline (null) leaves only the 2-minute cap.
+ */
+export function cleanupDeadline(now: Date, runDeadline: Date | null): Date {
+  const leftMs =
+    runDeadline === null
+      ? Number.POSITIVE_INFINITY
+      : runDeadline.getTime() - now.getTime();
+  const ms = Math.max(0, Math.min(CLEANUP_MAX_MS, leftMs / 2));
+  return new Date(now.getTime() + Math.floor(ms));
 }
 
 /**

@@ -117,10 +117,11 @@ Commands:
                                    Run allocation now in the given mode
                                    (live writes to Linear: one workspace).
   warn     [--workspace <id>]      Run the warnings and digests now.
-  tick     [--workspace <id>]      What the cron runs every 15 minutes: the
-                                   daily job when it is due in the workspace's
-                                   timezone, otherwise a full resync; then
-                                   housekeeping.
+  tick     [--workspace <id>]      What the cron runs every 15 minutes:
+                                   housekeeping first (at most 2 minutes of
+                                   it calling Linear), then per workspace
+                                   the daily job when it is due in its
+                                   timezone, otherwise a full resync.
   serve    [--workspace <id>]      Run tick every SYNC_INTERVAL_MINUTES
                                    (default 15) until SIGTERM or SIGINT.
 

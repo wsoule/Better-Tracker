@@ -300,10 +300,10 @@ export function createEngine(deps: EngineDeps): Engine {
     unblockWorkspace: (idOrUrlKey) => unblockWorkspace(rt, idOrUrlKey),
     listBlockedWorkspaces: () => deps.store.listBlockedWorkspaces(),
 
-    cleanup: async () => {
+    cleanup: async (options) => {
       // Personal keys: forget expired ones too (the scheduler also does).
       rt.keys?.vault.sweep();
-      return cleanup(rt);
+      return cleanup(rt, options);
     },
     now: () => rt.nowIso(),
     ping: () => deps.store.ping(),
