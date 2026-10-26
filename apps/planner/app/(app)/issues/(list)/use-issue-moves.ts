@@ -36,6 +36,7 @@ import {
   leavesFilters,
   type MoveToastModel,
   notChangedIds,
+  refusalRefreshes,
   type RowOverlay,
   rowOverlay,
   undoRequests,
@@ -442,17 +443,29 @@ export function useIssueMoves({
         return next;
       });
       const results: IssueBulkResult[] = [];
-      let failure: string | null = null;
+      let refusal: Extract<ApiResult<unknown>, { ok: false }> | null = null;
       for (const request of requests) {
         const answer = await patchIssues({ ...request, returnTo: returnTo() });
         if (!answer.ok) {
-          failure = answer.message;
+          refusal = answer;
           break;
         }
         results.push(answer.data.result);
       }
+      if (refusal !== null && !refusalRefreshes(refusal.code)) {
+        // A tab left on another workspace: no refresh (it would show that
+        // workspace here), the "Undoing…" rows back as they were, and the
+        // refusal's toast with Reload.
+        dropBatch(batch);
+        refused(refusal);
+        return;
+      }
       refreshAfter(batch, origin);
-      const model = undoResultToast(results, requested, failure);
+      const model = undoResultToast(
+        results,
+        requested,
+        refusal?.message ?? null
+      );
       toast({
         kind: model.kind,
         label: model.label,
@@ -460,7 +473,7 @@ export function useIssueMoves({
         duration: model.duration,
       });
     },
-    [refreshAfter, returnTo, toast]
+    [dropBatch, refreshAfter, refused, returnTo, toast]
   );
 
   const commit = useCallback(
@@ -493,7 +506,7 @@ export function useIssueMoves({
         // A stale view refreshes, but never a tab left on another
         // workspace (issueWriteOutcome says why): its toast offers Reload.
         if (
-          answer.code !== 'workspace_changed' &&
+          refusalRefreshes(answer.code) &&
           (answer.status === 404 || answer.status === 409)
         ) {
           refreshAfter(null);

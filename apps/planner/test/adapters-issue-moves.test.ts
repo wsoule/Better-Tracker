@@ -20,6 +20,8 @@ import {
   FIXTURE_MILESTONE_META,
 } from '@better-tracker/linear';
 import { describe, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import {
   buildIssueListPage,
@@ -52,6 +54,7 @@ import {
   notChangedIds,
   ORDER_FROM_WEIGHT,
   priorityChange,
+  refusalRefreshes,
   rowMenuOptions,
   rowOverlay,
   stateChange,
@@ -1416,5 +1419,45 @@ describe('menus', () => {
     expect(weightToast('Dual-write', null)).toBe(
       'Dual-write has no weight now.'
     );
+  });
+});
+
+describe('a refused change or Undo in a tab left on another workspace', () => {
+  test('never refreshes on workspace_changed; every other refusal may', () => {
+    expect(refusalRefreshes('workspace_changed')).toBe(false);
+    for (const code of ['not_found', 'conflict', 'rate_limited', null]) {
+      expect(refusalRefreshes(code)).toBe(true);
+    }
+  });
+
+  test('Undo asks before its refresh, and shows the refusal with Reload instead', () => {
+    // The hook runs only in a browser; its Undo must consult the rule
+    // before it refreshes (a refresh would turn the tab into the other
+    // workspace at the same address), as the change path does.
+    const source = readFileSync(
+      join(
+        import.meta.dir,
+        '..',
+        'app',
+        '(app)',
+        'issues',
+        '(list)',
+        'use-issue-moves.ts'
+      ),
+      'utf8'
+    );
+    const undo = source.slice(
+      source.indexOf('const undo = useCallback('),
+      source.indexOf('const commit = useCallback(')
+    );
+    const asked = undo.indexOf('!refusalRefreshes(refusal.code)');
+    expect(asked).toBeGreaterThan(0);
+    const branch = undo.slice(asked, undo.indexOf('return;', asked));
+    expect(branch).toContain('dropBatch(batch)');
+    expect(branch).toContain('refused(refusal)');
+    expect(branch).not.toContain('refreshAfter');
+    expect(asked).toBeLessThan(undo.indexOf('refreshAfter(batch, origin)'));
+    const commit = source.slice(source.indexOf('const commit = useCallback('));
+    expect(commit).toContain('refusalRefreshes(answer.code)');
   });
 });

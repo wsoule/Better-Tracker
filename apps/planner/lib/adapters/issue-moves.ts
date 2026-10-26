@@ -1098,6 +1098,20 @@ export function undoResultToast(
   };
 }
 
+/**
+ * Whether the Issues page refreshes after a bulk change or an Undo was
+ * refused with `code`: never for 409 workspace_changed (this tab shows a
+ * workspace the browser switched away from in another tab). A refresh
+ * re-renders the layout too, so the tab would turn into the other
+ * workspace without a reload, at the same address (Globex's ENG-1 where
+ * Acme's was), and the next edit would land there; the refusal's toast
+ * offers Reload instead (architecture §8.1 "Stale tabs"). Undo refreshes
+ * on every other answer, since its earlier requests may have moved rows.
+ */
+export function refusalRefreshes(code: string | null): boolean {
+  return code !== 'workspace_changed';
+}
+
 /** The issues of a result that were not changed (the toast's Select them). */
 export function notChangedIds(result: IssueBulkResult): string[] {
   return result.outcomes
