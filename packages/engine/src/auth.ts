@@ -792,7 +792,15 @@ export async function authenticate(
   };
 }
 
-/** Ends a session; revoking its Linear token is best effort. */
+/**
+ * Ends a session; revoking its Linear token is best effort. A token that
+ * names no live session (expired, or unknown) is answered `known: false`,
+ * and with OAuth an expired row is left in place: cleanup's
+ * takeExpiredSessions deletes it and revokes its grant. Deleting it here
+ * would leave that grant alive with nothing left to revoke it from (the
+ * stash cookie lives as long as its newest session, so the routes sign
+ * out expired tokens it still carries).
+ */
 export async function signOut(
   rt: EngineRuntime,
   sessionToken: string
@@ -800,8 +808,14 @@ export async function signOut(
   const unknown: SignOutResult = { known: false, keysForgotten: 0 };
   if (typeof sessionToken !== 'string' || sessionToken === '') return unknown;
   const session = await rt.store.getSession(sessionToken, rt.nowIso());
+  if (session === null) {
+    // Without OAuth there is no grant to revoke: the row can go now.
+    if (rt.linear.mode === 'fixture' || rt.config.oauth === null) {
+      await rt.store.deleteSession(sessionToken);
+    }
+    return unknown;
+  }
   await rt.store.deleteSession(sessionToken);
-  if (session === null) return unknown;
   const result: SignOutResult = { known: true, keysForgotten: 0 };
   if (rt.linear.mode === 'fixture' || rt.config.oauth === null) return result;
   const log = rt.logger.child({

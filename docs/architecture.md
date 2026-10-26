@@ -3064,8 +3064,12 @@ referrer policy and a Permissions-Policy.
   them with pure functions (`activate`, `without`, `unchanged`) whose `signOut`
   list the routes end in `after()`: a token removed from the cookies while its
   row may exist is signed out (its Linear grant revoked), never just dropped,
-  and past 9 stashed the oldest is signed out. Demo mode holds one session (no
-  stash; `describeSessions` answers nothing there).
+  and past 9 stashed the oldest is signed out. The stash cookie lives as long as
+  its newest session, so it routinely carries expired tokens: `engine.signOut`
+  leaves an expired row in place (OAuth mode) for cleanup's
+  `takeExpiredSessions`, which deletes it and revokes its grant, instead of
+  deleting it with nothing left to revoke the grant from. Demo mode holds one
+  session (no stash; `describeSessions` answers nothing there).
 - **Only the POST routes are origin-checked** (switch, logout, demo, key):
   `GET /api/auth/linear` is a link and the callback a cross-site redirect from
   linear.app, protected by the signed state. OAuth starts stay links, never
