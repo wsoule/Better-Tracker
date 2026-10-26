@@ -37,11 +37,25 @@ export type SwitchErrorCode =
  * The sentence for a refused switch. `name` is the workspace's name when
  * the route knows it (the JSON answer); the pages that read
  * ?switch_error= have only the code and say "that workspace".
+ * `signedOut`: the signed-out landing ("/?switch_error=", no session left
+ * active), which has no workspace menu, only "Sign in with Linear" (and
+ * the "Continue in" forms of what the browser still holds).
  */
 export function switchErrorMessage(
   code: SwitchErrorCode,
-  name: string | null = null
+  name: string | null = null,
+  options: { signedOut?: boolean } = {}
 ): string {
+  if (options.signedOut === true) {
+    switch (code) {
+      case 'unknown_workspace':
+        return 'This browser is not signed in to that workspace any more. Sign in with Linear again to continue there.';
+      case 'session_ended':
+        return 'Your session for that workspace ended. Sign in with Linear again to continue there.';
+      case 'invalid_request':
+        return 'That switch did not name a workspace. Sign in with Linear to continue.';
+    }
+  }
   switch (code) {
     case 'unknown_workspace':
       return 'This browser is not signed in to that workspace any more. Connect it again from the workspace menu.';
@@ -234,6 +248,27 @@ const WEEK_NOTICE_PARAMS: readonly string[] = [
   'from',
   'switch_error',
 ];
+
+/**
+ * The /setup address for a page that sends a workspace without a working
+ * installation there (requireInstalledActor), keeping the workspace
+ * notices of `returnTo`'s query: the auth routes land on
+ * /week?connect=same, ?signed_out=1&from=… or ?switch_error=… whether or
+ * not the workspace left active is installed, and /setup shows the same
+ * notices. Everything else in the query is dropped.
+ */
+export function setupLocation(returnTo: string | undefined): string {
+  const query = returnTo?.split('#')[0]?.split('?')[1];
+  if (query === undefined || query === '') return '/setup';
+  const kept = new URLSearchParams();
+  for (const [key, value] of new URLSearchParams(query)) {
+    if (WEEK_NOTICE_PARAMS.includes(key) && !kept.has(key)) {
+      kept.append(key, value);
+    }
+  }
+  const search = kept.toString();
+  return search === '' ? '/setup' : `/setup?${search}`;
+}
 
 /**
  * A page's search params without the notice ones, for the links it builds

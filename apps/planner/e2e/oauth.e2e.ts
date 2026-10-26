@@ -30,19 +30,20 @@ import { oauthNeedlesIn } from './oauth-leak-needles';
 // end through the fake's own authorize page (its workspace chooser, reached
 // through the test-only LINEAR_API_URL). The tests run in order and share the
 // servers: Ana signs in to Acme, installs it and allows edits; connects Globex,
-// which Gia installs; every page shows only the active workspace's data,
-// through the brand-row switcher and the palette; connecting while Acme is open
-// at Linear keeps her Acme session and its write grant; she is read-only in
-// Globex and editable in Acme; a stale tab's write is refused 409 and its next
-// navigation reloads it into the active workspace, and its Reinstall is refused
-// before Linear with a switch back; a link for Globex opens the interstitial; a
-// return path that normalises to another host stays on the planner; Copy link
-// names its workspace, so pasted while another is active it opens the
-// interstitial; signing out of Globex keeps Acme and revokes only Globex's
-// grant; a planner that admits only Acme refuses Globex; a link's connect keeps
-// its workspace, so a connect that returns another shows the interstitial
-// again; and finally no Linear token or code, no secret and no session token is
-// in any response, the servers' logs or their files.
+// which Gia installs (connecting it again first keeps its notice on Setup);
+// every page shows only the active workspace's data, through the brand-row
+// switcher and the palette; connecting while Acme is open at Linear keeps her
+// Acme session and its write grant; she is read-only in Globex and editable in
+// Acme; a stale tab's write is refused 409 and its next navigation reloads it
+// into the active workspace, and its Reinstall is refused before Linear with a
+// switch back; a link for Globex opens the interstitial; a return path that
+// normalises to another host stays on the planner; Copy link names its
+// workspace, so pasted while another is active it opens the interstitial;
+// signing out of Globex keeps Acme and revokes only Globex's grant; a planner
+// that admits only Acme refuses Globex; a link's connect keeps its workspace,
+// so a connect that returns another shows the interstitial again; and finally
+// no Linear token or code, no secret and no session token is in any response,
+// the servers' logs or their files.
 
 test.describe.configure({ mode: 'serial' });
 
@@ -409,6 +410,25 @@ test('3. Ana connects Globex from the workspace menu and lands on Setup; Gia ins
   const names = (await ana.cookies()).map((c) => c.name).sort();
   expect(names).toContain('mp_session');
   expect(names).toContain('mp_sessions');
+
+  // Connecting again while Globex is still open at Linear lands on this
+  // Setup page too (Globex is not installed), and still says why nothing
+  // was added.
+  await authorizeBehaviour({ open: 'globex', chooser: 'never' });
+  try {
+    await page.goto('/setup/connect');
+    await page.getByRole('link', { name: 'Continue to Linear' }).click();
+    await page.waitForURL(`${APP}/setup?connect=same`);
+  } finally {
+    await authorizeBehaviour({ open: null, chooser: 'always' });
+  }
+  await expect(
+    page.getByText(
+      'Linear connected Globex again, which this browser already has.',
+      { exact: false }
+    )
+  ).toBeVisible();
+  await expect(page.getByText('Globex · not installed yet')).toBeVisible();
 
   // Ana is a guest in Globex: its admin, Gia, installs it.
   const gia = await newContext(browser);

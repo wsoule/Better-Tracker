@@ -301,7 +301,7 @@ export default async function HomePage({
         ) : null}
         {switchError !== null ? (
           <Notice label="Not switched" tone="danger" role="alert">
-            {switchErrorMessage(switchError)}
+            {switchErrorMessage(switchError, null, { signedOut: true })}
           </Notice>
         ) : null}
         <header className={styles.cardHead}>

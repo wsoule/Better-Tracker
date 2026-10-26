@@ -5530,7 +5530,12 @@ links and follow-ups, new or unread, progress and the timeline's today.
     signed in to <B>." when it does not verify) with a small "Sign out of all
     workspaces" button; `?signed_out=none` "This browser was not signed in to
     that workspace any more, so nothing was signed out."; `?switch_error=` "Not
-    switched". The page's own links leave these parameters out.
+    switched". The page's own links leave these parameters out. When the
+    workspace left active has no working installation (never installed, or
+    revoked), `requireInstalledActor` sends `/week` to `/setup` with these
+    parameters kept (`setupLocation`, everything else dropped), and `/setup`'s
+    not-installed and revoked states show the same notices under the head, so a
+    sign-out, connect or switch that lands there still says what happened.
   - **Settings → Status** shows the workspace's Linear id in Geist Mono ("Its
     Linear organization id: what LINEAR_WORKSPACES names to admit it") under the
     workspace row, and ends with "Sign out of all workspaces" while two or more

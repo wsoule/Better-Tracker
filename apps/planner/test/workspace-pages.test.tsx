@@ -17,7 +17,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { revokedNotice } from '../lib/adapters/setup';
 import { FIRST_SYNC_RETRY_SENTENCE } from '../lib/read-only';
 import { signValue } from '../lib/signed-cookie';
-import { weekWorkspaceNotices } from '../lib/workspace-copy';
+import {
+  setupLocation,
+  switchErrorMessage,
+  weekWorkspaceNotices,
+} from '../lib/workspace-copy';
 import {
   type FakeEngineState,
   fakeEngine,
@@ -65,6 +69,7 @@ const { default: SetupPage } = await import('../app/(app)/setup/page');
 const { default: HomePage } = await import('../app/(app)/page');
 const { default: WorkspaceNotices } =
   await import('../app/(app)/components/workspace-notices');
+const { requireInstalledActor } = await import('../lib/load');
 
 const ACME = tok('acme');
 const GLOBEX = tok('globex');
@@ -160,6 +165,17 @@ async function render(page: Promise<ReactNode>): Promise<string> {
 async function redirected(page: () => Promise<ReactNode>): Promise<string> {
   try {
     await render(page());
+  } catch (error) {
+    if (error instanceof Redirect) return error.message;
+    throw error;
+  }
+  throw new Error('expected a redirect');
+}
+
+/** Where `run` redirected to (a helper that is not a page). */
+async function redirectOf(run: () => Promise<unknown>): Promise<string> {
+  try {
+    await run();
   } catch (error) {
     if (error instanceof Redirect) return error.message;
     throw error;
@@ -336,6 +352,31 @@ describe('the signed-out landing', () => {
     expect(html).toContain('Not switched');
     expect(html).toContain('Your session for that workspace ended.');
     expect(html).not.toContain('Continue in');
+    // The signed-out landing has no workspace menu to point at.
+    expect(html).toContain('Sign in with Linear again to continue there.');
+    expect(html).not.toContain('workspace menu');
+  });
+
+  test('switch errors: the menu in the shell, Sign in with Linear on the signed-out landing', () => {
+    const codes = [
+      'unknown_workspace',
+      'session_ended',
+      'invalid_request',
+    ] as const;
+    for (const code of codes) {
+      expect(switchErrorMessage(code)).toContain('workspace menu');
+      const signedOut = switchErrorMessage(code, null, { signedOut: true });
+      expect(signedOut).toContain('Sign in with Linear');
+      expect(signedOut).not.toContain('menu');
+    }
+    expect(
+      switchErrorMessage('unknown_workspace', null, { signedOut: true })
+    ).toBe(
+      'This browser is not signed in to that workspace any more. Sign in with Linear again to continue there.'
+    );
+    expect(switchErrorMessage('session_ended', null, { signedOut: true })).toBe(
+      'Your session for that workspace ended. Sign in with Linear again to continue there.'
+    );
   });
 });
 
@@ -396,7 +437,7 @@ describe('/setup', () => {
 
   test('not installed: the session names its workspace', async () => {
     jar = { mp_session: ACME };
-    const html = await render(SetupPage());
+    const html = await render(SetupPage({ searchParams: params({}) }));
     expect(html).toContain('Acme · not installed yet');
     expect(html).not.toContain('Sign out of all workspaces');
     // Install names the workspace this page shows, so a stale tab's click
@@ -425,7 +466,7 @@ describe('/setup', () => {
       const acme = state.sessions.get(ACME)!;
       acme.revokedAt = '2026-10-20T12:00:00.000Z';
       acme.revokedReason = reason;
-      const html = await render(SetupPage());
+      const html = await render(SetupPage({ searchParams: params({}) }));
       expect(html).toContain(words);
       if (reason === 'grant_dead') {
         expect(html).not.toContain('Its data is deleted');
@@ -437,8 +478,54 @@ describe('/setup', () => {
     }
   });
 
+  test("/week's workspace notices survive a workspace that is not installed", async () => {
+    // Signing out of Globex promoted Acme, which nobody installed yet:
+    // /week sends the browser here, and the notice comes along.
+    expect(
+      await redirectOf(() =>
+        requireInstalledActor('/week?signed_out=1&from=v1&user=u1')
+      )
+    ).toBe('/setup?signed_out=1&from=v1');
+    expect(
+      await redirectOf(() => requireInstalledActor('/week?connect=same'))
+    ).toBe('/setup?connect=same');
+    expect(
+      await redirectOf(() => requireInstalledActor('/timeline?milestone=m1'))
+    ).toBe('/setup');
+    const same = await render(
+      SetupPage({ searchParams: params({ connect: 'same' }) })
+    );
+    expect(same).toContain(
+      'Linear connected Acme again, which this browser already has.'
+    );
+    const failed = await render(
+      SetupPage({ searchParams: params({ switch_error: 'session_ended' }) })
+    );
+    expect(failed).toContain('Not switched');
+    // A revoked installation shows them too.
+    installation = { ...base, revokedAt: '2026-10-20T12:00:00.000Z' };
+    const revoked = await render(
+      SetupPage({ searchParams: params({ signed_out: 'none' }) })
+    );
+    expect(revoked).toContain('Reinstall the app');
+    expect(revoked).toContain(
+      'This browser was not signed in to that workspace any more, so nothing was signed out.'
+    );
+  });
+
+  test('setupLocation keeps only the notice parameters', () => {
+    expect(setupLocation(undefined)).toBe('/setup');
+    expect(setupLocation('/week')).toBe('/setup');
+    expect(
+      setupLocation('/week?user=u1&switch_error=unknown_workspace#x')
+    ).toBe('/setup?switch_error=unknown_workspace');
+    expect(setupLocation('/week?connect=same&connect=other')).toBe(
+      '/setup?connect=same'
+    );
+  });
+
   test('two or more workspaces held: Sign out of all workspaces', async () => {
-    const html = await render(SetupPage());
+    const html = await render(SetupPage({ searchParams: params({}) }));
     expect(html).toContain('Sign out of all workspaces');
     expect(html).toContain('name="scope" value="all"');
   });
