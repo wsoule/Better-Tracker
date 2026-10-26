@@ -167,25 +167,35 @@ export async function endWorkspaceSessions(
 
 /**
  * Purges a revoked workspace (store.purgeWorkspace, which re-checks the
- * revoke under a row lock), after ending every session it still has: the
- * purge deletes session rows without revoking their grants, and Linear
- * may auto-revoke a person's oldest tokens once too many pile up. Forgets
- * this process's cached mirror when it purged. Logs the id only: a
- * workspace's name must not outlive its data in the host's logs.
+ * revoke under a row lock and deletes its sessions in the same
+ * transaction), then revokes the Linear grants of the sessions it deleted
+ * (best effort, as endWorkspaceSessions does: Linear may auto-revoke a
+ * person's oldest tokens once too many pile up). A purge the store refuses
+ * (a reinstall that won the lock) ends no session at all. Forgets this
+ * process's cached mirror when it purged. Logs the id only: a workspace's
+ * name must not outlive its data in the host's logs.
  */
 export async function purgeRevokedWorkspace(
   rt: EngineRuntime,
   workspaceId: string,
   options: { revokedBefore: IsoDateTime; allowGrantDead?: boolean }
 ): Promise<{ result: PurgeResult; ending: SessionEnding }> {
-  const ending = await endWorkspaceSessions(rt, workspaceId, {
-    max: MAX_SESSIONS_PER_WORKSPACE,
-    why: 'a session of a workspace being purged',
-  });
+  const ending: SessionEnding = {
+    ended: 0,
+    revokedTokens: 0,
+    revokeFailures: 0,
+  };
   const result = await rt.store.purgeWorkspace(workspaceId, options);
   if (result.purged) {
     rt.mirror.forget(workspaceId);
     rt.logger.info('workspace purged', { workspaceId });
+    ending.ended = result.sessions.length;
+    await revokeTakenGrants(
+      rt,
+      result.sessions,
+      ending,
+      'a session of a purged workspace'
+    );
   } else {
     rt.logger.info('workspace purge skipped', {
       workspaceId,
@@ -410,9 +420,18 @@ export async function blockWorkspace(
   const kind: BlockKind =
     found !== null || ORG_ID_SHAPE.test(name) ? 'id' : 'url_key';
   const key = found === null ? name : found.workspaceId.toLowerCase();
+  // An id block remembers the URL key it was made under (the name, when
+  // it is not the id; else the workspace's current key), so `unblock` by
+  // that key finds it even once nothing else here knows the key.
+  const urlKey =
+    found === null
+      ? null
+      : name !== key
+        ? name
+        : (found.urlKey?.toLowerCase() ?? null);
   // The block first, so admission refuses new sign-ins before the
   // sessions are ended.
-  await rt.store.blockWorkspace(key, kind, why, rt.nowIso());
+  await rt.store.blockWorkspace(key, kind, why, rt.nowIso(), { urlKey });
   rt.logger.info('workspace blocked by the operator', {
     key,
     kind,
@@ -426,7 +445,16 @@ export async function blockWorkspace(
   };
 }
 
-/** The operator's `unblock` (Engine.unblockWorkspace). */
+/**
+ * The operator's `unblock` (Engine.unblockWorkspace): lifts the block on
+ * the name itself (a URL-key block, or an id block named by id) and the
+ * block on the one org the name means: the org id findWorkspace resolves
+ * it to, or an id block that recorded the name as its URL key (a URL-key
+ * block pinned at a sign-in attempt, or a workspace purged since its
+ * block, which nothing else here knows any more). A URL key that names
+ * more than one blocked org is EngineInputError('conflict'): the id has to
+ * be used. True when a block was lifted.
+ */
 export async function unblockWorkspace(
   rt: EngineRuntime,
   idOrUrlKey: string
@@ -434,15 +462,35 @@ export async function unblockWorkspace(
   requireOperatorMode(rt);
   const name = workspaceName(idOrUrlKey);
   const found = await findWorkspace(rt, name);
-  const keys = new Set([name]);
-  if (found !== null) keys.add(found.workspaceId.toLowerCase());
+  const blocks = await rt.store.listBlockedWorkspaces();
+  const blockedIds = new Set(
+    blocks.flatMap((block) =>
+      block.kind === 'id' && block.key !== name && block.urlKey === name
+        ? [block.key]
+        : []
+    )
+  );
+  const foundId = found?.workspaceId.toLowerCase() ?? null;
+  if (
+    foundId !== null &&
+    foundId !== name &&
+    blocks.some((block) => block.kind === 'id' && block.key === foundId)
+  ) {
+    blockedIds.add(foundId);
+  }
+  if (blockedIds.size > 1) {
+    throw new EngineInputError(
+      'conflict',
+      'More than one blocked workspace goes by that URL key; unblock the one you mean by its organization id (the workspaces command lists the blocks).'
+    );
+  }
   let removed = false;
-  for (const key of keys) {
+  for (const key of [name, ...blockedIds]) {
     if (await rt.store.unblockWorkspace(key)) removed = true;
   }
   if (removed) {
     rt.logger.info('workspace unblocked by the operator', {
-      workspaceId: found?.workspaceId ?? null,
+      workspaceId: [...blockedIds][0] ?? found?.workspaceId ?? null,
     });
   }
   return removed;

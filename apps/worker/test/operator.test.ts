@@ -82,12 +82,14 @@ function everyKind(): FakeEngine {
             kind: 'id',
             reason: `spam, reported by ${EMAIL}`,
             createdAt: '2026-10-24T10:00:00.000Z',
+            urlKey: 'spamco',
           },
           {
             key: 'evilcorp',
             kind: 'url_key',
             reason: null,
             createdAt: '2026-10-24T11:00:00.000Z',
+            urlKey: null,
           },
         ]),
     },
@@ -119,7 +121,9 @@ describe('workspaces', () => {
     expect(row('org-unlisted')).toContain('not admitted');
     expect(row('org-people')).toMatch(/not installed\s+never\s+1$/);
     expect(text).toContain('Blocks:');
-    expect(text).toMatch(/org-spam\s+organization id\s+2026-10-24\s+spam/);
+    expect(text).toMatch(
+      /org-spam\s+organization id \(URL key spamco\)\s+2026-10-24\s+spam/
+    );
     expect(text).toMatch(/evilcorp\s+URL key \(not seen yet\)\s+2026-10-24/);
     expect(result.lines.at(-1)).toBe(
       'workspaces ok — 7 workspaces (2 active, 1 revoked:removed, 1 revoked:grant_dead, 1 blocked, 1 not admitted, 1 not installed); 1 chronic; 2 blocks'
@@ -182,12 +186,14 @@ describe('workspaces', () => {
       {
         key: 'org-spam',
         kind: 'id',
+        urlKey: 'spamco',
         reason: 'spam, reported by [email]',
         createdAt: '2026-10-24T10:00:00.000Z',
       },
       {
         key: 'evilcorp',
         kind: 'url_key',
+        urlKey: null,
         reason: null,
         createdAt: '2026-10-24T11:00:00.000Z',
       },
@@ -336,7 +342,7 @@ describe('purge', () => {
             endedSessions: 1,
             counts: {
               installations: 1,
-              sessions: 0,
+              sessions: 1,
               settings: 1,
               milestone_meta: 4,
               sync_state: 1,
@@ -348,7 +354,6 @@ describe('purge', () => {
               notifications: 9,
               job_claims: 3,
               audit_log: 20,
-              admitted_workspaces: 1,
             },
           });
         },
@@ -361,9 +366,9 @@ describe('purge', () => {
     expect(result.lines).toContainEqual(
       expect.stringMatching(/^ {2}mirror_entities\s+900$/)
     );
-    expect(result.lines).toHaveLength(16);
+    expect(result.lines).toHaveLength(15);
     expect(result.lines.at(-1)).toBe(
-      'purge ok — org-acme: 994 rows deleted; 1 session ended first'
+      'purge ok — org-acme: 994 rows deleted; 1 session ended'
     );
   });
 });
@@ -425,7 +430,7 @@ describe('block and unblock', () => {
     expect(await run(engine, { name: 'unblock', workspace: 'acme' })).toEqual({
       code: 0,
       lines: [
-        'unblock ok — acme: nothing was blocked under that name; nothing changed',
+        'unblock ok — acme: no block names it (neither that name, the organization it resolves to, nor a block made under that URL key); nothing changed. The workspaces command lists every block',
       ],
     });
   });

@@ -7,6 +7,7 @@ import {
 } from '@better-tracker/logger';
 import { describe, expect, test } from 'bun:test';
 
+import { LIVE_ALLOCATE_NEEDS_WORKSPACE } from '../src/cli';
 import {
   apiKeyModeOutcome,
   type CommandContext,
@@ -26,6 +27,7 @@ import {
   fakeEngine,
   overview,
   revokedOverview,
+  syncResult,
   warningResult,
 } from './fake-engine';
 
@@ -355,11 +357,24 @@ describe('runCommand', () => {
     expect(exitCodeFor(result)).toBe(1);
   });
 
+  test('allocate --live over every workspace is refused before any workspace runs', async () => {
+    const engine = fakeEngine({ workspaces: ['ws-a', 'ws-b'] });
+    const result = await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: null,
+      mode: 'live',
+    });
+    expect(result.problems).toEqual([LIVE_ALLOCATE_NEEDS_WORKSPACE]);
+    expect(result.outcomes).toEqual([]);
+    expect(engine.calls).toEqual([]);
+    expect(exitCodeFor(result)).toBe(1);
+  });
+
   test('allocate runs the requested mode as a manual run with no actor', async () => {
     const engine = fakeEngine({ workspaces: ['ws-a'] });
     const result = await runCommand(context(engine), {
       name: 'allocate',
-      workspaceId: null,
+      workspaceId: 'ws-a',
       mode: 'live',
     });
     expect(engine.calls).toContain('runAllocation:ws-a:live:manual:no-actor');
@@ -384,7 +399,7 @@ describe('runCommand', () => {
         );
       const result = await runCommand(context(engine), {
         name: 'allocate',
-        workspaceId: null,
+        workspaceId: 'ws-a',
         mode: 'live',
       });
       expect(result.outcomes[0]).toMatchObject({
@@ -419,19 +434,21 @@ describe('runCommand', () => {
 });
 
 describe('runCommand: tick', () => {
-  test('due → runDaily; then cleanup once after every workspace', async () => {
+  test('due → runDaily; cleanup once, before any workspace', async () => {
     const engine = fakeEngine({ workspaces: ['ws-a', 'ws-b'] });
     const result = await runCommand(
       context(engine, { now: new Date('2026-10-21T08:00:00Z') }),
       { name: 'tick', workspaceId: null }
     );
+    // Cleanup first: a workspace too slow for the tick's timeout must not
+    // keep the housekeeping of every other workspace from running.
     expect(engine.calls).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'workspaceTimezone:ws-b',
       'runDaily:ws-b@2026-10-21',
-      'cleanup',
     ]);
     expect(result.notes).toEqual([
       'cleanup: 0 expired sessions, 0 old webhook delivery records',
@@ -447,9 +464,9 @@ describe('runCommand: tick', () => {
     );
     expect(engine.calls).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'fullSync:ws-a',
-      'cleanup',
     ]);
     expect(result.outcomes[0]?.detail).toBe(
       'synced (mirror v7, 42 issues, 12 ms), daily due at 08:00 UTC'
@@ -465,14 +482,14 @@ describe('runCommand: tick', () => {
     const second = await runCommand(ctx, { name: 'tick', workspaceId: null });
     expect(engine.calls).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
-      'cleanup',
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'fullSync:ws-a',
-      'cleanup',
     ]);
     expect(second.outcomes[0]?.detail).toBe(
       'synced (mirror v7, 42 issues, 12 ms), daily already ran for 2026-10-21'
@@ -499,10 +516,10 @@ describe('runCommand: tick', () => {
       engine.calls.filter((c) => !c.startsWith('workspaceTimezone'))
     ).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'runDaily:nz@2026-10-21',
       'runDaily:ny@2026-10-20',
       'fullSync:jp',
-      'cleanup',
     ]);
     expect(result.outcomes.map((o) => o.detail)).toEqual([
       expect.stringContaining('daily ran for 2026-10-21'),
@@ -710,7 +727,7 @@ describe('runCommand: several workspaces', () => {
         now: EARLY,
         deadlineAt: new Date(EARLY.getTime() + 2 * MINUTE),
       }),
-      { name: 'allocate', workspaceId: null, mode: 'live' }
+      { name: 'allocate', workspaceId: null, mode: 'dry_run' }
     );
     expect(result.outcomes[0]).toMatchObject({
       kind: 'deferred',
@@ -718,7 +735,7 @@ describe('runCommand: several workspaces', () => {
       detail: 'workspace not started (2 min left, needs 3 min); run it again',
     });
     expect(engine.calls).not.toContain(
-      'runAllocation:ws-a:live:manual:no-actor'
+      'runAllocation:ws-a:dry_run:manual:no-actor'
     );
   });
 
@@ -749,7 +766,7 @@ describe('runCommand: several workspaces', () => {
     );
   });
 
-  test('a tick never starts a due daily job with less than 5 minutes left; it resyncs instead', async () => {
+  test('a tick never starts a due daily job with less than 5 minutes left; the workspace waits for the next tick', async () => {
     const at8 = new Date('2026-10-21T08:00:00Z');
     const engine = fakeEngine({ workspaces: ['ws-a'] });
     const { logger, lines } = recordingLogger();
@@ -762,12 +779,15 @@ describe('runCommand: several workspaces', () => {
       { name: 'tick', workspaceId: null }
     );
     expect(engine.calls.some((c) => c.startsWith('runDaily'))).toBe(false);
-    expect(engine.calls).toContain('fullSync:ws-a');
+    // No plain resync either: it would move the workspace to the back of
+    // the next tick's queue.
+    expect(engine.calls).not.toContain('fullSync:ws-a');
     expect(result.outcomes[0]).toMatchObject({
-      kind: 'done',
-      detail:
-        'synced (mirror v7, 42 issues, 12 ms), daily deferred to the next tick (4 min left, needs 5 min)',
+      kind: 'deferred',
+      ok: true,
+      detail: 'daily deferred to the next tick (4 min left, needs 5 min)',
     });
+    expect(exitCodeFor(result)).toBe(0);
     expect(logged(lines, 'info', 'daily job deferred')).toHaveLength(1);
     // With 5 minutes left it runs.
     await runCommand(
@@ -778,6 +798,86 @@ describe('runCommand: several workspaces', () => {
       { name: 'tick', workspaceId: null }
     );
     expect(engine.calls).toContain('runDaily:ws-a@2026-10-21');
+  });
+
+  test('over a morning of ticks, every workspace gets its daily job, none starved by a resync', async () => {
+    // 12 workspaces, one lane, a 10-minute budget every 15 minutes: a
+    // sync takes 1 minute and a daily job 1.5 (sync and allocation), so a
+    // tick reaches the last ones with 3 to 5 minutes left: enough to sync,
+    // not to start a daily job.
+    const SYNC = MINUTE;
+    const DAILY = 1.5 * MINUTE;
+    const ids = Array.from({ length: 12 }, (_, i) => `ws-${i + 1}`);
+    let now = new Date('2026-10-21T08:00:00Z').getTime();
+    const statuses = new Map(ids.map((id) => [id, overview(id)]));
+    const ran = new Set<string>();
+    // A finished sync records its attempt (and success) time, as the
+    // engine's recordFullSync does.
+    const synced = (id: string): void => {
+      const at = new Date(now).toISOString();
+      statuses.set(
+        id,
+        overview(id, {
+          sync: {
+            lastFullSyncAt: at,
+            lastFullSyncStatus: 'ok',
+            lastSuccessAt: at,
+            lastFullSyncMs: SYNC,
+          },
+        })
+      );
+    };
+    const engine = fakeEngine({
+      now: () => new Date(now),
+      overrides: {
+        listWorkspaceStatus: () => Promise.resolve([...statuses.values()]),
+        fullSync: (id) => {
+          now += SYNC;
+          synced(id);
+          return Promise.resolve(syncResult(id));
+        },
+        runDaily: ({ workspaceId, day }) => {
+          const key = `${workspaceId}@${day ?? '?'}`;
+          if (ran.has(key)) {
+            return Promise.resolve({
+              workspaceId,
+              day: day ?? '',
+              ran: false,
+              sync: null,
+              allocation: null,
+              warnings: null,
+            });
+          }
+          ran.add(key);
+          now += DAILY;
+          synced(workspaceId);
+          return Promise.resolve({
+            workspaceId,
+            day: day ?? '',
+            ran: true,
+            sync: syncResult(workspaceId),
+            allocation: allocationRun(workspaceId),
+            warnings: warningResult(workspaceId),
+          });
+        },
+      },
+    });
+    const start = now;
+    for (let tick = 0; tick < 3; tick += 1) {
+      now = start + tick * 15 * MINUTE;
+      const result = await runCommand(
+        {
+          ...context(engine),
+          now: () => new Date(now),
+          deadlineAt: new Date(now + 10 * MINUTE),
+        },
+        { name: 'tick', workspaceId: null }
+      );
+      expect(exitCodeFor(result)).toBe(0);
+    }
+    expect([...ran].toSorted()).toEqual(
+      ids.map((id) => `${id}@2026-10-21`).toSorted()
+    );
   });
 
   test('daily run by hand is not started with less than 5 minutes left', async () => {
@@ -1029,6 +1129,26 @@ describe('runCommand: several workspaces', () => {
     expect(result.notes).toEqual([
       'cleanup: 1 expired session, 0 old webhook delivery records, 2 sessions of uninstalled or removed workspaces, 1 workspace purged, 120 old notifications',
     ]);
+  });
+
+  test('cleanup counts installed workspaces LINEAR_WORKSPACES leaves out, without failing the tick', async () => {
+    const engine = fakeEngine({ workspaces: [] });
+    engine.cleanup = () =>
+      Promise.resolve({
+        expiredSessions: 0,
+        revokedTokens: 0,
+        revokeFailures: 0,
+        oldDeliveries: 0,
+        notServedWorkspaces: 1,
+      });
+    const result = await runCommand(context(engine), {
+      name: 'tick',
+      workspaceId: null,
+    });
+    expect(result.notes).toEqual([
+      'cleanup: 0 expired sessions, 0 old webhook delivery records, 1 installed workspace not served (LINEAR_WORKSPACES leaves it out)',
+    ]);
+    expect(exitCodeFor(result)).toBe(0);
   });
 });
 

@@ -2074,6 +2074,9 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         await store.pinAdmitted(`entry-${ws}`, ws, NOW);
       }
 
+      // Tables with a workspace_id column a purge keeps on purpose.
+      const KEPT_BY_PURGE: readonly string[] = ['admitted_workspaces'];
+
       // Every public table with a workspace_id column, from the catalog.
       async function workspaceKeyedTables(): Promise<string[]> {
         const rows = await sql.query<{ table_name: string }>(
@@ -2148,6 +2151,37 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           store.revokeInstallation(ws, 'gone' as 'removed', NOW)
         );
         expect(bad).toBeInstanceOf(TypeError);
+      });
+
+      test('updateInstallationIdentity follows a rename and changes nothing else', async () => {
+        const ws = newWorkspaceId();
+        const saved = installation(ws);
+        await store.saveInstallation(saved);
+        const renamed = { workspaceName: 'Acme Labs', urlKey: 'acme-labs' };
+        expect(await store.updateInstallationIdentity(ws, renamed)).toBe(true);
+        // updated_at keeps dating the grant's last write (the stale-revoke
+        // guard compares with it); the tokens are untouched.
+        expect(await store.getInstallation(ws)).toEqual({
+          ...saved,
+          ...renamed,
+        });
+        expect(await store.updateInstallationIdentity(ws, renamed)).toBe(false);
+        expect(
+          await store.updateInstallationIdentity(newWorkspaceId(), renamed)
+        ).toBe(false);
+        // A revoked row follows too, and stays revoked.
+        await store.revokeInstallation(ws, 'uninstalled', NOW);
+        expect(
+          await store.updateInstallationIdentity(ws, {
+            workspaceName: 'Acme',
+            urlKey: 'acme',
+          })
+        ).toBe(true);
+        expect(await store.getInstallation(ws)).toMatchObject({
+          workspaceName: 'Acme',
+          urlKey: 'acme',
+          revokedAt: NOW,
+        });
       });
 
       test('revokeInstallation ignores stale revokes, upgrades grant_dead and never downgrades', async () => {
@@ -2353,8 +2387,11 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         });
         // u-ana's mirror row has no guest field (read as not a guest);
         // u-nobody has no mirror row at all.
+        // Signed in before a rename: the installation (refreshed by every
+        // sync and sign-in) wins over the session's sign-in values.
         const member = await newSession(acme, 'ana', {
           workspaceName: 'Acme (signed in)',
+          workspaceUrlKey: 'acme-at-sign-in',
         });
         const guest = await newSession(acme, 'guest');
         const unknown = await newSession(acme, 'nobody');
@@ -2413,7 +2450,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           {
             ...common,
             token: member.token,
-            workspaceName: 'Acme (signed in)',
+            workspaceName: 'Acme Robotics',
             userId: 'u-ana',
             userName: 'ana',
             guest: false,
@@ -2548,9 +2585,22 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           });
           if (!result.purged) throw new Error(`refused: ${result.reason}`);
           // A table with a workspace_id column that the purge does not
-          // know fails here.
-          expect(Object.keys(result.counts).toSorted()).toEqual(tables);
-          for (const table of tables) {
+          // know fails here. The LINEAR_WORKSPACES pins are kept on purpose
+          // (a pinned entry must never admit another org after a purge).
+          const purgedTables = tables.filter(
+            (table) => !KEPT_BY_PURGE.includes(table)
+          );
+          expect(Object.keys(result.counts).toSorted()).toEqual(purgedTables);
+          // The deleted sessions come back with their tokens, for the
+          // caller to revoke once the purge committed.
+          expect(result.sessions).toEqual([
+            expect.objectContaining({
+              workspaceId: ws,
+              userId: 'u-seed',
+              tokens: tokens('seed'),
+            }),
+          ]);
+          for (const table of purgedTables) {
             expect({
               table,
               counted: result.counts[table as keyof typeof result.counts] > 0,
@@ -2560,6 +2610,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           expect(result.counts.mirror_entities).toBe(
             flattenedCount(workspaceData(ws))
           );
+          expect(await store.getAdmittedPin(`entry-${ws}`)).toBe(ws);
           // The neighbour is untouched, and the block outlives the purge.
           for (const table of tables) {
             expect({
@@ -2656,6 +2707,36 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(await rowsFor('sessions', ws)).toBe(1);
       });
 
+      test('purgeWorkspace waits for a refresh in flight and returns the tokens it committed', async () => {
+        const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
+        await store.revokeInstallation(ws, 'removed', REVOKED_AT);
+        const held = await newSession(ws, 'held');
+        let release = (): void => undefined;
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        let entered = (): void => undefined;
+        const inside = new Promise<void>((resolve) => {
+          entered = resolve;
+        });
+        const rotated = tokens('rotated');
+        const refreshing = store.withSessionLock(held.session.id, async () => {
+          entered();
+          await gate;
+          return { result: null, tokens: rotated };
+        });
+        await inside;
+        const purging = store.purgeWorkspace(ws, { revokedBefore: NOW });
+        expect(await settlesWithin(purging, 150)).toBe(false);
+        release();
+        await refreshing;
+        const purged = await purging;
+        if (!purged.purged) throw new Error(`refused: ${purged.reason}`);
+        expect(purged.sessions).toEqual([{ ...held.session, tokens: rotated }]);
+        expect(purged.counts.sessions).toBe(1);
+      });
+
       test('purgeWorkspace and a concurrent reinstall never deadlock', async () => {
         for (let round = 0; round < 4; round += 1) {
           const ws = newWorkspaceId();
@@ -2742,17 +2823,21 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             kind: 'url_key',
             reason: 'abuse lin_api_[redacted]',
             createdAt: NOW,
+            urlKey: null,
           },
         ]);
         expect(await store.pinBlockedUrlKey(urlKey.toUpperCase(), orgId)).toBe(
           true
         );
+        // The id block remembers the URL key it was pinned from, so an
+        // unblock by that key still finds it.
         expect(await mine()).toEqual([
           {
             key: orgId.toLowerCase(),
             kind: 'id',
             reason: 'abuse lin_api_[redacted]',
             createdAt: NOW,
+            urlKey: urlKey.toLowerCase(),
           },
         ]);
         expect(await store.pinBlockedUrlKey(urlKey, orgId)).toBe(false);
@@ -2760,7 +2845,8 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(await store.unblockWorkspace(orgId)).toBe(false);
         expect(await mine()).toEqual([]);
 
-        // The org already has an id block: it is kept, the URL key goes.
+        // The org already has an id block: it is kept (taking the URL key
+        // it lacked), the URL-key row goes.
         await store.blockWorkspace(orgId, 'id', 'by id', NOW);
         await store.blockWorkspace(urlKey, 'url_key', 'by key', NOW);
         expect(await store.pinBlockedUrlKey(urlKey, orgId)).toBe(true);
@@ -2770,6 +2856,24 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
             kind: 'id',
             reason: 'by id',
             createdAt: NOW,
+            urlKey: urlKey.toLowerCase(),
+          },
+        ]);
+        await store.unblockWorkspace(orgId);
+
+        // An id block records the URL key it was made under; blocking it
+        // again without one keeps it.
+        await store.blockWorkspace(orgId, 'id', 'one', NOW, {
+          urlKey: urlKey.toUpperCase(),
+        });
+        await store.blockWorkspace(orgId, 'id', 'two', NOW);
+        expect(await mine()).toEqual([
+          {
+            key: orgId.toLowerCase(),
+            kind: 'id',
+            reason: 'two',
+            createdAt: NOW,
+            urlKey: urlKey.toLowerCase(),
           },
         ]);
         await store.unblockWorkspace(orgId);

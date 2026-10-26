@@ -5,8 +5,9 @@
 // - One Slack bot (SLACK_BOT_TOKEN) is never used while the planner may
 //   serve more than one workspace: under `LINEAR_WORKSPACES=*`, a list of
 //   more than one, or (unset) more than one active installation, every
-//   workspace's digests stay in its outbox. Checked at boot (the channel)
-//   and on every live warning run (a second install after boot).
+//   workspace's digests stay in its outbox. Read on every use, never kept
+//   from boot: each live warning run, and engine.digestChannel (the
+//   planner's copy), so the two always agree; boot only logs it.
 // - WATCHER_EMAILS seeds watchers only in a workspace LINEAR_WORKSPACES
 //   names by id or URL key, or, while it is unset, when exactly one
 //   workspace is installed (one deployment's people are not made watchers

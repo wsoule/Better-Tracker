@@ -307,6 +307,9 @@ export function createEngine(deps: EngineDeps): Engine {
     },
     now: () => rt.nowIso(),
     ping: () => deps.store.ping(),
+    // The same evaluation as the warning run's (sharedSlackReason, read
+    // now, never a boot-time snapshot), so the copy names Slack exactly
+    // when a live run would send Slack DMs.
     digestChannel: async () => {
       const { channel } = deps;
       if (channel.name !== 'slack' || !channel.delivers) return 'outbox';

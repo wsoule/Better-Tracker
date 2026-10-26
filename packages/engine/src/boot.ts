@@ -322,7 +322,7 @@ function logAdmission(
     );
   } else {
     logger.info(
-      'closed to new workspaces: only installed workspaces may sign in; set LINEAR_WORKSPACES to add one',
+      "closed to new workspaces: only installed workspaces may sign in; to add one, set LINEAR_WORKSPACES to every installed workspace's id plus the new one",
       { variable: 'LINEAR_WORKSPACES' }
     );
   }
@@ -330,6 +330,54 @@ function logAdmission(
     logger.info(
       'OPERATOR_EMAIL is not set: the contact page names no way to reach whoever runs this planner',
       { variable: 'OPERATOR_EMAIL' }
+    );
+  }
+}
+
+/**
+ * The OAuth boot warnings that need the store (design doc §12, 2026-10-25:
+ * a workspace LINEAR_WORKSPACES leaves out is not served, but nothing is
+ * deleted automatically): with a list, one warn per active installation
+ * the list does not admit, naming its id and the fix; with it unset and no
+ * installation at all, a warn that nobody can sign in yet (a new
+ * deployment must name its first workspace). A failed read is logged and
+ * never stops the boot.
+ */
+async function warnAboutAdmission(
+  engine: Engine,
+  config: EngineConfig,
+  logger: Logger
+): Promise<void> {
+  const mode = config.workspaces ?? { mode: 'installed' };
+  if (mode.mode === 'any') return;
+  try {
+    const overview = await engine.listWorkspaceStatus();
+    if (mode.mode === 'installed') {
+      if (overview.every((row) => row.installation === null)) {
+        logger.warn(
+          'no workspace can sign in until LINEAR_WORKSPACES names one',
+          { variable: 'LINEAR_WORKSPACES' }
+        );
+      }
+      return;
+    }
+    for (const row of overview) {
+      if (
+        row.admission !== 'not_allowed' ||
+        row.installation === null ||
+        row.installation.revokedAt !== null
+      ) {
+        continue;
+      }
+      logger.warn(
+        `${row.workspaceId} is installed but not in LINEAR_WORKSPACES: it is not served; add it back or run 'remove'`,
+        { variable: 'LINEAR_WORKSPACES', workspaceId: row.workspaceId }
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      'could not check which installed workspaces LINEAR_WORKSPACES admits',
+      { variable: 'LINEAR_WORKSPACES', error }
     );
   }
 }
@@ -421,7 +469,11 @@ export async function createEngineFromEnv(
     if (!fixture) logAdmission(env, config, logger);
     const slackToken = read(env, 'SLACK_BOT_TOKEN');
     // The Slack fail-safe: one bot never carries several workspaces'
-    // digests (the warning run checks again for installs after boot).
+    // digests. Boot only reports it; the channel is Slack whenever the
+    // token is set, and the fail-safe is read again on every use (each
+    // live warning run, and digestChannel for the planner's copy), so both
+    // follow the installs and settings as they are now, not as they were
+    // when this long-lived web process booted.
     const slackOff =
       options.channel === undefined && !fixture && slackToken !== undefined
         ? await sharedSlackReason(config, store)
@@ -434,7 +486,7 @@ export async function createEngineFromEnv(
     }
     const channel =
       options.channel ??
-      (!fixture && slackToken !== undefined && slackOff === null
+      (!fixture && slackToken !== undefined
         ? createSlackChannel({ botToken: slackToken, logger })
         : createOutboxChannel());
 
@@ -447,6 +499,7 @@ export async function createEngineFromEnv(
       now,
       fetch,
     });
+    if (!fixture) await warnAboutAdmission(engine, config, logger);
     if (dataset !== null) {
       await seedDemoWorkspace({
         engine,
@@ -460,6 +513,7 @@ export async function createEngineFromEnv(
       mode: engine.mode,
       ...(dataset === null ? {} : { demoWorkspace: dataset }),
       channel: channel.name,
+      ...(slackOff === null ? {} : { slackFailSafe: true }),
       appUrl: config.appUrl,
     });
     return engine;

@@ -174,6 +174,13 @@ export interface BlockingRelation {
 /** Everything the tool mirrors from one Linear workspace. */
 export interface WorkspaceData {
   workspaceId: string;
+  /**
+   * The workspace's name and URL key as Linear reported them when this
+   * data was fetched (a full sync), so the installation row can follow a
+   * rename. Not part of the mirror: absent on data read back from the
+   * store and on fixtures.
+   */
+  organization?: { name: string; urlKey: string };
   users: User[];
   teams: Team[];
   states: WorkflowState[];

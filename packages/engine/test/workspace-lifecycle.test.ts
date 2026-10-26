@@ -432,6 +432,31 @@ describe('cleanup after a revoke', () => {
     expect((await engine.cleanup()).purgedWorkspaces).toBe(0);
   });
 
+  test('a reinstall that wins the race with a purge keeps every session', async () => {
+    await install(ACME);
+    await revoke(ACME.id, 'uninstalled');
+    // An admin signs in to reinstall, on the last day of the grace.
+    clock.advanceDays(PURGE_AFTER_DAYS + 1);
+    const admin = await session(ACME.id, 'ada');
+    // The reinstall commits after cleanup listed the workspace as due,
+    // just before the purge takes its lock.
+    const racing = engineOver(
+      storeWith(store, {
+        purgeWorkspace: async (workspaceId, options) => {
+          await install(ACME, { tokens: appTokens('again') });
+          return store.purgeWorkspace(workspaceId, options);
+        },
+      })
+    );
+    expect(await racing.cleanup()).toMatchObject({
+      purgedWorkspaces: 0,
+      revokedTokens: 0,
+    });
+    expect((await store.getInstallation(ACME.id))?.revokedAt).toBeNull();
+    expect(await store.getSession(admin, at(0))).not.toBeNull();
+    expect(fake.revoked).toEqual([]);
+  });
+
   test('a reinstall within the grace keeps everything', async () => {
     await install(ACME);
     await revoke(ACME.id, 'uninstalled');
@@ -628,10 +653,15 @@ describe('operator commands', () => {
       endedSessions: 1,
     });
     if (!purged.purged) throw new Error('not purged');
+    // The session is deleted by the purge itself (then its grant revoked).
     expect(purged.counts).toMatchObject({
       installations: 1,
-      sessions: 0,
+      sessions: 1,
       settings: 1,
+    });
+    expect(fake.revoked).toContainEqual({
+      token: 'secret-refresh-ada',
+      hint: 'refresh_token',
     });
     expect(await store.getInstallation(ACME.id)).toBeNull();
     expect(await rejection(engine.purgeWorkspaceNow('acme'))).toMatchObject({
@@ -694,6 +724,41 @@ describe('operator commands', () => {
     expect((await statusOf(ACME.id))?.installation?.revokedReason).toBe(
       'removed'
     );
+  });
+
+  test('unblock by URL key still lifts a block once the workspace is purged', async () => {
+    await install(ACME);
+    expect(await engine.blockWorkspace('acme', 'abuse')).toMatchObject({
+      key: ACME.id,
+      kind: 'id',
+    });
+    expect(await engine.listBlockedWorkspaces()).toEqual([
+      expect.objectContaining({ key: ACME.id, urlKey: 'acme' }),
+    ]);
+    // Purged 30 days later: nothing here knows linear.app/acme any more.
+    clock.advanceDays(PURGE_AFTER_DAYS + 1);
+    expect((await engine.cleanup()).purgedWorkspaces).toBe(1);
+    expect(await statusOf(ACME.id)).toBeUndefined();
+    expect(await engine.unblockWorkspace('acme')).toBe(true);
+    expect(await engine.listBlockedWorkspaces()).toEqual([]);
+    expect(await engine.unblockWorkspace('acme')).toBe(false);
+  });
+
+  test('unblock by a URL key two blocked workspaces went by names the id instead', async () => {
+    await install(ACME);
+    await engine.blockWorkspace('acme');
+    // A second org later took linear.app/acme and was blocked by it too.
+    await install({ id: 'org-acme-2', name: 'Acme 2', urlKey: 'acme-2' });
+    await store.blockWorkspace('org-acme-2', 'id', null, at(0), {
+      urlKey: 'acme',
+    });
+    expect(await rejection(engine.unblockWorkspace('acme'))).toMatchObject({
+      code: 'conflict',
+    });
+    expect(await engine.listBlockedWorkspaces()).toHaveLength(2);
+    expect(await engine.unblockWorkspace('org-acme-2')).toBe(true);
+    expect(await engine.unblockWorkspace('acme')).toBe(true);
+    expect(await engine.listBlockedWorkspaces()).toEqual([]);
   });
 
   test('listWorkspaceStatus holds no tokens and counts live sessions', async () => {

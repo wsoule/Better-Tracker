@@ -48,9 +48,10 @@ export interface Installation {
 
 /**
  * Why an installation was revoked: 'uninstalled' (Linear's OAuthApp
- * revoked webhook), 'removed' (the operator, or admission now refuses the
- * workspace) or 'grant_dead' (Linear refused the app's token, or the cause
- * is unknown). Only 'uninstalled' and 'removed' are purged automatically.
+ * revoked webhook), 'removed' (the operator's remove or block, or a block
+ * that matched it later; never LINEAR_WORKSPACES alone) or 'grant_dead'
+ * (Linear refused the app's token, or the cause is unknown). Only
+ * 'uninstalled' and 'removed' are purged automatically.
  */
 export type RevokedReason = 'uninstalled' | 'grant_dead' | 'removed';
 
@@ -107,7 +108,10 @@ export interface SessionDescription {
   /** The cookie token this describes (the caller's own input). */
   token: string;
   workspaceId: string;
-  /** The session's sign-in value, else the installation's; null if neither. */
+  /**
+   * The installation's current value (refreshed by every full sync and
+   * sign-in), else the session's sign-in value; null if neither.
+   */
   workspaceName: string | null;
   workspaceUrlKey: string | null;
   userId: string;
@@ -200,7 +204,9 @@ export interface WorkspaceStatus {
 
 /**
  * Every table that holds rows keyed by workspace_id, which purgeWorkspace
- * empties for the purged workspace.
+ * empties for the purged workspace. admitted_workspaces (LINEAR_WORKSPACES
+ * pins) is kept, like the blocks: a URL-key entry pinned to a workspace
+ * must never admit another org that takes the key after a purge.
  */
 export type WorkspaceTable =
   | 'installations'
@@ -215,8 +221,7 @@ export type WorkspaceTable =
   | 'warning_memory'
   | 'notifications'
   | 'job_claims'
-  | 'audit_log'
-  | 'admitted_workspaces';
+  | 'audit_log';
 
 /**
  * Why purgeWorkspace refused: no installation row, not revoked, revoked
@@ -230,7 +235,16 @@ export type PurgeRefusal =
   | 'grant_dead';
 
 export type PurgeResult =
-  | { purged: true; counts: Record<WorkspaceTable, number> }
+  | {
+      purged: true;
+      counts: Record<WorkspaceTable, number>;
+      /**
+       * The sessions the purge deleted, with their decrypted tokens (null
+       * for a row that no longer decrypts), so the caller revokes their
+       * Linear grants once the purge has committed. Never print or log it.
+       */
+      sessions: TakenSession[];
+    }
   | { purged: false; reason: PurgeRefusal };
 
 /** How a block entry matches: the org id, or the URL key until pinned. */
@@ -242,6 +256,12 @@ export interface BlockedWorkspace {
   kind: BlockKind;
   reason: string | null;
   createdAt: IsoDateTime;
+  /**
+   * Additive: for a block by org id, the lower-cased URL key it was made
+   * under or pinned from (null when none is known, and for a URL-key
+   * block, whose key is the URL key), so unblock by that key finds it.
+   */
+  urlKey: string | null;
 }
 
 export type RunTrigger = 'schedule' | 'manual';
@@ -386,6 +406,19 @@ export interface Store {
   listInstallations(): Promise<Installation[]>;
   saveInstallation(installation: Installation): Promise<void>;
   /**
+   * Additive (multi-workspace): sets the installation's workspace name and
+   * URL key to what Linear reports now (a full sync, a sign-in), so
+   * admission's URL-key matching and the listings follow a rename. One
+   * statement; nothing else changes, updated_at included (it keeps meaning
+   * the grant's last write, which the stale-revoke guard compares with).
+   * True when the row existed and changed; false when there is no row or
+   * it already holds these values.
+   */
+  updateInstallationIdentity(
+    workspaceId: string,
+    identity: { workspaceName: string; urlKey: string }
+  ): Promise<boolean>;
+  /**
    * Runs fn while holding a row lock on the installation, so two processes
    * never refresh (and rotate) the same refresh token concurrently. fn's
    * returned tokens, if any, are persisted before the lock is released.
@@ -433,8 +466,13 @@ export interface Store {
    * revoked before `revokedBefore` as 'uninstalled' or 'removed', or as
    * 'grant_dead' when `allowGrantDead` (the operator's purge). Deletes
    * from every WorkspaceTable (allocation entries before their runs) and
-   * returns the deleted row count per table. blocked_workspaces is kept:
-   * a block outlives the purge.
+   * returns the deleted row count per table, plus the deleted sessions
+   * with their tokens, so their grants are revoked only once the purge
+   * committed (a refused purge, e.g. a reinstall that won the lock, ends
+   * no session). The sessions' DELETE waits for row locks like
+   * takeSessionsForWorkspace, so a refresh in flight commits first.
+   * blocked_workspaces and admitted_workspaces are kept: a block and a
+   * LINEAR_WORKSPACES pin outlive the purge.
    */
   purgeWorkspace(
     workspaceId: string,
@@ -704,12 +742,15 @@ export interface Store {
   /**
    * Additive: blocks a workspace by org id or URL key (stored lower-cased).
    * Blocking a key again updates its kind and reason and keeps createdAt.
+   * `urlKey` (an id block's URL key, lower-cased) is recorded so the block
+   * can be found by it later; blocking again without one keeps the old.
    */
   blockWorkspace(
     key: string,
     kind: BlockKind,
     reason: string | null,
-    now: IsoDateTime
+    now: IsoDateTime,
+    options?: { urlKey?: string | null }
   ): Promise<void>;
   /** Additive: removes a block (key matched lower-cased); true if one existed. */
   unblockWorkspace(key: string): Promise<boolean>;
@@ -717,9 +758,10 @@ export interface Store {
   listBlockedWorkspaces(): Promise<BlockedWorkspace[]>;
   /**
    * Additive: turns the 'url_key' block on `urlKey` into an 'id' block on
-   * `workspaceId` (both lower-cased; reason and createdAt kept), so it
-   * keeps matching that org after a rename and never matches another org
-   * that takes the URL key later. True when a URL-key block was pinned.
+   * `workspaceId` (both lower-cased; reason and createdAt kept, and the URL
+   * key recorded as the id block's urlKey), so it keeps matching that org
+   * after a rename and never matches another org that takes the URL key
+   * later. True when a URL-key block was pinned.
    */
   pinBlockedUrlKey(urlKey: string, workspaceId: string): Promise<boolean>;
   /**

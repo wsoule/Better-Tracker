@@ -1,5 +1,5 @@
-// cleanup() (§7.1, §9 `tick`): the housekeeping the worker runs after every
-// tick.
+// cleanup() (§7.1, §9 `tick`): the housekeeping the worker runs at the
+// start of every tick, before any workspace.
 //
 // - Expired sessions are deleted. In real mode their Linear grants are
 //   revoked, best effort: Linear may auto-revoke a user's oldest tokens
@@ -9,9 +9,15 @@
 // - Webhook delivery records older than WEBHOOK_RETENTION_DAYS are pruned.
 //   Dedupe only needs Linear's retry window (about six hours); the longer
 //   window keeps each delivery's processing error around to investigate.
-// - Installed workspaces admission now refuses (taken out of
-//   LINEAR_WORKSPACES, or blocked) are revoked as 'removed'
-//   (revokeRefusedInstallations).
+// - Admission refusals (design doc §12, 2026-10-25; architecture §7
+//   "Admission"): an installed workspace LINEAR_WORKSPACES no longer
+//   admits is a soft gate. It is not served, but nothing is revoked,
+//   ended or deleted here: a warn line per tick names it and the fix
+//   (handleRefusedInstallations), and re-admitting it restores everything
+//   as it was. Its sessions read as signed out until it is admitted again
+//   or they expire (the expired-session step then revokes their grants).
+//   A blocked workspace is a hard gate: one still installed is revoked as
+//   'removed', as the operator's `block` does.
 // - Several workspaces (owner decision 2026-10-25): sessions of workspaces
 //   uninstalled or removed that predate the revoke are ended (grants
 //   revoked best effort); such workspaces are purged PURGE_AFTER_DAYS
@@ -25,7 +31,7 @@
 import type { OAuthClientConfig } from '@better-tracker/linear';
 import type { RevokedReason } from '@better-tracker/store';
 
-import { refusedInstalledWorkspaces } from './admission';
+import { refusedWorkspaces } from './admission';
 import { revokeGrant } from './auth';
 import type { EngineRuntime } from './runtime';
 import type { CleanupResult } from './types';
@@ -100,28 +106,57 @@ async function revokeExpiredSessions(
   }
 }
 
+/** What handleRefusedInstallations found and did. */
+export interface RefusedInstallations {
+  /** Blocked workspaces whose installation it revoked as 'removed'. */
+  removed: string[];
+  /** Installed workspaces LINEAR_WORKSPACES does not admit, left as they are. */
+  notServed: string[];
+}
+
 /**
- * Revokes, as 'removed' (revokeWorkspace: credentials wiped), every
- * workspace with an active installation that admission refuses now (fresh
- * read), and forgets its cached mirror, so a workspace taken out of
- * LINEAR_WORKSPACES or blocked keeps no live app token and its purge clock
- * starts. Each one is logged at warn. No Linear call (the app token is
- * wiped, not revoked with Linear). Returns the workspaces it revoked.
- * OAuth mode only (refusedInstalledWorkspaces is empty otherwise).
+ * The installed workspaces admission refuses now (fresh read). A blocked
+ * one with an active installation is revoked as 'removed' (revokeWorkspace:
+ * credentials wiped, its cached mirror forgotten; warn), so a block stays
+ * a hard gate even for a workspace that matched a URL-key block only after
+ * the operator's `block`. One LINEAR_WORKSPACES does not admit (active, or
+ * revoked as grant_dead) is only warned about, every call, with its id and
+ * the fix: nothing is revoked, ended or deleted, so putting it back on the
+ * list restores it as it was, and only the operator's `remove`, `block` or
+ * `purge` take it away. No Linear call. OAuth mode only (refusedWorkspaces
+ * is empty otherwise).
  */
-export async function revokeRefusedInstallations(
+export async function handleRefusedInstallations(
   rt: EngineRuntime
-): Promise<string[]> {
-  const revoked: string[] = [];
-  for (const { workspaceId, verdict } of await refusedInstalledWorkspaces(rt)) {
-    if (!(await revokeWorkspace(rt, workspaceId, 'removed'))) continue;
+): Promise<RefusedInstallations> {
+  const outcome: RefusedInstallations = { removed: [], notServed: [] };
+  for (const { workspaceId, verdict, status } of await refusedWorkspaces(rt)) {
+    const installation = status.installation;
+    if (installation === null) continue;
+    if (verdict === 'blocked') {
+      if (installation.revokedAt !== null) continue;
+      if (!(await revokeWorkspace(rt, workspaceId, 'removed'))) continue;
+      rt.logger.warn('removed a blocked workspace; its app token is wiped', {
+        workspaceId,
+        admission: verdict,
+      });
+      outcome.removed.push(workspaceId);
+      continue;
+    }
+    const reason = installation.revokedReason ?? 'grant_dead';
+    if (installation.revokedAt !== null && reason !== 'grant_dead') continue;
     rt.logger.warn(
-      'removed a workspace admission no longer admits; its app token is wiped',
-      { workspaceId, admission: verdict }
+      `${workspaceId} is installed but LINEAR_WORKSPACES does not admit it: it is not served, and nothing is removed automatically; add it to LINEAR_WORKSPACES to serve it again, or run 'remove --workspace ${workspaceId}' to uninstall it`,
+      {
+        workspaceId,
+        admission: verdict,
+        installation: installation.revokedAt === null ? 'active' : reason,
+        variable: 'LINEAR_WORKSPACES',
+      }
     );
-    revoked.push(workspaceId);
+    outcome.notServed.push(workspaceId);
   }
-  return revoked;
+  return outcome;
 }
 
 // Ends the sessions of workspaces uninstalled or removed that were created
@@ -172,10 +207,12 @@ async function endRevokedWorkspaceSessions(
 
 // Purges workspaces uninstalled or removed more than PURGE_AFTER_DAYS ago,
 // oldest revoke first, at most MAX_PURGES_PER_CLEANUP per call (the rest
-// wait for the next tick). purgeRevokedWorkspace ends their remaining
-// sessions first and logs the id only; the store re-checks the revoke
-// under a row lock, so a reinstall racing the purge wins. 'grant_dead' is
-// never purged here (only by the operator's purge).
+// wait for the next tick). The store re-checks the revoke under a row lock
+// and deletes the remaining sessions in the same transaction, so a
+// reinstall racing the purge wins and keeps every session (the installer's
+// too); purgeRevokedWorkspace revokes the deleted sessions' grants after
+// the commit and logs the id only. 'grant_dead' is never purged here (only
+// by the operator's purge).
 async function purgeRevokedWorkspaces(
   rt: EngineRuntime,
   now: Date,
@@ -240,7 +277,8 @@ async function pruneRetention(
  * Deletes expired sessions (revoking their grants) and old deliveries,
  * prunes notifications and job claims, ends the sessions of uninstalled
  * or removed workspaces and purges such workspaces once their grace is
- * over (the module comment above).
+ * over; removes blocked installations and warns about installed ones
+ * LINEAR_WORKSPACES does not admit (the module comment above).
  */
 export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
   const now = rt.clock();
@@ -253,8 +291,10 @@ export async function cleanup(rt: EngineRuntime): Promise<CleanupResult> {
     purgedWorkspaces: 0,
     oldNotifications: 0,
     oldJobClaims: 0,
+    notServedWorkspaces: 0,
   };
-  await revokeRefusedInstallations(rt);
+  const refused = await handleRefusedInstallations(rt);
+  result.notServedWorkspaces = refused.notServed.length;
   const oauth = rt.config.oauth;
   if (
     rt.linear.mode === 'fixture' ||

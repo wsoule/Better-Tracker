@@ -267,6 +267,41 @@ export function firstSyncWaitError(retryAt: IsoDateTime): EngineInputError {
 }
 
 /**
+ * Keeps an installed workspace's name and URL key as Linear reports them
+ * now (store.updateInstallationIdentity; no write when they did not
+ * change), so admission's URL-key matching (LINEAR_WORKSPACES entries,
+ * blocks), the worker and the operator's listings follow a rename instead
+ * of the key saved at install. OAuth mode only (with personal API keys a
+ * connect keeps the binding current). Best effort: a failure is logged and
+ * the caller goes on. Logs the id only.
+ */
+export async function refreshInstallationIdentity(
+  rt: EngineRuntime,
+  workspaceId: string,
+  organization: { name: string; urlKey: string } | undefined,
+  log: Logger = rt.logger
+): Promise<void> {
+  if (rt.config.auth !== 'oauth' || organization === undefined) return;
+  try {
+    if (
+      await rt.store.updateInstallationIdentity(workspaceId, {
+        workspaceName: organization.name,
+        urlKey: organization.urlKey,
+      })
+    ) {
+      log.info("updated the installation's workspace name or URL key", {
+        workspaceId,
+      });
+    }
+  } catch (error) {
+    log.warn("could not update the installation's workspace name and URL key", {
+      workspaceId,
+      error,
+    });
+  }
+}
+
+/**
  * One full resync. On success the mirror is replaced and the sync recorded
  * as ok; on failure the failure is recorded on sync_state and the error
  * rethrown (the mirror is left as it was).
@@ -291,6 +326,7 @@ async function runFullSync(
       rt.store.getSyncState(workspaceId),
       rt.store.getInstallation(workspaceId),
     ]);
+    await refreshInstallationIdentity(rt, workspaceId, data.organization, log);
     const timezone = isValidTimeZone(settings.timezone)
       ? settings.timezone
       : rt.config.defaultTimezone;
@@ -306,7 +342,8 @@ async function runFullSync(
     const bootstrap = await bootstrapSettings({
       rt,
       workspaceId,
-      urlKey: installation?.urlKey ?? null,
+      // The key Linear reports now, as admission matches it.
+      urlKey: data.organization?.urlKey ?? installation?.urlKey ?? null,
       data,
       current: settings,
       stored,

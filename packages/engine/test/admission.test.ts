@@ -291,8 +291,8 @@ describe('LINEAR_WORKSPACES', () => {
     });
     expect(await store.getAdmittedPin('acme')).toBe('org-acme');
     expect(await after.authenticate(other.sessionToken)).toBeNull();
-    // A refused session reads as signed out, but its row is left for
-    // cleanup to end (and revoke).
+    // A refused session reads as signed out, but its row is kept: a list
+    // refusal ends nothing, so re-admitting the workspace signs it back in.
     expect(
       await store.getSession(other.sessionToken, clock.now().toISOString())
     ).not.toBeNull();
@@ -339,6 +339,59 @@ describe('the operator block list', () => {
       code: 'workspace_blocked',
     });
     expect(await sessionRows()).toBe(0);
+  });
+});
+
+describe('blocks and pins over time', () => {
+  test('unblock by URL key lifts a block pinned to its org at a sign-in attempt', async () => {
+    const engine = oauthEngine({ mode: 'any' });
+    expect(await engine.blockWorkspace('other')).toMatchObject({
+      key: 'other',
+      kind: 'url_key',
+      workspaceId: null,
+    });
+    // OTHER's admin tries to sign in: refused, and the block now names
+    // the org by id (no session or installation was written).
+    expect(await rejection(finish(engine, ANA_OTHER))).toMatchObject({
+      code: 'workspace_blocked',
+    });
+    expect(await store.listBlockedWorkspaces()).toEqual([
+      expect.objectContaining({
+        key: 'org-other',
+        kind: 'id',
+        urlKey: 'other',
+      }),
+    ]);
+    expect(await engine.unblockWorkspace('other')).toBe(true);
+    expect(await store.listBlockedWorkspaces()).toEqual([]);
+    expect((await finish(engine, ANA_OTHER)).session.workspaceId).toBe(
+      'org-other'
+    );
+  });
+
+  test('a LINEAR_WORKSPACES URL-key pin outlives the purge of its workspace', async () => {
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    await installed(ACME);
+    await finish(engine, ANA_ACME);
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    await store.revokeInstallation(
+      'org-acme',
+      'uninstalled',
+      clock.now().toISOString()
+    );
+    clock.set(new Date(clock.now().getTime() + 31 * 86_400_000).toISOString());
+    expect((await engine.cleanup()).purgedWorkspaces).toBe(1);
+    expect(await store.getInstallation('org-acme')).toBeNull();
+    // Another organization that takes linear.app/acme is still refused.
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    const stranger: FakeIdentity = {
+      user: person('u-stranger', 'Stranger'),
+      workspace: { id: 'org-stranger', name: 'Stranger', urlKey: 'acme' },
+    };
+    expect(await rejection(finish(engine, stranger))).toMatchObject({
+      code: 'workspace_not_allowed',
+    });
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
   });
 });
 
@@ -898,43 +951,144 @@ describe('the worker list and cleanup', () => {
     ).toBe(true);
   });
 
-  test('cleanup removes installed workspaces admission now refuses', async () => {
-    const engine = oauthEngine({ mode: 'list', entries: ['org-acme'] });
+  test('cleanup removes blocked installations, and only warns about ones LINEAR_WORKSPACES leaves out', async () => {
+    // A list refusal is a soft gate (design doc §12, 2026-10-25): OTHER is
+    // not served but keeps its installation, app token and sessions.
     await installed(ACME);
     await installed(OTHER);
+    await mirrored('org-other', [ANA_OTHER.user]);
+    const other = await finish(oauthEngine(), ANA_OTHER);
+    const engine = oauthEngine({ mode: 'list', entries: ['org-acme'] });
     await store.blockWorkspace(
       'acme',
       'url_key',
       'no',
       clock.now().toISOString()
     );
-    await engine.cleanup();
+    const cleaned = await engine.cleanup();
 
     const statuses = await store.listWorkspaceStatus();
     const reason = (id: string): string | null | undefined =>
       statuses.find((s) => s.workspaceId === id)?.installation?.revokedReason;
-    // Blocked (by URL key, now pinned to its id) and not listed.
+    // Blocked (by URL key, now pinned to its id): a hard gate, removed.
     expect(reason('org-acme')).toBe('removed');
-    expect(reason('org-other')).toBe('removed');
-    expect((await store.getInstallation('org-other'))?.tokens.accessToken).toBe(
-      ''
-    );
     expect(
       (await store.listBlockedWorkspaces()).map((b) => [b.key, b.kind])
     ).toEqual([['org-acme', 'id']]);
     expect(
       lines.filter((l) =>
-        l.includes('removed a workspace admission no longer admits')
+        l.includes('removed a blocked workspace; its app token is wiped')
       )
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+    // Not listed: left exactly as it was, and warned about with the fix.
+    expect(reason('org-other')).toBeNull();
+    expect((await store.getInstallation('org-other'))?.tokens.accessToken).toBe(
+      'app-token-org-other'
+    );
+    expect(cleaned).toMatchObject({
+      endedWorkspaceSessions: 0,
+      notServedWorkspaces: 1,
+    });
+    expect(fake.revoked).toEqual([]);
+    const notServed = (): string[] =>
+      lines.filter(
+        (l) =>
+          l.includes('org-other is installed but LINEAR_WORKSPACES') &&
+          l.includes("run 'remove --workspace org-other'")
+      );
+    expect(notServed()).toHaveLength(1);
     expect(await engine.listWorkspaceIds()).toEqual([]);
-    // Nothing left to remove on the next pass.
+    expect(await engine.authenticate(other.sessionToken)).toBeNull();
+
+    // Every pass warns again, and still changes nothing.
     await engine.cleanup();
+    expect(notServed()).toHaveLength(2);
     expect(
       lines.filter((l) =>
-        l.includes('removed a workspace admission no longer admits')
+        l.includes('removed a blocked workspace; its app token is wiped')
       )
-    ).toHaveLength(2);
+    ).toHaveLength(1);
+
+    // Putting it back on the list restores it as it was: served again,
+    // and its session signs in without a new sign-in.
+    const readmitted = oauthEngine({
+      mode: 'list',
+      entries: ['org-acme', 'org-other'],
+    });
+    expect(await readmitted.listWorkspaceIds()).toEqual(['org-other']);
+    expect(await readmitted.authenticate(other.sessionToken)).toMatchObject({
+      session: { workspaceId: 'org-other' },
+    });
+  });
+
+  test('a list refusal ends no session: they read as signed out until re-admission or expiry', async () => {
+    // OTHER was only signed in to (never installed), then left off the list.
+    const open = oauthEngine({
+      mode: 'list',
+      entries: ['org-acme', 'org-other'],
+    });
+    const other = await finish(open, ANA_OTHER);
+    const narrowed = oauthEngine({ mode: 'list', entries: ['org-acme'] });
+    expect(await narrowed.authenticate(other.sessionToken)).toBeNull();
+    expect(await narrowed.cleanup()).toMatchObject({
+      endedWorkspaceSessions: 0,
+      expiredSessions: 0,
+    });
+    expect(await sessionRows()).toBe(1);
+    expect(fake.revoked).toEqual([]);
+
+    // Expiry ends it as it ends any session: its grant is revoked then.
+    clock.set(
+      new Date(
+        clock.now().getTime() + (TEST_CONFIG.sessionDays + 1) * 86_400_000
+      ).toISOString()
+    );
+    expect(await narrowed.cleanup()).toMatchObject({
+      expiredSessions: 1,
+      revokedTokens: 1,
+    });
+    expect(await sessionRows()).toBe(0);
+  });
+
+  test('a renamed workspace listed by its new URL key is not removed before anyone signs in', async () => {
+    // Installed as linear.app/acme-old, renamed to acme in Linear since; the
+    // operator lists the current key. Until a sign-in or a sync tells the
+    // planner the new key, the entry does not match, and nothing is lost.
+    await installed(ACME, { urlKey: 'acme-old' });
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    await engine.cleanup();
+    const installation = await store.getInstallation('org-acme');
+    expect(installation?.revokedAt).toBeNull();
+    expect(installation?.tokens.accessToken).toBe('app-token-org-acme');
+    expect(await store.getAdmittedPin('acme')).toBeNull();
+    // The next sign-in reads the current key from Linear: the entry pins,
+    // and the installation row takes the current name and key.
+    await finish(engine, ANA_ACME);
+    expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    expect(await store.getInstallation('org-acme')).toMatchObject({
+      urlKey: 'acme',
+      workspaceName: ACME.name,
+      tokens: { accessToken: 'app-token-org-acme' },
+    });
+    expect(await engine.listWorkspaceIds()).toEqual(['org-acme']);
+  });
+
+  test("a sign-in keeps an installed workspace's name and URL key current, and sessions show them", async () => {
+    await installed(ACME, { urlKey: 'acme-old', workspaceName: 'Acme Old' });
+    const engine = oauthEngine({ mode: 'any' });
+    const before = await store.getInstallation('org-acme');
+    const ana = await finish(engine, ANA_ACME);
+    expect(await store.getInstallation('org-acme')).toMatchObject({
+      urlKey: 'acme',
+      workspaceName: ACME.name,
+      updatedAt: before?.updatedAt,
+    });
+    expect(await engine.describeSessions([ana.sessionToken])).toMatchObject([
+      { workspaceName: ACME.name, workspaceUrlKey: 'acme' },
+    ]);
+    // A workspace nobody installed gets no row from a sign-in.
+    await finish(engine, ANA_OTHER);
+    expect(await store.getInstallation('org-other')).toBeNull();
   });
 
   test('cleanup leaves admitted workspaces and other modes alone', async () => {

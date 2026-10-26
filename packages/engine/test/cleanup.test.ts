@@ -110,6 +110,7 @@ describe('cleanup in real mode', () => {
       purgedWorkspaces: 0,
       oldNotifications: 0,
       oldJobClaims: 0,
+      notServedWorkspaces: 0,
     });
     // The refresh token ends the grant; without one, the access token.
     expect(fake.revoked).toEqual([
@@ -196,6 +197,7 @@ describe('cleanup in demo mode', () => {
         purgedWorkspaces: 0,
         oldNotifications: 0,
         oldJobClaims: 0,
+        notServedWorkspaces: 0,
       });
     } finally {
       await h.close();
