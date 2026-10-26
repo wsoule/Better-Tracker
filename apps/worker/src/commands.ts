@@ -499,11 +499,15 @@ async function runTargets(
 /**
  * One tick for one workspace: the daily run when it is due in the
  * workspace's timezone (the engine's claim makes it once per local day)
- * and at least 5 minutes are left; otherwise, or when today's run already
- * happened, a plain full resync — the periodic one that heals milestone
- * and relation drift (Linear sends no webhooks for those) — unless a
- * successful one finished less than 10 minutes ago. The daily job's own
- * sync is never skipped.
+ * and at least 5 minutes are left; when today's run already happened, a
+ * plain full resync — the periodic one that heals milestone and relation
+ * drift (Linear sends no webhooks for those) — unless a successful one
+ * finished less than 10 minutes ago. The daily job's own sync is never
+ * skipped. A due daily job with less than 5 minutes left defers the whole
+ * workspace, with no plain resync: a resync would record a fresh attempt
+ * and send the workspace to the back of the next tick's queue, so the
+ * same workspaces would reach their daily job too late on every tick.
+ * Deferred, it keeps its old attempt time and runs first next tick.
  */
 async function tickWorkspace(
   ctx: CommandContext,
@@ -533,12 +537,16 @@ async function tickWorkspace(
       if (daily.ran) return describeDaily(daily);
       after = `daily already ran for ${daily.day}`;
     } else {
-      after = deferredPhrase('tick', 'daily', left, needed);
       ctx.logger.info('daily job deferred to the next tick', {
         workspaceId,
         timeLeftMs: left,
         neededMs: needed,
       });
+      return {
+        ok: true,
+        deferred: true,
+        detail: deferredPhrase('tick', 'daily', left, needed),
+      };
     }
   }
   const recent = recentSyncAgeMs(status, ctx.now());

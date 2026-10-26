@@ -26,6 +26,7 @@ import {
   fakeEngine,
   overview,
   revokedOverview,
+  syncResult,
   warningResult,
 } from './fake-engine';
 
@@ -749,7 +750,7 @@ describe('runCommand: several workspaces', () => {
     );
   });
 
-  test('a tick never starts a due daily job with less than 5 minutes left; it resyncs instead', async () => {
+  test('a tick never starts a due daily job with less than 5 minutes left; the workspace waits for the next tick', async () => {
     const at8 = new Date('2026-10-21T08:00:00Z');
     const engine = fakeEngine({ workspaces: ['ws-a'] });
     const { logger, lines } = recordingLogger();
@@ -762,12 +763,15 @@ describe('runCommand: several workspaces', () => {
       { name: 'tick', workspaceId: null }
     );
     expect(engine.calls.some((c) => c.startsWith('runDaily'))).toBe(false);
-    expect(engine.calls).toContain('fullSync:ws-a');
+    // No plain resync either: it would move the workspace to the back of
+    // the next tick's queue.
+    expect(engine.calls).not.toContain('fullSync:ws-a');
     expect(result.outcomes[0]).toMatchObject({
-      kind: 'done',
-      detail:
-        'synced (mirror v7, 42 issues, 12 ms), daily deferred to the next tick (4 min left, needs 5 min)',
+      kind: 'deferred',
+      ok: true,
+      detail: 'daily deferred to the next tick (4 min left, needs 5 min)',
     });
+    expect(exitCodeFor(result)).toBe(0);
     expect(logged(lines, 'info', 'daily job deferred')).toHaveLength(1);
     // With 5 minutes left it runs.
     await runCommand(
@@ -778,6 +782,86 @@ describe('runCommand: several workspaces', () => {
       { name: 'tick', workspaceId: null }
     );
     expect(engine.calls).toContain('runDaily:ws-a@2026-10-21');
+  });
+
+  test('over a morning of ticks, every workspace gets its daily job, none starved by a resync', async () => {
+    // 12 workspaces, one lane, a 10-minute budget every 15 minutes: a
+    // sync takes 1 minute and a daily job 1.5 (sync and allocation), so a
+    // tick reaches the last ones with 3 to 5 minutes left: enough to sync,
+    // not to start a daily job.
+    const SYNC = MINUTE;
+    const DAILY = 1.5 * MINUTE;
+    const ids = Array.from({ length: 12 }, (_, i) => `ws-${i + 1}`);
+    let now = new Date('2026-10-21T08:00:00Z').getTime();
+    const statuses = new Map(ids.map((id) => [id, overview(id)]));
+    const ran = new Set<string>();
+    // A finished sync records its attempt (and success) time, as the
+    // engine's recordFullSync does.
+    const synced = (id: string): void => {
+      const at = new Date(now).toISOString();
+      statuses.set(
+        id,
+        overview(id, {
+          sync: {
+            lastFullSyncAt: at,
+            lastFullSyncStatus: 'ok',
+            lastSuccessAt: at,
+            lastFullSyncMs: SYNC,
+          },
+        })
+      );
+    };
+    const engine = fakeEngine({
+      now: () => new Date(now),
+      overrides: {
+        listWorkspaceStatus: () => Promise.resolve([...statuses.values()]),
+        fullSync: (id) => {
+          now += SYNC;
+          synced(id);
+          return Promise.resolve(syncResult(id));
+        },
+        runDaily: ({ workspaceId, day }) => {
+          const key = `${workspaceId}@${day ?? '?'}`;
+          if (ran.has(key)) {
+            return Promise.resolve({
+              workspaceId,
+              day: day ?? '',
+              ran: false,
+              sync: null,
+              allocation: null,
+              warnings: null,
+            });
+          }
+          ran.add(key);
+          now += DAILY;
+          synced(workspaceId);
+          return Promise.resolve({
+            workspaceId,
+            day: day ?? '',
+            ran: true,
+            sync: syncResult(workspaceId),
+            allocation: allocationRun(workspaceId),
+            warnings: warningResult(workspaceId),
+          });
+        },
+      },
+    });
+    const start = now;
+    for (let tick = 0; tick < 3; tick += 1) {
+      now = start + tick * 15 * MINUTE;
+      const result = await runCommand(
+        {
+          ...context(engine),
+          now: () => new Date(now),
+          deadlineAt: new Date(now + 10 * MINUTE),
+        },
+        { name: 'tick', workspaceId: null }
+      );
+      expect(exitCodeFor(result)).toBe(0);
+    }
+    expect([...ran].toSorted()).toEqual(
+      ids.map((id) => `${id}@2026-10-21`).toSorted()
+    );
   });
 
   test('daily run by hand is not started with less than 5 minutes left', async () => {

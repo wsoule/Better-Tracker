@@ -5999,9 +5999,12 @@ Worker decisions made while building it (binding):
     again: only a successful sync records a new duration. A workspace not
     started is **deferred**: "deferred to the next tick (… left, needs …)",
     info, not a failure (a command run by hand says "not started …; run it
-    again"). A due daily job with less than 5 minutes left is not started; the
-    tick resyncs instead ("daily deferred to the next tick"), and the next tick
-    runs it.
+    again"). A due daily job with less than 5 minutes left is not started, and
+    neither is a plain resync: the whole workspace is deferred ("daily deferred
+    to the next tick (… left, needs 5 min)"), so it keeps its old attempt time
+    and runs first on the next tick, daily job included. (A resync there would
+    record a fresh attempt and send it to the back of the next tick's queue,
+    where it would meet the same shortage on every tick.)
   - **Skip recent**: a tick's plain resync is skipped when the workspace's last
     successful full sync finished less than 10 minutes ago ("sync skipped (the
     last full sync finished 4 min ago)"). The daily job's own sync is never
