@@ -91,6 +91,7 @@ describe('the API guard: X-Planner-Workspace', () => {
           code: 'workspace_changed',
           message:
             'This tab shows Globex, but this browser switched to Acme in another tab. Reload to continue in Acme, or switch back to Globex.',
+          tabWorkspaceName: 'Globex',
         },
       });
     }
@@ -99,10 +100,13 @@ describe('the API guard: X-Planner-Workspace', () => {
   test('a workspace the browser no longer holds is not named (the header is never echoed)', async () => {
     const result = await requireApiActor(apiRequest('org-<script>'));
     if (!(result instanceof Response)) throw new Error('expected a 409');
-    const body = (await result.json()) as { error: { message: string } };
+    const body = (await result.json()) as {
+      error: { message: string; tabWorkspaceName: string | null };
+    };
     expect(body.error.message).toBe(
       'This tab shows another workspace, but this browser switched to Acme in another tab. Reload to continue in Acme.'
     );
+    expect(body.error.tabWorkspaceName).toBeNull();
   });
 
   test('signed out stays a 401, before the workspace check', async () => {

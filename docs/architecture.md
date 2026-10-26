@@ -3303,25 +3303,29 @@ referrer policy and a Permissions-Policy.
   would land there. An Undo is several requests (one per place the issues go
   back to): when one is refused this way after earlier ones went through, its
   rows cannot refresh to show those issues back, so the toast says how many were
-  undone ("Partly undone · Undid 2 of 3: <the refusal>. The rows here still show
-  the values from before the Undo until you reload.", `staleUndoToast`) and
-  offers Reload; with none through, the refusal's own toast. Without the header
-  a request is let through (the engine scopes every read and write to the
-  session's workspace anyway). Layouts do not re-render on client navigation
-  (Next 16 `layout.md`), and an `(app)/template.tsx` would not cover it either
-  (Next 16 `template.md`: a template does not remount for a search-param change
-  or a navigation within a deeper segment), so **every `(app)` page renders
-  `WorkspaceGuard`**, a server component that puts its own request's workspace
-  id (null signed out) into a client component, which reloads the tab when it
-  differs from the frame's (`FrameWorkspaceProvider` in `PlannerShell`); nothing
-  can be lost, since a navigation just happened. `(app)/not-found.tsx` renders
-  it too: pages call `notFound()` before their own guard, so a stale tab's Acme
-  issue or run, looked up in Globex and missed, would otherwise say an existing
-  item is gone. A test checks every page and the not-found boundary render it.
-  The error boundary (`error.tsx`, a client component) cannot host the server
-  guard; its Try again and the next navigation re-render a guarded page. The
-  Issues page's picker options are kept by workspace and mirror version, and its
-  folded groups are remembered under
+  undone and where to see them ("Partly undone · Undid 2 of 3: <the refusal>.
+  The rows here keep their old values; switch back to <A> to see what was
+  undone.", `staleUndoToast`; a Reload would continue in <B>) and offers Reload;
+  with none through, the refusal's own toast. The 409 body carries the tab's
+  workspace name for that (`error.tabWorkspaceName`, the one the sentence names,
+  null when the browser no longer holds that session: "open the workspace this
+  tab shows again"). Without the header a request is let through (the engine
+  scopes every read and write to the session's workspace anyway). Layouts do not
+  re-render on client navigation (Next 16 `layout.md`), and an
+  `(app)/template.tsx` would not cover it either (Next 16 `template.md`: a
+  template does not remount for a search-param change or a navigation within a
+  deeper segment), so **every `(app)` page renders `WorkspaceGuard`**, a server
+  component that puts its own request's workspace id (null signed out) into a
+  client component, which reloads the tab when it differs from the frame's
+  (`FrameWorkspaceProvider` in `PlannerShell`); nothing can be lost, since a
+  navigation just happened. `(app)/not-found.tsx` renders it too: pages call
+  `notFound()` before their own guard, so a stale tab's Acme issue or run,
+  looked up in Globex and missed, would otherwise say an existing item is gone.
+  A test checks every page and the not-found boundary render it. The error
+  boundary (`error.tsx`, a client component) cannot host the server guard; its
+  Try again and the next navigation re-render a guarded page. The Issues page's
+  picker options are kept by workspace and mirror version, and its folded groups
+  are remembered under
   `milestone-planner:issues:collapsed:<workspace id>:<grouping>`. Switching is a
   full page load.
 - **Links that leave the app** (digests, §7, and every Copy link action: the
@@ -6680,8 +6684,9 @@ not read; a deploy that still sets it boots normally and logs one warning
   pruned and signed out, dead-active recovery, 404 outside OAuth mode; logout
   `current` with and without the active session, a stale tab's workspace, one
   not held, the last one, `all`); `test/stale-tab-guards.test.ts` (409
-  `workspace_changed` naming both workspaces and never the header, the
-  navigation guard's decision, every `(app)` page rendering `WorkspaceGuard`);
+  `workspace_changed` naming both workspaces and never the header, with the
+  tab's name as `tabWorkspaceName` or null, the navigation guard's decision,
+  every `(app)` page rendering `WorkspaceGuard`);
   `test/shell-workspaces.test.ts` (the frame's workspaces, hints and connect row
   with no token in it, the footer's "Sign out of <workspace>" and fields, the
   palette's Workspaces items and section order, none of it in api_key or demo
@@ -6689,7 +6694,10 @@ not read; a deploy that still sets it boots normally and logs one warning
   landing's "Continue in" forms, `/setup`'s per-reason revoked copy and purge
   date, `/week`'s notices with the signed name); `test/proxy.test.ts` (the `ws`
   redirect); `test/api-client.test.ts` (the header, `switchWorkspace`, the
-  Reload toast). **The cross-workspace gate** is
+  Reload toast, `tabWorkspaceName` read only from `workspace_changed`);
+  `test/adapters-issue-moves.test.ts` (an Undo refused after earlier requests
+  went through says how many were undone and to switch back to the tab's
+  workspace to see them). **The cross-workspace gate** is
   `test/oauth-workspaces.test.ts`: the real auth and API routes over a real
   OAuth engine (PGlite) and the e2e fake Linear's two organizations in-process
   (`createEngineFromEnv(…, { fetch })`, https `APP_URL`): sign in to and install

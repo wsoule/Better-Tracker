@@ -457,9 +457,10 @@ export function useIssueMoves({
         // A tab left on another workspace: no refresh (it would show that
         // workspace here) and the "Undoing…" rows back as they were. The
         // refusal's toast with Reload, or, when earlier requests went
-        // through, one that says how many were undone (staleUndoToast).
+        // through, one that says how many were undone and to switch back
+        // to this tab's workspace to see them (staleUndoToast).
         dropBatch(batch);
-        const stale = staleUndoToast(results, requested, refusal.message);
+        const stale = staleUndoToast(results, requested, refusal);
         if (stale === null) {
           refused(refusal);
           return;
