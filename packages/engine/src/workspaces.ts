@@ -142,14 +142,18 @@ async function revokeTakenGrants(
  * short batch (nothing left), after `max` sessions, or when `batchLimit`
  * (the caller's time budget: how many sessions it can still revoke)
  * allows none; a batch never takes more than it allows, since taking
- * deletes. `cutShort` says it stopped while sessions may be left. `why`
- * names the sessions in the warning a failed revocation logs.
+ * deletes. With `purgeDueBefore`, each batch is taken only while the
+ * workspace's purge is still due (store.takeSessionsForWorkspace checks
+ * it under the installation's row lock), so a reinstall stops it.
+ * `cutShort` says it stopped while sessions may be left. `why` names the
+ * sessions in the warning a failed revocation logs.
  */
 export async function endWorkspaceSessions(
   rt: EngineRuntime,
   workspaceId: string,
   options: {
     createdBefore?: IsoDateTime;
+    purgeDueBefore?: IsoDateTime;
     max: number;
     why: string;
     batchLimit?: () => number;
@@ -174,6 +178,9 @@ export async function endWorkspaceSessions(
     const batch = await rt.store.takeSessionsForWorkspace(workspaceId, {
       createdBefore: options.createdBefore,
       limit,
+      ...(options.purgeDueBefore === undefined
+        ? {}
+        : { purgeDueBefore: options.purgeDueBefore }),
     });
     ending.ended += batch.length;
     await revokeTakenGrants(rt, batch, ending, options.why);

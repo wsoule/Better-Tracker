@@ -532,6 +532,15 @@ async function endRevokedWorkspaceSessions(
   }
 }
 
+// The time a purge needs at its longest: its transaction, then every
+// session it deletes revoked SESSION_REVOKE_CONCURRENCY at a time.
+function purgeNeedMs(sessions: number): number {
+  return (
+    PURGE_TRANSACTION_MS +
+    Math.ceil(sessions / SESSION_REVOKE_CONCURRENCY) * REVOKE_WORST_MS
+  );
+}
+
 // Purges workspaces uninstalled or removed more than PURGE_AFTER_DAYS ago,
 // oldest revoke first, at most MAX_PURGES_PER_CLEANUP per call (the rest
 // wait for the next tick). The store re-checks the revoke under a row lock
@@ -540,10 +549,14 @@ async function endRevokedWorkspaceSessions(
 // too); purgeRevokedWorkspace revokes the deleted sessions' grants after
 // the commit and logs the id only. A purge starts only when its
 // transaction and the revocation of every session it would delete end
-// before the deadline (their number is known from the listing): the rest
-// wait. One that could not fit even a whole pass is logged with the
-// operator's purge, which has the whole tick. 'grant_dead' is never purged
-// here (only by the operator's purge).
+// before the deadline (their number is known from the listing). One that
+// does not fit first ends its remaining sessions, as many as the time left
+// can revoke (endWorkspaceSessions, each batch taken only while the purge
+// is still due, so a reinstall stops it), and purges once the rest fits,
+// in this pass or a later one: a workspace with more sessions than one
+// pass can revoke is purged over a few ticks. One that could not fit even
+// a whole pass is logged with the operator's purge, which has the whole
+// tick. 'grant_dead' is never purged here (only by the operator's purge).
 async function purgeRevokedWorkspaces(
   rt: EngineRuntime,
   now: Date,
@@ -581,20 +594,44 @@ async function purgeRevokedWorkspaces(
     0,
     MAX_PURGES_PER_CLEANUP
   )) {
-    // The transaction, then every session it deletes revoked
-    // SESSION_REVOKE_CONCURRENCY at a time at their longest.
-    const needMs =
-      PURGE_TRANSACTION_MS +
-      Math.ceil(sessions / SESSION_REVOKE_CONCURRENCY) * REVOKE_WORST_MS;
-    if (needMs > budget.leftMs()) {
-      defer(result, 'purges');
-      if (needMs > budget.totalMs) {
+    let left = sessions;
+    if (purgeNeedMs(left) > budget.leftMs()) {
+      if (purgeNeedMs(sessions) > budget.totalMs) {
         rt.logger.warn(
-          `a purge is due but revoking its sessions could take longer than cleanup's time limit; run 'purge --workspace ${workspaceId}' to purge it now`,
+          `a purge is due but revoking its ${sessions} sessions takes longer than one cleanup allows: they are ended over the next ticks, then the workspace is purged; run 'purge --workspace ${workspaceId} --yes' to purge it now`,
           { workspaceId, sessions }
         );
       }
-      continue;
+      const ended = result.endedWorkspaceSessions ?? 0;
+      if (
+        left > 0 &&
+        ended < MAX_WORKSPACE_SESSIONS_PER_CLEANUP &&
+        budget.sessionsThatFit(SESSION_REVOKE_CONCURRENCY) > 0
+      ) {
+        const ending = await endWorkspaceSessions(rt, workspaceId, {
+          purgeDueBefore: revokedBefore,
+          max: Math.min(left, MAX_WORKSPACE_SESSIONS_PER_CLEANUP - ended),
+          batchLimit: () => budget.sessionsThatFit(SESSION_REVOKE_CONCURRENCY),
+          why: 'a session of a workspace whose purge is due',
+        });
+        result.endedWorkspaceSessions = ended + ending.ended;
+        result.revokedTokens += ending.revokedTokens;
+        result.revokeFailures += ending.revokeFailures;
+        // Stopped by a short batch: none is left (or the purge is no
+        // longer due, which the purge then finds too).
+        left = ending.cutShort ? Math.max(0, left - ending.ended) : 0;
+        if (ending.ended > 0) {
+          rt.logger.info('ended sessions of a workspace whose purge is due', {
+            workspaceId,
+            sessions: ending.ended,
+            left,
+          });
+        }
+      }
+      if (purgeNeedMs(left) > budget.leftMs()) {
+        defer(result, 'purges');
+        continue;
+      }
     }
     const { result: purge, ending } = await purgeRevokedWorkspace(
       rt,

@@ -235,6 +235,22 @@ describe('cleanup within a deadline', () => {
     };
   }
   const deadlineIn = (ms: number): Date => new Date(clock.now().getTime() + ms);
+  // The same endpoint answering at its timeout, with revocations in flight
+  // at once taking that long together (each one moves the clock to its
+  // own start plus the timeout), as they would against real Linear.
+  function slowParallelRevokes(): FetchLike {
+    return async (input, init) => {
+      if (String(input) === 'https://api.linear.app/oauth/revoke') {
+        const started = clock.now().getTime();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        const done = started + SLOW_REVOKE_MS;
+        if (done > clock.now().getTime()) {
+          clock.set(new Date(done).toISOString());
+        }
+      }
+      return fake.fetch(input, init);
+    };
+  }
 
   // An installation of `workspaceId`, revoked as `reason` `ageDays` ago.
   async function revokedWorkspace(
@@ -337,13 +353,23 @@ describe('cleanup within a deadline', () => {
     for (const id of ['p1', 'p2', 'p3', 'p4', 'p5']) {
       await session(id, DAY_MS, true, 'org-gone');
     }
+    const slow = engineWith(slowParallelRevokes());
     // Two rounds of four revocations plus the transaction's allowance do
-    // not fit in 30 s.
-    const tight = await engine.cleanup({ deadline: deadlineIn(30_000) });
-    expect(tight).toMatchObject({ purgedWorkspaces: 0, deferred: ['purges'] });
+    // not fit in 30 s: the pass ends the four one round can revoke, and
+    // the purge waits.
+    const tight = await slow.cleanup({ deadline: deadlineIn(30_000) });
+    expect(tight).toMatchObject({
+      purgedWorkspaces: 0,
+      endedWorkspaceSessions: 4,
+      deferred: ['purges'],
+    });
     expect(await store.getInstallation('org-gone')).not.toBeNull();
-    const roomy = await engine.cleanup({ deadline: deadlineIn(2 * 60_000) });
-    expect(roomy).toMatchObject({ purgedWorkspaces: 1, deferred: [] });
+    const roomy = await slow.cleanup({ deadline: deadlineIn(2 * 60_000) });
+    expect(roomy).toMatchObject({
+      purgedWorkspaces: 1,
+      endedWorkspaceSessions: 0,
+      deferred: [],
+    });
     expect(fake.revoked.map((r) => r.token).toSorted()).toEqual([
       'r-p1',
       'r-p2',
@@ -351,6 +377,46 @@ describe('cleanup within a deadline', () => {
       'r-p4',
       'r-p5',
     ]);
+  });
+
+  test('a due purge with too many sessions to fit ends them over several passes, then purges', async () => {
+    await revokedWorkspace('org-big', 'uninstalled', PURGE_AFTER_DAYS + 1);
+    // Signed in after the uninstall, so only the purge ends them.
+    for (let i = 0; i < 60; i += 1) {
+      await session(`big-${i}`, DAY_MS, true, 'org-big');
+    }
+    const slow = engineWith(slowParallelRevokes());
+    const passes: Array<{ ended: number; purged: number }> = [];
+    for (let pass = 0; pass < 6; pass += 1) {
+      const deadline = deadlineIn(2 * 60_000);
+      const result = await slow.cleanup({ deadline });
+      // Every pass ends before its deadline.
+      expect(clock.now().getTime()).toBeLessThanOrEqual(deadline.getTime());
+      passes.push({
+        ended: result.endedWorkspaceSessions ?? 0,
+        purged: result.purgedWorkspaces ?? 0,
+      });
+      if ((result.purgedWorkspaces ?? 0) > 0) break;
+      expect(result.deferred).toContain('purges');
+      clock.set(at(15 * 60_000));
+    }
+    // 60 sessions need 15 rounds of 4 revocations: more than one pass can
+    // hold. Each pass ends what its time can revoke (7 rounds of 4 in 2
+    // minutes), and the purge comes once the rest fits.
+    expect(passes).toEqual([
+      { ended: 28, purged: 0 },
+      { ended: 28, purged: 0 },
+      { ended: 0, purged: 1 },
+    ]);
+    expect(await store.getInstallation('org-big')).toBeNull();
+    // Every grant revoked once, by a batch or by the purge.
+    const revoked = fake.revoked.map((r) => r.token);
+    expect(revoked).toHaveLength(60);
+    expect(new Set(revoked).size).toBe(60);
+    // The hint names the operator's purge with its --yes.
+    expect(
+      lines.some((l) => l.includes("run 'purge --workspace org-big --yes'"))
+    ).toBe(true);
   });
 });
 

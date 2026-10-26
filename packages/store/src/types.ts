@@ -548,11 +548,19 @@ export interface Store {
    * LOCKED, bounded by the 30 s lock_timeout): a refresh in withSessionLock
    * finishes first and its rotated tokens are the ones returned. A row
    * whose tokens no longer decrypt is still deleted and comes back with
-   * `tokens: null` (logged).
+   * `tokens: null` (logged). Additive: with `purgeDueBefore`, only while
+   * the installation is revoked as 'uninstalled' or 'removed' before that
+   * instant, as purgeWorkspace would purge it (checked under the
+   * installation's row lock, so a reinstall that wins the lock keeps every
+   * session); otherwise nothing is taken.
    */
   takeSessionsForWorkspace(
     workspaceId: string,
-    options: { createdBefore?: IsoDateTime; limit: number }
+    options: {
+      createdBefore?: IsoDateTime;
+      limit: number;
+      purgeDueBefore?: IsoDateTime;
+    }
   ): Promise<TakenSession[]>;
   getSession(token: string, now: IsoDateTime): Promise<Session | null>;
   /**

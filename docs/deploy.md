@@ -324,7 +324,9 @@ Each tick does the following (arch §9):
   calls Linear: it starts a batch of revocations or a purge only when it can
   finish it in time even if Linear answers each revocation only at its 15-second
   timeout, and leaves the rest for the next tick (the summary line says
-  `left for the next tick: …`).
+  `left for the next tick: …`). A purge whose workspace still has more sessions
+  than one tick can revoke (about 24) ends them over a few ticks, then purges;
+  the log names `purge --workspace <id> --yes` to do it at once.
 - Then, for every installed workspace it admits, least recently attempted first:
   when the local time in that workspace's timezone (Settings) has reached
   `DAILY_RUN_AT` (default `08:00`), the tick runs **the daily job**: sync,

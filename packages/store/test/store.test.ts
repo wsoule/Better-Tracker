@@ -2715,6 +2715,54 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         await store.deleteSession(kept.token);
       });
 
+      test('takeSessionsForWorkspace with purgeDueBefore takes only while a purge is due', async () => {
+        const due = newWorkspaceId();
+        const grace = newWorkspaceId();
+        const dead = newWorkspaceId();
+        const never = newWorkspaceId();
+        const cutoff = '2026-09-21T08:00:00.000Z';
+        for (const ws of [due, grace, dead]) {
+          await store.saveInstallation(installation(ws));
+        }
+        await store.revokeInstallation(
+          due,
+          'uninstalled',
+          '2026-09-01T00:00:00.000Z'
+        );
+        await store.revokeInstallation(
+          grace,
+          'removed',
+          '2026-10-01T00:00:00.000Z'
+        );
+        await store.revokeInstallation(
+          dead,
+          'grant_dead',
+          '2026-09-01T00:00:00.000Z'
+        );
+        for (const ws of [due, grace, dead, never]) {
+          await newSession(ws, 'a');
+          await newSession(ws, 'b');
+        }
+        const take = (ws: string) =>
+          store.takeSessionsForWorkspace(ws, {
+            limit: 1,
+            purgeDueBefore: cutoff,
+          });
+        expect(await take(due)).toHaveLength(1);
+        // Revoked too recently, revoked as grant_dead, never installed.
+        for (const ws of [grace, dead, never]) {
+          expect(await take(ws)).toEqual([]);
+          expect(await rowsFor('sessions', ws)).toBe(2);
+        }
+        // A reinstall since: nothing is taken any more.
+        await store.saveInstallation(installation(due));
+        expect(await take(due)).toEqual([]);
+        expect(await rowsFor('sessions', due)).toBe(1);
+        for (const ws of [due, grace, dead, never]) {
+          await store.takeSessionsForWorkspace(ws, { limit: 10 });
+        }
+      });
+
       test('takeSessionsForWorkspace waits for a refresh in flight and takes its rotated tokens', async () => {
         const ws = newWorkspaceId();
         const held = await newSession(ws, 'held');

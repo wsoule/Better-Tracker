@@ -1457,13 +1457,32 @@ class SqlStore implements Store {
    * deleted is the version that refresh committed (its rotated tokens).
    * lock_timeout bounds the wait as for the token locks. Tokens are
    * decrypted per row, so an unreadable row only loses its own tokens.
+   * With `purgeDueBefore`, the installation row is locked first and
+   * checked as purgeWorkspace checks it (in the same lock order), so a
+   * reinstall in flight commits first and then nothing is taken.
    */
   async takeSessionsForWorkspace(
     workspaceId: string,
-    options: { createdBefore?: IsoDateTime; limit: number }
+    options: {
+      createdBefore?: IsoDateTime;
+      limit: number;
+      purgeDueBefore?: IsoDateTime;
+    }
   ): Promise<TakenSession[]> {
     const rows = await this.sql.transaction(async (tx) => {
       await tx.query(TOKEN_LOCK_TIMEOUT);
+      if (options.purgeDueBefore !== undefined) {
+        const due = await tx.query<{ workspace_id: string }>(
+          `SELECT workspace_id FROM installations
+           WHERE workspace_id = $1
+             AND revoked_at IS NOT NULL
+             AND revoked_at < $2::timestamptz
+             AND revoked_reason IN ('uninstalled', 'removed')
+           FOR UPDATE`,
+          [workspaceId, options.purgeDueBefore]
+        );
+        if (due.length === 0) return [];
+      }
       return tx.query<SessionRow>(
         `DELETE FROM sessions WHERE id IN (
            SELECT id FROM sessions

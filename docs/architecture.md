@@ -1745,13 +1745,17 @@ shared PGlite/Postgres suite):
   `markInstallationRevoked` stays for its callers until they move to
   `revokeInstallation`: it moves `revoked_at`/`updated_at`, records `grant_dead`
   unless a reason is recorded, and does not wipe the tokens.
-- `takeSessionsForWorkspace(ws, { createdBefore?, limit })` → `TakenSession[]`:
-  deletes the oldest-created sessions (only those created before `createdBefore`
-  when given) and returns their decrypted tokens to revoke. Unlike
-  `takeExpiredSessions` it **waits** for row locks (no `SKIP LOCKED`,
-  `lock_timeout` 30 s), so a refresh in `withSessionLock` commits first and its
-  rotated tokens are the ones returned; a row that no longer decrypts is deleted
-  and returned with `tokens: null`.
+- `takeSessionsForWorkspace(ws, { createdBefore?, limit, purgeDueBefore? })` →
+  `TakenSession[]`: deletes the oldest-created sessions (only those created
+  before `createdBefore` when given) and returns their decrypted tokens to
+  revoke. Unlike `takeExpiredSessions` it **waits** for row locks (no
+  `SKIP LOCKED`, `lock_timeout` 30 s), so a refresh in `withSessionLock` commits
+  first and its rotated tokens are the ones returned; a row that no longer
+  decrypts is deleted and returned with `tokens: null`. With `purgeDueBefore` it
+  first locks the installation row (`FOR UPDATE`, the order `purgeWorkspace`
+  locks in) and takes nothing unless it is revoked as `uninstalled` or `removed`
+  before that instant (cleanup's batches for a due purge: a reinstall that wins
+  the lock keeps every session).
 - `describeSessions(tokens, now)` → `(SessionDescription | null)[]` in input
   order: **one statement**, sessions by `token_hash = ANY(…)` (the hashes as one
   JSON parameter) left-joined with `installations` and the person's
@@ -6250,9 +6254,12 @@ Worker decisions made while building it (binding):
   deletes them, so a batch is never larger than the time left can revoke, and
   nothing taken is left unrevoked if the tick is killed later; a purge starts
   only when its transaction (a 10 s allowance) and every session it would delete
-  (counted from the listing, 4 at a time) fit, and one that could never fit a
-  whole cleanup is logged with the operator's `purge` command. What is left
-  waits for the next tick, named in `deferred` and in the summary
+  (counted from the listing, 4 at a time) fit; one that does not first ends its
+  sessions in batches the time left can revoke (step 5), so a workspace with
+  more sessions than one pass can revoke (about 24 in 2 minutes) is purged over
+  a few ticks, and one that could never fit a whole cleanup is logged with the
+  operator's `purge --workspace <id> --yes`, which has the whole tick. What is
+  left waits for the next tick, named in `deferred` and in the summary
   (`left for the next tick: …`). The store-only steps always run. 0. Blocked
   installations (§7 "Admission"): a blocked workspace that still has an active
   installation is revoked as `removed` (a block is a hard gate; no Linear call),
@@ -6279,7 +6286,14 @@ Worker decisions made while building it (binding):
   5. Purge: workspaces revoked as `uninstalled` or `removed` more than
      `PURGE_AFTER_DAYS` (30, an engine constant so the privacy page and the
      worker agree) ago, oldest revoke first, at most 3 per call, each only when
-     it fits the time left (above).
+     it fits the time left (above). A due purge that does not fit first ends its
+     remaining sessions, as many as the time left can revoke 4 at a time
+     (`endWorkspaceSessions` with `purgeDueBefore`: each batch
+     `takeSessionsForWorkspace(ws, { purgeDueBefore: now − 30 days })`, taken
+     only while the installation is still revoked that long under its row lock,
+     so a reinstall stops it; counted in `endedWorkspaceSessions`, within the
+     same 500 a call), and purges once the rest fits, in that pass or a later
+     one (`purges` deferred meanwhile).
      `store.purgeWorkspace(ws, { revokedBefore: now − 30 days })` re-checks the
      revoke under the installation's row lock and deletes every workspace-keyed
      table, the remaining sessions included, in one transaction; only then are
@@ -6520,7 +6534,9 @@ not read; a deploy that still sets it boots normally and logs one warning
   nothing but its column and never moving back, `listWorkspaceStatus` ordering
   by the later of start and finish, `updateInstallationIdentity` recording its
   read and never applying an older one, and `describeSessions`' `signInUrlKey`,
-  `signedInAt` and `urlKeyReadAt` (`test/store.test.ts`).
+  `signedInAt` and `urlKeyReadAt`, and `takeSessionsForWorkspace` with
+  `purgeDueBefore` taking nothing too recently revoked, `grant_dead`, never
+  installed or reinstalled (`test/store.test.ts`).
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
   dry vs live allocation, idempotent rerun, stale re-check, warning dedupe
@@ -6629,13 +6645,15 @@ not read; a deploy that still sets it boots normally and logs one warning
   checked longest ago first, and an unanswered read given up after 10 s
   (`test/admission.test.ts`); cleanup's deadline: a slow revoke endpoint
   stopping it in time with every session it took revoked and the rest left for
-  the next pass, no time left starting no revocation or purge while the
-  store-only steps still run, a purge waiting until its sessions' revocations
-  fit (`test/cleanup.test.ts`); a full sync writes the current name and URL key,
-  and records when an attempt started before Linear answers
-  (`test/sync.test.ts`); boot warns about each installed workspace a list leaves
-  out and about an unset list with nothing installed, and `digestChannel`
-  follows the Slack fail-safe after boot (`test/workspace-config.test.ts`).
+  the next pass, a due purge of 60 sessions ending 28 a pass and purging on the
+  third (the hint naming `purge --workspace <id> --yes`), no time left starting
+  no revocation or purge while the store-only steps still run, a purge that does
+  not fit ending the sessions one round can revoke and purging on the next pass
+  (`test/cleanup.test.ts`); a full sync writes the current name and URL key, and
+  records when an attempt started before Linear answers (`test/sync.test.ts`);
+  boot warns about each installed workspace a list leaves out and about an unset
+  list with nothing installed, and `digestChannel` follows the Slack fail-safe
+  after boot (`test/workspace-config.test.ts`).
 - planner: unit tests for cookie signing/origin checks; the adapters; the route
   handlers with a fake actor resolver, and end to end on the demo engine
   (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),
