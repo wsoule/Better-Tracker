@@ -3007,27 +3007,27 @@ limit is 1 MiB too; `next.config.ts` caps the body the proxy buffers at 2 MB,
 silently, above every body a route reads; because `proxy.ts` runs on every
 request, Next receives each upload to its end, buffering at most those 2 MB,
 before any route code runs, so a route's early refusal saves the parse, not the
-upload). `returnTo` must be a relative path.
-Every page/route resolves the actor server-side; the UI never decides
-permissions. Every mutating route above (PATCH, POST and DELETE, but the auth
-routes and the webhook) answers a Linear guest 403 `read_only` (owner decision
-2026-10-22, "Guests limited to read only") right after the CSRF guard and the
-session, before its body is read: `refuseReadOnly` in `lib/http.ts` runs the
-engine's own `requireWritable`, so the routes and the engine refuse with the
-same code and sentence, and `errorResponse` maps an engine `read_only` to 403 as
-well. A "write access" row above is therefore never a guest; the pages and GET
-routes stay open to one. Every engine read made for a person passes that actor
-as the `viewer` (§7, §2.13: pages, the palette, the issue read and search, the
-run detail, the audit and the digest preview; `lib/load.ts`'s cached view
-loaders take it from the request), so a private team's data reaches only its
-members and a guest sees only their teams. Every response carries
-`lib/security-headers.ts`: a Content-Security-Policy (`default-src 'self'`,
-`object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`,
-`connect-src 'self'`, `form-action 'self' https://linear.app`; `script-src` and
-`style-src` keep `'unsafe-inline'` in this static policy, which API routes,
-static assets and prefetches get; every page gets the stricter nonce policy of
-`proxy.ts` instead, in every mode ("Nonce CSP in every mode" below); development
-adds `'unsafe-eval'`),
+upload). `returnTo` must be a relative path. Every page/route resolves the actor
+server-side; the UI never decides permissions. Every mutating route above
+(PATCH, POST and DELETE, but the auth routes and the webhook) answers a Linear
+guest 403 `read_only` (owner decision 2026-10-22, "Guests limited to read only")
+right after the CSRF guard and the session, before its body is read:
+`refuseReadOnly` in `lib/http.ts` runs the engine's own `requireWritable`, so
+the routes and the engine refuse with the same code and sentence, and
+`errorResponse` maps an engine `read_only` to 403 as well. A "write access" row
+above is therefore never a guest; the pages and GET routes stay open to one.
+Every engine read made for a person passes that actor as the `viewer` (§7,
+§2.13: pages, the palette, the issue read and search, the run detail, the audit
+and the digest preview; `lib/load.ts`'s cached view loaders take it from the
+request), so a private team's data reaches only its members and a guest sees
+only their teams. Every response carries `lib/security-headers.ts`: a
+Content-Security-Policy (`default-src 'self'`, `object-src 'none'`,
+`base-uri 'none'`, `frame-ancestors 'none'`, `connect-src 'self'`,
+`form-action 'self' https://linear.app`; `script-src` and `style-src` keep
+`'unsafe-inline'` in this static policy, which API routes, static assets and
+prefetches get; every page gets the stricter nonce policy of `proxy.ts` instead,
+in every mode ("Nonce CSP in every mode" below); development adds
+`'unsafe-eval'`),
 `Strict-Transport-Security: max-age=31536000; includeSubDomains` (ignored by
 browsers over plain HTTP), `X-Frame-Options: DENY`, `nosniff`, a strict-origin
 referrer policy and a Permissions-Policy.
@@ -3413,12 +3413,12 @@ Auth and frame details (decided while building `apps/planner`; binding):
   most 1 MiB of raw body (else 413, a declared `Content-Length` over it refused
   without the route reading it). Next has received the whole upload, buffering
   at most 2 MB of it for `proxy.ts`, before the route's first line runs, so
-  these refusals save the parse and the HMAC, not the upload; the HMAC
-  (else a bare 400); the `webhookTimestamp` within 60 s and a well-formed
-  payload (else 400); then 200, with verified event types the engine does not
-  use dropped, so Linear never disables the webhook over them. A missing or bad
-  signature and an oversize body count against the client IP ("Rate limits"
-  below). Demo mode acks everything; api_key mode answers a bare 404.
+  these refusals save the parse and the HMAC, not the upload; the HMAC (else a
+  bare 400); the `webhookTimestamp` within 60 s and a well-formed payload (else
+  400); then 200, with verified event types the engine does not use dropped, so
+  Linear never disables the webhook over them. A missing or bad signature and an
+  oversize body count against the client IP ("Rate limits" below). Demo mode
+  acks everything; api_key mode answers a bare 404.
 - `GET /api/health` boots the engine (store opened and migrated) and calls
   `engine.ping()` (the store's liveness query, which never throws): `true` is
   200 `{ ok: true, db: 'ok' }`, `false` or a failed boot 503
@@ -5604,19 +5604,30 @@ links and follow-ups, new or unread, progress and the timeline's today.
     name, the workspace's name and their tokens encrypted with AES-256-GCM, the
     cookie's SHA-256 only; the app's tokens, app user and installer; webhook
     records; sync records; the admit and block lists), logs and memory (client
-    IPs in memory only for the rate limits; the host's logs), where (Railway,
-    Linear, and Slack only while `slack`), how long (a table from
-    `SESSION_DAYS`, `WEBHOOK_RETENTION_DAYS`, `NOTIFICATION_RETENTION_DAYS`,
+    IPs kept only in the planner's memory for the rate limits, with their real
+    windows, 10 minutes for sign-in starts and switches and one for refused
+    webhook deliveries, and that an address can outlast its window until a later
+    request on the same count clears it or a restart; the host's logs, which
+    besides the planner's own lines hold Railway's request logs with every
+    request's client IP, user agent and path), where (Railway, Linear, and Slack
+    only while `slack`), how long (a table from `SESSION_DAYS`,
+    `WEBHOOK_RETENTION_DAYS`, `NOTIFICATION_RETENTION_DAYS`,
     `JOB_CLAIM_RETENTION_DAYS` and `PURGE_AFTER_DAYS`; the copy of Linear,
-    settings and the two logs while installed), and how to have it deleted (sign
-    out; uninstall in Linear, deleted `PURGE_AFTER_DAYS` later; ask the operator
-    sooner). api_key mode says the key and session live in memory only (idle and
-    absolute limits in hours), no digests and no webhooks; the demo says it is
-    fictional and keeps nothing about the visitor (no IP is held in demo mode).
-    The spec's wording was corrected where the code differs: digests are kept
-    for every channel (not only the outbox), run entries carry issue titles,
-    sync records and the admit/block lists are stored, and a held IP leaves
-    memory when pruned or on restart rather than after a fixed time.
+    settings and the two logs while installed; deletion `PURGE_AFTER_DAYS` after
+    Linear tells the planner about an uninstall, and a grant Linear refuses with
+    no uninstall notice, `grant_dead`, kept until the operator removes it with
+    sessions lasting until they expire; database backups, when the operator
+    turns them on, can keep data longer), and how to have it deleted (sign out;
+    uninstall in Linear, deleted `PURGE_AFTER_DAYS` after Linear's notice, kept
+    until the operator removes it when no notice comes; ask the operator sooner
+    or to make sure). api_key mode says the key and session live in memory only
+    (idle and absolute limits in hours), no digests and no webhooks; the demo
+    says it is fictional and asks for nothing: the planner stores no IP, the
+    host's request logs do. The spec's wording was corrected where the code
+    differs: digests are kept for every channel (not only the outbox), run
+    entries carry issue titles, sync records and the admit/block lists are
+    stored, and a held IP leaves memory when pruned or on restart rather than
+    after a fixed time.
   - **Terms**: provided as is, no uptime promise; the only Linear writes
     (allocation once switched to live, as the app user, or with the starter's
     key with personal API keys; people's own edits with their own access);
