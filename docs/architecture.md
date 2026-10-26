@@ -3147,9 +3147,14 @@ referrer policy and a Permissions-Policy.
   `WorkspaceGuard`**, a server component that puts its own request's workspace
   id (null signed out) into a client component, which reloads the tab when it
   differs from the frame's (`FrameWorkspaceProvider` in `PlannerShell`); nothing
-  can be lost, since a navigation just happened. A test checks every page
-  renders it. The Issues page's picker options are kept by workspace and mirror
-  version, and its folded groups are remembered under
+  can be lost, since a navigation just happened. `(app)/not-found.tsx` renders
+  it too: pages call `notFound()` before their own guard, so a stale tab's Acme
+  issue or run, looked up in Globex and missed, would otherwise say an existing
+  item is gone. A test checks every page and the not-found boundary render it.
+  The error boundary (`error.tsx`, a client component) cannot host the server
+  guard; its Try again and the next navigation re-render a guarded page. The
+  Issues page's picker options are kept by workspace and mirror version, and its
+  folded groups are remembered under
   `milestone-planner:issues:collapsed:<workspace id>:<grouping>`. Switching is a
   full page load.
 - **Links that leave the app** (digests, §7, and every Copy link action: the

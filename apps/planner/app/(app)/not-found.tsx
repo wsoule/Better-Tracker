@@ -3,9 +3,15 @@ import { FileQuestionMark } from 'lucide-react';
 
 import MessageBlock from './components/message-block';
 import { PageCrumb } from './components/page-crumb';
+import WorkspaceGuard from './components/workspace-guard';
 
 /* notFound() anywhere under (app): an issue, milestone, project or run
-   that does not exist (or no longer does in Linear), or an unknown path. */
+   that does not exist (or no longer does in Linear), or an unknown path.
+   It renders the navigation guard too (a test checks): pages call
+   notFound() before their own WorkspaceGuard, and in a tab left on Acme
+   after the browser switched to Globex an Acme run or issue is looked up
+   in Globex and missed, so without it the tab would say an existing Acme
+   item is gone instead of reloading into Globex. */
 export default function NotFound() {
   return (
     <MessageBlock
@@ -27,6 +33,7 @@ export default function NotFound() {
         visible to you.
       </p>
       <PageCrumb label="Not found" />
+      <WorkspaceGuard />
     </MessageBlock>
   );
 }
