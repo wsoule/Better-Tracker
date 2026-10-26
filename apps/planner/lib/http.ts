@@ -110,7 +110,9 @@ export function errorResponse(
 /**
  * The largest JSON body any planner route reads: an issue description at
  * its 100,000-character limit, escaped, fits with room to spare. Bigger
- * bodies are refused unread (413), before zod's per-field limits.
+ * bodies are refused (413) before they are parsed or reach zod's
+ * per-field limits (Next has received the upload by then, buffering at
+ * most 2 MB of it for proxy.ts, next.config.ts).
  */
 export const MAX_JSON_BYTES = 1024 * 1024;
 

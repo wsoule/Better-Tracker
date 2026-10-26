@@ -3004,7 +3004,10 @@ and JSON bodies validated with zod, read through one limited reader (`readJson`:
 at most 1 MiB, else 413 `too_large` before anything is parsed; the webhook's
 limit is 1 MiB too; `next.config.ts` caps the body the proxy buffers at 2 MB,
 `experimental.proxyClientMaxBodySize` in Next 16, past which Next would cut it
-silently, above every body a route reads). `returnTo` must be a relative path.
+silently, above every body a route reads; because `proxy.ts` runs on every
+request, Next receives each upload to its end, buffering at most those 2 MB,
+before any route code runs, so a route's early refusal saves the parse, not the
+upload). `returnTo` must be a relative path.
 Every page/route resolves the actor server-side; the UI never decides
 permissions. Every mutating route above (PATCH, POST and DELETE, but the auth
 routes and the webhook) answers a Linear guest 403 `read_only` (owner decision
@@ -3406,8 +3409,11 @@ Auth and frame details (decided while building `apps/planner`; binding):
   uses a per-process random secret.
 - `POST /api/webhooks/linear` checks in this order, reading nothing it does not
   need yet: `LINEAR_WEBHOOK_SECRET` set (else 503) and a `Linear-Signature`
-  header present (else a bare 400), both before the body is read; at most 1 MiB
-  of raw body (else 413, a declared `Content-Length` refused unread); the HMAC
+  header present (else a bare 400), both before the route reads the body; at
+  most 1 MiB of raw body (else 413, a declared `Content-Length` over it refused
+  without the route reading it). Next has received the whole upload, buffering
+  at most 2 MB of it for `proxy.ts`, before the route's first line runs, so
+  these refusals save the parse and the HMAC, not the upload; the HMAC
   (else a bare 400); the `webhookTimestamp` within 60 s and a well-formed
   payload (else 400); then 200, with verified event types the engine does not
   use dropped, so Linear never disables the webhook over them. A missing or bad
@@ -6205,7 +6211,8 @@ The planner's rate limits are constants, not variables (`RATE_LIMITS` in
 `apps/planner/lib/rate-limit.ts`, §8.1 "Rate limits"), counted per web process;
 the client IP is Railway's `X-Real-IP` request header alone. `next.config.ts`
 sets `experimental.proxyClientMaxBodySize: '2mb'` (Next 16; the body the proxy
-buffers), above the 1 MiB every route reads at most.
+buffers), above the 1 MiB every route reads at most. Next receives every upload
+to its end (buffering at most that much) before a route runs.
 
 In api_key mode `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
 `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET`, `SESSION_SECRET`,
@@ -6417,7 +6424,7 @@ not read; a deploy that still sets it boots normally and logs one warning
   `requireApiActor`'s 6 runs, 20 previews and 300 other mutations per session,
   reads never, another session apart, signed-out, cross-origin and stale-tab
   requests answered first and never counted); `test/webhook-route.test.ts` (no
-  secret 503 and no signature 400 before the body is read, the 1 MiB cap
+  secret 503 and no signature 400 before the route reads the body, the 1 MiB cap
   declared or streamed, the 101st refusal from an IP a bare 429 with Retry-After
   whatever it sends unsigned, another IP apart, a signed delivery never limited
   or counted even from an IP over the limit, no IP never limited);

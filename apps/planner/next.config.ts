@@ -22,6 +22,9 @@ const nextConfig: NextConfig = {
     // the body is silently cut). 2 MB is above everything a route reads
     // (JSON bodies and webhooks at most 1 MiB, lib/http.ts readJson), so
     // no accepted body is ever cut, and a bigger upload buffers no more.
+    // Next still receives every upload to its end before a route runs, so
+    // a route's early refusal (the webhook's missing signature, a declared
+    // Content-Length over the limit) saves the parse, not the upload.
     proxyClientMaxBodySize: '2mb',
   },
   // No redirects here: they run before proxy.ts, so in api_key mode their

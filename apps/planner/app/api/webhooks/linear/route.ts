@@ -16,8 +16,10 @@ const logger = createLogger({ name: 'planner.webhooks' });
 
 /**
  * Linear payloads are small (an entity id and a few fields); anything past
- * this is refused unread. next.config.ts caps what the proxy buffers at
- * 2 MB, above every body a route reads.
+ * this is refused (413) before the route parses it or checks its HMAC.
+ * Next itself has received the whole upload by then: proxy.ts runs on
+ * every request, so Next reads each body to its end, buffering at most
+ * 2 MB of it (next.config.ts), before any route code runs.
  */
 const MAX_WEBHOOK_BYTES = 1024 * 1024;
 
@@ -50,7 +52,9 @@ function refuse(request: Request, status: number): Response {
  * within 5 seconds, so this only checks the delivery and acks. In order,
  * nothing read before it is needed: LINEAR_WEBHOOK_SECRET must be set
  * (else 503) and the Linear-Signature header present (else 400), both
- * before the body is read; the raw body is at most 1 MiB (else 413); its
+ * before this route reads the body (an early refusal saves the parse and
+ * the HMAC, not the upload: Next has already received it all, buffering
+ * at most 2 MB for proxy.ts); the raw body is at most 1 MiB (else 413); its
  * HMAC must match (else 400) and its webhookTimestamp be within 60 s
  * (else 400). A refused delivery (no signature, too large, a bad
  * signature) counts against its client IP, which gets a bare 429 after
@@ -63,7 +67,7 @@ function refuse(request: Request, status: number): Response {
  */
 export async function POST(request: Request): Promise<Response> {
   // Personal API keys: no webhooks at all (nothing stored could process
-  // them), refused before the body is read.
+  // them), refused before this route reads the body.
   if (linearAuthFromEnv(process.env) === 'api_key') {
     return new Response(null, { status: 404 });
   }

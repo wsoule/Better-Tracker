@@ -5,6 +5,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { NextRequest } from 'next/server';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import * as tasksModule from '../app/tasks/route';
 import { KEY_TEXT_REFUSAL } from '../lib/key-text';
@@ -308,6 +310,29 @@ describe('proxy', () => {
     // would run before it and echo the URL.
     expect('config' in proxyModule).toBe(false);
     expect(nextConfig.redirects).toBeUndefined();
+    // So Next reads every request body to its end for the proxy before
+    // any route runs: no comment may promise that an early refusal leaves
+    // a body unread (the webhook's missing signature, an oversize body).
+    const read = (...path: string[]) =>
+      readFileSync(join(import.meta.dir, '..', ...path), 'utf8');
+    for (const [name, text] of [
+      ['webhook route', read('app', 'api', 'webhooks', 'linear', 'route.ts')],
+      ['next.config.ts', read('next.config.ts')],
+      ['lib/http.ts', read('lib', 'http.ts')],
+      ['architecture', read('..', '..', 'docs', 'architecture.md')],
+    ] as const) {
+      expect({ name, unread: /refused unread/.test(text) }).toEqual({
+        name,
+        unread: false,
+      });
+    }
+    // The comment says what happens instead (its lines joined).
+    expect(
+      read('app', 'api', 'webhooks', 'linear', 'route.ts').replaceAll(
+        /\s*\n\s*\*?\s*/g,
+        ' '
+      )
+    ).toContain('buffering at most 2 MB');
   });
 });
 
