@@ -647,7 +647,7 @@ describe('runCommand: several workspaces', () => {
   const ago = (ms: number): string =>
     new Date(EARLY.getTime() - ms).toISOString();
 
-  test('works on the least recently synced first, never synced first', async () => {
+  test('works on the least recently attempted first, never attempted first', async () => {
     const engine = fakeEngine({
       statuses: [
         overview('ws-recent', { sync: { lastFullSyncAt: ago(20 * MINUTE) } }),

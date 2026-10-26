@@ -2224,12 +2224,14 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   (left off the list, a change from `*` or unset to a list, or a URL-key entry
   that does not match a stale or renamed key) is not served: sign-in and install
   are refused, its sessions read as signed out, the worker skips it and its
-  webhooks are ignored (except `OAuthApp` revoked). **Nothing is destroyed
-  automatically**: cleanup does not revoke its installation or wipe its app
-  token, and ends none of its sessions; each cleanup logs one warn per refused
-  workspace with an installation (active or `grant_dead`) naming its id and the
-  fix (add it back to `LINEAR_WORKSPACES`, or run `remove`), and counts it
-  (`CleanupResult.notServedWorkspaces`). Putting it back on the list restores
+  webhooks are ignored (except `OAuthApp` revoked). **The planner destroys
+  nothing of it by its own choice**: cleanup does not revoke its installation or
+  wipe its app token, and ends none of its sessions (a dead app grant Linear
+  refuses, for instance in cleanup's identity read, is still recorded as
+  `grant_dead`, as for any installed workspace); each cleanup logs one warn per
+  refused workspace with an installation (active or `grant_dead`) naming its id
+  and the fix (add it back to `LINEAR_WORKSPACES`, or run `remove`), and counts
+  it (`CleanupResult.notServedWorkspaces`). Putting it back on the list restores
   everything as it was: the installation serves again and its sessions sign back
   in (a refusal that was only a stale URL key is lifted by cleanup's own read,
   above). Its sessions stay unusable until then or until they expire (the
@@ -2322,13 +2324,15 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
     workspaces share → `conflict`, a malformed name (not letters, digits and
     dashes, ≤ 64) → `invalid`. None returns a credential.
     - `listWorkspaceStatus()` → `WorkspaceOverview[]`: the store's
-      `WorkspaceStatus[]` (unexpired sessions counted, least recently synced
-      first) with `admission` on each, admission's fresh verdict (`ok`,
-      `not_allowed`, `blocked`; one pass, the blocks read once; always `ok`
-      outside OAuth mode). It only reports: cleanup removes blocked installs and
-      warns about the ones `LINEAR_WORKSPACES` leaves out. The worker's runs
-      over every workspace and the `workspaces` command both read it (§9).
-      `listBlockedWorkspaces()` → the blocks.
+      `WorkspaceStatus[]` (unexpired sessions counted, ordered by the later of
+      the last full sync attempt's start and finish, never attempted first) with
+      `admission` on each, admission's fresh verdict (`ok`, `not_allowed`,
+      `blocked`; one pass, the blocks read once; always `ok` outside OAuth
+      mode). It only reports: cleanup removes blocked installs, reads the URL
+      key of active ones `LINEAR_WORKSPACES` refuses while an entry is unpinned
+      (which may admit them again), and warns about the ones it still leaves
+      out. The worker's runs over every workspace and the `workspaces` command
+      both read it (§9). `listBlockedWorkspaces()` → the blocks.
     - `removeWorkspace(name)` →
       `WorkspaceRemoval { workspaceId, revoked, appTokenRevoked, endedSessions, revokedTokens, revokeFailures }`:
       revokes the app's token with Linear (`revokeGrant`, best effort, under the
@@ -6321,9 +6325,10 @@ Worker decisions made while building it (binding):
      deadline; admitted again → `reAdmittedWorkspaces`, an info line). Otherwise
      one warn per call names its id and the fix (add it back, or run `remove`),
      it is counted (`notServedWorkspaces`), and the planner revokes, wipes, ends
-     and purges nothing of it by its own choice, so re-admitting it restores it
-     as it was. Its sessions stay unusable until then or until they expire (step
-     1).
+     and purges nothing of it by its own choice (a dead app grant Linear refuses
+     in the read is still recorded as `grant_dead`, as for any installed
+     workspace), so re-admitting it restores it as it was. Its sessions stay
+     unusable until then or until they expire (step 1).
 - The tick's summary lists cleanup's counts: expired sessions (and failed
   revocations) and old webhook delivery records always; sessions of uninstalled
   or removed workspaces ended, workspaces purged, old notifications, old job

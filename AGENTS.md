@@ -41,11 +41,12 @@
   and the operator block list gate _workspaces_, not people, so they are not a
   permission distinction; admission is checked in the engine
   (`engine/src/admission.ts`) on every sign-in, install, request, webhook and
-  worker run. A workspace left off `LINEAR_WORKSPACES` is not served, but
-  nothing is revoked, ended or deleted automatically; only the operator's
-  `remove`, `block` or `purge` do that. Switching only changes which of the
-  browser's own sessions is active: it calls no `requireWritable`, and guests
-  may switch.
+  worker run. A workspace left off `LINEAR_WORKSPACES` is not served, but the
+  planner revokes, ends or deletes nothing of it by its own choice (a dead grant
+  Linear refuses is still recorded as `grant_dead`, as for any installed
+  workspace); only the operator's `remove`, `block` or `purge` do that.
+  Switching only changes which of the browser's own sessions is active: it calls
+  no `requireWritable`, and guests may switch.
 - Run the app without Linear: `LINEAR_FIXTURE=1` (demo mode, fictional in-memory
   workspace; `LINEAR_FIXTURE=showcase` serves the large showcase workspace, made
   for the live demo). Tests never call real Linear or Slack.

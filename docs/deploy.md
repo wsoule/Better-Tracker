@@ -318,15 +318,16 @@ Each tick does the following (arch §9):
   installed workspace `LINEAR_WORKSPACES` leaves out is **not** removed: it is
   only not served (a soft gate; a warning per tick names it and the fix, section
   5), and when one of the list's URL keys is not tied to a workspace yet, the
-  tick first reads that workspace's current URL key from Linear once (a rename
-  no sync has seen) and serves it again if the list names it. Housekeeping gets
-  at most 2 minutes, and at most half of `TICK_TIMEOUT_MINUTES`, for work that
-  calls Linear: it starts a batch of revocations or a purge only when it can
-  finish it in time even if Linear answers each revocation only at its 15-second
-  timeout, and leaves the rest for the next tick (the summary line says
-  `left for the next tick: …`). A purge whose workspace still has more sessions
-  than one tick can revoke (about 24) ends them over a few ticks, then purges;
-  the log names `purge --workspace <id> --yes` to do it at once.
+  tick reads the current URL key of a few such workspaces from Linear last,
+  after the revocations and purges (a rename no sync has seen), and serves one
+  again if the list names it. Housekeeping gets at most 2 minutes, and at most
+  half of `TICK_TIMEOUT_MINUTES`, for work that calls Linear: it starts a batch
+  of revocations or a purge only when it can finish it in time even if Linear
+  answers each revocation only at its 15-second timeout, and leaves the rest for
+  the next tick (the summary line says `left for the next tick: …`). A purge
+  whose workspace still has more sessions than one tick can revoke (about 24)
+  ends them over a few ticks, then purges; the log names
+  `purge --workspace <id> --yes` to do it at once.
 - Then, for every installed workspace it admits, least recently attempted first:
   when the local time in that workspace's timezone (Settings) has reached
   `DAILY_RUN_AT` (default `08:00`), the tick runs **the daily job**: sync,
