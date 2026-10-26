@@ -412,6 +412,10 @@ describe('the terms', () => {
     expect(copy).toContain('provided as is');
     expect(copy).toContain('no promise of uptime');
     expect(copy).toContain('only once someone switches it to live');
+    // The worker's allocate --live refuses dry run without --override-mode.
+    expect(copy).toContain(
+      'where Settings still says dry run, it writes only when they deliberately override that'
+    );
     expect(copy).toContain('each with that person’s own Linear access');
     expect(copy).toContain('Acme Ops may remove a workspace');
     expect(copy).toContain(`deleted ${PURGE_AFTER_DAYS} days later`);

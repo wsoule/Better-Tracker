@@ -39,7 +39,16 @@ export type CliCommand =
   | { name: 'migrate' }
   | { name: 'sync'; workspaceId: string | null }
   | { name: 'daily'; workspaceId: string | null; force: boolean }
-  | { name: 'allocate'; workspaceId: string | null; mode: AllocationMode }
+  | {
+      name: 'allocate';
+      workspaceId: string | null;
+      mode: AllocationMode;
+      /**
+       * `--override-mode`: a live run even where the workspace's saved
+       * allocation mode is dry run (absent: refused there).
+       */
+      overrideMode?: boolean;
+    }
   | { name: 'warn'; workspaceId: string | null }
   | { name: 'tick'; workspaceId: string | null }
   | { name: 'serve'; workspaceId: string | null }
@@ -93,6 +102,15 @@ const MAX_REASON_LENGTH = 500;
 export const LIVE_ALLOCATE_NEEDS_WORKSPACE =
   'allocate --live writes to Linear, so it runs for one workspace at a time: add --workspace <id> (allocate --dry-run may run for every workspace).';
 
+/**
+ * Why `allocate --live` refuses a workspace whose saved allocation mode
+ * is dry run: the terms page tells people allocation writes to Linear only
+ * once someone switches it to live in Settings. --override-mode is the
+ * operator saying so on purpose.
+ */
+export const LIVE_ALLOCATE_SAVED_DRY_RUN =
+  "the workspace's saved allocation mode is dry run, so allocate --live writes nothing there: switch it to live in Settings, or add --override-mode to write to Linear anyway";
+
 /** Why purge refuses to run without --yes. */
 export const PURGE_NEEDS_YES =
   'purge deletes everything the planner keeps for the workspace (its mirror, settings, run log and audit log) and cannot be undone; add --yes to confirm.';
@@ -113,9 +131,11 @@ Commands:
                                    workspace's allocation mode), warnings.
                                    Once per local day unless --force.
   allocate --dry-run [--workspace <id>]
-  allocate --live --workspace <id>
+  allocate --live --workspace <id> [--override-mode]
                                    Run allocation now in the given mode
-                                   (live writes to Linear: one workspace).
+                                   (live writes to Linear: one workspace,
+                                   and only if its saved mode is live,
+                                   unless --override-mode).
   warn     [--workspace <id>]      Run the warnings and digests now.
   tick     [--workspace <id>]      What the cron runs every 15 minutes:
                                    housekeeping first (at most 2 minutes of
@@ -154,6 +174,8 @@ Options:
                      an org id or URL key (required).
   --force            daily only: run even if today's run already happened.
   --dry-run, --live  allocate only: required, exactly one.
+  --override-mode    allocate --live only: run even where the workspace's
+                     saved allocation mode is dry run.
   --json             workspaces only: print JSON instead of a table.
   --yes              purge only: required.
   --reason <text>    block only: why, kept with the block (at most 500).
@@ -186,6 +208,7 @@ interface RawOptions {
   force: boolean;
   dryRun: boolean;
   live: boolean;
+  overrideMode: boolean;
   json: boolean;
   yes: boolean;
   reason: string | null;
@@ -291,8 +314,12 @@ function buildCommand(raw: RawOptions): ParseResult {
       message: `--reason is only valid for block, not ${command}.`,
     };
   }
-  if ((raw.dryRun || raw.live) && command !== 'allocate') {
-    const flag = raw.dryRun ? '--dry-run' : '--live';
+  if ((raw.dryRun || raw.live || raw.overrideMode) && command !== 'allocate') {
+    const flag = raw.dryRun
+      ? '--dry-run'
+      : raw.live
+        ? '--live'
+        : '--override-mode';
     return {
       kind: 'error',
       message: `${flag} is only valid for allocate, not ${command}.`,
@@ -328,12 +355,20 @@ function buildCommand(raw: RawOptions): ParseResult {
       if (raw.live && workspaceId === null) {
         return { kind: 'error', message: LIVE_ALLOCATE_NEEDS_WORKSPACE };
       }
+      if (raw.overrideMode && !raw.live) {
+        return {
+          kind: 'error',
+          message:
+            '--override-mode is only valid for allocate --live (a dry run writes nothing).',
+        };
+      }
       return {
         kind: 'command',
         command: {
           name: 'allocate',
           workspaceId,
           mode: raw.live ? 'live' : 'dry_run',
+          ...(raw.overrideMode ? { overrideMode: true } : {}),
         },
       };
     case 'sync':
@@ -361,6 +396,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
     force: false,
     dryRun: false,
     live: false,
+    overrideMode: false,
     json: false,
     yes: false,
     reason: null,
@@ -411,6 +447,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       token === '--force' ||
       token === '--dry-run' ||
       token === '--live' ||
+      token === '--override-mode' ||
       token === '--json' ||
       token === '--yes'
     ) {
@@ -419,6 +456,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       if (token === '--force') raw.force = true;
       else if (token === '--dry-run') raw.dryRun = true;
       else if (token === '--live') raw.live = true;
+      else if (token === '--override-mode') raw.overrideMode = true;
       else if (token === '--json') raw.json = true;
       else raw.yes = true;
       index += 1;

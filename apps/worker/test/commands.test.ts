@@ -7,7 +7,10 @@ import {
 } from '@better-tracker/logger';
 import { describe, expect, test } from 'bun:test';
 
-import { LIVE_ALLOCATE_NEEDS_WORKSPACE } from '../src/cli';
+import {
+  LIVE_ALLOCATE_NEEDS_WORKSPACE,
+  LIVE_ALLOCATE_SAVED_DRY_RUN,
+} from '../src/cli';
 import {
   apiKeyModeOutcome,
   type CommandContext,
@@ -371,7 +374,10 @@ describe('runCommand', () => {
   });
 
   test('allocate runs the requested mode as a manual run with no actor', async () => {
-    const engine = fakeEngine({ workspaces: ['ws-a'] });
+    const engine = fakeEngine({
+      workspaces: ['ws-a'],
+      allocationModes: { 'ws-a': 'live' },
+    });
     const result = await runCommand(context(engine), {
       name: 'allocate',
       workspaceId: 'ws-a',
@@ -385,10 +391,56 @@ describe('runCommand', () => {
     });
   });
 
+  test('allocate --live refuses a workspace whose saved mode is dry run, unless --override-mode', async () => {
+    const engine = fakeEngine({ workspaces: ['ws-a'] });
+    const refused = await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: 'ws-a',
+      mode: 'live',
+    });
+    // Nothing written: the run never starts.
+    expect(engine.calls).toEqual(['workspaceAllocationMode:ws-a']);
+    expect(refused.outcomes).toEqual([
+      {
+        workspaceId: 'ws-a',
+        kind: 'failed',
+        ok: false,
+        detail: 'allocation live not started',
+        error: LIVE_ALLOCATE_SAVED_DRY_RUN,
+      },
+    ]);
+    expect(exitCodeFor(refused)).toBe(1);
+    expect(summaryLine(refused)).toContain('add --override-mode');
+
+    // The operator says they mean it: the saved mode is not even read.
+    engine.calls.length = 0;
+    const overridden = await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: 'ws-a',
+      mode: 'live',
+      overrideMode: true,
+    });
+    expect(engine.calls).toEqual(['runAllocation:ws-a:live:manual:no-actor']);
+    expect(exitCodeFor(overridden)).toBe(0);
+    // A dry run writes nothing and never asks.
+    engine.calls.length = 0;
+    await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: 'ws-a',
+      mode: 'dry_run',
+    });
+    expect(engine.calls).toEqual([
+      'runAllocation:ws-a:dry_run:manual:no-actor',
+    ]);
+  });
+
   test.each(['failed', 'partial'] as const)(
     'an allocation run that ended %s fails',
     async (status) => {
-      const engine = fakeEngine({ workspaces: ['ws-a'] });
+      const engine = fakeEngine({
+        workspaces: ['ws-a'],
+        allocationModes: { 'ws-a': 'live' },
+      });
       engine.runAllocation = (input) =>
         Promise.resolve(
           allocationRun(input.workspaceId, {
@@ -1315,6 +1367,20 @@ describe('workerEngineFrom', () => {
         'ws-a'
       )
     ).toBe('Asia/Tokyo');
+  });
+
+  test('reads the saved allocation mode from the settings, without loading', async () => {
+    const engine = {
+      ...engineWith('UTC'),
+      getSettings: (workspaceId: string) =>
+        Promise.resolve({
+          workspaceId,
+          allocationMode: 'live',
+        } as WorkspaceSettings),
+    } as Engine;
+    expect(await workerEngineFrom(engine).workspaceAllocationMode('ws-a')).toBe(
+      'live'
+    );
   });
 });
 

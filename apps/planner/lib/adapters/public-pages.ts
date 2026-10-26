@@ -410,7 +410,7 @@ export function termsPage(facts: PublicFacts): PublicPage {
           'The edits people make themselves (milestone dates, project leads, issue fields, comments and blocking relations), each with that person’s own key.',
         ]
       : [
-          'Allocation, only once someone switches it to live in Settings (it starts as a dry run that writes nothing): the daily run, and Run now, assign a project’s next-milestone issues to the project lead, move them from Backlog to Todo and add a comment saying why, as the app’s own Linear user.',
+          'Allocation, only once someone switches it to live in Settings (it starts as a dry run that writes nothing): the daily run, and Run now, assign a project’s next-milestone issues to the project lead, move them from Backlog to Todo and add a comment saying why, as the app’s own Linear user. The person who runs the planner can also start that run by hand for one workspace; where Settings still says dry run, it writes only when they deliberately override that.',
           'The edits people make themselves (milestone dates, project leads, issue fields, comments and blocking relations), each with that person’s own Linear access.',
         ];
   const sections: PublicSection[] = [

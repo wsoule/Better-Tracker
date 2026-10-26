@@ -46,6 +46,15 @@ describe('parseArgs: commands', () => {
       ['allocate', '--live', '--workspace', 'org-1'],
       { name: 'allocate', workspaceId: 'org-1', mode: 'live' },
     ],
+    [
+      ['allocate', '--live', '--override-mode', '--workspace', 'org-1'],
+      {
+        name: 'allocate',
+        workspaceId: 'org-1',
+        mode: 'live',
+        overrideMode: true,
+      },
+    ],
     [['warn'], { name: 'warn', workspaceId: null }],
     [['tick'], { name: 'tick', workspaceId: null }],
     [['tick', '--workspace', 'org-1'], { name: 'tick', workspaceId: 'org-1' }],
@@ -169,6 +178,19 @@ describe('parseArgs: errors', () => {
     // A live run writes to Linear: never across every workspace, whose
     // saved allocation modes may be dry run.
     [['allocate', '--live'], LIVE_ALLOCATE_NEEDS_WORKSPACE],
+    [['allocate', '--live', '--override-mode'], LIVE_ALLOCATE_NEEDS_WORKSPACE],
+    [
+      ['allocate', '--dry-run', '--override-mode'],
+      '--override-mode is only valid for allocate --live (a dry run writes nothing).',
+    ],
+    [
+      ['tick', '--override-mode'],
+      '--override-mode is only valid for allocate, not tick.',
+    ],
+    [
+      ['allocate', '--live', '--override-mode', '--override-mode'],
+      '--override-mode was given more than once.',
+    ],
     [['migrate', '--workspace', 'a'], 'migrate does not take --workspace.'],
     [['migrate', '--', 'x'], 'Unknown option: --'],
     [['remove'], 'remove needs --workspace <org id or URL key>.'],

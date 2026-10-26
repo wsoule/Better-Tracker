@@ -8,7 +8,7 @@
 // exit code and the one-line human summary are derived. The operator's
 // workspace commands are in operator.ts.
 
-import { isValidTimeZone } from '@better-tracker/core';
+import { type AllocationMode, isValidTimeZone } from '@better-tracker/core';
 import type {
   CleanupOptions,
   CleanupResult,
@@ -26,6 +26,7 @@ import {
   type CommandName,
   isOperatorCommandName,
   LIVE_ALLOCATE_NEEDS_WORKSPACE,
+  LIVE_ALLOCATE_SAVED_DRY_RUN,
   type OperatorCommand,
 } from './cli';
 import type { WorkerConfig } from './config';
@@ -49,8 +50,10 @@ export type AllocationRunResult = Awaited<ReturnType<Engine['runAllocation']>>;
  * The slice of the engine the worker uses. `workspaceTimezone` resolves a
  * workspace's saved timezone (falling back to DEFAULT_TIMEZONE when the
  * saved one is invalid, as the engine itself does), so the schedule
- * decision and the engine's "today" agree. The workspace lifecycle methods
- * are the operator commands' (operator.ts); nothing else calls them.
+ * decision and the engine's "today" agree; `workspaceAllocationMode` is
+ * its saved allocation mode (`allocate --live` refuses dry run). The
+ * workspace lifecycle methods are the operator commands' (operator.ts);
+ * nothing else calls them.
  */
 export interface WorkerEngine {
   readonly mode: 'linear' | 'fixture';
@@ -60,6 +63,7 @@ export interface WorkerEngine {
    */
   listWorkspaceStatus(): Promise<WorkspaceOverview[]>;
   workspaceTimezone(workspaceId: string): Promise<string>;
+  workspaceAllocationMode(workspaceId: string): Promise<AllocationMode>;
   fullSync(workspaceId: string): Promise<SyncResult>;
   runDaily(input: {
     workspaceId: string;
@@ -91,6 +95,8 @@ export function workerEngineFrom(engine: Engine): WorkerEngine {
         ? settings.timezone
         : engine.config.defaultTimezone;
     },
+    workspaceAllocationMode: async (workspaceId) =>
+      (await engine.getSettings(workspaceId)).allocationMode,
     fullSync: (workspaceId) => engine.fullSync(workspaceId),
     runDaily: (input) => engine.runDaily(input),
     runAllocation: (input) => engine.runAllocation(input),
@@ -808,16 +814,29 @@ export async function runCommand(
       );
       break;
     case 'allocate':
-      result.outcomes = await run(async (id) =>
-        describeAllocation(
+      result.outcomes = await run(async (id) => {
+        // The person who runs the worker writes to Linear only where the
+        // workspace's own people switched allocation to live, unless they
+        // say they mean to override that (the terms page says so).
+        if (command.mode === 'live' && command.overrideMode !== true) {
+          const saved = await engine.workspaceAllocationMode(id);
+          if (saved !== 'live') {
+            return {
+              ok: false,
+              detail: 'allocation live not started',
+              error: LIVE_ALLOCATE_SAVED_DRY_RUN,
+            };
+          }
+        }
+        return describeAllocation(
           await engine.runAllocation({
             workspaceId: id,
             mode: command.mode,
             trigger: 'manual',
             actor: null,
           })
-        )
-      );
+        );
+      });
       break;
     case 'warn':
       result.outcomes = await run(async (id) => ({

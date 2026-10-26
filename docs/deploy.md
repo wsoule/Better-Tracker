@@ -535,7 +535,7 @@ operator commands are in "Operating several workspaces" below):
 - `migrate`
 - `sync`
 - `daily [--force]`
-- `allocate --dry-run`, or `allocate --live --workspace <id>`
+- `allocate --dry-run`, or `allocate --live --workspace <id> [--override-mode]`
 - `warn`
 - `tick`
 - `serve`
@@ -543,15 +543,19 @@ operator commands are in "Operating several workspaces" below):
 All of them take `[--workspace <id>]`, except `migrate`. `allocate --live`
 requires it: a live run writes to Linear (assignments, state moves, comments) as
 the app, so it runs in the one workspace you name, never in every workspace at
-once (some may have left allocation on dry run in Settings). They need the
-production variables and the private network. `sync`, `daily`, `allocate` and
-`warn` stop with exit 1 after `TICK_TIMEOUT_MINUTES`, like `tick`, naming the
-stage they were stuck in, so a manual run never overlaps a tick that takes over
-the daily job. `migrate` has no time limit: if a migration takes longer than one
-run's budget (every command applies pending migrations when it starts), apply it
-with `migrate`. `railway cron run` runs the worker's configured `tick`. For
-anything else, run the command in the `web` service with `railway ssh`, as
-"Running them on Railway" below shows (the web image contains the worker):
+once (some may have left allocation on dry run in Settings). It also refuses a
+workspace whose saved allocation mode (Settings) is still dry run (exit 1,
+nothing written), since `/terms` tells people allocation writes only once
+someone switched it to live; add `--override-mode` only when you mean to write
+to Linear there anyway (the terms say you can). They need the production
+variables and the private network. `sync`, `daily`, `allocate` and `warn` stop
+with exit 1 after `TICK_TIMEOUT_MINUTES`, like `tick`, naming the stage they
+were stuck in, so a manual run never overlaps a tick that takes over the daily
+job. `migrate` has no time limit: if a migration takes longer than one run's
+budget (every command applies pending migrations when it starts), apply it with
+`migrate`. `railway cron run` runs the worker's configured `tick`. For anything
+else, run the command in the `web` service with `railway ssh`, as "Running them
+on Railway" below shows (the web image contains the worker):
 `railway ssh --service web -- node /app/apps/worker/dist/index.js sync --workspace <org id>`.
 If that session does not see the service's variables (the check is in that
 section), temporarily change the worker's start command and use

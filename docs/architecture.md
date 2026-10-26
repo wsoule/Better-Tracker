@@ -3607,20 +3607,24 @@ binding):
 - **A live run is gated by the saved mode**: `POST /api/runs { mode: 'live' }`
   answers 409 `live_runs_off` while `settings.allocationMode` is `dry_run`
   (§7.4: dry run until someone switches it live in Settings → Modes, which
-  anyone signed in may do; the switch is a `settings.update` audit entry). Only
-  the web route is gated; the worker's `allocate --live` is an operator command,
-  and it runs for one workspace only: without `--workspace` it is a usage error
-  (exit 2), since one deployment serves several workspaces, each with its own
-  saved mode (owner decision 2026-10-25), and a run over all of them would write
-  into workspaces left on dry run, which the terms page says cannot happen.
-  Answers: `/api/runs` 201 `{ run }` (the finished run; the run takes as long as
-  its sync), `/api/sync` 200 `{ sync }` (a `SyncResult` without its `counts`:
-  they are of the whole mirror, which may hold private teams the caller cannot
-  see, §2.13, so the route drops them in every mode; `ok: false` carries the
-  error), `/api/warnings/preview` 200 `{ preview }` (the digests mapped for
-  display with app-relative `/timeline?…` links; nothing recorded or sent),
-  `/api/settings` 200 `{ settings }`. A partial `tuning` is passed through; the
-  engine merges it over the saved tuning.
+  anyone signed in may do; the switch is a `settings.update` audit entry). The
+  worker's `allocate --live` is an operator command and is gated the same way:
+  it runs for one workspace only (without `--workspace` it is a usage error,
+  exit 2, since one deployment serves several workspaces, each with its own
+  saved mode, owner decision 2026-10-25), and it refuses that workspace while
+  its saved mode is `dry_run` (a failed outcome, exit 1, `runAllocation` never
+  called) unless the operator adds `--override-mode`. The terms page says
+  allocation writes only once someone switches it to live, and that the person
+  who runs the planner can start a run by hand that writes where Settings says
+  dry run only when they deliberately override it. Answers: `/api/runs` 201
+  `{ run }` (the finished run; the run takes as long as its sync), `/api/sync`
+  200 `{ sync }` (a `SyncResult` without its `counts`: they are of the whole
+  mirror, which may hold private teams the caller cannot see, §2.13, so the
+  route drops them in every mode; `ok: false` carries the error),
+  `/api/warnings/preview` 200 `{ preview }` (the digests mapped for display with
+  app-relative `/timeline?…` links; nothing recorded or sent), `/api/settings`
+  200 `{ settings }`. A partial `tuning` is passed through; the engine merges it
+  over the saved tuning.
 - `/settings?section=modes|watchers|schedule|status|notifications|audit`
   (default Modes; the old `?section=people` opens Watchers) shows one section
   beside the sub-nav; each section's form PATCHes only its own fields. Every
@@ -5743,9 +5747,11 @@ links and follow-ups, new or unread, progress and the timeline's today.
     after a fixed time.
   - **Terms**: provided as is, no uptime promise; the only Linear writes
     (allocation once switched to live, as the app user, or with the starter's
-    key with personal API keys; people's own edits with their own access);
-    acceptable use; the operator may remove or block a workspace (OAuth mode) or
-    stop the planner; changes. "Plain words, not legal advice."
+    key with personal API keys, and the operator's run by hand, which writes
+    where Settings say dry run only with `--override-mode`; people's own edits
+    with their own access); acceptable use; the operator may remove or block a
+    workspace (OAuth mode) or stop the planner; changes. "Plain words, not legal
+    advice."
   - **Contact**: "<app> is run by <OPERATOR_NAME>, independently of Linear…"
     with an Email (`mailto:`) and Website row, or, with no `OPERATOR_*` set,
     "The person who runs <app> has not published contact details here. If your
@@ -6043,9 +6049,12 @@ notice above the sign-in card.
 - `migrate`
 - `sync [--workspace <id>]` — full resync of one/all installed workspaces
 - `daily [--workspace <id>] [--force]` — the scheduled job
-- `allocate --dry-run [--workspace <id>]`, `allocate --live --workspace <id>` (a
-  live run writes to Linear, so it names its one workspace; without
-  `--workspace` it is a usage error, exit 2)
+- `allocate --dry-run [--workspace <id>]`,
+  `allocate --live --workspace <id> [--override-mode]` (a live run writes to
+  Linear, so it names its one workspace; without `--workspace` it is a usage
+  error, exit 2; a workspace whose saved allocation mode is `dry_run` is
+  refused, exit 1 with nothing written, unless `--override-mode`, §8.1 "A live
+  run is gated by the saved mode")
 - `warn [--workspace <id>]`
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
   UTC): first `cleanup` (bounded per call and in time, so it always runs,
@@ -6517,35 +6526,49 @@ not read; a deploy that still sets it boots normally and logs one warning
 - worker (several workspaces, owner decision 2026-10-25), with a fake engine and
   fake clocks: `test/scaling.test.ts` (the plan per status: run, skipped as
   uninstalled, removed, blocked or not admitted whatever the revoke, grant_dead
-  a failure, never installed left out; least recently attempted first; the start
-  need and its cap; the daily's 5 minutes; skip recent; chronic),
-  `test/commands.test.ts` (order, `WORKER_CONCURRENCY` lanes with out-of-order
-  finishes, deferral on an advancing clock, the slow workspace started at the
-  beginning, a due daily not started with 4 minutes left deferring the whole
-  workspace, a morning of ticks giving every workspace its daily job, cleanup
-  before any workspace, `allocate --live` over every workspace refused, skip
-  recent and the daily's sync never skipped, every skip and exit code, chronic
-  only in a tick and never after the run's own sync succeeded, cleanup's new
-  counts), `test/operator.test.ts` (every command's output and exit code, the
-  name passed to the engine untouched and the resolved id printed, every purge
-  refusal, the JSON shape, engine refusals as FAILED lines, no token or email in
-  any output), `test/cli.test.ts` (the operator commands' options and refusals,
-  `--yes`, `allocate --live` without `--workspace`), and `test/run.test.ts`
-  (`deadlineAt` from `TICK_TIMEOUT_MINUTES` and per serve tick, a workspace that
-  never finishes named by the deadline after cleanup ran, purge without `--yes`
-  never boots, api_key mode refuses every operator command before boot,
-  `workspaces --json` keeps stdout for the JSON, and list → remove → tick skips
-  it → purge refused then done → block/unblock against the real demo engine).
-  Engine: `listWorkspaceStatus` carries admission's verdicts, cleanup removes
-  blocked installations and only warns about the ones `LINEAR_WORKSPACES` leaves
-  out (re-admitting restores them, sessions included), a renamed workspace
-  listed by its new URL key is never removed and its sign-in refreshes the
-  installation's name and key, a URL-key pin outlives a purge, unblock by URL
-  key after a pin (`test/admission.test.ts`); a full sync writes the current
-  name and URL key (`test/sync.test.ts`); boot warns about each installed
-  workspace a list leaves out and about an unset list with nothing installed,
-  and `digestChannel` follows the Slack fail-safe after boot
-  (`test/workspace-config.test.ts`).
+  a failure, never installed left out; least recently attempted first, an
+  attempt's start counting when it never finished; the start need and its cap;
+  the daily's 5 minutes; cleanup's deadline; skip recent and chronic unmoved by
+  attempt starts), `test/commands.test.ts` (order, `WORKER_CONCURRENCY` lanes
+  with out-of-order finishes, deferral on an advancing clock, the slow workspace
+  started at the beginning, a due daily not started with 4 minutes left
+  deferring the whole workspace, a morning of ticks giving every workspace its
+  daily job, cleanup before the listing (a workspace it admits again runs in the
+  same tick) with its deadline, `allocate --live` over every workspace refused
+  and on a workspace saved as dry run refused without `--override-mode`, four
+  ticks over a workspace whose sync never finishes (it stops going first, the
+  others sync), skip recent and the daily's sync never skipped, every skip and
+  exit code, chronic only in a tick and never after the run's own sync
+  succeeded, cleanup's new counts and what it left), `test/operator.test.ts`
+  (every command's output and exit code, the name passed to the engine untouched
+  and the resolved id printed, every purge refusal, the JSON shape, engine
+  refusals as FAILED lines, no token or email in any output), `test/cli.test.ts`
+  (the operator commands' options and refusals, `--yes`, `allocate --live`
+  without `--workspace`, `--override-mode` only with `allocate --live`), and
+  `test/run.test.ts` (`deadlineAt` from `TICK_TIMEOUT_MINUTES` and per serve
+  tick, a workspace that never finishes named by the deadline after cleanup ran,
+  purge without `--yes` never boots, api_key mode refuses every operator command
+  before boot, `workspaces --json` keeps stdout for the JSON, and list → remove
+  → tick skips it → purge refused then done → block/unblock against the real
+  demo engine). Engine: `listWorkspaceStatus` carries admission's verdicts,
+  cleanup removes blocked installations and only warns about the ones
+  `LINEAR_WORKSPACES` leaves out (re-admitting restores them, sessions
+  included), a renamed workspace listed by its new URL key is never removed and
+  its sign-in refreshes the installation's name and key, a URL-key pin outlives
+  a purge, unblock by URL key after a pin, a session that signed in under the
+  current key pinning an unpinned entry (its own key first) while the
+  installation's is stale and never one pinned to another org, cleanup's
+  identity read admitting a refused installation again with one app-token read,
+  and skipping the read without an unpinned entry or time, a failed one only
+  warning (`test/admission.test.ts`); cleanup's deadline: a slow revoke endpoint
+  stopping it in time with every session it took revoked and the rest left for
+  the next pass, no time left starting no revocation or purge while the
+  store-only steps still run, a purge waiting until its sessions' revocations
+  fit (`test/cleanup.test.ts`); a full sync writes the current name and URL key,
+  and records when an attempt started before Linear answers
+  (`test/sync.test.ts`); boot warns about each installed workspace a list leaves
+  out and about an unset list with nothing installed, and `digestChannel`
+  follows the Slack fail-safe after boot (`test/workspace-config.test.ts`).
 - planner: unit tests for cookie signing/origin checks; the adapters; the route
   handlers with a fake actor resolver, and end to end on the demo engine
   (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),

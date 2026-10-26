@@ -282,12 +282,15 @@ describe('runCli: one-shot commands', () => {
 
   test('the deadline is cancelled when a manual command finishes in time', async () => {
     let exits = 0;
-    const d = deps(fakeEngine({ workspaces: ['ws-a'] }), {
-      tickTimeoutMs: 30,
-      exit: () => {
-        exits += 1;
-      },
-    });
+    const d = deps(
+      fakeEngine({ workspaces: ['ws-a'], allocationModes: { 'ws-a': 'live' } }),
+      {
+        tickTimeoutMs: 30,
+        exit: () => {
+          exits += 1;
+        },
+      }
+    );
     expect(await runCli(['allocate', '--live', '--workspace', 'ws-a'], d)).toBe(
       0
     );

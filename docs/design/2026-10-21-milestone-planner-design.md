@@ -852,7 +852,13 @@ workspace".
   restores it as it was; boot and every worker cleanup log a warn naming it and
   the fix (the lead engineer's call after the 2026-10-26 review, replacing
   "removed by the next cleanup"). A blocked workspace is still removed: a block
-  is the operator's explicit act;
+  is the operator's explicit act. When the only reason is a rename the planner
+  has not seen yet (a URL-key entry not tied to any workspace), the worker's
+  cleanup reads the workspace's current URL key from Linear once per tick and
+  serves it again, and people who signed in under the new key stay signed in;
+- a live allocation the operator starts by hand (`allocate --live`) runs in one
+  named workspace and, where that workspace's Settings still say dry run, only
+  with an explicit `--override-mode`, as the terms page says;
 - a write grant (or an install) Linear issues for another workspace than the
   one it was asked for is refused and revoked, and the person is told to open
   the right workspace at linear.app;

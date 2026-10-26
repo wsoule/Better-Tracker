@@ -180,6 +180,8 @@ export function fakeEngine(
     /** The whole overview instead of `workspaces` and `revoked`. */
     statuses?: WorkspaceOverview[];
     timezones?: Record<string, string>;
+    /** Saved allocation modes (default dry_run, as a new workspace's). */
+    allocationModes?: Record<string, AllocationMode>;
     now?: () => Date;
     overrides?: Partial<WorkerEngine>;
   } = {}
@@ -203,6 +205,10 @@ export function fakeEngine(
     workspaceTimezone: (id) => {
       calls.push(`workspaceTimezone:${id}`);
       return Promise.resolve(options.timezones?.[id] ?? 'UTC');
+    },
+    workspaceAllocationMode: (id) => {
+      calls.push(`workspaceAllocationMode:${id}`);
+      return Promise.resolve(options.allocationModes?.[id] ?? 'dry_run');
     },
     fullSync: (id) => {
       calls.push(`fullSync:${id}`);
