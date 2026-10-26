@@ -154,6 +154,15 @@ export interface EngineConfig {
    */
   workspaces?: WorkspaceAdmission;
   /**
+   * Additive (OAuth mode only, test-only): `LINEAR_API_URL`, a local fake
+   * Linear, accepted only on 127.0.0.1 or [::1] without user info and with
+   * a loopback APP_URL. GraphQL then goes to this URL, Linear's token and
+   * revoke endpoints and its authorize page to the same paths at its
+   * origin (test-endpoint.ts). Absent everywhere else, so every call and
+   * the authorize link name Linear.
+   */
+  linearTestEndpoint?: string;
+  /**
    * Additive: `OPERATOR_NAME`, `OPERATOR_EMAIL` and `OPERATOR_URL`, for the
    * contact, privacy and terms pages. Absent reads as all null.
    */

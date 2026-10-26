@@ -54,6 +54,7 @@ import {
 import { needsRefresh } from './providers';
 import type { EngineRuntime, MirrorView } from './runtime';
 import { firstSync } from './sync';
+import { authorizeUrlViaTestEndpoint } from './test-endpoint';
 import {
   type Actor,
   EngineAuthError,
@@ -233,13 +234,19 @@ export function startOAuth(rt: EngineRuntime, intent: OAuthIntent): OAuthStart {
   const pkce = createPkcePair();
   const install = intent === 'install';
   const consent = install || intent === 'add_workspace';
-  const url = buildAuthorizeUrl(oauth, {
+  const linearUrl = buildAuthorizeUrl(oauth, {
     state,
     scopes: [...scopes],
     codeChallenge: pkce.challenge,
     ...(install ? { actor: 'app' as const } : {}),
     ...(consent ? { prompt: 'consent' as const } : {}),
   });
+  // A test's local fake Linear serves the authorize page too.
+  const testEndpoint = rt.config.linearTestEndpoint;
+  const url =
+    testEndpoint === undefined
+      ? linearUrl
+      : authorizeUrlViaTestEndpoint(linearUrl, testEndpoint);
   return { url, state, codeVerifier: pkce.verifier };
 }
 

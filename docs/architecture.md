@@ -2376,7 +2376,16 @@ optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
   the entry count; `*` → warn. A deployed planner (`isDeployedEnv`:
   `NODE_ENV=production` on a non-loopback `APP_URL`) without `OPERATOR_EMAIL`
   logs one info line saying the contact page names no way to reach whoever runs
-  it.
+  it. The test-only `LINEAR_API_URL` (same gate as in api_key mode: a loopback
+  `APP_URL`, a `127.0.0.1` or `[::1]` URL without user info, else a config
+  error; `EngineConfig.linearTestEndpoint`) points OAuth mode at a local fake
+  Linear (`test-endpoint.ts`): boot wraps the provider's and the engine's fetch
+  so GraphQL goes to the URL itself and every other `https://api.linear.app`
+  path (`/oauth/token`, `/oauth/revoke`) to the same path at its origin, and
+  `startOAuth` sends the browser to `<origin>/oauth/authorize` with the same
+  query; one error-level line names the origin. Without it nothing is wrapped
+  and every call and the authorize link name Linear byte for byte. Demo mode
+  ignores it.
 - Real `LinearProvider`: loads the installation/session tokens, refreshes when
   `expiresAt` is within 5 minutes (under the row lock, re-reading inside the
   lock so only one process refreshes; the new expiry is counted on the
@@ -5924,7 +5933,7 @@ Worker decisions made while building it (binding):
 | `LINEAR_AUTH`                               | planner, worker                       | how the planner reaches Linear: `oauth` (default) or `api_key` (personal API keys held in the planner's memory, §7.4); a config error together with `LINEAR_FIXTURE`; set it as one shared variable for web and worker                                      |
 | `LINEAR_WORKSPACE`                          | planner (api_key)                     | the Linear workspace URL key (or organization id) the planner serves; **required when deployed** in api_key mode (`NODE_ENV=production`, non-loopback `APP_URL`); unset locally, the first member to connect binds; the worker's `migrate` does not need it |
 | `LINEAR_WORKSPACES`                         | planner, worker (oauth)               | oauth mode only: which Linear workspaces may use the planner (§7 "Admission"): unset → closed to new workspaces, `*` → any, else up to 100 comma-separated org ids or URL keys; set the same value on web **and** worker                                    |
-| `LINEAR_API_URL`                            | planner (api_key)                     | **test-only**: the GraphQL endpoint of a local fake Linear; accepted only with a loopback `APP_URL` and a `127.0.0.1` or `[::1]` URL without user info; logged at error level when set; the connect route then answers only loopback hosts                  |
+| `LINEAR_API_URL`                            | planner, worker (api_key, oauth)      | **test-only**: a local fake Linear's GraphQL endpoint, only with a loopback `APP_URL` and a `127.0.0.1` or `[::1]` URL without user info; logged as an error; api_key: connect answers only loopback; oauth: token, revoke, authorize at its origin (§7.1)  |
 | `NODE_OPTIONS`                              | planner (api_key)                     | must include `--disable-sigusr1` when deployed in api_key mode (`deploy/Dockerfile` sets it); `--inspect*`, `--debug*` and the heap-snapshot flags are refused in api_key mode                                                                              |
 | `TOKEN_ENCRYPTION_KEY`                      | all                                   | oauth mode only: 32 random bytes, base64 (unused and warned about in api_key mode)                                                                                                                                                                          |
 | `SESSION_SECRET`                            | planner                               | oauth mode only: ≥ 32 chars, signs the OAuth cookie                                                                                                                                                                                                         |
@@ -6364,6 +6373,21 @@ not read; a deploy that still sets it boots normally and logs one warning
     under `E2E_ARTIFACTS_DIR` (the PGlite directory, `server.log`, the server's
     `TMPDIR`) byte by byte, and every table of that database through SQL (a byte
     scan alone would miss TOAST-compressed jsonb).
+- **OAuth, several workspaces in one browser** (owner decision 2026-10-25; no
+  test calls real Linear):
+  - engine `test/oauth-test-endpoint.test.ts`: the test-only `LINEAR_API_URL` in
+    OAuth mode accepted for `127.0.0.1` and `[::1]` with a `localhost`,
+    `127.0.0.1` or `[::1]` `APP_URL`; refused for Linear's own URL, any other
+    host (`localhost` and look-alikes included), user info, a non-http scheme or
+    a non-URL, and without a loopback `APP_URL` (deployed or not); unset or
+    blank leaves the config deep-equal to one without it; demo mode ignores it
+    and api_key mode keeps its own endpoint; the swap (GraphQL to the URL
+    itself, other API paths and the authorize page at its origin with their
+    query, every other URL untouched, look-alike hosts included); and a real
+    OAuth engine whose sign-in, identity check and revoke all reach the test
+    origin, with the error-level boot line, while the same boot without it calls
+    only `https://api.linear.app` and links to
+    `https://linear.app/oauth/authorize`.
 - image: CI's `image` job builds `deploy/Dockerfile` and starts both services
   from it in demo mode (the web app must answer `/api/health`, the worker's
   `tick` must exit 0).

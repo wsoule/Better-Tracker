@@ -292,22 +292,25 @@ describe('LINEAR_AUTH', () => {
   });
 
   test('OAuth defaults are unchanged', () => {
-    const config = loadEngineConfigFromEnv(
-      {
-        APP_URL: 'https://planner.example.com',
-        TOKEN_ENCRYPTION_KEY: TEST_KEY,
-        LINEAR_CLIENT_ID: 'id',
-        LINEAR_CLIENT_SECRET: 'secret',
-        LINEAR_WORKSPACE: 'ignored here',
-        LINEAR_API_URL: 'https://evil.example',
-      },
-      NO_FLAGS
-    );
+    const oauth = {
+      APP_URL: 'https://planner.example.com',
+      TOKEN_ENCRYPTION_KEY: TEST_KEY,
+      LINEAR_CLIENT_ID: 'id',
+      LINEAR_CLIENT_SECRET: 'secret',
+      LINEAR_WORKSPACE: 'ignored here',
+    };
+    const config = loadEngineConfigFromEnv(oauth, NO_FLAGS);
     expect(config.auth).toBe('oauth');
     expect(config.apiKey).toBeNull();
     expect(config.oauth?.clientId).toBe('id');
+    expect('linearTestEndpoint' in config).toBe(false);
     expect(problems({ APP_URL: 'https://p.example' })).toContain(
       'TOKEN_ENCRYPTION_KEY is required'
     );
+    // OAuth mode reads the test-only endpoint too (oauth-test-endpoint
+    // test), behind the same gate, so a deployed planner refuses it.
+    expect(
+      problems({ ...oauth, LINEAR_API_URL: 'https://evil.example' })
+    ).toContain('LINEAR_API_URL is test-only: it needs a loopback APP_URL');
   });
 });

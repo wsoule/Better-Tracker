@@ -61,6 +61,7 @@ import {
 } from './key-sync';
 import { createKeyVault } from './key-vault';
 import { createFixtureLinearProvider, createLinearProvider } from './providers';
+import { fetchViaTestEndpoint } from './test-endpoint';
 import type { Engine, EngineConfig, LinearProvider } from './types';
 
 /** Optional injections for createEngineFromEnv (worker logger, tests). */
@@ -373,6 +374,19 @@ export async function createEngineFromEnv(
     now,
   });
 
+  // A test's local fake Linear (LINEAR_API_URL, OAuth mode only): every
+  // call to Linear's API host goes there instead (test-endpoint.ts).
+  const testEndpoint = config.linearTestEndpoint;
+  const fetch =
+    testEndpoint === undefined
+      ? options.fetch
+      : fetchViaTestEndpoint(testEndpoint, options.fetch ?? globalThis.fetch);
+  if (testEndpoint !== undefined) {
+    logger.error(
+      `LINEAR_API_URL is set: Linear sign-ins and calls go to ${new URL(testEndpoint).origin}, a local test server`
+    );
+  }
+
   try {
     await store.migrate();
     let linear: LinearProvider;
@@ -399,7 +413,7 @@ export async function createEngineFromEnv(
         oauth: config.oauth,
         logger,
         now,
-        fetch: options.fetch,
+        fetch,
         appName: config.appName,
       });
     }
@@ -431,7 +445,7 @@ export async function createEngineFromEnv(
       logger,
       config,
       now,
-      fetch: options.fetch,
+      fetch,
     });
     if (dataset !== null) {
       await seedDemoWorkspace({

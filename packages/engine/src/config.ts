@@ -190,8 +190,9 @@ export function processFlagProblem(input: {
   return null;
 }
 
-// LINEAR_API_URL (test-only): a URL on 127.0.0.1 or [::1], without user
-// info. Returns the endpoint, or the problem.
+// LINEAR_API_URL (test-only, api_key and OAuth mode): a URL on 127.0.0.1
+// or [::1], without user info, and only with a loopback APP_URL. Returns
+// the endpoint, or the problem.
 function parseTestEndpoint(
   value: string,
   appUrlLoopback: boolean
@@ -418,7 +419,8 @@ export function retiredEnvVariables(env: EngineEnv): string[] {
  * larger demo workspace) needs nothing: APP_URL
  * defaults to http://localhost:3000 and OAuth is off. OAuth mode (the
  * default) requires APP_URL, TOKEN_ENCRYPTION_KEY, LINEAR_CLIENT_ID and
- * LINEAR_CLIENT_SECRET. `LINEAR_AUTH=api_key` needs only APP_URL (https
+ * LINEAR_CLIENT_SECRET (and, in a test, may point at a local fake Linear
+ * with LINEAR_API_URL). `LINEAR_AUTH=api_key` needs only APP_URL (https
  * when deployed) and, when deployed, LINEAR_WORKSPACE; it refuses
  * inspector and heap-snapshot flags (processFlagProblem, read from
  * `execArgv` and NODE_OPTIONS). `migrateOnly` (the worker's migrate,
@@ -548,6 +550,18 @@ export function loadEngineConfigFromEnv(
   const workspaces = oauthMode
     ? readWorkspaceAdmission(env, problems)
     : undefined;
+  // LINEAR_API_URL in OAuth mode: test-only, behind the same loopback gate
+  // as in api_key mode (test-endpoint.ts). Demo mode ignores it.
+  const rawTestEndpoint = oauthMode ? read(env, 'LINEAR_API_URL') : null;
+  let linearTestEndpoint: string | undefined;
+  if (rawTestEndpoint !== null) {
+    const parsed = parseTestEndpoint(
+      rawTestEndpoint,
+      rawAppUrl !== null && isLoopbackUrl(appUrl)
+    );
+    if ('error' in parsed) problems.push(parsed.error);
+    else linearTestEndpoint = parsed.endpoint;
+  }
   const operator = readOperator(env, problems);
   const demoUrl = readPublicUrl(env, 'DEMO_URL', problems);
   const mirrorCacheWorkspaces = readMirrorCacheWorkspaces(env, problems);
@@ -586,6 +600,7 @@ export function loadEngineConfigFromEnv(
           },
     sessionDays,
     ...(workspaces === undefined ? {} : { workspaces }),
+    ...(linearTestEndpoint === undefined ? {} : { linearTestEndpoint }),
     operator,
     demoUrl,
   };
