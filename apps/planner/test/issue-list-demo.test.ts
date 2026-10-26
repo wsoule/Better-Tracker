@@ -30,6 +30,10 @@ void mock.module('next/headers', () => ({
           ? { name, value: sessionToken }
           : undefined,
     }),
+  // Every next/headers mock defines both exports: Bun keeps one module
+  // namespace per specifier across test files, so a mock missing one leaves
+  // a later file's `import { headers }` unlinkable (next-headers-mocks test).
+  headers: () => Promise.resolve(new Headers()),
 }));
 
 const { PATCH: bulkPatch } = await import('../app/api/issues/route');
