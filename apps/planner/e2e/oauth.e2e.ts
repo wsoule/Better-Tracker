@@ -10,6 +10,7 @@ import {
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { expectScriptsNonced } from './csp-nonce';
 import type { FakeOrgKey } from './fake-linear-data';
 import {
   type FakeOAuthRequestRecord,
@@ -271,7 +272,8 @@ async function switchWithPalette(
 /**
  * Opens `path` and checks it shows `org`'s data only: the switcher names
  * `org`, the page shows `marker`, and neither its text nor its HTML holds
- * a word of the other workspace's data.
+ * a word of the other workspace's data. Every script on it carries the
+ * response's CSP nonce.
  */
 async function expectOnly(
   page: Page,
@@ -281,6 +283,8 @@ async function expectOnly(
 ): Promise<void> {
   const response = await page.goto(path, { waitUntil: 'networkidle' });
   expect(response?.status(), path).toBe(200);
+  // OAuth pages get the nonce policy too (proxy.ts, every mode).
+  await expectScriptsNonced(response, path);
   const html = (await response?.text()) ?? '';
   await expect(switcher(page, org)).toBeVisible();
   await expect(page.locator('main')).toContainText(marker);
