@@ -83,12 +83,16 @@ async function oauthSetup(
 }
 
 /** Installs a second workspace next to the demo one. */
-async function installOther(store: Store): Promise<void> {
+async function installOther(
+  store: Store,
+  workspaceId = 'org-other',
+  urlKey = 'other'
+): Promise<void> {
   const at = '2026-10-01T00:00:00.000Z';
   await store.saveInstallation({
-    workspaceId: 'org-other',
+    workspaceId,
     workspaceName: 'Other Co',
-    urlKey: 'other',
+    urlKey,
     appUserId: 'u-other-app',
     installedByUserId: 'u-other',
     revokedAt: null,
@@ -181,6 +185,56 @@ describe('the Slack fail-safe in the warning run', () => {
       await open?.close();
       open = null;
     }
+  });
+});
+
+describe('digestChannel', () => {
+  // What the planner's copy reads to promise Slack DMs only when the
+  // fail-safe lets Slack carry them.
+  test('slack only while one workspace may be served, read again after an install', async () => {
+    const s = await oauthSetup();
+    expect(await s.engine.digestChannel()).toBe('slack');
+    // The demo workspace has no installation row here: one install is
+    // still one workspace, the second makes two.
+    await installOther(s.store);
+    expect(await s.engine.digestChannel()).toBe('slack');
+    await installOther(s.store, 'org-third', 'third');
+    expect(await s.engine.digestChannel()).toBe('outbox');
+  });
+
+  test('outbox under * or a list of several; slack for a list of one', async () => {
+    const cases: [WorkspaceAdmission, 'slack' | 'outbox'][] = [
+      [{ mode: 'any' }, 'outbox'],
+      [{ mode: 'list', entries: [WORKSPACE_ID, 'other'] }, 'outbox'],
+      [{ mode: 'list', entries: [WORKSPACE_ID] }, 'slack'],
+    ];
+    for (const [workspaces, expected] of cases) {
+      const s = await oauthSetup({ workspaces });
+      expect(await s.engine.digestChannel()).toBe(expected);
+      await open?.close();
+      open = null;
+    }
+  });
+
+  test('a channel that does not deliver is the outbox; an unreadable store keeps Slack named', async () => {
+    const clock = createClock();
+    const store = await openTestStore(clock);
+    const fixture = createFixtureStore(clock.today());
+    const quiet = createEngine({
+      store,
+      linear: fixtureProvider(fixture, { mode: 'linear' }),
+      channel: recordingChannel({ delivers: false }),
+      logger: recordingLogger().logger,
+      config: { ...TEST_CONFIG, auth: 'oauth' },
+      now: clock.now,
+    });
+    expect(await quiet.digestChannel()).toBe('outbox');
+    await store.close();
+
+    const s = await oauthSetup();
+    await s.store.close();
+    open = null;
+    expect(await s.engine.digestChannel()).toBe('slack');
   });
 });
 
