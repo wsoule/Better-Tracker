@@ -844,10 +844,12 @@ words), and its rail tooltip reads "Acme · Switch workspace".
 
 - **Rows**: the `ShellWorkspace` list sorted by name (whatever the order given)
   under a "Workspaces" heading: a 20px initials tile (the current workspace in
-  the brand tile's colours, the others `--surface-3` / `--text-2`), the name,
-  the `hint` ("Guest", "linear.app/acme"), the accent tick on the `current` one,
-  where the menu opens. `connect` adds a last row under a bare divider ("Connect
-  another workspace", a plus icon) that is a full page load of its `href`.
+  the brand tile's colours, the others `--surface-3` / `--text-2`; in forced
+  colours each keeps a `CanvasText` edge and the current one a `CanvasText`
+  fill, as the brand row's tile keeps its edge), the name, the `hint` ("Guest",
+  "linear.app/acme"), the accent tick on the `current` one, where the menu
+  opens. `connect` adds a last row under a bare divider ("Connect another
+  workspace", a plus icon) that is a full page load of its `href`.
 - **Switching**: picking another workspace calls `onSwitch(id)` through the edit
   family's save contract. While its promise runs the workspace line reads
   "Switching to Globex" (the polite status says "Switching Workspace"); a
