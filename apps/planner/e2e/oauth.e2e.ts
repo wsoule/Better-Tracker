@@ -359,6 +359,12 @@ test('1. Ana signs in to Acme through the chooser and lands on Setup', async ({
   await expect(page).toHaveURL(`${APP}/setup`);
   await expect(page.getByText('Acme · not installed yet')).toBeVisible();
   await expect(switcher(page, 'acme')).toBeVisible();
+  // The one-line workspace id note is one line tall, not a 260px band
+  // (its flex basis is a width in a row, a height in the column).
+  const idNote = page.getByText('Workspace id:', { exact: false });
+  const box = await idNote.boundingBox();
+  expect(box?.height ?? 0).toBeGreaterThan(0);
+  expect(box?.height ?? 999).toBeLessThan(60);
   const cookie = (await ana.cookies()).find((c) => c.name === 'mp_session');
   expect(cookie?.httpOnly).toBe(true);
   expect(cookie?.sameSite).toBe('Lax');
