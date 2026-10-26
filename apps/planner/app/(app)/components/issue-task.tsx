@@ -51,7 +51,12 @@ import type {
   IssueSearchHit,
   IssueTaskModel,
 } from '../../../lib/adapters/issue';
-import { type ApiResult, getJson, sendJson } from '../../../lib/api-client';
+import {
+  type ApiResult,
+  getJson,
+  notSavedToast,
+  sendJson,
+} from '../../../lib/api-client';
 import {
   type IssueWriteKind,
   issueWriteOutcome,
@@ -121,20 +126,8 @@ export function useIssueWrites(issueId: string): {
         toast({ kind: 'info', label: 'Already linked', message: outcome.note });
       }
       if (result.ok || outcome.kind !== 'failed') return;
-      const grant = result.grantWriteHref;
-      toast({
-        kind: 'error',
-        label: 'Not saved',
-        message: result.message,
-        action:
-          grant === undefined
-            ? undefined
-            : {
-                label: 'Allow edits',
-                onClick: () => window.location.assign(grant),
-              },
-        duration: grant === undefined ? undefined : 10_000,
-      });
+      // "Allow edits" for needs_write_scope, "Reload" for a stale tab.
+      toast(notSavedToast(result, (href) => window.location.assign(href)));
       throw new Error(result.message);
     },
     [router, toast]

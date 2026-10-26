@@ -19,9 +19,9 @@ const executablePath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.e2e.ts',
-  // The api-key run has its own config, servers and fake Linear
-  // (playwright.api-key.config.ts).
-  testIgnore: '**/api-key.e2e.ts',
+  // The api-key and OAuth runs have their own configs, servers and fake
+  // Linear (playwright.api-key.config.ts, playwright.oauth.config.ts).
+  testIgnore: ['**/api-key.e2e.ts', '**/oauth.e2e.ts'],
   // One server, shared demo data: the tests run in order.
   workers: 1,
   fullyParallel: false,

@@ -929,5 +929,5 @@ With personal API keys (section 7) there is nothing to register: set
 `apps/planner/.env.local` (no pin is needed locally; the first member to connect
 binds the workspace), start the planner, and paste your key on the home page.
 The planner syncs by itself while you are connected; the worker is not needed.
-`LINEAR_API_URL` is for tests only (a local fake Linear on `127.0.0.1`); never
-set it outside them.
+`LINEAR_API_URL` is for tests only (a local fake Linear on `127.0.0.1`, in
+api_key and OAuth mode); never set it outside them.

@@ -490,7 +490,14 @@ export function useIssueMoves({
       if (!answer.ok) {
         dropBatch(batch);
         refused(answer);
-        if (answer.status === 404 || answer.status === 409) refreshAfter(null);
+        // A stale view refreshes, but never a tab left on another
+        // workspace (issueWriteOutcome says why): its toast offers Reload.
+        if (
+          answer.code !== 'workspace_changed' &&
+          (answer.status === 404 || answer.status === 409)
+        ) {
+          refreshAfter(null);
+        }
         return;
       }
       const result = answer.data.result;

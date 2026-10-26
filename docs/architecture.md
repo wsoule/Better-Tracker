@@ -2382,7 +2382,16 @@ optional `createdAt`; `EngineConfig` gains optional `mirrorCacheWorkspaces`;
   the entry count; `*` → warn. A deployed planner (`isDeployedEnv`:
   `NODE_ENV=production` on a non-loopback `APP_URL`) without `OPERATOR_EMAIL`
   logs one info line saying the contact page names no way to reach whoever runs
-  it.
+  it. The test-only `LINEAR_API_URL` (same gate as in api_key mode: a loopback
+  `APP_URL`, a `127.0.0.1` or `[::1]` URL without user info, else a config
+  error; `EngineConfig.linearTestEndpoint`) points OAuth mode at a local fake
+  Linear (`test-endpoint.ts`): boot wraps the provider's and the engine's fetch
+  so GraphQL goes to the URL itself and every other `https://api.linear.app`
+  path (`/oauth/token`, `/oauth/revoke`) to the same path at its origin, and
+  `startOAuth` sends the browser to `<origin>/oauth/authorize` with the same
+  query; one error-level line names the origin. Without it nothing is wrapped
+  and every call and the authorize link name Linear byte for byte. Demo mode
+  ignores it.
 - Real `LinearProvider`: loads the installation/session tokens, refreshes when
   `expiresAt` is within 5 minutes (under the row lock, re-reading inside the
   lock so only one process refreshes; the new expiry is counted on the
@@ -3114,9 +3123,13 @@ referrer policy and a Permissions-Policy.
   `workspace_changed`** when the header is present and is not the active
   session's workspace ("This tab shows <A>, but this browser switched to <B> in
   another tab. Reload to continue in <B>, or switch back to <A>.", names from
-  the engine, never the header; the "Not saved" toast offers Reload). Without
-  the header a request is let through (the engine scopes every read and write to
-  the session's workspace anyway). Layouts do not re-render on client navigation
+  the engine, never the header; the "Not saved" toast offers Reload). No view
+  calls `router.refresh()` on that answer (`issueWriteOutcome`, the Issues
+  page's moves): a refresh re-renders the layout too, so the tab would turn into
+  <B> without a reload, showing <B>'s page at the same address (Globex's ENG-1
+  where Acme's was), and the next edit would land there. Without the header a
+  request is let through (the engine scopes every read and write to the
+  session's workspace anyway). Layouts do not re-render on client navigation
   (Next 16 `layout.md`), and an `(app)/template.tsx` would not cover it either
   (Next 16 `template.md`: a template does not remount for a search-param change
   or a navigation within a deeper segment), so **every `(app)` page renders
@@ -6093,7 +6106,7 @@ Worker decisions made while building it (binding):
 | `LINEAR_AUTH`                               | planner, worker                       | how the planner reaches Linear: `oauth` (default) or `api_key` (personal API keys held in the planner's memory, §7.4); a config error together with `LINEAR_FIXTURE`; set it as one shared variable for web and worker                                      |
 | `LINEAR_WORKSPACE`                          | planner (api_key)                     | the Linear workspace URL key (or organization id) the planner serves; **required when deployed** in api_key mode (`NODE_ENV=production`, non-loopback `APP_URL`); unset locally, the first member to connect binds; the worker's `migrate` does not need it |
 | `LINEAR_WORKSPACES`                         | planner, worker (oauth)               | oauth mode only: which Linear workspaces may use the planner (§7 "Admission"): unset → closed to new workspaces, `*` → any, else up to 100 comma-separated org ids or URL keys; set the same value on web **and** worker                                    |
-| `LINEAR_API_URL`                            | planner (api_key)                     | **test-only**: the GraphQL endpoint of a local fake Linear; accepted only with a loopback `APP_URL` and a `127.0.0.1` or `[::1]` URL without user info; logged at error level when set; the connect route then answers only loopback hosts                  |
+| `LINEAR_API_URL`                            | planner, worker (api_key, oauth)      | **test-only**: a local fake Linear's GraphQL endpoint, only with a loopback `APP_URL` and a `127.0.0.1` or `[::1]` URL without user info; logged as an error; api_key: connect answers only loopback; oauth: token, revoke, authorize at its origin (§7.1)  |
 | `NODE_OPTIONS`                              | planner (api_key)                     | must include `--disable-sigusr1` when deployed in api_key mode (`deploy/Dockerfile` sets it); `--inspect*`, `--debug*` and the heap-snapshot flags are refused in api_key mode                                                                              |
 | `TOKEN_ENCRYPTION_KEY`                      | all                                   | oauth mode only: 32 random bytes, base64 (unused and warned about in api_key mode)                                                                                                                                                                          |
 | `SESSION_SECRET`                            | planner                               | oauth mode only: ≥ 32 chars, signs the OAuth cookie                                                                                                                                                                                                         |
@@ -6584,7 +6597,72 @@ not read; a deploy that still sets it boots normally and logs one warning
     header). Then `e2e/scan-api-key-leaks.ts` scans every file the server wrote
     under `E2E_ARTIFACTS_DIR` (the PGlite directory, `server.log`, the server's
     `TMPDIR`) byte by byte, and every table of that database through SQL (a byte
-    scan alone would miss TOAST-compressed jsonb).
+    scan alone would miss TOAST-compressed jsonb; `e2e/leak-scan.ts`, shared
+    with the OAuth suite).
+- **OAuth, several workspaces in one browser** (owner decision 2026-10-25; no
+  test calls real Linear):
+  - engine `test/oauth-test-endpoint.test.ts`: the test-only `LINEAR_API_URL` in
+    OAuth mode accepted for `127.0.0.1` and `[::1]` with a `localhost`,
+    `127.0.0.1` or `[::1]` `APP_URL`; refused for Linear's own URL, any other
+    host (`localhost` and look-alikes included), user info, a non-http scheme or
+    a non-URL, and without a loopback `APP_URL` (deployed or not); unset or
+    blank leaves the config deep-equal to one without it; demo mode ignores it
+    and api_key mode keeps its own endpoint; the swap (GraphQL to the URL
+    itself, other API paths and the authorize page at its origin with their
+    query, every other URL untouched, look-alike hosts included); and a real
+    OAuth engine whose sign-in, identity check and revoke all reach the test
+    origin, with the error-level boot line, while the same boot without it calls
+    only `https://api.linear.app` and links to
+    `https://linear.app/oauth/authorize`.
+  - planner `test/issue-writes.test.ts`: a 409 `workspace_changed` fails every
+    issue write without a refresh (a refresh in a stale tab would render the
+    other workspace's page and shell at the same address), and the issue page
+    and the issue list's moves toast it with Reload (`notSavedToast`).
+  - browser (`e2e/oauth.e2e.ts`, `playwright.oauth.config.ts`, moon
+    `planner:test-e2e-oauth`, a CI target): the production build in OAuth mode
+    on `E2E_PORT` (default 3394 plus the worktree offset) with
+    `LINEAR_WORKSPACES=acme,globex`, a second planner over its own database that
+    admits only Acme on `E2E_PORT + 2`, and the fake Linear
+    (`e2e/fake-linear-server.ts`: Acme, where Ana is the admin, and Globex,
+    where Gia is the admin and Ana a guest) on `E2E_PORT + 1`, reached through
+    `LINEAR_API_URL`, whose origin also serves the authorize page (the fake's
+    workspace chooser, so no Playwright route is needed); no traces, videos or
+    screenshots kept. In order: Ana signs in to Acme (scope `read`, lands on
+    `/setup`, an HttpOnly `Lax` session cookie on `/`), installs it
+    (`actor=app`, `prompt=consent`, lands on `/timeline`) and allows edits
+    (`read,write`); connects Globex from the brand-row menu through
+    `/setup/connect` (`prompt=consent`, lands on `/setup` since Globex is not
+    installed, the stash cookie set) and Gia installs it in her own browser;
+    `/week`, `/timeline`, `/projects`, `/graph`, `/issues`, `/issues/ENG-1`,
+    `/runs` and Settings → Status each show only the active workspace (the
+    switcher names it, the page shows its data, and neither the page's text nor
+    its HTML, RSC payload included, holds a word of the other's issues,
+    projects, milestones or people; Globex's ENG-1 is another issue than
+    Acme's), in Globex, after switching to Acme with the menu, and after the
+    palette's "Switch to Globex"; with Acme open at Linear (the chooser
+    authorizes it at once) connecting lands on `/week?connect=same` with its
+    notice, the new grant revoked and the write grant kept (an edit reaches Acme
+    as Ana); in Globex Ana sees the guest notice and no edit control, and a
+    direct PATCH is 403 `read_only` with nothing sent to Linear, while Acme's
+    page is editable; a tab left on Acme after another tab switched to Globex
+    gets 409 `workspace_changed` with the "Not saved" toast naming both and its
+    Reload, nothing reaches either workspace, and its next client navigation
+    reloads it (a full load) into Globex; `/timeline?ws=org-globex` while Acme
+    is active goes through `/open` ("This link is for Globex.") and its Switch
+    lands on Globex's `/timeline`; "Sign out of Globex" lands on
+    `/week?signed_out=1` ("Signed out of Globex. Still signed in to Acme."),
+    revokes exactly Ana's Globex refresh token and keeps her Acme grant and both
+    app grants; the Acme-only planner refuses Globex at sign-in
+    (`workspace_not_allowed`, no session cookie, the grant revoked). Last, no
+    Linear token or code (`lin_oauth_access_`, `lin_oauth_refresh_`,
+    `lin_code_`), the OAuth client secret, `SESSION_SECRET` or
+    `TOKEN_ENCRYPTION_KEY` (`e2e/oauth-leak-needles.ts`) is in any planner
+    response (headers and bodies, RSC payloads included), and no session token
+    the suite saw in a Set-Cookie is anywhere else: not in a body or another
+    header, the servers' logs or any file they wrote; the fake saw no token in a
+    body or URL. Then `e2e/scan-oauth-leaks.ts` scans every file both planners
+    wrote under `E2E_ARTIFACTS_DIR` and both PGlite databases through SQL for
+    those needles (stored tokens are encrypted and session tokens hashed).
 - image: CI's `image` job builds `deploy/Dockerfile` and starts both services
   from it in demo mode (the web app must answer `/api/health`, the worker's
   `tick` must exit 0).

@@ -92,3 +92,27 @@ tasks:
       cache: false
       runInCI: true
       envFile: '/.env.worktree'
+
+  # The OAuth browser test (playwright.oauth.config.ts): the same
+  # production build in OAuth mode, one browser holding Acme and Globex
+  # sessions, against the loopback fake Linear through the test-only
+  # LINEAR_API_URL (its own authorize page included) on E2E_PORT, E2E_PORT+1
+  # and E2E_PORT+2 (a planner that admits only Acme; default 3394 + the
+  # worktree offset), then a scan of everything both planners wrote
+  # (E2E_ARTIFACTS_DIR, a fresh temp dir by default) for Linear tokens,
+  # codes and the test secrets (e2e/scan-oauth-leaks.ts). A `moon ci`
+  # target like test-e2e.
+  test-e2e-oauth:
+    script:
+      'export E2E_ARTIFACTS_DIR="${E2E_ARTIFACTS_DIR:-$(mktemp -d)}" &&
+      playwright test -c playwright.oauth.config.ts && bun
+      e2e/scan-oauth-leaks.ts "$E2E_ARTIFACTS_DIR"'
+    deps:
+      - 'build'
+    inputs:
+      - 'e2e/**/*'
+      - 'playwright.oauth.config.ts'
+    options:
+      cache: false
+      runInCI: true
+      envFile: '/.env.worktree'
