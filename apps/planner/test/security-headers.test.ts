@@ -37,7 +37,7 @@ describe('security headers', () => {
   });
 });
 
-describe('the api_key-mode nonce policy', () => {
+describe('the nonce policy (every page, every mode)', () => {
   test('holds the nonce, strict-dynamic, worker-src none and form-action self', async () => {
     const { contentSecurityPolicy } = await import('../lib/security-headers');
     const csp = contentSecurityPolicy({ nonce: 'abc123==' });
@@ -57,6 +57,41 @@ describe('the api_key-mode nonce policy', () => {
     expect(contentSecurityPolicy({ nonce: 'n', development: true })).toContain(
       "'unsafe-eval'"
     );
+  });
+
+  test('OAuth mode lets forms post to Linear too, as the static policy does', async () => {
+    const { contentSecurityPolicy, OAUTH_FORM_ACTION, SELF_FORM_ACTION } =
+      await import('../lib/security-headers');
+    expect(
+      contentSecurityPolicy({ nonce: 'n', formAction: OAUTH_FORM_ACTION })
+    ).toContain("form-action 'self' https://linear.app;");
+    expect(
+      contentSecurityPolicy({ nonce: 'n', formAction: SELF_FORM_ACTION })
+    ).toContain("form-action 'self';");
+  });
+
+  test("authModeFromEnv matches the engine's linearAuthFromEnv", async () => {
+    const { authModeFromEnv } = await import('../lib/security-headers');
+    const { linearAuthFromEnv } = await import('@better-tracker/engine');
+    const fixtures = [
+      undefined,
+      '',
+      '1',
+      'true',
+      'TRUE',
+      ' showcase ',
+      'Showcase',
+      '0',
+      'false',
+      'yes',
+    ];
+    const auths = [undefined, '', 'oauth', 'api_key', ' API_KEY ', 'token'];
+    for (const LINEAR_FIXTURE of fixtures) {
+      for (const LINEAR_AUTH of auths) {
+        const env = { LINEAR_FIXTURE, LINEAR_AUTH };
+        expect(authModeFromEnv(env)).toBe(linearAuthFromEnv(env));
+      }
+    }
   });
 
   test("isApiKeyAuthEnv matches the engine's linearAuthFromEnv", async () => {

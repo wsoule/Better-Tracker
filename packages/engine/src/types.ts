@@ -1067,6 +1067,18 @@ export interface Engine {
   /** Additive: the store's liveness probe (for /api/health); never throws. */
   ping(): Promise<boolean>;
   /**
+   * Additive (owner decision 2026-10-25, copy that promises Slack only
+   * when it is used): where a live digest goes right now. `slack` when the
+   * channel is Slack and the Slack fail-safe (fail-safes.ts) does not keep
+   * digests in the outbox, else `outbox` (no SLACK_BOT_TOKEN, demo mode,
+   * personal API keys, or a planner that may serve several workspaces).
+   * The fail-safe is read now, since a second install may come after
+   * boot. Never throws: when the store cannot be read it answers by the
+   * channel alone, so a page that says what may reach Slack never leaves
+   * Slack out.
+   */
+  digestChannel(): Promise<'slack' | 'outbox'>;
+  /**
    * Additive: closes the store the engine was built with (the worker exits
    * after each tick; tests release their PGlite instances).
    */

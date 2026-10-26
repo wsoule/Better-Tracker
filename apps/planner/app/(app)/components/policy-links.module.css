@@ -1,0 +1,37 @@
+/* Privacy · terms · contact under a page's last block: --text-2 links
+   (4.5:1 on --bg) separated by --text-4 dots that are not announced. */
+
+.nav {
+  margin-top: 16px;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+  line-height: var(--lh);
+}
+
+.item + .item::before {
+  /* The alternative text after the slash is empty: not announced. */
+  content: '·' / '';
+  padding: 0 8px;
+  color: var(--text-4);
+}
+
+.link {
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  text-decoration: none;
+  text-underline-offset: 2px;
+}
+
+.link:hover,
+.link:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+}

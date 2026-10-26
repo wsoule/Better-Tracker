@@ -17,6 +17,12 @@ import {
   without,
 } from '../../../../lib/held-sessions';
 import { jsonError, rejectCrossOrigin } from '../../../../lib/origin';
+import {
+  limitByIp,
+  RATE_LIMITS,
+  rateLimitedRedirect,
+  rateLimitedResponse,
+} from '../../../../lib/rate-limit';
 import { getEngine } from '../../../../lib/runtime';
 import { cookieScheme } from '../../../../lib/session-cookies';
 import {
@@ -62,7 +68,9 @@ function wantsJson(request: Request): boolean {
  * (`unknown_workspace` 404, `session_ended` 410, `invalid_request` 400),
  * with the cookies either way; a plain form post gets a 303 to the
  * sanitised returnTo (else /week), or to /week?switch_error=<code> (/ when
- * no session remains active). Never to the Referer. Never cached.
+ * no session remains active). Never to the Referer. Never cached. More
+ * than 60 switches in 10 minutes from one client IP get 429 rate_limited
+ * (JSON) or a 303 to /?auth_error=auth_rate_limited (a form post).
  */
 export async function POST(request: Request): Promise<Response> {
   const engine = await getEngine();
@@ -79,6 +87,16 @@ export async function POST(request: Request): Promise<Response> {
   const refused = rejectCrossOrigin(request, engine.config.appUrl);
   if (refused !== null) return refused;
   const json = wantsJson(request);
+  // 60 switches per 10 minutes per client IP (lib/rate-limit.ts).
+  const limited = limitByIp(request, RATE_LIMITS.switchWorkspace);
+  if (limited !== null) {
+    return json
+      ? rateLimitedResponse(
+          RATE_LIMITS.switchWorkspace,
+          limited.retryAfterSeconds
+        )
+      : rateLimitedRedirect(limited.retryAfterSeconds);
+  }
 
   let fields: Record<string, unknown> = {};
   try {

@@ -11,6 +11,7 @@ import {
   modesPatch,
   modesSavedMessage,
   WARNINGS_GO_LIVE_NOTE,
+  warningsConsequence,
 } from '../../../lib/adapters/settings';
 import FormBar from './form-bar';
 import css from './page.module.css';
@@ -26,13 +27,17 @@ import { useSaveSettings } from './use-save-settings';
    one (owner decision 2026-10-22: no roles), including allocation going
    live; the engine records the switch in the audit log. With personal
    API keys (`apiKeyMode`) no digest is ever sent, so warnings is a plain
-   "off" row, and allocation only ever runs when someone starts it. */
+   "off" row, and allocation only ever runs when someone starts it. Live
+   warnings say "Slack DM" only with `slack` (a Slack channel is active
+   now), otherwise that digests stay in the planner's outbox. */
 export default function ModesForm({
   initial,
   apiKeyMode = false,
+  slack = false,
 }: {
   initial: ModesState;
   apiKeyMode?: boolean;
+  slack?: boolean;
 }) {
   const [state, setState] = useState(initial);
   // A save (or someone else's) refreshes `initial`: follow it.
@@ -95,7 +100,7 @@ export default function ModesForm({
         ) : (
           <SettingRow
             title="Warnings"
-            help={MODE_CONSEQUENCE.warnings[state.warningsMode]}
+            help={warningsConsequence(state.warningsMode, slack)}
             control={
               <Switch
                 label="Live"

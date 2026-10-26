@@ -44,6 +44,16 @@ describe('shell family server render', () => {
     expect(result.signedOut).toContain('Milestone Planner');
   });
 
+  test('the signed-out frame lists its footer links in a named landmark', () => {
+    const { signedOut } = serverRender();
+    expect(signedOut).toContain('<footer');
+    expect(signedOut).toContain('<nav aria-label="About this site">');
+    const links = [...signedOut.matchAll(/<a [^>]*href="([^"]+)"/g)].map(
+      (m) => m[1]
+    );
+    expect(links).toEqual(['#main', '/', '/privacy', '/terms', '/contact']);
+  });
+
   test('the workspace switcher renders as a closed menu button', () => {
     const { switcher } = serverRender();
     expect(switcher).toContain(

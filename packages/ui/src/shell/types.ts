@@ -192,6 +192,12 @@ export interface AppShellProps {
   children?: ReactNode;
 }
 
+/** One link of the signed-out frame's footer ("Privacy", "/privacy"). */
+export interface FooterLink {
+  label: string;
+  href: string;
+}
+
 export interface SignedOutFrameProps {
   appName: string;
   brandHref: string;
@@ -200,6 +206,14 @@ export interface SignedOutFrameProps {
   themeStorageKey?: string;
   /** Controls left of the theme toggle. */
   actions?: ReactNode;
+  /**
+   * Quiet links under the content (the planner's privacy · terms ·
+   * contact), in a footer navigation landmark named `footerLabel`. None
+   * by default.
+   */
+  footerLinks?: readonly FooterLink[];
+  /** The footer navigation's accessible name (default "About this site"). */
+  footerLabel?: string;
   mainId?: string;
   children?: ReactNode;
 }

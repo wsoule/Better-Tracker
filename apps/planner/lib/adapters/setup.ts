@@ -143,6 +143,6 @@ export const INSTALL_STEPS: readonly {
   {
     key: 'first-sync',
     title: 'First sync',
-    body: 'The first full sync starts right after the install, and the timeline opens. Unless the deployment already names watchers, the installer becomes the first one: warned about every at-risk milestone, which anyone can change in Settings.',
+    body: 'The first full sync starts right after the install, and the timeline opens. The installer becomes the first watcher. Watchers hear about every at-risk milestone, and anyone can change who they are in Settings.',
   },
 ];

@@ -48,12 +48,14 @@ describe('setup', () => {
   });
 
   // Owner decision 2026-10-22: no PM role. The installer becomes the first
-  // watcher (unless WATCHER_EMAILS names someone), never "a PM".
+  // watcher, never "a PM"; the steps name no deployment internals
+  // (2026-10-25, stranger-facing copy).
   test('install steps make the installer the first watcher, not a PM', () => {
     const copy = INSTALL_STEPS.map((step) => step.body).join(' ');
     expect(copy).not.toMatch(/\bPMs?\b/);
+    expect(copy).not.toMatch(/deployment/i);
     expect(INSTALL_STEPS[3]?.body).toContain(
-      'the installer becomes the first one'
+      'The installer becomes the first watcher.'
     );
   });
 });

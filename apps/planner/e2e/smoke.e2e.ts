@@ -1,5 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
+import { expectScriptsNonced } from './csp-nonce';
+
 // Browser smoke test of the planner in demo mode (architecture §11): every
 // screen renders, dragging a milestone's due date re-dates it, an issue
 // takes an edit, Ctrl K opens the palette, the slide-over's keyboard
@@ -11,8 +13,12 @@ import { expect, type Page, test } from '@playwright/test';
 // 2026-10-22, graph highlights), and the demo's Linear guest gets a
 // read-only planner
 // (owner decision 2026-10-22, "Guests limited to read only") whose graphs
-// fall back to the projects he can see. Demo data is fictional and lives
-// only in this server.
+// fall back to the projects he can see. Every page it opens, signed in or
+// out (the landing and the public privacy, terms and contact pages too),
+// carries the nonce Content-Security-Policy on each of its scripts (owner
+// decision 2026-10-25: proxy.ts nonces every page in every mode;
+// e2e/csp-nonce.ts). Demo data is fictional and lives only in this
+// server.
 
 /** Signs in through the demo picker on "/" (Chloe Diaz unless told). */
 async function signIn(page: Page, userId = 'user-chloe'): Promise<void> {
@@ -52,12 +58,51 @@ test('every screen renders', async ({ page }) => {
     '/settings',
     '/issues',
     '/issues/ENG-24',
+    '/setup',
   ]) {
-    await page.goto(path);
+    const response = await page.goto(path);
+    await expectScriptsNonced(response, path);
     await expect(page.locator('h1').first(), path).toBeVisible();
     await expect(page.getByText('Something went wrong'), path).toHaveCount(0);
   }
   expect(errors).toEqual([]);
+});
+
+test('signed out: the landing and the public pages, every script nonced', async ({
+  browser,
+  baseURL,
+}) => {
+  const context = await browser.newContext({ baseURL });
+  const page = await context.newPage();
+  const errors = trackErrors(page);
+  for (const [path, heading] of [
+    ['/', 'Your week, from Linear.'],
+    ['/privacy', 'Privacy'],
+    ['/terms', 'Terms'],
+    ['/contact', 'Contact'],
+  ] as const) {
+    const response = await page.goto(path);
+    await expectScriptsNonced(response, path);
+    await expect(
+      page.getByRole('heading', { level: 1, name: heading }),
+      path
+    ).toBeVisible();
+    const footer = page.getByRole('navigation', { name: 'About this planner' });
+    for (const name of ['Privacy', 'Terms', 'Contact']) {
+      await expect(footer.getByRole('link', { name }), path).toBeVisible();
+    }
+  }
+  // The demo's privacy page says it is fictional and keeps nothing of
+  // the visitor; the footer link opens it from the landing page.
+  await page.goto('/');
+  await page
+    .getByRole('navigation', { name: 'About this planner' })
+    .getByRole('link', { name: 'Privacy' })
+    .click();
+  await expect(page).toHaveURL(/\/privacy$/);
+  await expect(page.getByText('This is a demo')).toBeVisible();
+  expect(errors).toEqual([]);
+  await context.close();
 });
 
 test('the graph drills from initiatives to projects and back up', async ({

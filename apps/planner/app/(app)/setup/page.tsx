@@ -7,6 +7,7 @@ import {
   PropertyList,
 } from '@better-tracker/ui';
 
+import { WORKSPACE_ID_PURPOSE } from '../../../lib/adapters/settings';
 import {
   INSTALL_STEPS,
   installationFacts,
@@ -22,6 +23,7 @@ import {
 } from '../../../lib/load';
 import { FIRST_SYNC_RETRY_SENTENCE } from '../../../lib/read-only';
 import { PageCrumb } from '../components/page-crumb';
+import PolicyLinks from '../components/policy-links';
 import ReadOnlyNotice from '../components/read-only-notice';
 import Receipts from '../components/receipts';
 import SignOutAllForm from '../components/sign-out-all-form';
@@ -66,7 +68,10 @@ async function installContext(
    (uninstalled in Linear, removed by the person who runs the planner, or
    a token Linear refused) and, for the first two, when its data is
    deleted, and with two or more workspaces held it offers "Sign out of
-   all workspaces". */
+   all workspaces". Every state shows the workspace's Linear id (what
+   LINEAR_WORKSPACES names to admit it) and ends with the privacy · terms
+   · contact links; a first sync that keeps failing points at the person
+   who runs the planner (their logs say why) through /contact. */
 export default async function SetupPage() {
   const { engine, actor } = await requirePageActor('/setup');
   const workspaceId = actor.session.workspaceId;
@@ -129,6 +134,7 @@ export default async function SetupPage() {
                 </p>
               </div>
             </div>
+            <PolicyLinks />
           </div>
         </section>
         <PageCrumb label="Setup" />
@@ -172,9 +178,12 @@ export default async function SetupPage() {
               <Notice label="First sync pending" tone="warning" role="status">
                 The first sync from Linear has not landed, so changes are paused
                 for everyone. {FIRST_SYNC_RETRY_SENTENCE} If it keeps failing,
-                the web service&apos;s logs say why; when the cause is the
-                app&apos;s grant (for example the initiative:read scope
-                missing), a workspace admin can reinstall.
+                the person who runs this planner can see why (
+                <a className="accentLink" href="/contact">
+                  how to reach them
+                </a>
+                ); when the cause is the app&apos;s grant (for example the
+                initiative:read scope missing), a workspace admin can reinstall.
               </Notice>
             ) : readOnly ? (
               <ReadOnlyNotice />
@@ -183,11 +192,18 @@ export default async function SetupPage() {
               <div className={styles.facts}>
                 <PropertyList
                   label="Installation details"
-                  items={facts.map((fact) => ({
-                    id: fact.id,
-                    label: fact.label,
-                    value: fact.value,
-                  }))}
+                  items={[
+                    ...facts.map((fact) => ({
+                      id: fact.id,
+                      label: fact.label,
+                      value: fact.value,
+                    })),
+                    {
+                      id: 'workspace-id',
+                      label: 'Workspace id',
+                      value: <span className="mono">{workspaceId}</span>,
+                    },
+                  ]}
                 />
               </div>
               <div className={styles.foot}>
@@ -214,6 +230,7 @@ export default async function SetupPage() {
                 )}
               </div>
             </div>
+            <PolicyLinks />
           </div>
           {signOutAll}
         </section>
@@ -277,7 +294,14 @@ export default async function SetupPage() {
               </p>
             </div>
           )}
+          {oauth ? (
+            <p className={styles.note}>
+              Workspace id: <span className="mono">{workspaceId}</span> (
+              {WORKSPACE_ID_PURPOSE}).
+            </p>
+          ) : null}
           {signOutAll}
+          <PolicyLinks />
         </div>
       </section>
       {workspaceName === null ? null : <PageCrumb label={workspaceName} />}

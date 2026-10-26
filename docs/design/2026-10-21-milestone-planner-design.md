@@ -848,4 +848,17 @@ workspace".
   removes a workspace; the warn line in the logs says which;
 - a write grant (or an install) Linear issues for another workspace than the
   one it was asked for is refused and revoked, and the person is told to open
-  the right workspace at linear.app.
+  the right workspace at linear.app;
+- rate limits, in each web process's memory: per network address, 30 Linear
+  sign-in starts and 60 workspace switches or sign-outs per 10 minutes and 100
+  refused webhook deliveries a minute; per session, 6 allocation runs and 20
+  digest previews per 10 minutes and 300 other changes a minute. Never limited:
+  Linear's sign-in callback (a refusal would waste its one-time code), the demo
+  sign-in, a webhook Linear signed, and the sign-out with personal API keys
+  (it forgets keys). The per-session limits apply with personal API keys and in
+  the demo too;
+- every page now carries a per-request nonce Content-Security-Policy in every
+  mode (it was only with personal API keys), so an injected script cannot run;
+- the privacy page is written from what the code stores and names Railway as
+  the host; the terms are plain words, not legal advice. Both want an owner's
+  read before strangers arrive.

@@ -181,11 +181,30 @@ export const MODE_CONSEQUENCE = {
       'Dry run: runs record what they would assign; nothing is written to Linear.',
   },
   warnings: {
-    live: 'Live: each person gets at most one Slack DM a day about milestones at risk, overdue or missing details.',
+    live: 'Live: the daily run records at most one digest a day per person about milestones at risk, overdue or missing details, kept in the planner’s outbox (Notifications); nobody is messaged.',
     preview:
       'Preview: digests are built and kept in the planner’s outbox; nobody is messaged.',
   },
 } as const;
+
+/** Live warnings while a Slack channel is active (engine.digestChannel). */
+export const SLACK_WARNINGS_LIVE =
+  'Live: each person gets at most one Slack DM a day about milestones at risk, overdue or missing details.';
+
+/**
+ * What the warnings switch does in `mode`. "Slack DM" only with `slack`,
+ * a Slack channel that is active now (owner decision 2026-10-25: no Slack
+ * promise where none is used; the Slack fail-safe turns it off while the
+ * planner may serve several workspaces), otherwise the planner's outbox.
+ */
+export function warningsConsequence(
+  mode: WarningsMode,
+  slack: boolean
+): string {
+  return mode === 'live' && slack
+    ? SLACK_WARNINGS_LIVE
+    : MODE_CONSEQUENCE.warnings[mode];
+}
 
 /** Allocation's consequences with personal API keys: no daily run. */
 export const API_KEY_ALLOCATION_CONSEQUENCE = {
@@ -420,7 +439,7 @@ export interface ReadOnlySettingRow {
 /** Settings → Modes for a Linear guest: each mode and what it does now. */
 export function modesReadOnlyRows(
   settings: Pick<WorkspaceSettings, 'allocationMode' | 'warningsMode'>,
-  options: { apiKeyMode?: boolean } = {}
+  options: { apiKeyMode?: boolean; slack?: boolean } = {}
 ): ReadOnlySettingRow[] {
   const apiKeyMode = options.apiKeyMode === true;
   return [
@@ -443,7 +462,10 @@ export function modesReadOnlyRows(
           id: 'warnings',
           label: 'Warnings',
           value: settings.warningsMode === 'live' ? 'Live' : 'Preview',
-          sub: MODE_CONSEQUENCE.warnings[settings.warningsMode],
+          sub: warningsConsequence(
+            settings.warningsMode,
+            options.slack === true
+          ),
         },
   ];
 }
@@ -636,7 +658,15 @@ export interface StatusRow {
       digest's error is red text and a Blocked project's reason amber.
       A date or a hint ("Since …") stays muted. */
   toneDetail?: true;
+  /** The value is an identifier, set in Geist Mono (the workspace id). */
+  mono?: true;
 }
+
+/** What a workspace's id is for, to whoever runs the planner. */
+export const WORKSPACE_ID_PURPOSE = 'what LINEAR_WORKSPACES names to admit it';
+
+/** The workspace id row's hint on Settings → Status. */
+export const WORKSPACE_ID_HINT = `Its Linear organization id: ${WORKSPACE_ID_PURPOSE}`;
 
 /** What Settings → Status shows with personal API keys (api_key mode). */
 export interface ApiKeyStatusInput {
@@ -756,6 +786,14 @@ export function statusRows(input: {
         value: installation.workspaceName,
         sub: `linear.app/${installation.urlKey}`,
         tone: 'default',
+      },
+      {
+        id: 'workspace-id',
+        label: 'Workspace id',
+        value: installation.workspaceId,
+        sub: WORKSPACE_ID_HINT,
+        tone: 'default',
+        mono: true,
       },
       {
         id: 'installed',
@@ -943,9 +981,14 @@ function previewItem(
   });
 }
 
-/** Today's digests as the Status section shows them inline. */
+/**
+ * Today's digests as the Status section shows them inline. `slack`: a
+ * Slack channel is active now (engine.digestChannel), so live digests go
+ * out as Slack DMs; otherwise they stay in the planner's outbox.
+ */
 export function digestPreview(
-  result: Pick<WarningRunResult, 'day' | 'mode' | 'digests'>
+  result: Pick<WarningRunResult, 'day' | 'mode' | 'digests'>,
+  options: { slack?: boolean } = {}
 ): DigestPreviewModel {
   const digests = result.digests.map((digest, index): DigestPreview => ({
     recipientId: digest.recipientId,
@@ -956,7 +999,9 @@ export function digestPreview(
   const items = digests.reduce((sum, d) => sum + d.items.length, 0);
   const delivery =
     result.mode === 'live'
-      ? 'Warnings are live, so the daily run sends these as Slack DMs.'
+      ? options.slack === true
+        ? 'Warnings are live, so the daily run sends these as Slack DMs.'
+        : 'Warnings are live, so the daily run records these in the planner’s outbox.'
       : 'Warnings are in preview, so the daily run only records them.';
   return {
     day: result.day,

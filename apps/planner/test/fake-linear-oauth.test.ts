@@ -1034,6 +1034,7 @@ describe('fake Linear: what a Playwright spec loads', () => {
     const dir = join(import.meta.dir, '..', 'e2e');
     const allowed = new Set([
       'node:crypto',
+      '@playwright/test',
       './fake-linear-data',
       './fake-linear-oauth',
       './leak-needles',
@@ -1045,6 +1046,7 @@ describe('fake Linear: what a Playwright spec loads', () => {
       'fake-linear-log.ts',
       'linear-authorize.ts',
       'leak-needles.ts',
+      'csp-nonce.ts',
     ]) {
       const text = readFileSync(join(dir, file), 'utf8');
       for (const match of text.matchAll(

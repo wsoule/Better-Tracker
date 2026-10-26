@@ -146,6 +146,7 @@ export type {
   CommandPaletteApi,
   CommandPaletteProps,
   CommandPaletteProviderProps,
+  FooterLink,
   KbdKeysProps,
   KbdProps,
   PaletteItem,

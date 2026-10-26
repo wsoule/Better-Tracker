@@ -17,14 +17,21 @@ const nextConfig: NextConfig = {
   // personal API key (LINEAR_AUTH=api_key; architecture §8).
   experimental: {
     serverComponentsHmrCache: false,
+    // proxy.ts runs on every request, so Next buffers each request body
+    // for it (Next 16 `proxyClientMaxBodySize`; default 10 MB, past which
+    // the body is silently cut). 2 MB is above everything a route reads
+    // (JSON bodies and webhooks at most 1 MiB, lib/http.ts readJson), so
+    // no accepted body is ever cut, and a bigger upload buffers no more.
+    proxyClientMaxBodySize: '2mb',
   },
   // No redirects here: they run before proxy.ts, so in api_key mode their
   // Location would echo a key held in the URL. /tasks → /issues is the
   // route handler app/tasks/route.ts (architecture §8.1).
   // Security headers on every response (CSP, HSTS, framing, referrer;
-  // lib/security-headers.ts). In api_key mode proxy.ts adds a stricter
-  // nonce CSP to every page at request time; browsers enforce both, so
-  // the stricter one binds.
+  // lib/security-headers.ts). On pages, in every mode, proxy.ts sets a
+  // stricter nonce CSP at request time, which Next sends in place of this
+  // one (the response header the Proxy set wins over the same name here);
+  // API routes, static assets and prefetches keep this policy.
   headers() {
     return Promise.resolve([
       {

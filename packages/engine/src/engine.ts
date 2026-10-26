@@ -31,6 +31,7 @@ import {
 import { updateIssues } from './bulk-issue-edits';
 import { cleanup } from './cleanup';
 import { runDaily } from './daily';
+import { sharedSlackReason } from './fail-safes';
 import { getIssueDetail } from './issue-detail';
 import {
   addBlocker,
@@ -306,6 +307,17 @@ export function createEngine(deps: EngineDeps): Engine {
     },
     now: () => rt.nowIso(),
     ping: () => deps.store.ping(),
+    digestChannel: async () => {
+      const { channel } = deps;
+      if (channel.name !== 'slack' || !channel.delivers) return 'outbox';
+      try {
+        return (await sharedSlackReason(deps.config, deps.store)) === null
+          ? 'slack'
+          : 'outbox';
+      } catch {
+        return 'slack';
+      }
+    },
     close: async () => {
       rt.keys?.scheduler?.close();
       rt.keys?.vault.clear();

@@ -82,7 +82,7 @@ describe('no key leaks by construction', () => {
     ).toContain('action="/api/auth/key"');
   });
 
-  test('inline scripts are only in the three layouts, each with a nonce', () => {
+  test('inline scripts are only in the root layouts and the shell gallery, each with a nonce', () => {
     const withInline = plannerCode
       .filter((path) => read(path).includes('dangerouslySetInnerHTML'))
       .map((path) => relative(PLANNER, path))
@@ -91,6 +91,7 @@ describe('no key leaks by construction', () => {
       'app/(app)/layout.tsx',
       'app/(gallery)/layout.tsx',
       'app/(gallery)/ui-gallery/shell/page.tsx',
+      'app/(public)/layout.tsx',
     ]);
     for (const path of withInline) {
       const text = read(join(PLANNER, path));
