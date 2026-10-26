@@ -21,7 +21,17 @@ import { expectScriptsNonced } from './csp-nonce';
 // every mode; e2e/csp-nonce.ts). Demo data is fictional and lives only in
 // this server.
 
-/** Signs in through the demo picker on "/" (Chloe Diaz unless told). */
+/**
+ * Signs in through the demo picker on "/" (Chloe Diaz unless told), then
+ * parks the pointer in the top-left corner (the sidebar's brand row, never
+ * a page's content). The click leaves the mouse on her row, mid-page, and
+ * Chromium carries that position into every page the test opens next: on
+ * a graph, a box laid out under it reads as pointed at, so the paths and
+ * the readout show that box instead of the graph at rest. Where a box
+ * lands depends on the text widths the machine renders (the graph toolbar
+ * wraps onto a second row when they run a little wider, as on the CI
+ * runner), so the corner keeps every test's starting point the same.
+ */
 async function signIn(page: Page, userId = 'user-chloe'): Promise<void> {
   await page.goto('/');
   await page
@@ -30,6 +40,7 @@ async function signIn(page: Page, userId = 'user-chloe'): Promise<void> {
     .getByRole('button')
     .click();
   await expect(page).toHaveURL(/\/week$/);
+  await page.mouse.move(0, 0);
 }
 
 /** Collects uncaught page errors so a screen that throws fails the test. */
@@ -174,6 +185,9 @@ test('the graph draws every item, framed by its parent', async ({ page }) => {
   await expect(
     page.getByRole('button', { name: /^Guided setup\..*no dependencies/ })
   ).toBeVisible();
+  // At rest (signIn parked the pointer off the drawing, nothing has
+  // focus), so no box is pointed at and the readout sums up the graph.
+  await expect(page.locator('[data-graph-node][data-pointed]')).toHaveCount(0);
   await expect(page.locator('[data-graph-readout]')).toContainText(
     '3 with no dependencies'
   );
@@ -260,10 +274,8 @@ test.describe('graph highlights', () => {
   test('a chain reads its focus and lights both paths on hover and focus', async ({
     page,
   }) => {
+    // At rest: signIn parked the pointer off the drawing.
     await page.goto('/graph?chain=ENG-23');
-    // At rest means no pointer on a box: the sign-in click leaves the mouse
-    // mid-page, where a box may now sit.
-    await page.mouse.move(0, 0);
     const frame = page.locator('[data-highlight]');
     await expect(frame).toHaveAttribute('data-highlight', 'status');
     await expect(
