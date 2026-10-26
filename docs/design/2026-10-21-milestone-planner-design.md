@@ -216,8 +216,8 @@ Unplanned, Unassigned, Blocked and At risk. It is ordered by the weight rule of 
 (active projects' milestones first, overdue on top, then the weight override, due date
 and project priority; inside a milestone, issue priority then age; then unplanned
 issues, issues with no project, and paused projects last), by project priority
-(§12, 2026-10-26: the same order with the project's Linear priority right after the
-overdue milestones) or by priority, the issue's due date, last update, creation or
+(§12, 2026-10-26: the same order with the project's Linear priority first, overdue
+or not) or by priority, the issue's due date, last update, creation or
 title. It is grouped by milestone, project,
 initiative, assignee, status or priority, optionally inside initiative or project
 sections. Issues move to a milestone (and so to its project), a person, a status or a
@@ -908,10 +908,15 @@ issue priority, age); issues with no milestone, issues with no project and
 paused projects stay last as in §6.6 (Q5). The default stays §6.6, and the
 sort is display only (§6.13): it never changes which milestone is next.
 
+Project priority outranks overdue too (the owner, asked whether a low project's
+overdue milestone should stay on top: priority wins): an urgent project's
+upcoming milestone comes before a high project's overdue one. Overdue still
+shows on the milestone's own header, and while this sort is on the Overdue and
+Upcoming dividers become one, "Planned". The owner also kept the defaults of Q2
+(the name "Issues"), Q3 (Issues in the phone tab bar, Graph under More) and Q5
+(paused projects last).
+
 *Builder's calls, flagged for review:*
-- an active project's overdue milestones stay on top, as the Overdue divider
-  already shows them, so a low project's overdue milestone is not pushed under
-  an urgent project's upcoming one; project priority orders everything below;
 - the name is "Project priority", not "Priority order", next to the existing
   "Priority" sort (the issue's own priority);
 - like Weight it has no direction to reverse, and it is kept in the page's URL;

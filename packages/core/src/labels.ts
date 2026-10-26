@@ -134,7 +134,7 @@ export const ISSUE_LIST_SORT_HINT: Record<IssueListSort, string> = {
   weight:
     'Overdue milestones first, then weight, due date and project priority; inside a milestone, priority then oldest.',
   project_priority:
-    "Overdue milestones first, then urgent projects first; inside a project's priority, the weight order.",
+    "Urgent projects first, overdue or not; inside a project's priority, the weight order.",
   priority: 'Urgent first',
   due: "The issue's own due date, soonest first",
   updated: 'Newest first',
@@ -156,6 +156,7 @@ export const ISSUE_LIST_TIER_LABEL: Record<
 > = {
   overdue: 'Overdue',
   upcoming: 'Upcoming',
+  planned: 'Planned',
   unplanned: 'No milestone',
   inactive: 'Inactive projects',
 };

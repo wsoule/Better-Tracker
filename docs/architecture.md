@@ -770,14 +770,15 @@ bound.
   folded title then identifier; nulls last in both directions), ties broken by
   the weight key. Field sorts order rows inside groups; groups keep their own
   order. The **project priority order** (owner decision 2026-10-26, design §11
-  Q4) is the weight order with one key put right after the tier: an active
-  project's overdue milestones first (as the Overdue divider shows them), then
-  the project's Linear priority (urgent first, none last). It orders rows,
-  milestone and project groups and project sections alike, so an urgent
-  project's later milestone comes before a low project's sooner one; tiers B to
-  E stay where they are (unplanned work, no project, then paused projects last).
-  Display only, like the weight override: it never changes which milestone is
-  next for allocation or warnings.
+  Q4) is the weight order with one key put right after the tier: the project's
+  Linear priority (urgent first, none last), ahead of whether a milestone is
+  overdue (its header still says "2 days overdue"). It orders rows, milestone
+  and project groups and project sections alike, so an urgent project's later
+  milestone comes before a low project's sooner or overdue one; with milestone
+  groups the Overdue and Upcoming dividers become one, Planned
+  (`tier: 'planned'`). Tiers B to E stay where they are (unplanned work, no
+  project, then paused projects last). Display only, like the weight override:
+  it never changes which milestone is next for allocation or warnings.
 - **Groups** (key `<sectionKey>/<valueKey>`): milestone (`m:<id>`; a project's
   `nm:<projectId>`; `np`), by tier, then the milestone or project rank; project
   (`p:<id>`): active projects in `orderProjects` order, then `np`, then inactive

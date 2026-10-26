@@ -1379,7 +1379,10 @@ export interface IssueListGroup {
 
 /** What a section collects. */
 export type IssueListSectionValue =
-  | { kind: 'tier'; tier: 'overdue' | 'upcoming' | 'unplanned' | 'inactive' }
+  | {
+      kind: 'tier';
+      tier: 'overdue' | 'upcoming' | 'planned' | 'unplanned' | 'inactive';
+    }
   | { kind: 'initiative'; initiativeId: string }
   | { kind: 'project'; projectId: string }
   | { kind: 'no_project' }

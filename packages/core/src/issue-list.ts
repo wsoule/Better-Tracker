@@ -422,7 +422,7 @@ interface Match {
   createdMs: number;
   identifierPrefix: string;
   identifierNumber: number;
-  /** The project priority order's key after the tier ([0, 0] otherwise). */
+  /** The project priority order's key after the tier ([0] otherwise). */
   priorityFirst: SortKey;
   /** The field sort's key; null sorts last in both directions. */
   sortValue: number | string | null;
@@ -448,6 +448,10 @@ interface SectionAcc {
 }
 
 const IDENTIFIER = /^(.*?)(\d+)$/;
+
+// The project priority key of every row under the other sorts: one shared
+// array, not one per issue (the list runs over tens of thousands).
+const NO_PROJECT_RANK: SortKey = Object.freeze([0]);
 
 function msOrMax(iso: string): number {
   const ms = Date.parse(iso);
@@ -571,7 +575,7 @@ const STATE_TYPE_RANK: ReadonlyMap<WorkflowStateType, number> = new Map(
 const TIER_SECTIONS: readonly Extract<
   IssueListSectionValue,
   { kind: 'tier' }
->['tier'][] = ['overdue', 'upcoming', 'unplanned', 'inactive'];
+>['tier'][] = ['overdue', 'upcoming', 'planned', 'unplanned', 'inactive'];
 
 /**
  * The issue list (architecture §2.14) over the viewer's snapshot: filter,
@@ -625,25 +629,16 @@ export function buildIssueList(input: {
     milestoneIndex.set(milestone.id, index)
   );
   const milestoneCount = sortedMilestones.length;
-  // The project priority order's key, right after the tier: an active
-  // project's overdue milestones first (as the Overdue divider shows them),
-  // then the project's Linear priority, urgent first and none last. Every
-  // other sort gets [0, 0], so its rows, groups and sections keep their order.
+  // The project priority order's key, right after the tier: the project's
+  // Linear priority, urgent first and none last, ahead of whether its
+  // milestone is overdue (owner 2026-10-26; the milestone header still says
+  // so). Every other sort gets [0], so its rows, groups and sections keep
+  // their order.
   const byProjectPriority = query.sort === 'project_priority';
-  const priorityFirst = (
-    projectId: string | null,
-    milestone: Milestone | undefined
-  ): SortKey => {
-    if (!byProjectPriority || projectId === null) return [0, 0];
-    const overdue =
-      milestone !== undefined &&
-      isActive(projectId) &&
-      assessments.get(milestone.id)?.status === 'overdue';
+  const priorityFirst = (projectId: string | null): SortKey => {
+    if (!byProjectPriority || projectId === null) return NO_PROJECT_RANK;
     const project = snapshot.projects.get(projectId);
-    return [
-      overdue ? 0 : 1,
-      project === undefined ? 0 : priorityRank(project.priority),
-    ];
+    return [project === undefined ? 0 : priorityRank(project.priority)];
   };
   const nextByProject = new Map<string, string>();
   for (const assessment of assessments.values()) {
@@ -804,7 +799,7 @@ export function buildIssueList(input: {
       tier,
       tierRank,
       priorityRank: priorityRank(issue.priority),
-      priorityFirst: priorityFirst(projectId, milestone),
+      priorityFirst: priorityFirst(projectId),
       createdMs,
       identifierPrefix: parts?.[1] ?? issue.identifier,
       identifierNumber: parts === null ? -1 : Number(parts[2]),
@@ -825,7 +820,7 @@ export function buildIssueList(input: {
       value: { kind: 'project', projectId },
       order: [
         isActive(projectId) ? 0 : 2,
-        ...priorityFirst(projectId, undefined),
+        ...priorityFirst(projectId),
         projectIndex.get(projectId) ?? 0,
       ],
     };
@@ -856,9 +851,12 @@ export function buildIssueList(input: {
       return { key: 'all', value: { kind: 'all' }, order: [0] };
     let tierName: (typeof TIER_SECTIONS)[number];
     if (tier === TIER_A) {
-      tierName =
-        milestone !== undefined &&
-        assessments.get(milestone.id)?.status === 'overdue'
+      // The project priority order puts urgent work above overdue work, so
+      // one Planned divider holds both.
+      tierName = byProjectPriority
+        ? 'planned'
+        : milestone !== undefined &&
+            assessments.get(milestone.id)?.status === 'overdue'
           ? 'overdue'
           : 'upcoming';
     } else if (tier === TIER_B || tier === TIER_C) {
@@ -888,7 +886,7 @@ export function buildIssueList(input: {
       },
       order: [
         tier,
-        ...priorityFirst(milestone.projectId, milestone),
+        ...priorityFirst(milestone.projectId),
         complete,
         milestoneIndex.get(milestone.id) ?? 0,
       ],
@@ -920,7 +918,7 @@ export function buildIssueList(input: {
             value: { kind: 'no_milestone', projectId },
             order: [
               tier,
-              ...priorityFirst(projectId, undefined),
+              ...priorityFirst(projectId),
               projectIndex.get(projectId) ?? 0,
             ],
           };
@@ -933,7 +931,7 @@ export function buildIssueList(input: {
           value: { kind: 'project', projectId },
           order: [
             isActive(projectId) ? 0 : 2,
-            ...priorityFirst(projectId, undefined),
+            ...priorityFirst(projectId),
             projectIndex.get(projectId) ?? 0,
           ],
         };

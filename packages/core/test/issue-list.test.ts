@@ -878,13 +878,20 @@ describe('field sorts', () => {
 
 // Atlas and Compass are High, Beacon Medium; Zephyr (Urgent) is paused.
 describe('the project priority order', () => {
-  test('milestone groups by project priority under the same dividers', () => {
-    expect(layout(build({ sort: 'project_priority' }))).toEqual([
-      ['t:overdue/m:pa-m1', ['ENG-2', 'ENG-10', 'ENG-1']],
-      // Compass's undated Routing passes Beacon's sooner Index.
-      ['t:upcoming/m:pa-m2', ['ENG-4']],
-      ['t:upcoming/m:pc-m1', ['OPS-2']],
-      ['t:upcoming/m:pb-m1', ['OPS-1']],
+  test('milestone groups by project priority under one Planned divider', () => {
+    const view = build({ sort: 'project_priority' });
+    expect(view.sections.map((section) => section.key)).toEqual([
+      't:planned',
+      't:unplanned',
+      't:inactive',
+    ]);
+    expect(layout(view)).toEqual([
+      // Inside High (Atlas, Compass) the weight order: overdue Dual-write
+      // first; Compass's undated Routing passes Beacon's (Medium) Index.
+      ['t:planned/m:pa-m1', ['ENG-2', 'ENG-10', 'ENG-1']],
+      ['t:planned/m:pa-m2', ['ENG-4']],
+      ['t:planned/m:pc-m1', ['OPS-2']],
+      ['t:planned/m:pb-m1', ['OPS-1']],
       ['t:unplanned/nm:pa', ['ENG-6']],
       ['t:unplanned/nm:pc', ['OPS-3']],
       ['t:unplanned/np', ['ENG-7']],
@@ -893,7 +900,7 @@ describe('the project priority order', () => {
     ]);
   });
 
-  test('ungrouped rows: overdue first, then project priority, then the weight order', () => {
+  test('ungrouped rows: project priority, then the weight order', () => {
     expect(keys(build({ group: 'none', sort: 'project_priority' }))).toEqual([
       'ENG-2',
       'ENG-10',
@@ -909,9 +916,9 @@ describe('the project priority order', () => {
     ]);
   });
 
-  test('making a project urgent moves its upcoming milestone to the top', () => {
+  test("an urgent project's upcoming milestone passes a high project's overdue one", () => {
     const data = scenario();
-    // Beacon becomes Urgent: its upcoming Index now leads the upcoming work.
+    // Beacon becomes Urgent: its upcoming Index passes Atlas's overdue Dual-write.
     const beacon = data.projects.find((p) => p.id === 'pb');
     if (beacon !== undefined) beacon.priority = 1;
     expect(
@@ -919,11 +926,17 @@ describe('the project priority order', () => {
         .map(([key]) => key)
         .slice(0, 4)
     ).toEqual([
-      't:overdue/m:pa-m1',
-      't:upcoming/m:pb-m1',
-      't:upcoming/m:pa-m2',
-      't:upcoming/m:pc-m1',
+      't:planned/m:pb-m1',
+      't:planned/m:pa-m1',
+      't:planned/m:pa-m2',
+      't:planned/m:pc-m1',
     ]);
+    expect(
+      keys(build({ group: 'none', sort: 'project_priority' }, { data })).slice(
+        0,
+        4
+      )
+    ).toEqual(['OPS-1', 'ENG-2', 'ENG-10', 'ENG-1']);
   });
 
   test('project groups and sections by project priority; inactive stays last', () => {
