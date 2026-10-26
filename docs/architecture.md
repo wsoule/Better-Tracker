@@ -3378,14 +3378,15 @@ binding):
 - `/` signed out shows the **connect form** (§8.4) instead of "Sign in with
   Linear"; the OAuth routes (`/api/auth/linear`, its callback) redirect to `/`
   and `POST /api/auth/demo` is off as in real mode. `POST /api/webhooks/linear`
-  answers a bare 404 before reading the body. `POST /api/auth/logout` calls
-  `signOut(token, { everyDevice: true })` (every key of that person is
-  forgotten, on every device, even when this browser's own connection already
-  ended, §7.4 "Ended records") and clears both cookie names. It lands on
-  `/?signed_out=1` ("Signed out", muted: the key was forgotten in every browser
-  and still works in Linear until it is revoked there) only when the result is
-  `known`; with no cookie, or one the vault no longer knows of, it lands on
-  `/?signed_out=ended` ("Already disconnected", warning: this browser's
+  answers a bare 404 before the route reads the body (Next has already received
+  the upload, buffering up to 2 MB, before any route code runs).
+  `POST /api/auth/logout` calls `signOut(token, { everyDevice: true })` (every
+  key of that person is forgotten, on every device, even when this browser's own
+  connection already ended, §7.4 "Ended records") and clears both cookie names.
+  It lands on `/?signed_out=1` ("Signed out", muted: the key was forgotten in
+  every browser and still works in Linear until it is revoked there) only when
+  the result is `known`; with no cookie, or one the vault no longer knows of, it
+  lands on `/?signed_out=ended` ("Already disconnected", warning: this browser's
   connection had already ended, so the planner could not tell whose key to
   forget; it may still be connected in another browser; paste it again and sign
   out to forget it everywhere). A browser that still sends a cookie the vault no
@@ -3503,21 +3504,21 @@ Auth and frame details (decided while building `apps/planner`; binding):
   `grant_wrong_workspace`, each with its own sentence; install keeps its
   `wrong_workspace` one), `linear_<kind>`, `oauth_expired` (missing, tampered or
   expired cookie, or an install or write grant state without its workspace),
-  `oauth_state`, `oauth_code`, `auth_rate_limited` (the start, switch or
-  sign-out rate limit, "Rate limits" above), `access_denied` ("Linear sign-in
-  was cancelled or not granted. If your workspace needs an admin to approve
-  apps, ask an admin to approve Milestone Planner in Linear's settings, then try
-  again."; the app's name is `APP_NAME`), `too_many_workspaces` (the start
-  route, at 10 held), `sign_in_first` (install/grant_write without a session, or
-  an install whose workspace the browser no longer holds), `read_only`
-  (install/grant_write started by a Linear guest, or the engine refusing a
-  guest's write grant at the callback: "You are a guest in Linear, so the
-  planner is read-only for you…"), `session_secret`, `invalid_request` or
-  `internal` (logged). The demo sign-in reports the engine's `invalid` (a
-  deactivated person or the app user) as `demo_inactive`. A signed-in visitor
-  sees the error on `/` instead of being sent to `/week`. A sign-in that
-  replaces a session ends the old one in `after()` (OAuth mode: "Session
-  cookies" above).
+  `oauth_state`, `oauth_code`, `auth_rate_limited` (the start or switch rate
+  limit, "Rate limits" above; sign-out is never limited), `access_denied`
+  ("Linear sign-in was cancelled or not granted. If your workspace needs an
+  admin to approve apps, ask an admin to approve Milestone Planner in Linear's
+  settings, then try again."; the app's name is `APP_NAME`),
+  `too_many_workspaces` (the start route, at 10 held), `sign_in_first`
+  (install/grant_write without a session, or an install whose workspace the
+  browser no longer holds), `read_only` (install/grant_write started by a Linear
+  guest, or the engine refusing a guest's write grant at the callback: "You are
+  a guest in Linear, so the planner is read-only for you…"), `session_secret`,
+  `invalid_request` or `internal` (logged). The demo sign-in reports the
+  engine's `invalid` (a deactivated person or the app user) as `demo_inactive`.
+  A signed-in visitor sees the error on `/` instead of being sent to `/week`. A
+  sign-in that replaces a session ends the old one in `after()` (OAuth mode:
+  "Session cookies" above).
 - `SESSION_SECRET` (≥ 32 chars) is required in real mode; without it the OAuth
   routes log the misconfiguration and redirect with `session_secret`. Demo mode
   uses a per-process random secret.
@@ -6846,24 +6847,25 @@ not read; a deploy that still sets it boots normally and logs one warning
     `migrate` boots, over the real engine too with a deployed environment and no
     workspace pin.
   - planner: `test/api-key-connect.test.ts` (`handleConnect`'s order: another
-    mode 404 with the body unread, loopback-only with a test endpoint, the CSRF
-    guard, `Origin: null` and non-form bodies, plain HTTP behind https, a 4 KiB
-    body, every engine failure's code, both cookie names and their attributes,
-    the per-IP and global windows keyed on `X-Real-IP`, 100 concurrent posts
-    with Linear held: 10 reach it, a person elsewhere still connects; a clean
-    client served after others filled the global window; a try that does not
-    count taken back), `test/api-key-auth-routes.test.ts` (logout on every
-    device, an unknown or missing cookie landing on `signed_out=ended`, the
-    OAuth routes redirecting), `test/workspace-routes.test.ts` (the resync
-    answer carries no counts), `test/http-api-key.test.ts` (`no_reader` 503, the
-    401 sentence), `test/proxy.test.ts` and `test/security-headers.test.ts` (no
-    matcher and no `next.config.ts` redirects; a key in any URL, a typo path, a
-    missing static file, an icon's query or a prefetch, sent on without it with
-    a `no-store` 303, and in an API URL refused with 400 `key_in_url`; `/tasks`
-    a relative 307; the nonce policy on every page in every mode (since
-    2026-10-25), a fresh nonce per page, `form-action` with Linear in OAuth mode
-    only, API routes, static assets and prefetches skipped by whole path
-    segment; `authModeFromEnv` in step with the engine's `linearAuthFromEnv`),
+    mode 404 before the route reads the body (Next has buffered it already),
+    loopback-only with a test endpoint, the CSRF guard, `Origin: null` and
+    non-form bodies, plain HTTP behind https, a 4 KiB body, every engine
+    failure's code, both cookie names and their attributes, the per-IP and
+    global windows keyed on `X-Real-IP`, 100 concurrent posts with Linear held:
+    10 reach it, a person elsewhere still connects; a clean client served after
+    others filled the global window; a try that does not count taken back),
+    `test/api-key-auth-routes.test.ts` (logout on every device, an unknown or
+    missing cookie landing on `signed_out=ended`, the OAuth routes redirecting),
+    `test/workspace-routes.test.ts` (the resync answer carries no counts),
+    `test/http-api-key.test.ts` (`no_reader` 503, the 401 sentence),
+    `test/proxy.test.ts` and `test/security-headers.test.ts` (no matcher and no
+    `next.config.ts` redirects; a key in any URL, a typo path, a missing static
+    file, an icon's query or a prefetch, sent on without it with a `no-store`
+    303, and in an API URL refused with 400 `key_in_url`; `/tasks` a relative
+    307; the nonce policy on every page in every mode (since 2026-10-25), a
+    fresh nonce per page, `form-action` with Linear in OAuth mode only, API
+    routes, static assets and prefetches skipped by whole path segment;
+    `authModeFromEnv` in step with the engine's `linearAuthFromEnv`),
     `test/api-key-render.test.tsx` (the connect form, the notices, the three
     Status rows, the read-only-key notice, the key-refusing inputs, and the
     Issues, Projects and Timeline parsers dropping a key-holding `q`),

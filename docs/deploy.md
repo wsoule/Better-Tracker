@@ -303,24 +303,37 @@ Each service builds its own image from the same Dockerfile.
   your workspace** by watching `railway cron list` after a failed run.
 - No public domain, no healthcheck and no `PORT` are needed.
 
-Each tick does the following for every installed workspace (arch §9):
+Each tick does the following (arch §9):
 
-- When the local time in that workspace's timezone (Settings) has reached
+- First, housekeeping (arch §9 "Cleanup"), before any workspace: expired
+  sessions are deleted and their Linear grants revoked; the sessions of a
+  workspace that was uninstalled in Linear or removed are ended (their grants
+  revoked), except sessions started after the revoke (an admin signing in to
+  reinstall); such a workspace's data is purged 30 days after the revoke unless
+  it was installed again (a few per tick; a workspace whose grant Linear refused
+  is never purged on its own); webhook delivery records older than 30 days,
+  digests older than 90 days and daily job records older than 30 days are
+  pruned. The audit log and the run log are kept for as long as the workspace
+  stays installed. A blocked workspace that is still installed is removed. An
+  installed workspace `LINEAR_WORKSPACES` leaves out is **not** removed: it is
+  only not served (a soft gate; a warning per tick names it and the fix, section
+  5), and when one of the list's URL keys is not tied to a workspace yet, the
+  tick first reads that workspace's current URL key from Linear once (a rename
+  no sync has seen) and serves it again if the list names it. Housekeeping gets
+  at most 2 minutes, and at most half of `TICK_TIMEOUT_MINUTES`, for work that
+  calls Linear: it starts a batch of revocations or a purge only when it can
+  finish it in time even if Linear answers each revocation only at its 15-second
+  timeout, and leaves the rest for the next tick (the summary line says
+  `left for the next tick: …`).
+- Then, for every installed workspace it admits, least recently attempted first:
+  when the local time in that workspace's timezone (Settings) has reached
   `DAILY_RUN_AT` (default `08:00`), the tick runs **the daily job**: sync,
   allocation in the workspace's mode, then warnings. A claim makes it run once
   per local day, so the job runs on the first tick at or after 08:00 local.
 - Otherwise the tick runs a plain **full resync**. That resync is what picks up
-  milestone and relation changes, which have no webhooks.
-- Afterwards it runs housekeeping (arch §9): expired sessions are deleted and
-  their Linear grants revoked; an installed workspace `LINEAR_WORKSPACES` no
-  longer admits is removed; the sessions of a workspace that was uninstalled in
-  Linear or removed are ended (their grants revoked), except sessions started
-  after the revoke (an admin signing in to reinstall); such a workspace's data
-  is purged 30 days after the revoke unless it was installed again (a few per
-  tick; a workspace whose grant Linear refused is never purged on its own);
-  webhook delivery records older than 30 days, digests older than 90 days and
-  daily job records older than 30 days are pruned. The audit log and the run log
-  are kept for as long as the workspace stays installed.
+  milestone and relation changes, which have no webhooks. Every sync records
+  when it started, so a workspace whose sync is cut off by the deadline goes
+  after the others next tick instead of first again.
 
 Two details about the daily time:
 
@@ -642,8 +655,9 @@ wiped, for one of three reasons (arch §7 "Revoking"):
   the reinstall), so the cron job turns red instead of quietly doing nothing
   while allocation and warnings have stopped (arch §7.1, §9). An uninstall also
   ends up here when Linear's `OAuthApp` revoked webhook never arrived (the
-  webhook was disabled, or `LINEAR_WEBHOOK_SECRET` did not match), so its data
-  would be kept past the 30 days `/privacy` promises. When the workspace's admin
+  webhook was disabled, or `LINEAR_WEBHOOK_SECRET` did not match). `/privacy`
+  says such a workspace's data is kept until you remove it (its 30 days count
+  from Linear's uninstall notice), so act on it. When the workspace's admin
   confirms they uninstalled the app (or nobody will reinstall), run
   `remove --workspace <id>`, which starts the 30-day purge, or `remove` and, 15
   minutes later, `purge --workspace <id> --yes` to delete it now. **After
