@@ -82,6 +82,17 @@ const WORKSPACE_NAME = /^[A-Za-z0-9-]{1,64}$/;
 /** The longest `--reason` the engine keeps. */
 const MAX_REASON_LENGTH = 500;
 
+/**
+ * Why `allocate --live` needs --workspace: one deployment serves several
+ * workspaces (owner decision 2026-10-25), each with its own saved
+ * allocation mode, and a live run writes to Linear (assignments, state
+ * moves, comments) as the app. A run over every workspace would write
+ * into workspaces whose people left allocation on dry run, which the
+ * terms page says cannot happen.
+ */
+export const LIVE_ALLOCATE_NEEDS_WORKSPACE =
+  'allocate --live writes to Linear, so it runs for one workspace at a time: add --workspace <id> (allocate --dry-run may run for every workspace).';
+
 /** Why purge refuses to run without --yes. */
 export const PURGE_NEEDS_YES =
   'purge deletes everything the planner keeps for the workspace (its mirror, settings, run log and audit log) and cannot be undone; add --yes to confirm.';
@@ -101,8 +112,10 @@ Commands:
                                    The scheduled job: sync, allocation (in the
                                    workspace's allocation mode), warnings.
                                    Once per local day unless --force.
-  allocate --dry-run|--live [--workspace <id>]
-                                   Run allocation now in the given mode.
+  allocate --dry-run [--workspace <id>]
+  allocate --live --workspace <id>
+                                   Run allocation now in the given mode
+                                   (live writes to Linear: one workspace).
   warn     [--workspace <id>]      Run the warnings and digests now.
   tick     [--workspace <id>]      What the cron runs every 15 minutes: the
                                    daily job when it is due in the workspace's
@@ -135,8 +148,9 @@ recently synced first, and leaves for the next tick any workspace it has
 no time left to start.
 
 Options:
-  --workspace <id>   One Linear workspace id (default: every installed one);
-                     for operator commands, an org id or URL key (required).
+  --workspace <id>   One Linear workspace id (default: every installed one;
+                     required for allocate --live); for operator commands,
+                     an org id or URL key (required).
   --force            daily only: run even if today's run already happened.
   --dry-run, --live  allocate only: required, exactly one.
   --json             workspaces only: print JSON instead of a table.
@@ -309,6 +323,9 @@ function buildCommand(raw: RawOptions): ParseResult {
             ? 'allocate takes either --dry-run or --live, not both.'
             : 'allocate needs --dry-run or --live.',
         };
+      }
+      if (raw.live && workspaceId === null) {
+        return { kind: 'error', message: LIVE_ALLOCATE_NEEDS_WORKSPACE };
       }
       return {
         kind: 'command',

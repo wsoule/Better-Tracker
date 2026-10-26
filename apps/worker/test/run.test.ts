@@ -288,7 +288,9 @@ describe('runCli: one-shot commands', () => {
         exits += 1;
       },
     });
-    expect(await runCli(['allocate', '--live'], d)).toBe(0);
+    expect(await runCli(['allocate', '--live', '--workspace', 'ws-a'], d)).toBe(
+      0
+    );
     await Bun.sleep(60);
     expect(exits).toBe(0);
   });

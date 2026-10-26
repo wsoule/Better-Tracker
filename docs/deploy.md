@@ -519,12 +519,15 @@ operator commands are in "Operating several workspaces" below):
 - `migrate`
 - `sync`
 - `daily [--force]`
-- `allocate --dry-run|--live`
+- `allocate --dry-run`, or `allocate --live --workspace <id>`
 - `warn`
 - `tick`
 - `serve`
 
-All of them take `[--workspace <id>]`, except `migrate`. They need the
+All of them take `[--workspace <id>]`, except `migrate`. `allocate --live`
+requires it: a live run writes to Linear (assignments, state moves, comments) as
+the app, so it runs in the one workspace you name, never in every workspace at
+once (some may have left allocation on dry run in Settings). They need the
 production variables and the private network. `sync`, `daily`, `allocate` and
 `warn` stop with exit 1 after `TICK_TIMEOUT_MINUTES`, like `tick`, naming the
 stage they were stuck in, so a manual run never overlaps a tick that takes over

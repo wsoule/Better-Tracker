@@ -23,6 +23,7 @@ import {
   type CliCommand,
   type CommandName,
   isOperatorCommandName,
+  LIVE_ALLOCATE_NEEDS_WORKSPACE,
   type OperatorCommand,
 } from './cli';
 import type { WorkerConfig } from './config';
@@ -720,6 +721,16 @@ export async function runCommand(
   if (command.name === 'migrate') {
     // createEngineFromEnv already applied migrations (advisory-locked).
     result.notes.push('database schema is up to date');
+    return result;
+  }
+  // The parser refuses it too (exit 2); a caller that builds the command
+  // itself still never writes to Linear in every workspace at once.
+  if (
+    command.name === 'allocate' &&
+    command.mode === 'live' &&
+    command.workspaceId === null
+  ) {
+    result.problems.push(LIVE_ALLOCATE_NEEDS_WORKSPACE);
     return result;
   }
 

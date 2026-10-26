@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   type CliCommand,
   isOperatorCommand,
+  LIVE_ALLOCATE_NEEDS_WORKSPACE,
   parseArgs,
   PURGE_NEEDS_YES,
   USAGE,
@@ -165,6 +166,9 @@ describe('parseArgs: errors', () => {
       ['allocate', '--dry-run', '--live'],
       'allocate takes either --dry-run or --live, not both.',
     ],
+    // A live run writes to Linear: never across every workspace, whose
+    // saved allocation modes may be dry run.
+    [['allocate', '--live'], LIVE_ALLOCATE_NEEDS_WORKSPACE],
     [['migrate', '--workspace', 'a'], 'migrate does not take --workspace.'],
     [['migrate', '--', 'x'], 'Unknown option: --'],
     [['remove'], 'remove needs --workspace <org id or URL key>.'],

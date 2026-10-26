@@ -7,6 +7,7 @@ import {
 } from '@better-tracker/logger';
 import { describe, expect, test } from 'bun:test';
 
+import { LIVE_ALLOCATE_NEEDS_WORKSPACE } from '../src/cli';
 import {
   apiKeyModeOutcome,
   type CommandContext,
@@ -356,11 +357,24 @@ describe('runCommand', () => {
     expect(exitCodeFor(result)).toBe(1);
   });
 
+  test('allocate --live over every workspace is refused before any workspace runs', async () => {
+    const engine = fakeEngine({ workspaces: ['ws-a', 'ws-b'] });
+    const result = await runCommand(context(engine), {
+      name: 'allocate',
+      workspaceId: null,
+      mode: 'live',
+    });
+    expect(result.problems).toEqual([LIVE_ALLOCATE_NEEDS_WORKSPACE]);
+    expect(result.outcomes).toEqual([]);
+    expect(engine.calls).toEqual([]);
+    expect(exitCodeFor(result)).toBe(1);
+  });
+
   test('allocate runs the requested mode as a manual run with no actor', async () => {
     const engine = fakeEngine({ workspaces: ['ws-a'] });
     const result = await runCommand(context(engine), {
       name: 'allocate',
-      workspaceId: null,
+      workspaceId: 'ws-a',
       mode: 'live',
     });
     expect(engine.calls).toContain('runAllocation:ws-a:live:manual:no-actor');
@@ -385,7 +399,7 @@ describe('runCommand', () => {
         );
       const result = await runCommand(context(engine), {
         name: 'allocate',
-        workspaceId: null,
+        workspaceId: 'ws-a',
         mode: 'live',
       });
       expect(result.outcomes[0]).toMatchObject({
@@ -713,7 +727,7 @@ describe('runCommand: several workspaces', () => {
         now: EARLY,
         deadlineAt: new Date(EARLY.getTime() + 2 * MINUTE),
       }),
-      { name: 'allocate', workspaceId: null, mode: 'live' }
+      { name: 'allocate', workspaceId: null, mode: 'dry_run' }
     );
     expect(result.outcomes[0]).toMatchObject({
       kind: 'deferred',
@@ -721,7 +735,7 @@ describe('runCommand: several workspaces', () => {
       detail: 'workspace not started (2 min left, needs 3 min); run it again',
     });
     expect(engine.calls).not.toContain(
-      'runAllocation:ws-a:live:manual:no-actor'
+      'runAllocation:ws-a:dry_run:manual:no-actor'
     );
   });
 

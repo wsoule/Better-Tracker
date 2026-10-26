@@ -3515,7 +3515,11 @@ binding):
   answers 409 `live_runs_off` while `settings.allocationMode` is `dry_run`
   (§7.4: dry run until someone switches it live in Settings → Modes, which
   anyone signed in may do; the switch is a `settings.update` audit entry). Only
-  the web route is gated; the worker's `allocate --live` is an operator command.
+  the web route is gated; the worker's `allocate --live` is an operator command,
+  and it runs for one workspace only: without `--workspace` it is a usage error
+  (exit 2), since one deployment serves several workspaces, each with its own
+  saved mode (owner decision 2026-10-25), and a run over all of them would write
+  into workspaces left on dry run, which the terms page says cannot happen.
   Answers: `/api/runs` 201 `{ run }` (the finished run; the run takes as long as
   its sync), `/api/sync` 200 `{ sync }` (a `SyncResult` without its `counts`:
   they are of the whole mirror, which may hold private teams the caller cannot
@@ -5923,7 +5927,9 @@ notice above the sign-in card.
 - `migrate`
 - `sync [--workspace <id>]` — full resync of one/all installed workspaces
 - `daily [--workspace <id>] [--force]` — the scheduled job
-- `allocate --dry-run|--live [--workspace <id>]`
+- `allocate --dry-run [--workspace <id>]`, `allocate --live --workspace <id>` (a
+  live run writes to Linear, so it names its one workspace; without
+  `--workspace` it is a usage error, exit 2)
 - `warn [--workspace <id>]`
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
   UTC): first `cleanup` (bounded per call, so it always runs, whatever a slow
@@ -6015,16 +6021,16 @@ Worker decisions made while building it (binding):
     no chronic rule.
 - **Exit codes** (`exitCodeFor`, the summary line's status):
 
-  | outcome                                                                                                                                               | summary                                              | log   | exit |
-  | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----- | ---- |
-  | done (also "no installed workspaces")                                                                                                                 | `<id>: <what it did>`                                | info  | 0    |
-  | skipped: uninstalled, removed, blocked, not admitted                                                                                                  | `<id>: skipped (…)`                                  | info  | 0    |
-  | deferred: not enough time left to start                                                                                                               | `<id>: … deferred to the next tick (…)`              | info  | 0    |
-  | chronic: a tick's failure, with no successful full sync for 24 hours (or none since an install more than 24 hours ago), and the run's own sync failed | `<id>: chronic failure (…)`, status `ok (N chronic)` | warn  | 0    |
-  | failed: its job threw, or an allocation run ended `failed` or `partial`                                                                               | `<id>: FAILED (…)`                                   | error | 1    |
-  | revoked as `grant_dead` (Linear refused the app's token)                                                                                              | `<id>: FAILED (…reinstall…)`                         | error | 1    |
-  | a workspace-independent step failed (listing workspaces, `cleanup`), boot failed (configuration, database), or the hard timeout fired                 | `FAILED …` / stderr                                  | error | 1    |
-  | usage error (unknown command or option, missing `--dry-run`/`--live` or `--yes`, an option that does not apply)                                       | stderr                                               | —     | 2    |
+  | outcome                                                                                                                                                  | summary                                              | log   | exit |
+  | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----- | ---- |
+  | done (also "no installed workspaces")                                                                                                                    | `<id>: <what it did>`                                | info  | 0    |
+  | skipped: uninstalled, removed, blocked, not admitted                                                                                                     | `<id>: skipped (…)`                                  | info  | 0    |
+  | deferred: not enough time left to start                                                                                                                  | `<id>: … deferred to the next tick (…)`              | info  | 0    |
+  | chronic: a tick's failure, with no successful full sync for 24 hours (or none since an install more than 24 hours ago), and the run's own sync failed    | `<id>: chronic failure (…)`, status `ok (N chronic)` | warn  | 0    |
+  | failed: its job threw, or an allocation run ended `failed` or `partial`                                                                                  | `<id>: FAILED (…)`                                   | error | 1    |
+  | revoked as `grant_dead` (Linear refused the app's token)                                                                                                 | `<id>: FAILED (…reinstall…)`                         | error | 1    |
+  | a workspace-independent step failed (listing workspaces, `cleanup`), boot failed (configuration, database), or the hard timeout fired                    | `FAILED …` / stderr                                  | error | 1    |
+  | usage error (unknown command or option, missing `--dry-run`/`--live` or `--yes`, `allocate --live` without `--workspace`, an option that does not apply) | stderr                                               | —     | 2    |
 
   Chronic applies to `tick` only (the cron; a command run by hand always reports
   its failures) and only to workspaces it listed. It is decided from the
