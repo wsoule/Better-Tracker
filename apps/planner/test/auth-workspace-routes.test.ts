@@ -2,6 +2,7 @@ import type { Engine } from '@better-tracker/engine';
 import { afterAll, beforeEach, describe, expect, mock, test } from 'bun:test';
 
 import { verifyValue } from '../lib/signed-cookie';
+import { verifiedSignedOutName } from '../lib/signed-out-notice';
 import {
   APP,
   cookieHeader,
@@ -273,10 +274,17 @@ describe('POST /api/auth/logout (OAuth mode)', () => {
     const location = new URL(response.headers.get('location') ?? '', APP);
     expect(location.pathname).toBe('/week');
     expect(location.searchParams.get('signed_out')).toBe('1');
-    // The notice names the workspace signed out, from a signed value.
-    expect(
-      verifyValue(location.searchParams.get('from') ?? '', SECRET, Date.now())
-    ).toMatchObject({ signedOut: 'Acme' });
+    // The notice names the workspace signed out, from a signed value
+    // bound to this browser: only the session left active (Globex) reads
+    // it, so a copy of the link names nothing in another browser.
+    const from = location.searchParams.get('from') ?? '';
+    expect(verifyValue(from, SECRET, Date.now())).toMatchObject({
+      signedOut: 'Acme',
+    });
+    expect(verifiedSignedOutName(from, GLOBEX, SECRET)).toBe('Acme');
+    expect(verifiedSignedOutName(from, INITECH, SECRET)).toBeNull();
+    expect(verifiedSignedOutName(from, undefined, SECRET)).toBeNull();
+    expect(from).not.toContain(GLOBEX);
     expect(state.calls.signOut).toEqual([ACME]);
     expect(cookieValue(setCookie(response, ACTIVE))).toBe(GLOBEX);
     expect(stashOf(response, STASH)).toEqual([INITECH]);

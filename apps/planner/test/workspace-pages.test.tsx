@@ -17,6 +17,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { revokedNotice } from '../lib/adapters/setup';
 import { FIRST_SYNC_RETRY_SENTENCE } from '../lib/read-only';
 import { signValue } from '../lib/signed-cookie';
+import { signedOutNoticeValue } from '../lib/signed-out-notice';
 import {
   setupLocation,
   switchErrorMessage,
@@ -574,28 +575,41 @@ describe("/week's workspace notices", () => {
     ]);
   });
 
-  test('signed_out names the workspace from a signed value only, with sign out of all', () => {
-    const value = signValue(
-      { signedOut: 'Globex' },
-      SECRET,
-      Date.now() + 60_000
-    );
-    const html = renderToStaticMarkup(
-      <WorkspaceNotices
-        params={{ signed_out: '1', from: value }}
-        workspaceName="Acme"
-      />
-    );
+  test('signed_out names the workspace from a value signed for this browser only, with sign out of all', async () => {
+    // The logout route binds the value to the session it left active
+    // (Acme, this browser's active cookie).
+    const value = signedOutNoticeValue('Globex', ACME, SECRET);
+    const notices = (from: string) =>
+      render(
+        Promise.resolve(
+          <WorkspaceNotices
+            params={{ signed_out: '1', from }}
+            workspaceName="Acme"
+          />
+        )
+      );
+    const html = await notices(value ?? '');
     expect(html).toContain('Signed out of Globex. Still signed in to Acme.');
     expect(html).toContain('Sign out of all workspaces');
-    const forged = renderToStaticMarkup(
-      <WorkspaceNotices
-        params={{ signed_out: '1', from: 'eyJzaWduZWRPdXQiOiJFdmlsIn0.forged' }}
-        workspaceName="Acme"
-      />
-    );
+    const forged = await notices('eyJzaWduZWRPdXQiOiJFdmlsIn0.forged');
     expect(forged).toContain('Signed out. Still signed in to Acme.');
     expect(forged).not.toContain('Evil');
+    // A value someone minted by signing out in their own browser (an
+    // admitted workspace they renamed), sent as a link to another person:
+    // validly signed, but bound to a session this browser does not have.
+    const minted = signedOutNoticeValue(
+      'Acme. Your Linear access is suspended, email support@evil.example',
+      tok('attacker'),
+      SECRET
+    );
+    const replayed = await notices(minted ?? '');
+    expect(replayed).toContain('Signed out. Still signed in to Acme.');
+    expect(replayed).not.toContain('suspended');
+    // An unbound value (the old shape) names nothing either.
+    const unbound = await notices(
+      signValue({ signedOut: 'Evil' }, SECRET, Date.now() + 60_000)
+    );
+    expect(unbound).not.toContain('Evil');
   });
 
   test('switch errors and a sign-out of nothing; unknown values show nothing', () => {

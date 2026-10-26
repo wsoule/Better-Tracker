@@ -1,18 +1,25 @@
 import { Notice } from '@better-tracker/ui';
+import { cookies } from 'next/headers';
 
 import { sessionSecret } from '../../../lib/auth-cookies';
-import { verifyValue } from '../../../lib/signed-cookie';
+import { getEngine } from '../../../lib/runtime';
+import { activeSessionToken, cookieScheme } from '../../../lib/session-cookies';
+import { verifiedSignedOutName } from '../../../lib/signed-out-notice';
 import { weekWorkspaceNotices } from '../../../lib/workspace-copy';
 import SignOutAllForm from './sign-out-all-form';
 import css from './workspace-notices.module.css';
 
-/** The signed-out workspace's name in a verified `from` value, or null. */
-function verifiedName(value: string | undefined): string | null {
-  if (value === undefined || value === '') return null;
+/**
+ * The signed-out workspace's name in a verified `from` value issued to
+ * this browser (its active session is the one the sign-out left active),
+ * or null.
+ */
+function verifiedName(
+  value: string | undefined,
+  activeToken: string | undefined
+): string | null {
   try {
-    const record = verifyValue(value, sessionSecret(false), Date.now());
-    const name = record?.signedOut;
-    return typeof name === 'string' && name !== '' ? name : null;
+    return verifiedSignedOutName(value, activeToken, sessionSecret(false));
   } catch {
     return null;
   }
@@ -25,8 +32,9 @@ function verifiedName(value: string | undefined): string | null {
    a switch did not happen. Neutral bordered notices (default tone, never
    the blue info tone), a failed switch red; role="status" for what just
    changed, "alert" for the failure. Names come from the engine, or from a
-   value the logout route signed, never from the URL as such. */
-export default function WorkspaceNotices({
+   value the logout route signed for this browser (bound to its active
+   session, lib/signed-out-notice.ts), never from the URL as such. */
+export default async function WorkspaceNotices({
   params,
   workspaceName,
 }: {
@@ -37,10 +45,15 @@ export default function WorkspaceNotices({
   for (const [key, value] of Object.entries(params)) {
     first[key] = Array.isArray(value) ? value[0] : value;
   }
+  let activeToken: string | undefined;
+  if (first.signed_out === '1' && first.from !== undefined) {
+    const [jar, engine] = await Promise.all([cookies(), getEngine()]);
+    activeToken = activeSessionToken(jar, cookieScheme(engine));
+  }
   const notices = weekWorkspaceNotices({
     params: first,
     workspaceName,
-    verifiedName,
+    verifiedName: (value) => verifiedName(value, activeToken),
   });
   if (notices.length === 0) return null;
   return (

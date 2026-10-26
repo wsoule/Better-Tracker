@@ -3127,11 +3127,16 @@ referrer policy and a Permissions-Policy.
   ends that workspace's held session, active or stashed; when another remains
   (the most recent stashed one taking an ended active one's place) it lands on
   `/week?signed_out=1&from=<a five-minute value signed with SESSION_SECRET naming the workspace signed out>`,
-  otherwise both cookies are cleared and it goes to `/`. When the browser holds
-  no session for that workspace nothing is ended (`/week?signed_out=none`).
-  Without `workspace` it ends the active session. `all` ends every held session
-  (each revoking its grant) and clears both cookies. Demo mode ends its one
-  session; the api_key branch is unchanged.
+  otherwise both cookies are cleared and it goes to `/`. The value is bound to
+  this browser (`lib/signed-out-notice.ts`: it carries a digest of the session
+  token left active, never the token, and `/week` names the workspace only when
+  the request's active cookie matches), since the name is the Linear
+  workspace's, which its admin chooses: a value copied into a link reads "Signed
+  out." in anyone else's browser. When the browser holds no session for that
+  workspace nothing is ended (`/week?signed_out=none`). Without `workspace` it
+  ends the active session. `all` ends every held session (each revoking its
+  grant) and clears both cookies. Demo mode ends its one session; the api_key
+  branch is unchanged.
 - **Stale tabs**: every `api-client.ts` request sends
   `X-Planner-Workspace: <the shell frame's workspace id>` (`setFrameWorkspace`,
   called by `PlannerShell` in the browser), and `requireApiActor` answers **409
@@ -5536,8 +5541,9 @@ links and follow-ups, new or unread, progress and the timeline's today.
     connected <W> again, which this browser already has. To add another
     workspace, open it at linear.app first, then choose Connect another
     workspace."; `?signed_out=1` "Signed out: Signed out of <A>. Still signed in
-    to <B>." (A from the logout route's signed `from` value; "Signed out. Still
-    signed in to <B>." when it does not verify) with a small "Sign out of all
+    to <B>." (A from the logout route's signed `from` value, bound to this
+    browser's active session; "Signed out. Still signed in to <B>." when it does
+    not verify or was issued to another browser) with a small "Sign out of all
     workspaces" button; `?signed_out=none` "This browser was not signed in to
     that workspace any more, so nothing was signed out."; `?switch_error=` "Not
     switched". The page's own links leave these parameters out. When the
