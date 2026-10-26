@@ -877,3 +877,14 @@ workspace".
 - the privacy page is written from what the code stores and names Railway as
   the host; the terms are plain words, not legal advice. Both want an owner's
   read before strangers arrive.
+
+### 2026-10-26 — the public pages are approved
+
+The owner read the privacy, terms and contact pages as this deployment serves
+them (OAuth mode, `OPERATOR_NAME` and `OPERATOR_EMAIL` set, no Slack) and
+approved the wording: "Look fine, mark approved". This closes the 2026-10-25
+call above that both "want an owner's read before strangers arrive". A change
+to what the planner stores or writes still updates those pages in the same
+change (`apps/planner/lib/adapters/public-pages.ts`), and a deployment run by
+someone else still has its own wording reviewed (`docs/deploy.md` §5, step 7).
+The owner also kept the bulk safety of Q6 (§11) as stated.
