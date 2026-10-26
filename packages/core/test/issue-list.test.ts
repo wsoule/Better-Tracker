@@ -7,6 +7,7 @@ import {
   ISSUE_LIST_MAX_GROUPS,
   ISSUE_LIST_PRESETS,
   issueListSectionsAllowed,
+  issueListSortHasDirection,
   normalizeIssueListQuery,
   OPEN_STATE_TYPES,
   planAllocation,
@@ -872,6 +873,80 @@ describe('field sorts', () => {
     expect(layout(build({ sort: 'created' })).slice(0, 1)).toEqual([
       ['t:overdue/m:pa-m1', ['ENG-1', 'ENG-2', 'ENG-10']],
     ]);
+  });
+});
+
+// Atlas and Compass are High, Beacon Medium; Zephyr (Urgent) is paused.
+describe('the project priority order', () => {
+  test('milestone groups by project priority under the same dividers', () => {
+    expect(layout(build({ sort: 'project_priority' }))).toEqual([
+      ['t:overdue/m:pa-m1', ['ENG-2', 'ENG-10', 'ENG-1']],
+      // Compass's undated Routing passes Beacon's sooner Index.
+      ['t:upcoming/m:pa-m2', ['ENG-4']],
+      ['t:upcoming/m:pc-m1', ['OPS-2']],
+      ['t:upcoming/m:pb-m1', ['OPS-1']],
+      ['t:unplanned/nm:pa', ['ENG-6']],
+      ['t:unplanned/nm:pc', ['OPS-3']],
+      ['t:unplanned/np', ['ENG-7']],
+      ['t:inactive/m:pz-m1', ['ENG-8']],
+      ['t:inactive/nm:pz', ['ENG-9']],
+    ]);
+  });
+
+  test('ungrouped rows: overdue first, then project priority, then the weight order', () => {
+    expect(keys(build({ group: 'none', sort: 'project_priority' }))).toEqual([
+      'ENG-2',
+      'ENG-10',
+      'ENG-1',
+      'ENG-4',
+      'OPS-2',
+      'OPS-1',
+      'ENG-6',
+      'OPS-3',
+      'ENG-7',
+      'ENG-8',
+      'ENG-9',
+    ]);
+  });
+
+  test('making a project urgent moves its upcoming milestone to the top', () => {
+    const data = scenario();
+    // Beacon becomes Urgent: its upcoming Index now leads the upcoming work.
+    const beacon = data.projects.find((p) => p.id === 'pb');
+    if (beacon !== undefined) beacon.priority = 1;
+    expect(
+      layout(build({ sort: 'project_priority' }, { data }))
+        .map(([key]) => key)
+        .slice(0, 4)
+    ).toEqual([
+      't:overdue/m:pa-m1',
+      't:upcoming/m:pb-m1',
+      't:upcoming/m:pa-m2',
+      't:upcoming/m:pc-m1',
+    ]);
+  });
+
+  test('project groups and sections by project priority; inactive stays last', () => {
+    expect(
+      layout(build({ group: 'project', sort: 'project_priority' })).map(
+        ([key]) => key
+      )
+    ).toEqual(['all/p:pa', 'all/p:pc', 'all/p:pb', 'all/np', 'all/p:pz']);
+    expect(
+      build({
+        sections: 'project',
+        group: 'priority',
+        sort: 'project_priority',
+      }).sections.map((s) => s.key)
+    ).toEqual(['p:pa', 'p:pc', 'p:pb', 'p:none', 'p:pz']);
+  });
+
+  test('has no direction, like weight; every other sort keeps the default order', () => {
+    expect(query({ sort: 'project_priority', dir: 'desc' }).dir).toBe('asc');
+    expect(issueListSortHasDirection('project_priority')).toBe(false);
+    expect(issueListSortHasDirection('weight')).toBe(false);
+    expect(issueListSortHasDirection('due')).toBe(true);
+    expect(keys(build({ group: 'none' }))).toEqual(WEIGHT_ORDER);
   });
 });
 

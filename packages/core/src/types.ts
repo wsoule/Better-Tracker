@@ -1240,6 +1240,7 @@ export type IssueListSectionBy = 'none' | 'initiative' | 'project';
 /** Row order inside a group ('weight' is architecture §2.7's order). */
 export type IssueListSort =
   | 'weight'
+  | 'project_priority'
   | 'priority'
   | 'due'
   | 'updated'

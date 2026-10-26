@@ -95,12 +95,22 @@ export const ISSUE_LIST_DEFAULT_DIR: Readonly<
   Record<IssueListSort, 'asc' | 'desc'>
 > = Object.freeze({
   weight: 'asc',
+  project_priority: 'asc',
   priority: 'asc',
   due: 'asc',
   updated: 'desc',
   created: 'desc',
   title: 'asc',
 });
+
+/**
+ * Whether a sort can be reversed. The weight and project priority orders are
+ * rules (overdue on top, paused projects last), not a field, so they have no
+ * direction: the query keeps 'asc' and the Sort menu offers none.
+ */
+export function issueListSortHasDirection(sort: IssueListSort): boolean {
+  return sort !== 'weight' && sort !== 'project_priority';
+}
 
 const GROUP_KINDS: readonly IssueListGroupBy[] = [
   'milestone',
@@ -118,6 +128,7 @@ const SECTION_KINDS: readonly IssueListSectionBy[] = [
 ];
 const SORTS: readonly IssueListSort[] = [
   'weight',
+  'project_priority',
   'priority',
   'due',
   'updated',
@@ -321,14 +332,13 @@ export function normalizeIssueListQuery(raw: unknown): IssueListQuery {
     ? sectionsRaw
     : 'none';
   const sort = oneOf(input['sort'], SORTS, 'weight');
-  const dir =
-    sort === 'weight'
-      ? 'asc'
-      : oneOf(
-          input['dir'],
-          ['asc', 'desc'] as const,
-          ISSUE_LIST_DEFAULT_DIR[sort]
-        );
+  const dir = !issueListSortHasDirection(sort)
+    ? 'asc'
+    : oneOf(
+        input['dir'],
+        ['asc', 'desc'] as const,
+        ISSUE_LIST_DEFAULT_DIR[sort]
+      );
   return {
     filters,
     group,
@@ -412,6 +422,8 @@ interface Match {
   createdMs: number;
   identifierPrefix: string;
   identifierNumber: number;
+  /** The project priority order's key after the tier ([0, 0] otherwise). */
+  priorityFirst: SortKey;
   /** The field sort's key; null sorts last in both directions. */
   sortValue: number | string | null;
   /** The folded title (title sort only). */
@@ -472,6 +484,13 @@ function rowComparator(
   dir: 'asc' | 'desc'
 ): (a: Match, b: Match) => number {
   if (sort === 'weight') return compareWeight;
+  if (sort === 'project_priority') {
+    return (a, b) => {
+      if (a.tier !== b.tier) return a.tier - b.tier;
+      const byProject = compareKeys(a.priorityFirst, b.priorityFirst);
+      return byProject !== 0 ? byProject : compareWeight(a, b);
+    };
+  }
   const sign = dir === 'asc' ? 1 : -1;
   return (a, b) => {
     const x = a.sortValue;
@@ -516,6 +535,7 @@ function sortValueOf(
     case 'title':
       return title;
     case 'weight':
+    case 'project_priority':
       return null;
   }
 }
@@ -605,6 +625,26 @@ export function buildIssueList(input: {
     milestoneIndex.set(milestone.id, index)
   );
   const milestoneCount = sortedMilestones.length;
+  // The project priority order's key, right after the tier: an active
+  // project's overdue milestones first (as the Overdue divider shows them),
+  // then the project's Linear priority, urgent first and none last. Every
+  // other sort gets [0, 0], so its rows, groups and sections keep their order.
+  const byProjectPriority = query.sort === 'project_priority';
+  const priorityFirst = (
+    projectId: string | null,
+    milestone: Milestone | undefined
+  ): SortKey => {
+    if (!byProjectPriority || projectId === null) return [0, 0];
+    const overdue =
+      milestone !== undefined &&
+      isActive(projectId) &&
+      assessments.get(milestone.id)?.status === 'overdue';
+    const project = snapshot.projects.get(projectId);
+    return [
+      overdue ? 0 : 1,
+      project === undefined ? 0 : priorityRank(project.priority),
+    ];
+  };
   const nextByProject = new Map<string, string>();
   for (const assessment of assessments.values()) {
     if (assessment.isNext)
@@ -764,6 +804,7 @@ export function buildIssueList(input: {
       tier,
       tierRank,
       priorityRank: priorityRank(issue.priority),
+      priorityFirst: priorityFirst(projectId, milestone),
       createdMs,
       identifierPrefix: parts?.[1] ?? issue.identifier,
       identifierNumber: parts === null ? -1 : Number(parts[2]),
@@ -782,7 +823,11 @@ export function buildIssueList(input: {
     return {
       key: `p:${projectId}`,
       value: { kind: 'project', projectId },
-      order: [isActive(projectId) ? 0 : 2, projectIndex.get(projectId) ?? 0],
+      order: [
+        isActive(projectId) ? 0 : 2,
+        ...priorityFirst(projectId, undefined),
+        projectIndex.get(projectId) ?? 0,
+      ],
     };
   };
   const sectionOf = (
@@ -841,7 +886,12 @@ export function buildIssueList(input: {
         milestoneId: milestone.id,
         projectId: milestone.projectId,
       },
-      order: [tier, complete, milestoneIndex.get(milestone.id) ?? 0],
+      order: [
+        tier,
+        ...priorityFirst(milestone.projectId, milestone),
+        complete,
+        milestoneIndex.get(milestone.id) ?? 0,
+      ],
     };
   };
   const NO_PROJECT_GROUP = {
@@ -868,7 +918,11 @@ export function buildIssueList(input: {
           return {
             valueKey: `nm:${projectId}`,
             value: { kind: 'no_milestone', projectId },
-            order: [tier, projectIndex.get(projectId) ?? 0],
+            order: [
+              tier,
+              ...priorityFirst(projectId, undefined),
+              projectIndex.get(projectId) ?? 0,
+            ],
           };
         }
         return { ...NO_PROJECT_GROUP, order: [TIER_C] };
@@ -879,6 +933,7 @@ export function buildIssueList(input: {
           value: { kind: 'project', projectId },
           order: [
             isActive(projectId) ? 0 : 2,
+            ...priorityFirst(projectId, undefined),
             projectIndex.get(projectId) ?? 0,
           ],
         };

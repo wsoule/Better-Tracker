@@ -730,15 +730,16 @@ bound.
 - **Query** (`IssueListQuery`): `filters`, `group`
   (`milestone | project | initiative | assignee | state | priority | none`),
   `sections` (`none | initiative | project`), `sort`
-  (`weight | priority | due | updated | created | title`), `dir` and `limit`.
-  `normalizeIssueListQuery(raw)` never throws: unknown enum values, blank
-  values, values over 200 characters, repeats and values past 50 per field are
-  dropped (values keep their order); `q` is trimmed to 200 characters; an empty
-  status list means the open types; `limit` is rounded up to a multiple of 500
-  in [500, 2000]; an invalid pair resets `sections` to `none` (initiative
-  sections with every group but `initiative`; project sections with `milestone`,
-  `assignee`, `state`, `priority`, `none`; `issueListSectionsAllowed`); the
-  weight sort has no direction (`asc`), the others default to
+  (`weight | project_priority | priority | due | updated | created | title`),
+  `dir` and `limit`. `normalizeIssueListQuery(raw)` never throws: unknown enum
+  values, blank values, values over 200 characters, repeats and values past 50
+  per field are dropped (values keep their order); `q` is trimmed to 200
+  characters; an empty status list means the open types; `limit` is rounded up
+  to a multiple of 500 in [500, 2000]; an invalid pair resets `sections` to
+  `none` (initiative sections with every group but `initiative`; project
+  sections with `milestone`, `assignee`, `state`, `priority`, `none`;
+  `issueListSectionsAllowed`); the weight and project priority sorts have no
+  direction (`asc`, `issueListSortHasDirection`), the others default to
   `ISSUE_LIST_DEFAULT_DIR` (`updated` and `created` newest first).
   `buildIssueList` normalizes again and returns the query as applied.
 - **Filters**: values within a field are OR'd, fields and quick filters AND'd,
@@ -768,7 +769,15 @@ bound.
   last, the issue's own `dueDate` with undated last, `updatedAt`, `createdAt`,
   folded title then identifier; nulls last in both directions), ties broken by
   the weight key. Field sorts order rows inside groups; groups keep their own
-  order.
+  order. The **project priority order** (owner decision 2026-10-26, design §11
+  Q4) is the weight order with one key put right after the tier: an active
+  project's overdue milestones first (as the Overdue divider shows them), then
+  the project's Linear priority (urgent first, none last). It orders rows,
+  milestone and project groups and project sections alike, so an urgent
+  project's later milestone comes before a low project's sooner one; tiers B to
+  E stay where they are (unplanned work, no project, then paused projects last).
+  Display only, like the weight override: it never changes which milestone is
+  next for allocation or warnings.
 - **Groups** (key `<sectionKey>/<valueKey>`): milestone (`m:<id>`; a project's
   `nm:<projectId>`; `np`), by tier, then the milestone or project rank; project
   (`p:<id>`): active projects in `orderProjects` order, then `np`, then inactive
@@ -1065,6 +1074,7 @@ export function issueListSectionsAllowed(
   group: IssueListGroupBy,
   sections: IssueListSectionBy
 ): boolean;
+export function issueListSortHasDirection(sort: IssueListSort): boolean; // weight, project_priority: no
 export function stateNameKey(name: string): string; // trimmed, lower case
 export function buildIssueList(input: {
   snapshot: Snapshot;

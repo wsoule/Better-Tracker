@@ -50,6 +50,7 @@ import {
   PICKER_OPTION_LIMIT,
   sortLabel,
   sortMenuOptions,
+  sortMenuValue,
   withDefaultFilters,
   withFilterValues,
   withGroupMenu,
@@ -420,6 +421,7 @@ describe('filter changes', () => {
       sortMenuOptions(parseIssueListParams({})).map((o) => o.value)
     ).toEqual([
       'sort:weight',
+      'sort:project_priority',
       'sort:priority',
       'sort:due',
       'sort:updated',
@@ -431,6 +433,21 @@ describe('filter changes', () => {
         .slice(-2)
         .map((o) => o.label)
     ).toEqual(['Ascending', 'Descending']);
+  });
+
+  test('Project priority is an order like Weight: no direction, none in the URL', () => {
+    const byProject = withSortMenu(parseIssueListParams({}), [
+      'sort:project_priority',
+    ]);
+    expect(sortMenuOptions(byProject).map((o) => o.value)).not.toContain(
+      'dir:asc'
+    );
+    expect(sortMenuValue(byProject)).toEqual(['sort:project_priority']);
+    expect(sortLabel(byProject)).toBe('Project priority');
+    expect(issueListHref(byProject)).toBe('/issues?sort=project_priority');
+    expect(
+      parseIssueListParams({ sort: 'project_priority', dir: 'desc' }).dir
+    ).toBe('asc');
   });
 });
 

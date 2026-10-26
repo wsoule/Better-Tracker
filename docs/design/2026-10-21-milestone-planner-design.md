@@ -215,8 +215,10 @@ status, priority, text, blocked, at risk and next milestones, with tabs for All,
 Unplanned, Unassigned, Blocked and At risk. It is ordered by the weight rule of §6.6
 (active projects' milestones first, overdue on top, then the weight override, due date
 and project priority; inside a milestone, issue priority then age; then unplanned
-issues, issues with no project, and paused projects last) or by priority, the issue's
-due date, last update, creation or title. It is grouped by milestone, project,
+issues, issues with no project, and paused projects last), by project priority
+(§12, 2026-10-26: the same order with the project's Linear priority right after the
+overdue milestones) or by priority, the issue's due date, last update, creation or
+title. It is grouped by milestone, project,
 initiative, assignee, status or priority, optionally inside initiative or project
 sections. Issues move to a milestone (and so to its project), a person, a status or a
 priority one at a time or up to 100 at once, by menu, keyboard or drag, with an Undo.
@@ -285,6 +287,8 @@ webhook); exact at-risk formula tuning; naming.
   - **Q4. Priority-first order.** Should project priority outrank the milestone date
     ("an urgent project's later milestone before a low project's sooner one")?
     Default: no, §6.6 as written; if yes, a second "Priority order" sort is added.
+    *Answered 2026-10-26 (§12): yes, as a "Project priority" sort; §6.6 stays the
+    default.*
   - **Q5. Paused projects last.** Issues of paused or not-started projects sort after
     all active work, unplanned work included (My week instead interleaves them under
     Later). Default: last.
@@ -893,3 +897,22 @@ issue priority and age, with the per-milestone weight override) is what they
 want, because Linear's priority alone cannot say that an urgent milestone
 ending tomorrow outranks an urgent one ending in three weeks. Nothing changes
 and Linear's project priority is not written.
+
+### 2026-10-26 — a project priority sort (Q4)
+
+The owner answered Q4: "Add a 'Priority order' sort", and approved this
+description of it: the Issues view's Sort menu gains **Project priority**.
+Projects rank by Linear's project priority (urgent, high, medium, low, then
+none); inside one priority, the §6.6 order (weight override, milestone date,
+issue priority, age); issues with no milestone, issues with no project and
+paused projects stay last as in §6.6 (Q5). The default stays §6.6, and the
+sort is display only (§6.13): it never changes which milestone is next.
+
+*Builder's calls, flagged for review:*
+- an active project's overdue milestones stay on top, as the Overdue divider
+  already shows them, so a low project's overdue milestone is not pushed under
+  an urgent project's upcoming one; project priority orders everything below;
+- the name is "Project priority", not "Priority order", next to the existing
+  "Priority" sort (the issue's own priority);
+- like Weight it has no direction to reverse, and it is kept in the page's URL;
+- the Issues view only; My week keeps its order.

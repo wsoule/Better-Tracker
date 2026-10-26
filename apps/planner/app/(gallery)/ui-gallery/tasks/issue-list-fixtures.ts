@@ -271,6 +271,11 @@ export const SORT_OPTIONS = [
     label: 'Weight',
     hint: 'Overdue first, then weight, due date and project priority',
   },
+  {
+    value: 'project_priority',
+    label: 'Project priority',
+    hint: 'Urgent projects first',
+  },
   { value: 'priority', label: 'Priority', hint: 'Urgent first' },
   { value: 'due', label: 'Due date', hint: 'Soonest first' },
   { value: 'updated', label: 'Last updated', hint: 'Newest first' },

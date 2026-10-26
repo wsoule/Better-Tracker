@@ -121,6 +121,7 @@ export const ISSUE_LIST_SECTION_LABEL: Record<IssueListSectionBy, string> = {
 /** The issue list's Sort menu. */
 export const ISSUE_LIST_SORT_LABEL: Record<IssueListSort, string> = {
   weight: 'Weight',
+  project_priority: 'Project priority',
   priority: 'Priority',
   due: 'Due date',
   updated: 'Last updated',
@@ -132,6 +133,8 @@ export const ISSUE_LIST_SORT_LABEL: Record<IssueListSort, string> = {
 export const ISSUE_LIST_SORT_HINT: Record<IssueListSort, string> = {
   weight:
     'Overdue milestones first, then weight, due date and project priority; inside a milestone, priority then oldest.',
+  project_priority:
+    "Overdue milestones first, then urgent projects first; inside a project's priority, the weight order.",
   priority: 'Urgent first',
   due: "The issue's own due date, soonest first",
   updated: 'Newest first',

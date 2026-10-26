@@ -16,6 +16,7 @@ import {
   ISSUE_LIST_SECTION_LABEL,
   ISSUE_LIST_SORT_HINT,
   ISSUE_LIST_SORT_LABEL,
+  issueListSortHasDirection,
   ISSUE_LIST_TIER_LABEL,
   type IssueListFilters,
   type IssueListGroup,
@@ -252,7 +253,7 @@ export function issueListHref(
   }
   if (query.sort !== DEFAULT_ISSUE_LIST_QUERY.sort) add('sort', [query.sort]);
   if (
-    query.sort !== 'weight' &&
+    issueListSortHasDirection(query.sort) &&
     query.dir !== ISSUE_LIST_DEFAULT_DIR[query.sort]
   ) {
     add('dir', [query.dir]);
@@ -751,7 +752,7 @@ export function issueListTabs(
 /** "Sort: Weight", "Sort: Due date ↓" (the trigger's face). */
 export function sortLabel(query: IssueListQuery): string {
   const name = ISSUE_LIST_SORT_LABEL[query.sort];
-  if (query.sort === 'weight') return name;
+  if (!issueListSortHasDirection(query.sort)) return name;
   return query.dir === ISSUE_LIST_DEFAULT_DIR[query.sort]
     ? name
     : `${name}, reversed`;
@@ -1640,6 +1641,7 @@ export const SECTION_CHOICES: readonly IssueListSectionBy[] = [
 /** The Sort menu's sorts, in order. */
 export const SORT_CHOICES: readonly IssueListSort[] = [
   'weight',
+  'project_priority',
   'priority',
   'due',
   'updated',
@@ -1983,6 +1985,7 @@ export function groupMenuOptions(
     ISSUE_LIST_SORT_HINT says the same at length). */
 const SORT_MENU_HINT: Record<IssueListSort, string> = {
   weight: 'Overdue first',
+  project_priority: 'Urgent projects first',
   priority: 'Urgent first',
   due: 'Soonest first',
   updated: 'Newest first',
@@ -2000,7 +2003,7 @@ export function sortMenuOptions(query: IssueListQuery): PickerOption[] {
     keywords: [ISSUE_LIST_SORT_HINT[sort]],
     group: 'Sort by',
   }));
-  if (query.sort === 'weight') return sorts;
+  if (!issueListSortHasDirection(query.sort)) return sorts;
   return [
     ...sorts,
     { value: 'dir:asc', label: 'Ascending', group: 'Direction' },
@@ -2015,9 +2018,9 @@ export function groupMenuValue(query: IssueListQuery): string[] {
 
 /** The chosen values of the Sort menu. */
 export function sortMenuValue(query: IssueListQuery): string[] {
-  return query.sort === 'weight'
-    ? ['sort:weight']
-    : [`sort:${query.sort}`, `dir:${query.dir}`];
+  return issueListSortHasDirection(query.sort)
+    ? [`sort:${query.sort}`, `dir:${query.dir}`]
+    : [`sort:${query.sort}`];
 }
 
 /**
