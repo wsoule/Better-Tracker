@@ -36,6 +36,23 @@ const filters = (page: Page) =>
 const chip = (page: Page, name: string) =>
   filters(page).getByRole('button', { name });
 
+/**
+ * Waits until the list on screen has hydrated. The server's markup shows
+ * the same chips and rows at once, but until React has hydrated the page
+ * Next's router has no popstate listener yet (it adds one in an effect):
+ * a Back taken then is lost, and the router's first commit writes the URL
+ * the page loaded with over the entry Back went to. A click is lost the
+ * same way. The signal is a member's drag grips on a desktop: the server
+ * cannot know the pointer is fine, so they turn draggable only once the
+ * list has hydrated and its effects have run, which is after the
+ * router's.
+ */
+async function listHydrated(page: Page): Promise<void> {
+  await expect(
+    page.locator('li[data-row-id] [data-draggable="true"]').first()
+  ).toBeAttached();
+}
+
 test.describe('as a member', () => {
   test.beforeEach(async ({ page }) => {
     await signIn(page);
@@ -69,7 +86,8 @@ test.describe('as a member', () => {
   test('a project filter lives in the URL: reload, Back and Forward', async ({
     page,
   }) => {
-    await page.goto('/issues', { waitUntil: 'networkidle' });
+    await page.goto('/issues');
+    await listHydrated(page);
     await page.getByRole('button', { name: 'Filter', exact: true }).click();
     await page.getByRole('option', { name: 'Project', exact: true }).click();
     await page.getByRole('option', { name: 'Garnet mobile app' }).click();
@@ -81,6 +99,8 @@ test.describe('as a member', () => {
 
     await page.reload();
     await expect(garnet).toBeVisible();
+    // The chip is in the server's markup: Back only once the page listens.
+    await listHydrated(page);
 
     await page.goBack();
     await expect(page).toHaveURL(/\/issues$/);

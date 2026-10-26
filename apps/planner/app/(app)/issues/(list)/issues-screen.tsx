@@ -47,6 +47,7 @@ import {
   type IssueListFilterNames,
   type IssueListPageModel,
   type IssueListSectionModel,
+  issueListAddressRewrite,
   issueListChips,
   issueListGraphHref,
   issueListHref,
@@ -301,16 +302,16 @@ export default function IssuesScreen({
 
   // A non-canonical URL (another parameter order, a default spelled out,
   // a value dropped as unknown) is rewritten in place, as the timeline's
-  // toolbar does; nothing is fetched again.
+  // toolbar does; nothing is fetched again. Only while the address bar
+  // still shows the view rendered here: a Back that lands while the list
+  // hydrates is the router's to render, not this render's URL to undo
+  // (issueListAddressRewrite).
   useEffect(() => {
-    const canonical = issueListHref(parseIssueListSearch(urlSearch), {
-      issue: searchParams.get('issue'),
-    });
-    const here = `${window.location.pathname}${window.location.search}`;
-    if (pathname === '/issues' && here !== canonical) {
-      window.history.replaceState(window.history.state, '', canonical);
+    const rewrite = issueListAddressRewrite(urlSearch, window.location);
+    if (pathname === '/issues' && rewrite !== null) {
+      window.history.replaceState(window.history.state, '', rewrite);
     }
-  }, [urlSearch, searchParams, pathname]);
+  }, [urlSearch, pathname]);
 
   /** Shows `next` at once and asks the server for it. */
   const navigate = useCallback(

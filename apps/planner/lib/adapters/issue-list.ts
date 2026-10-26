@@ -269,6 +269,38 @@ export function issueListHref(
   return parts.length === 0 ? ISSUES_PATH : `${ISSUES_PATH}?${parts.join('&')}`;
 }
 
+/** The canonical href of a query string, `?issue=` kept. */
+function canonicalIssueListSearch(search: string): string {
+  const params = new URLSearchParams(search);
+  return issueListHref(parseIssueListSearch(params), {
+    issue: params.get('issue'),
+  });
+}
+
+/**
+ * The URL the Issues page writes over the address bar in place, or null
+ * to leave it alone. `rendered` is the query string the page rendered
+ * (useSearchParams), `address` the address bar (window.location). The
+ * rendered view spelled another way (another parameter order, a default
+ * spelled out, a value dropped as unknown) comes back as its canonical
+ * href. An address bar that shows another page or another view is left
+ * alone: that is a Back or Forward the router has not rendered yet (it
+ * can arrive while the list hydrates, the page's first effects still to
+ * run), and writing the rendered URL there would put it on the history
+ * entry Back went to.
+ */
+export function issueListAddressRewrite(
+  rendered: string,
+  address: { pathname: string; search: string }
+): string | null {
+  if (address.pathname !== ISSUES_PATH) return null;
+  const canonical = canonicalIssueListSearch(rendered);
+  if (canonicalIssueListSearch(address.search) !== canonical) return null;
+  return `${address.pathname}${address.search}` === canonical
+    ? null
+    : canonical;
+}
+
 /** Looks up which project a milestone belongs to (the cascade needs it). */
 export type MilestoneProjectLookup = (
   milestoneId: string
