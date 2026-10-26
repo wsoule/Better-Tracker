@@ -11,6 +11,7 @@ import { readLimitedText } from './body';
 import { engineAuthCode, engineInputCode } from './engine-errors';
 import { heldFor } from './held-sessions';
 import { jsonError, rejectCrossOrigin } from './origin';
+import { limitApiRequest } from './rate-limit';
 import { getHeldSessions, getRequestContext } from './session';
 import {
   UNNAMED_WORKSPACE,
@@ -202,7 +203,11 @@ async function workspaceChanged(
  * session's workspace any more (owner decision 2026-10-25: a browser holds
  * several workspaces, and a tab left on one must not act in another); a
  * request without the header is let through (the engine scopes every read
- * and write to the session's workspace anyway).
+ * and write to the session's workspace anyway). Last, a mutation counts
+ * against its session's rate limit (lib/rate-limit.ts: POST /api/runs 6
+ * and POST /api/warnings/preview 20 per 10 minutes, anything else 300 a
+ * minute), 429 rate_limited with Retry-After past it; reads are not
+ * limited.
  */
 export async function requireApiActor(
   request: Request
@@ -229,5 +234,7 @@ export async function requireApiActor(
   ) {
     return workspaceChanged(engine, actor, tabWorkspaceId);
   }
+  const limited = limitApiRequest(request, actor.session.id);
+  if (limited !== null) return limited;
   return { engine, actor };
 }

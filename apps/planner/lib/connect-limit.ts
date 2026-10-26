@@ -20,12 +20,12 @@
 // per-person cap bounds a valid key's connects). The per-IP map is
 // LRU-capped and prunes expired windows as it goes.
 
-/** Railway's client IP header (the only one read). */
-export const CLIENT_IP_HEADER = 'x-real-ip';
+import { clientIp } from './rate-limit';
+
+/** Railway's client IP header (the only one read; lib/rate-limit.ts). */
+export { CLIENT_IP_HEADER } from './rate-limit';
 /** The shared bucket for requests without a usable client IP. */
 export const NO_IP_BUCKET = 'no-ip';
-/** What a client IP header may hold (IPv4 or IPv6 text). */
-const IP_SHAPE = /^[0-9A-Fa-f:.]{1,45}$/;
 
 /** Every way a connect can fail that counts, by the auth_error code it answers. */
 export type ConnectFailure =
@@ -88,10 +88,14 @@ export interface ConnectLimiter {
   size(): number;
 }
 
-/** The rate-limit bucket of a request: its X-Real-IP, or the shared one. */
+/**
+ * The rate-limit bucket of a request: its X-Real-IP (read as
+ * lib/rate-limit.ts reads it), or the shared one. Unlike the other limits,
+ * the connect form's keep one bucket for requests without a client IP
+ * (api_key mode is unchanged by the 2026-10-25 limits).
+ */
 export function connectClientKey(request: Request): string {
-  const raw = request.headers.get(CLIENT_IP_HEADER)?.trim() ?? '';
-  return IP_SHAPE.test(raw) ? raw : NO_IP_BUCKET;
+  return clientIp(request) ?? NO_IP_BUCKET;
 }
 
 // One counted try (pending until finish keeps or drops it). An object, so

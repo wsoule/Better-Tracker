@@ -48,6 +48,9 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
     'This browser is signed in to 10 workspaces, the most it holds. Sign out of a workspace first, then connect another.',
   linear_unauthorized:
     'Linear refused the planner’s credentials. Whoever runs the deployment should check the Linear OAuth app settings.',
+  // Rate limits (lib/rate-limit.ts): the OAuth start, switch and sign-out.
+  auth_rate_limited:
+    'Too many sign-in, switch or sign-out requests came from this network in the last few minutes. Wait a few minutes, then try again.',
   internal: 'Something went wrong on the server. It was logged; try again.',
 };
 

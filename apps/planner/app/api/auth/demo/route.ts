@@ -28,7 +28,10 @@ const demoForm = z.object({
  * only (404 elsewhere), same-origin only. Signs in as a fictional person,
  * ends the session it replaces (demo mode holds one session: no stash),
  * and opens returnTo (a relative path, else My week) with a 303. Failures
- * go back to the picker with ?auth_error=<code>.
+ * go back to the picker with ?auth_error=<code>. Never rate-limited (owner
+ * decision 2026-10-25, architecture §8.1 "Rate limits"): it only exists in
+ * demo mode, whose live showcase visitors and browser suite share
+ * addresses, and it reaches no real Linear.
  */
 export async function POST(request: Request): Promise<Response> {
   const engine = await getEngine();
