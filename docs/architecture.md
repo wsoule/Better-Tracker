@@ -6462,7 +6462,9 @@ not read; a deploy that still sets it boots normally and logs one warning
   use it too) that every screen it opens signed in, the landing, `/privacy`,
   `/terms` and `/contact` signed out carry the nonce on every script, that the
   public pages show their heading and the footer links, and that the landing's
-  Privacy link opens the demo's privacy page.
+  Privacy link opens the demo's privacy page; and that `/open?to=` and
+  `/?returnTo=` values that normalise to another host (`/.//evil.example`,
+  `/%252e//…`) land on `/week`, with no request reaching that host.
 - planner (issue list): `test/adapters-issue-list.test.ts` (the URL grammar:
   canonical order, defaults left out, `state=all`, `me` and `none`, dropped
   values, the 50-value and 200-character caps, `limit` steps, invalid section
@@ -6705,37 +6707,49 @@ not read; a deploy that still sets it boots normally and logs one warning
     (`actor=app`, `prompt=consent`, lands on `/timeline`) and allows edits
     (`read,write`); connects Globex from the brand-row menu through
     `/setup/connect` (`prompt=consent`, lands on `/setup` since Globex is not
-    installed, the stash cookie set) and Gia installs it in her own browser;
-    `/week`, `/timeline`, `/projects`, `/graph`, `/issues`, `/issues/ENG-1`,
-    `/runs` and Settings → Status each show only the active workspace (the
-    switcher names it, the page shows its data, and neither the page's text nor
-    its HTML, RSC payload included, holds a word of the other's issues,
-    projects, milestones or people; Globex's ENG-1 is another issue than
-    Acme's), in Globex, after switching to Acme with the menu, and after the
-    palette's "Switch to Globex"; with Acme open at Linear (the chooser
-    authorizes it at once) connecting lands on `/week?connect=same` with its
-    notice, the new grant revoked and the write grant kept (an edit reaches Acme
-    as Ana); in Globex Ana sees the guest notice and no edit control, and a
-    direct PATCH is 403 `read_only` with nothing sent to Linear, while Acme's
-    page is editable; a tab left on Acme after another tab switched to Globex
-    gets 409 `workspace_changed` with the "Not saved" toast naming both and its
-    Reload, nothing reaches either workspace, and its next client navigation
-    reloads it (a full load) into Globex; `/timeline?ws=org-globex` while Acme
-    is active goes through `/open` ("This link is for Globex.") and its Switch
-    lands on Globex's `/timeline`; "Sign out of Globex" lands on
-    `/week?signed_out=1` ("Signed out of Globex. Still signed in to Acme."),
-    revokes exactly Ana's Globex refresh token and keeps her Acme grant and both
-    app grants; the Acme-only planner refuses Globex at sign-in
-    (`workspace_not_allowed`, no session cookie, the grant revoked). Last, no
-    Linear token or code (`lin_oauth_access_`, `lin_oauth_refresh_`,
-    `lin_code_`), the OAuth client secret, `SESSION_SECRET` or
-    `TOKEN_ENCRYPTION_KEY` (`e2e/oauth-leak-needles.ts`) is in any planner
-    response (headers and bodies, RSC payloads included), and no session token
-    the suite saw in a Set-Cookie is anywhere else: not in a body or another
-    header, the servers' logs or any file they wrote; the fake saw no token in a
-    body or URL. Then `e2e/scan-oauth-leaks.ts` scans every file both planners
-    wrote under `E2E_ARTIFACTS_DIR` and both PGlite databases through SQL for
-    those needles (stored tokens are encrypted and session tokens hashed).
+    installed, the stash cookie set; Setup's workspace id line is one line
+    tall), connects again while Globex is open at Linear and lands on
+    `/setup?connect=same` with its notice (Globex not installed yet), and Gia
+    installs it in her own browser; `/week`, `/timeline`, `/projects`, `/graph`,
+    `/issues`, `/issues/ENG-1`, `/runs` and Settings → Status each show only the
+    active workspace (the switcher names it, the page shows its data, and
+    neither the page's text nor its HTML, RSC payload included, holds a word of
+    the other's issues, projects, milestones or people; Globex's ENG-1 is
+    another issue than Acme's), in Globex, after switching to Acme with the
+    menu, and after the palette's "Switch to Globex"; with Acme open at Linear
+    (the chooser authorizes it at once) connecting lands on `/week?connect=same`
+    with its notice, the new grant revoked and the write grant kept (an edit
+    reaches Acme as Ana); in Globex Ana sees the guest notice and no edit
+    control, and a direct PATCH is 403 `read_only` with nothing sent to Linear,
+    while Acme's page is editable; a tab left on Acme after another tab switched
+    to Globex gets 409 `workspace_changed` with the "Not saved" toast naming
+    both and its Reload, nothing reaches either workspace, and its next client
+    navigation reloads it (a full load) into Globex; a tab left on Acme's Setup
+    after another tab switched to Globex has its Reinstall refused before Linear
+    (`/?auth_error=workspace_changed`, both named) and its "Switch to Acme"
+    lands on Acme's `/week`; `/timeline?ws=org-globex` while Acme is active goes
+    through `/open` ("This link is for Globex.") and its Switch lands on
+    Globex's `/timeline`; `/open?ws=…&to=` and `/?returnTo=` values that
+    normalise to another host land on `/week`, nothing reaching that host; Copy
+    link on Acme's ENG-1 copies `…/issues/ENG-1?ws=org-acme`, which opened while
+    Globex is active shows "This link is for Acme." instead of Globex's ENG-1;
+    "Sign out of Globex" lands on `/week?signed_out=1` ("Signed out of Globex.
+    Still signed in to Acme."), revokes exactly Ana's Globex refresh token and
+    keeps her Acme grant and both app grants; the Acme-only planner refuses
+    Globex at sign-in (`workspace_not_allowed`, no session cookie, the grant
+    revoked); a browser with no session opens Acme's
+    `/issues/ENG-1?ws=org-acme`, connects, gets Globex from Linear and is back
+    on the interstitial (not Globex's ENG-1), then connects Acme and lands on
+    Acme's ENG-1. Last, no Linear token or code (`lin_oauth_access_`,
+    `lin_oauth_refresh_`, `lin_code_`), the OAuth client secret,
+    `SESSION_SECRET` or `TOKEN_ENCRYPTION_KEY` (`e2e/oauth-leak-needles.ts`) is
+    in any planner response (headers and bodies, RSC payloads included), and no
+    session token the suite saw in a Set-Cookie is anywhere else: not in a body
+    or another header, the servers' logs or any file they wrote; the fake saw no
+    token in a body or URL. Then `e2e/scan-oauth-leaks.ts` scans every file both
+    planners wrote under `E2E_ARTIFACTS_DIR` and both PGlite databases through
+    SQL for those needles (stored tokens are encrypted and session tokens
+    hashed).
 - image: CI's `image` job builds `deploy/Dockerfile` and starts both services
   from it in demo mode (the web app must answer `/api/health`, the worker's
   `tick` must exit 0).
