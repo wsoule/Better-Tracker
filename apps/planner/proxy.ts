@@ -65,8 +65,11 @@ export function proxy(request: NextRequest): NextResponse {
 // The answer to a request whose URL holds a key: an API route (`/api` or
 // below) gets a 400 with the refusal sentence, so no route handler ever
 // sees the key; anything else a 303 to `clean`, the same URL without it
-// (Next turns a same-host Location into a relative one). `no-store`, so
-// the browser keeps neither.
+// (Next turns a same-host Location into a relative one). A path that
+// would resolve to another host ("//host/…", which Next's own slash
+// redirect normally answers before the Proxy runs) goes to "/" instead,
+// so this redirect never leaves the site. `no-store`, so the browser
+// keeps neither.
 function refuseKeyInUrl(
   pathname: string,
   clean: string,
@@ -78,7 +81,11 @@ function refuseKeyInUrl(
       { status: 400, headers: { 'Cache-Control': 'no-store' } }
     );
   }
-  const response = NextResponse.redirect(new URL(clean, requestUrl), 303);
+  let target = new URL(clean, requestUrl);
+  if (target.origin !== new URL(requestUrl).origin) {
+    target = new URL('/', requestUrl);
+  }
+  const response = NextResponse.redirect(target, 303);
   response.headers.set('Cache-Control', 'no-store');
   return response;
 }

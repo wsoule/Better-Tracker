@@ -58,10 +58,15 @@ function encodeNonAscii(value: string): string {
  * The path a sign-in may return to. Only same-site relative paths pass:
  * one leading "/", never "//" or "/\" (protocol-relative URLs to another
  * host), no control characters or spaces (which browsers strip, turning
- * "/\t/x" into "//x"), nothing that resolves to another origin, and
+ * "/\t/x" into "//x"), nothing that resolves to another origin or whose
+ * normalised path starts with "//" (dot segments: "/.//x", "/%2e//x" and
+ * "/a/..//x" all normalise to "//x", which Next's client router hard-
+ * navigates to after a page-level redirect(), leaving the site), and
  * nothing that holds a Linear credential, even percent-encoded (every
  * caller copies the result into a redirect's Location, and no URL the
  * planner answers carries a key, architecture §8.1 "No key in a URL").
+ * The result is the normalised path, query and hash, never the raw
+ * value, so what a caller redirects to is exactly what was checked.
  * Non-ASCII characters come back percent-encoded, so the result is always
  * a valid header value. Anything else falls back to `fallback`.
  */
@@ -76,16 +81,22 @@ export function sanitizeReturnTo(
   if (value.startsWith('//') || value.startsWith('/\\')) return fallback;
   if (hasUnsafeChar(value)) return fallback;
   if (holdsLinearCredential(value)) return fallback;
-  let encoded: string;
+  let normalised: string;
   try {
-    encoded = encodeNonAscii(value);
-    if (new URL(encoded, PROBE_ORIGIN).origin !== PROBE_ORIGIN) {
+    const url = new URL(encodeNonAscii(value), PROBE_ORIGIN);
+    // The URL parser turns "\" into "/" for http(s), so this also covers
+    // "/./\x".
+    if (url.origin !== PROBE_ORIGIN || url.pathname.startsWith('//')) {
       return fallback;
     }
+    normalised = `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return fallback;
   }
-  return encoded.length > 2048 ? fallback : encoded;
+  if (normalised.length > 2048 || holdsLinearCredential(normalised)) {
+    return fallback;
+  }
+  return normalised;
 }
 
 const INTENTS: readonly OAuthIntent[] = [

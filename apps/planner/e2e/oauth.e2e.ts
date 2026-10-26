@@ -36,6 +36,7 @@ import { oauthNeedlesIn } from './oauth-leak-needles';
 // session and its write grant; she is read-only in Globex and editable in
 // Acme; a stale tab's write is refused 409 and its next navigation reloads
 // it into the active workspace; a link for Globex opens the interstitial;
+// a return path that normalises to another host stays on the planner;
 // signing out of Globex keeps Acme and revokes only Globex's grant; a
 // planner that admits only Acme refuses Globex; and finally no Linear
 // token or code, no secret and no session token is in any response, the
@@ -604,6 +605,33 @@ test('8. a link for Globex opened while Acme is active shows the interstitial, w
   await expect(page).toHaveURL(`${APP}/timeline`);
   await expect(switcher(page, 'globex')).toBeVisible();
   await expect(page.locator('main')).toContainText('Storefront roadmap');
+});
+
+test('8a. a link whose return path normalises to another host stays on the planner', async () => {
+  // "/.//evil.example" passes a same-origin check but normalises to
+  // "//evil.example", which Next's client router would follow off-site.
+  const offsite: string[] = [];
+  await page.route(
+    (url) => url.hostname === 'evil.example',
+    async (route) => {
+      offsite.push(route.request().url());
+      await route.fulfill({ status: 200, body: 'offsite' });
+    }
+  );
+  try {
+    for (const path of [
+      `/open?ws=${ORG_ID.globex}&to=%2F.%2F%2Fevil.example%2Flogin`,
+      `/open?ws=${ORG_ID.globex}&to=%2F%252e%2F%2Fevil.example%2Fx`,
+      '/?returnTo=%2F.%2F%2Fevil.example%2Fland',
+    ]) {
+      await page.goto(path);
+      await expect(page, path).toHaveURL(`${APP}/week`);
+      await expect(switcher(page, 'globex'), path).toBeVisible();
+    }
+    expect(offsite).toEqual([]);
+  } finally {
+    await page.unrouteAll();
+  }
 });
 
 test("9. signing out of Globex keeps Acme and revokes only Globex's grant", async () => {

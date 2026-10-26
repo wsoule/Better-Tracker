@@ -3331,13 +3331,20 @@ Auth and frame details (decided while building `apps/planner`; binding):
 - The OAuth state cookie is scoped to `Path=/api/auth` on http and `Path=/` on
   https (as `__Host-mp_oauth`). `returnTo` must start with exactly one `/`
   (never `//` or `/\`), contain no control characters or spaces (browsers strip
-  them, turning `/\t/x` into `//x`), resolve to the same origin and hold no
-  Linear credential, as it is or percent-decoded up to three times
+  them, turning `/\t/x` into `//x`), resolve to the same origin with a
+  normalised path that does not start with `//` (dot segments: `/.//x`,
+  `/%2e//x` and `/a/..//x` all normalise to `//x`; a page-level `redirect()`
+  answers inside a streamed 200, and Next's client router then hard-navigates to
+  that path, which the browser reads as another host) and hold no Linear
+  credential, as it is or percent-decoded up to three times
   (`holdsLinearCredential`, `lib/key-text.ts`: every hop copies it into a
   `Location`, and no URL the planner answers carries a key); anything else
-  becomes `/week`. Non-ASCII characters are percent-encoded (UTF-8), because the
-  callback's `Location` header must be a byte string. It is checked when signing
-  the cookie and again after verifying it.
+  becomes `/week`. What comes back is the normalised path, query and hash, never
+  the raw value, so every hop redirects to exactly what was checked. Non-ASCII
+  characters are percent-encoded (UTF-8), because the callback's `Location`
+  header must be a byte string. It is checked when signing the cookie and again
+  after verifying it. The api_key proxy's key redirect also never leaves the
+  origin (a path that would resolve to another host goes to `/`).
 - Every callback outcome clears the OAuth state cookie. Failures land on
   `/?auth_error=<code>`: the engine's `EngineAuthError`/`EngineInputError` codes
   (with several workspaces `workspace_not_allowed`, `workspace_blocked` and

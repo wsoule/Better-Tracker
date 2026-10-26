@@ -13,12 +13,13 @@ import { expectScriptsNonced } from './csp-nonce';
 // 2026-10-22, graph highlights), and the demo's Linear guest gets a
 // read-only planner
 // (owner decision 2026-10-22, "Guests limited to read only") whose graphs
-// fall back to the projects he can see. Every page it opens, signed in or
-// out (the landing and the public privacy, terms and contact pages too),
-// carries the nonce Content-Security-Policy on each of its scripts (owner
-// decision 2026-10-25: proxy.ts nonces every page in every mode;
-// e2e/csp-nonce.ts). Demo data is fictional and lives only in this
-// server.
+// fall back to the projects he can see. A return path that normalises to
+// another host ("/.//evil.example") stays on the planner. Every page it
+// opens, signed in or out (the landing and the public privacy, terms and
+// contact pages too), carries the nonce Content-Security-Policy on each of
+// its scripts (owner decision 2026-10-25: proxy.ts nonces every page in
+// every mode; e2e/csp-nonce.ts). Demo data is fictional and lives only in
+// this server.
 
 /** Signs in through the demo picker on "/" (Chloe Diaz unless told). */
 async function signIn(page: Page, userId = 'user-chloe'): Promise<void> {
@@ -103,6 +104,33 @@ test('signed out: the landing and the public pages, every script nonced', async 
   await expect(page.getByText('This is a demo')).toBeVisible();
   expect(errors).toEqual([]);
   await context.close();
+});
+
+test('a link whose return path normalises to another host stays on the planner', async ({
+  page,
+  baseURL,
+}) => {
+  // "/.//evil.example" passes a same-origin check but normalises to
+  // "//evil.example"; Next's client router follows a page-level
+  // redirect() to it, which the browser reads as another host.
+  const offsite: string[] = [];
+  await page.route(
+    (url) => url.hostname === 'evil.example',
+    async (route) => {
+      offsite.push(route.request().url());
+      await route.fulfill({ status: 200, body: 'offsite' });
+    }
+  );
+  for (const path of [
+    '/open?to=%2F.%2F%2Fevil.example%2Flogin',
+    '/open?to=%2F%252e%2F%2Fevil.example%2Fx',
+    '/?returnTo=%2F.%2F%2Fevil.example%2Fland',
+  ]) {
+    await page.goto(path);
+    await expect(page, path).toHaveURL(`${baseURL}/week`);
+    await expect(page.locator('h1').first(), path).toBeVisible();
+  }
+  expect(offsite).toEqual([]);
 });
 
 test('the graph drills from initiatives to projects and back up', async ({

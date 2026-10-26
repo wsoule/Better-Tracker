@@ -104,6 +104,22 @@ describe('proxy', () => {
       expect(location).not.toContain('TESTKEY');
       expect(response.headers.get('content-security-policy')).toBeNull();
     }
+    // A path that would resolve to another host never leaves the site
+    // (Next's slash redirect normally answers these first).
+    for (const from of [
+      `//evil.example/x?q=${key}`,
+      `/.//evil.example/x?q=${key}`,
+      `/\\evil.example/x?q=${key}`,
+    ]) {
+      const response = proxy(new NextRequest(`http://localhost:3360${from}`));
+      expect(response.status).toBe(303);
+      const location = new URL(
+        response.headers.get('location') ?? '',
+        'http://localhost:3360'
+      );
+      expect(location.origin).toBe('http://localhost:3360');
+      expect(location.pathname).toBe('/');
+    }
     // A URL without a key renders as usual.
     const plain = proxy(
       new NextRequest('http://localhost:3360/issues?q=lin_api_key')
