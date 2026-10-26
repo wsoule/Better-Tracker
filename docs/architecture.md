@@ -6341,9 +6341,11 @@ not read; a deploy that still sets it boots normally and logs one warning
   kept as `grant_dead` with its sessions and never purged by cleanup, cleanup
   ending only the sessions created before an uninstall, purging uninstalled and
   removed workspaces after 30 days but not at 29, three per call, never
-  `grant_dead`, a reinstall within the grace kept, the retention limits, and the
+  `grant_dead`, a reinstall within the grace kept, a reinstall that wins the
+  race with a purge keeping every session, the retention limits, and the
   operator's remove, purge, block and unblock with their names, refusals,
-  sessions and app token revocation; `test/mirror-cache.test.ts`: a lower or a
+  sessions and app token revocation, unblock by URL key after a purge and its
+  conflict between two blocked orgs; `test/mirror-cache.test.ts`: a lower or a
   coinciding version after a purge and reinstall is never served stale, LRU
   eviction, `MIRROR_CACHE_WORKSPACES`; `test/first-sync.test.ts`: the doubling
   wait and its cap at both call sites, and a running sync joined).
@@ -6368,19 +6370,31 @@ not read; a deploy that still sets it boots normally and logs one warning
   need and its cap; the daily's 5 minutes; skip recent; chronic),
   `test/commands.test.ts` (order, `WORKER_CONCURRENCY` lanes with out-of-order
   finishes, deferral on an advancing clock, the slow workspace started at the
-  beginning, a due daily not started with 4 minutes left, skip recent and the
-  daily's sync never skipped, every skip and exit code, chronic only in a tick
-  and never after the run's own sync succeeded, cleanup's new counts),
-  `test/operator.test.ts` (every command's output and exit code, the name passed
-  to the engine untouched and the resolved id printed, every purge refusal, the
-  JSON shape, engine refusals as FAILED lines, no token or email in any output),
-  `test/cli.test.ts` (the operator commands' options and refusals, `--yes`), and
-  `test/run.test.ts` (`deadlineAt` from `TICK_TIMEOUT_MINUTES` and per serve
-  tick, purge without `--yes` never boots, api_key mode refuses every operator
-  command before boot, `workspaces --json` keeps stdout for the JSON, and list →
-  remove → tick skips it → purge refused then done → block/unblock against the
-  real demo engine). Engine: `listWorkspaceStatus` carries admission's verdicts
-  (`test/admission.test.ts`).
+  beginning, a due daily not started with 4 minutes left deferring the whole
+  workspace, a morning of ticks giving every workspace its daily job, cleanup
+  before any workspace, `allocate --live` over every workspace refused, skip
+  recent and the daily's sync never skipped, every skip and exit code, chronic
+  only in a tick and never after the run's own sync succeeded, cleanup's new
+  counts), `test/operator.test.ts` (every command's output and exit code, the
+  name passed to the engine untouched and the resolved id printed, every purge
+  refusal, the JSON shape, engine refusals as FAILED lines, no token or email in
+  any output), `test/cli.test.ts` (the operator commands' options and refusals,
+  `--yes`, `allocate --live` without `--workspace`), and `test/run.test.ts`
+  (`deadlineAt` from `TICK_TIMEOUT_MINUTES` and per serve tick, a workspace that
+  never finishes named by the deadline after cleanup ran, purge without `--yes`
+  never boots, api_key mode refuses every operator command before boot,
+  `workspaces --json` keeps stdout for the JSON, and list → remove → tick skips
+  it → purge refused then done → block/unblock against the real demo engine).
+  Engine: `listWorkspaceStatus` carries admission's verdicts, cleanup removes
+  blocked installations and only warns about the ones `LINEAR_WORKSPACES` leaves
+  out (re-admitting restores them, sessions included), a renamed workspace
+  listed by its new URL key is never removed and its sign-in refreshes the
+  installation's name and key, a URL-key pin outlives a purge, unblock by URL
+  key after a pin (`test/admission.test.ts`); a full sync writes the current
+  name and URL key (`test/sync.test.ts`); boot warns about each installed
+  workspace a list leaves out and about an unset list with nothing installed,
+  and `digestChannel` follows the Slack fail-safe after boot
+  (`test/workspace-config.test.ts`).
 - planner: unit tests for cookie signing/origin checks; the adapters; the route
   handlers with a fake actor resolver, and end to end on the demo engine
   (`test/workspace-routes-demo.test.ts`): no roles (owner decision 2026-10-22),
