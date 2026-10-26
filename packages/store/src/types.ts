@@ -48,9 +48,10 @@ export interface Installation {
 
 /**
  * Why an installation was revoked: 'uninstalled' (Linear's OAuthApp
- * revoked webhook), 'removed' (the operator, or admission now refuses the
- * workspace) or 'grant_dead' (Linear refused the app's token, or the cause
- * is unknown). Only 'uninstalled' and 'removed' are purged automatically.
+ * revoked webhook), 'removed' (the operator's remove or block, or a block
+ * that matched it later; never LINEAR_WORKSPACES alone) or 'grant_dead'
+ * (Linear refused the app's token, or the cause is unknown). Only
+ * 'uninstalled' and 'removed' are purged automatically.
  */
 export type RevokedReason = 'uninstalled' | 'grant_dead' | 'removed';
 
