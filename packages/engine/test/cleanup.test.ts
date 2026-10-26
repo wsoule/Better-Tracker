@@ -130,6 +130,33 @@ describe('cleanup in real mode', () => {
     expect(line).toContain('"revokedTokens":0');
   });
 
+  test('signing out an expired session leaves it for cleanup, which revokes its grant once', async () => {
+    // The stash cookie lives as long as its newest session, so it carries
+    // expired tokens, which a switch, sign-in or sign-out signs out; a
+    // browser clock running behind can send an expired active cookie too.
+    const expired = await session('7', -60_000);
+    expect(await engine.signOut(expired)).toEqual({
+      known: false,
+      keysForgotten: 0,
+    });
+    expect(fake.revoked).toEqual([]);
+    expect(await engine.cleanup()).toMatchObject({
+      expiredSessions: 1,
+      revokedTokens: 1,
+    });
+    expect(fake.revoked).toEqual([{ token: 'r-7', hint: 'refresh_token' }]);
+    expect((await engine.cleanup()).expiredSessions).toBe(0);
+    expect(fake.revoked).toHaveLength(1);
+    // A live session still ends and revokes at once.
+    const live = await session('8', DAY_MS);
+    expect((await engine.signOut(live)).known).toBe(true);
+    expect(fake.revoked.at(-1)).toEqual({
+      token: 'r-8',
+      hint: 'refresh_token',
+    });
+    expect(await store.getSession(live, at(0))).toBeNull();
+  });
+
   test('a failed revocation never fails cleanup', async () => {
     await session('old', -DAY_MS);
     fake.failRevoke = true;

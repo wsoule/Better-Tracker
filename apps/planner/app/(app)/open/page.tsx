@@ -1,3 +1,4 @@
+import { withWorkspaceParam } from '@better-tracker/core';
 import { Button } from '@better-tracker/ui';
 import { Link2 } from 'lucide-react';
 import { redirect } from 'next/navigation';
@@ -33,9 +34,15 @@ const WORKSPACE_ID = /^[A-Za-z0-9_-]{1,100}$/;
    browser holds a session for it, "This link is for <name>." with a
    "Switch to <name>" form (POST /api/auth/switch, returnTo=`to`); else it
    says the browser is not signed in to that workspace and links to
-   /setup/connect (carrying `to`). The `ws` value is never rendered: names
-   come from the engine's description of the browser's own sessions. `to`
-   is sanitised (a same-site path, else My week). Demo mode and personal
+   /setup/connect, carrying `to` with `ws` put back: Linear connects
+   whichever workspace is open at linear.app, so the connect lands on the
+   link again, which comes back here and opens the page only when the
+   workspace connected is the link's (else this page says so again,
+   instead of opening the same path in another workspace). The `ws` value
+   is never shown: names come from the engine's description of the
+   browser's own sessions, and the value (an org id, checked against
+   WORKSPACE_ID) only goes back into that link. `to` is sanitised (a
+   same-site path, else My week). Demo mode and personal
    API keys hold one workspace: the link just opens `to` (signed-out
    visitors via the sign-in page). */
 export default async function OpenLinkPage({
@@ -96,7 +103,10 @@ export default async function OpenLinkPage({
       icon={<Link2 strokeWidth={1.8} />}
       actions={
         <>
-          <Button href={connectHref(to)} variant="primary">
+          <Button
+            href={connectHref(ws === null ? to : withWorkspaceParam(to, ws))}
+            variant="primary"
+          >
             {CONNECT_LABEL}
           </Button>
           {actor === null ? null : <Button href="/week">Go to My week</Button>}

@@ -56,16 +56,24 @@ export interface RateRule {
  * "Rate limits" has the table). Per web process.
  */
 export const RATE_LIMITS = {
-  /** GET /api/auth/linear, per client IP (OAuth mode). */
-  oauthStart: { name: 'oauth_start', limit: 30, windowMs: 10 * MINUTE_MS },
+  /**
+   * GET /api/auth/linear, per client IP (OAuth mode). High enough for an
+   * office, campus or carrier NAT whose people sign in at once behind one
+   * address (a release that renames the cookies signs everyone in again,
+   * and connecting a workspace and Allow edits are starts too, abandoned
+   * ones included), so it only stops a script hammering the redirect to
+   * Linear.
+   */
+  oauthStart: { name: 'oauth_start', limit: 120, windowMs: 10 * MINUTE_MS },
   /** POST /api/auth/switch, per client IP. */
   switchWorkspace: {
     name: 'switch_workspace',
     limit: 60,
     windowMs: 10 * MINUTE_MS,
   },
-  /** POST /api/auth/logout, per client IP (OAuth mode). */
-  signOut: { name: 'sign_out', limit: 60, windowMs: 10 * MINUTE_MS },
+  // POST /api/auth/logout is never limited: anyone sharing a public IP
+  // could otherwise make "Sign out" fail and leave a session (and its
+  // Linear grant) alive on a shared computer.
   /** POST /api/runs, per session. */
   runs: { name: 'runs', limit: 6, windowMs: 10 * MINUTE_MS },
   /** POST /api/warnings/preview, per session. */

@@ -192,6 +192,44 @@ describe('GET /api/auth/linear', () => {
     }
   });
 
+  test("a stale tab's install or write grant is refused workspace_changed before anything else", async () => {
+    // Tab 1 shows Acme; tab 2 switched the browser to Umbrella, where Ana
+    // is a guest. The link names the tab's workspace.
+    state.sessions.set(GUEST, {
+      ...state.sessions.get(GUEST)!,
+      userName: 'Ana Moreno',
+    });
+    for (const intent of ['install', 'grant_write']) {
+      const response = await start(
+        get(
+          `/api/auth/linear?intent=${intent}&returnTo=%2Fissues%2FENG-1&workspace=org-acme`,
+          { [ACTIVE]: GUEST, [STASH]: ACME }
+        )
+      );
+      expect(response.status).toBe(303);
+      expect(response.headers.get('location')).toBe(
+        '/?auth_error=workspace_changed&workspace=org-acme&returnTo=%2Fissues%2FENG-1'
+      );
+      expect(setCookie(response, OAUTH)).toBeUndefined();
+    }
+    // The tab's workspace is the active one: it starts as before.
+    const oauth = await begin(
+      'intent=grant_write&returnTo=%2Fissues%2FENG-1&workspace=org-acme',
+      { [ACTIVE]: ACME, [STASH]: GUEST }
+    );
+    expect(verifyValue(oauth, SECRET, Date.now())).toMatchObject({
+      intent: 'grant_write',
+      expectWorkspaceId: 'org-acme',
+    });
+    // An odd value is refused too, and not echoed.
+    const odd = await start(
+      get('/api/auth/linear?intent=install&workspace=%3Cb%3E', {
+        [ACTIVE]: ACME,
+      })
+    );
+    expect(odd.headers.get('location')).toBe('/?auth_error=workspace_changed');
+  });
+
   test('add_workspace starts signed in or out; at 10 workspaces it is refused', async () => {
     const out = await begin('intent=add_workspace');
     expect(verifyValue(out, SECRET, Date.now())).toMatchObject({

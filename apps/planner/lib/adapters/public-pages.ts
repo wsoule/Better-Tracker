@@ -201,7 +201,7 @@ export function privacyPage(facts: PublicFacts): PublicPage {
           },
           {
             kind: 'text',
-            text: 'Nothing about you is asked for or stored: no Linear account, no email address, no client IP address.',
+            text: 'Nothing about you is asked for: no Linear account, no email address. The planner itself stores no client IP address; the host’s request logs do (see Logs).',
           },
         ],
       },
@@ -211,7 +211,7 @@ export function privacyPage(facts: PublicFacts): PublicPage {
         blocks: [
           {
             kind: 'text',
-            text: 'The host keeps the server’s logs, which name demo people and issues by id. They are kept for as long as the host keeps them.',
+            text: 'The host keeps the server’s logs, which name demo people and issues by id. The host’s (Railway’s) request logs also record every request’s client IP address, browser user agent and the page or API path it asked for. They are kept for as long as the host keeps them.',
           },
         ],
       }
@@ -284,17 +284,21 @@ export function privacyPage(facts: PublicFacts): PublicPage {
   }
 
   const memory: string[] = [];
+  // The planner's own copies of client IPs (lib/rate-limit.ts,
+  // lib/connect-limit.ts): in memory, counted over these windows, and
+  // dropped only when a later request on the same count finds them
+  // expired, when too many are held, or at a restart.
   if (facts.mode === 'oauth') {
     memory.push(
-      'Client IP addresses, in the web server’s memory only (never in the database), to count sign-ins, workspace switches, sign-outs and refused webhook deliveries over the last 10 minutes. A restart forgets them.'
+      'Client IP addresses, which the planner keeps only in its memory (never in its database), to count sign-in starts and workspace switches over 10 minutes and refused webhook deliveries over a minute. An address can stay in memory after its window until a later request on the same count clears it; a restart forgets them all.'
     );
   } else {
     memory.push(
-      'Client IP addresses of failed connects, in the web server’s memory only (never in the database), to slow down guessing. A restart forgets them.'
+      'Client IP addresses of failed connects, which the planner keeps only in its memory (never in its database), to slow down guessing over 10 minutes. An address can stay in memory after that until a later connect clears it; a restart forgets them all.'
     );
   }
   memory.push(
-    'The host’s logs, which name workspaces and people by Linear id, issues by identifier, and errors. They are kept for as long as the host keeps them.'
+    'The host’s logs: the planner’s own lines name workspaces and people by Linear id, issues by identifier, and errors. The host’s (Railway’s) request logs also record every request’s client IP address, browser user agent and the page or API path it asked for. They are kept for as long as the host keeps them.'
   );
   sections.push({
     id: 'memory',
@@ -342,13 +346,23 @@ export function privacyPage(facts: PublicFacts): PublicPage {
           ],
           [
             'Everything about a workspace after it uninstalls the app',
-            `Deleted ${days(PURGE_AFTER_DAYS)} later, unless it is installed again first`,
+            `Deleted ${days(PURGE_AFTER_DAYS)} after Linear tells the planner about the uninstall, unless it is installed again first`,
+          ],
+          [
+            'Everything about a workspace whose app access Linear refused with no uninstall notice',
+            'Kept until the person who runs the planner removes it (ask them); sessions last until they expire',
           ],
         ];
   sections.push({
     id: 'retention',
     title: 'How long',
-    blocks: [{ kind: 'table', label: 'How long each kind is kept', rows }],
+    blocks: [
+      { kind: 'table', label: 'How long each kind is kept', rows },
+      {
+        kind: 'text',
+        text: 'Database backups, when the person who runs the planner turns them on, can keep data for longer than this.',
+      },
+    ],
   });
 
   sections.push({
@@ -373,7 +387,7 @@ export function privacyPage(facts: PublicFacts): PublicPage {
             },
             {
               kind: 'text',
-              text: `A workspace admin can uninstall the app in Linear’s settings: the planner stops reading the workspace at once, signs everyone out of it, and deletes everything it holds about the workspace ${days(PURGE_AFTER_DAYS)} later. To have it deleted sooner, or to ask what is held about you, ${contact}.`,
+              text: `A workspace admin can uninstall the app in Linear’s settings. When Linear tells the planner about the uninstall, the planner stops reading the workspace, signs everyone out of it, and deletes everything it holds about the workspace ${days(PURGE_AFTER_DAYS)} later. If that notice never arrives (Linear then only refuses the app’s access), the planner stops reading the workspace but keeps what it holds until the person who runs it removes the workspace, and people’s sessions last until they expire. To have it deleted sooner, to make sure it is deleted after an uninstall, or to ask what is held about you, ${contact}.`,
             },
           ],
   });

@@ -30,6 +30,7 @@ import type {
 } from '@better-tracker/ui';
 
 import { dueLabel, formatDate, plural } from '../format';
+import { grantWriteHref } from '../oauth-links';
 import { graphHref, initiativeGraphHref } from './graph-scope';
 // The one due-date and progress tone definition (architecture §8.2
 // "Status colours"), shared with the projects register and My week.
@@ -201,11 +202,12 @@ export function needsWriteGrant(p: TimelinePermissions): boolean {
 
 /**
  * The grant_write OAuth link coming back to `returnTo` (a relative path,
- * sanitized again by the OAuth start route). Same shape as lib/http's
- * grantWriteHref, kept here because this module also runs in the browser.
+ * sanitized again by the OAuth start route): lib/oauth-links.ts, which
+ * also runs in the browser. The views add the tab's workspace to it when
+ * they render it (useStartHref).
  */
 export function timelineGrantWriteHref(returnTo: string): string {
-  return `/api/auth/linear?intent=grant_write&returnTo=${encodeURIComponent(returnTo)}`;
+  return grantWriteHref(returnTo);
 }
 
 /** Where a person upgrades their Linear grant, returning to the timeline. */

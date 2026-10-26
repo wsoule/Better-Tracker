@@ -124,7 +124,7 @@ describe('the navigation guard', () => {
     expect(shouldReload(undefined, null)).toBe(false);
   });
 
-  test('every (app) page renders WorkspaceGuard', () => {
+  test('every (app) page and the not-found boundary render WorkspaceGuard', () => {
     const root = join(import.meta.dir, '..', 'app', '(app)');
     const pages: string[] = [];
     const walk = (dir: string): void => {
@@ -135,9 +135,15 @@ describe('the navigation guard', () => {
       }
     };
     walk(root);
-    // The catch-all renders the not-found state only.
-    const guarded = pages.filter((p) => !p.includes('[...missing]'));
-    expect(guarded.length).toBeGreaterThanOrEqual(13);
+    // The catch-all renders the not-found state only, which is guarded
+    // itself: a page whose lookup misses calls notFound() before it
+    // renders its own guard (a stale tab's Acme run looked up in Globex),
+    // and the boundary replaces the page.
+    const guarded = [
+      ...pages.filter((p) => !p.includes('[...missing]')),
+      join(root, 'not-found.tsx'),
+    ];
+    expect(guarded.length).toBeGreaterThanOrEqual(14);
     const missing = guarded
       .filter((p) => !readFileSync(p, 'utf8').includes('<WorkspaceGuard />'))
       .map((p) => relative(root, p));

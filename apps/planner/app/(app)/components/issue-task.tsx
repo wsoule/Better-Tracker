@@ -64,6 +64,7 @@ import {
 import { refuseKeyText } from '../../../lib/key-text';
 import css from './issue-task.module.css';
 import ReadOnlyNotice from './read-only-notice';
+import { useShareableLink, useStartHref } from './workspace-frame';
 
 // The issue's task view, shared by /issues/[id] (page layout) and the
 // ?issue= slide-over on My week, the timeline and the graph (architecture
@@ -324,8 +325,9 @@ export function IssueHeaderActions({
   compact: boolean;
 }): ReactNode {
   const { toast } = useToast();
+  const shareableLink = useShareableLink();
   async function copy() {
-    const url = new URL(model.pagePath, window.location.origin).toString();
+    const url = shareableLink(model.pagePath);
     try {
       await navigator.clipboard.writeText(url);
       toast({
@@ -408,6 +410,7 @@ export function useIssueTaskProps(
   nav: IssueTaskNav = {}
 ): IssueTaskProps {
   const writes = useIssueWrites(model.issueId);
+  const startHref = useStartHref();
   const { facts, edit, canEdit } = model;
   const { values } = edit;
   const live = values.live;
@@ -620,7 +623,7 @@ export function useIssueTaskProps(
         tone="default"
         action={
           // A plain anchor: the OAuth start must never be prefetched.
-          <Button size="sm" href={model.grantWriteHref}>
+          <Button size="sm" href={startHref(model.grantWriteHref)}>
             Allow edits in Linear
           </Button>
         }

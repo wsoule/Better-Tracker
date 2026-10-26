@@ -15,11 +15,6 @@ import {
   without,
 } from '../../../../lib/held-sessions';
 import { rejectCrossOrigin } from '../../../../lib/origin';
-import {
-  limitByIp,
-  RATE_LIMITS,
-  rateLimitedRedirect,
-} from '../../../../lib/rate-limit';
 import { getEngine } from '../../../../lib/runtime';
 import {
   activeSessionToken,
@@ -27,16 +22,13 @@ import {
   clearSessionCookies,
   cookieScheme,
 } from '../../../../lib/session-cookies';
-import { signValue } from '../../../../lib/signed-cookie';
+import { signedOutNoticeValue } from '../../../../lib/signed-out-notice';
 
 const logoutForm = z.object({
   scope: z.enum(['current', 'all']).default('current'),
   // The org id of the workspace the form's page showed (scope=current).
   workspace: z.string().trim().min(1).max(100).optional(),
 });
-
-/** How long /week's "Signed out of <name>" notice value stays valid. */
-const NOTICE_TTL_MS = 5 * 60 * 1000;
 
 /**
  * POST /api/auth/logout (the sidebar's sign-out form, "Sign out of all
@@ -83,13 +75,9 @@ export async function POST(request: Request): Promise<Response> {
     if (token !== undefined) await signOutQuietly(engine, token);
     return redirectWithCookies('/', clearSessionCookies(scheme));
   }
-  // OAuth mode: 60 sign-outs per 10 minutes per client IP
-  // (lib/rate-limit.ts). Demo mode is exempt like its sign-in (the live
-  // showcase and the browser suite share addresses), and api_key mode's
-  // sign-out, which forgets keys, is never refused.
-  const limited = limitByIp(request, RATE_LIMITS.signOut);
-  if (limited !== null) return rateLimitedRedirect(limited.retryAfterSeconds);
-
+  // Never rate-limited, in any mode: someone sharing this browser's
+  // public IP could otherwise make Sign out fail and leave the session and
+  // its Linear grant alive (lib/rate-limit.ts).
   let fields: Record<string, unknown> = {};
   try {
     fields = Object.fromEntries((await request.formData()).entries());
@@ -128,28 +116,35 @@ export async function POST(request: Request): Promise<Response> {
   if (arrangement.active === null && arrangement.stash.length === 0) {
     return redirectWithCookies('/', clearSessionCookies(scheme));
   }
-  const notice = signedOutNotice(target.workspaceName);
+  if (arrangement.active === null) {
+    return redirectWithCookies(
+      '/',
+      arrangementCookies(arrangement, scheme, Date.now())
+    );
+  }
+  const notice = signedOutNotice(
+    target.workspaceName,
+    arrangement.active.token
+  );
   return redirectWithCookies(
-    arrangement.active === null
-      ? '/'
-      : `/week?signed_out=1${notice === null ? '' : `&from=${notice}`}`,
+    `/week?signed_out=1${notice === null ? '' : `&from=${notice}`}`,
     arrangementCookies(arrangement, scheme, Date.now())
   );
 }
 
 /**
  * The signed value /week reads the signed-out workspace's name from (so
- * the URL never carries a name the page would trust unsigned), or null
- * without a name or a usable SESSION_SECRET.
+ * the URL never carries a name the page would trust unsigned), bound to
+ * this browser by the session left active (lib/signed-out-notice.ts: a
+ * value replayed into another browser names nothing), or null without a
+ * name or a usable SESSION_SECRET.
  */
-function signedOutNotice(name: string | null): string | null {
-  if (name === null || name === '') return null;
+function signedOutNotice(
+  name: string | null,
+  activeToken: string
+): string | null {
   try {
-    return signValue(
-      { signedOut: name.slice(0, 200) },
-      sessionSecret(false),
-      Date.now() + NOTICE_TTL_MS
-    );
+    return signedOutNoticeValue(name, activeToken, sessionSecret(false));
   } catch {
     return null;
   }

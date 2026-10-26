@@ -121,8 +121,8 @@ function post(
   });
 }
 
-describe('GET /api/auth/linear: 30 per 10 minutes per client IP', () => {
-  test('the 31st start from one IP lands on the landing page with Retry-After; another IP and no IP go on', async () => {
+describe('GET /api/auth/linear: 120 per 10 minutes per client IP', () => {
+  test('the 121st start from one IP lands on the landing page with Retry-After; another IP and no IP go on', async () => {
     const ip = { 'x-real-ip': '203.0.113.9' };
     for (let i = 0; i < RATE_LIMITS.oauthStart.limit; i += 1) {
       const ok = await start(get('/api/auth/linear?intent=signin', ip));
@@ -142,7 +142,7 @@ describe('GET /api/auth/linear: 30 per 10 minutes per client IP', () => {
     );
     expect(other.status).toBe(302);
     // Without X-Real-IP (local runs, the browser suites) no IP limit applies.
-    for (let i = 0; i < 40; i += 1) {
+    for (let i = 0; i < RATE_LIMITS.oauthStart.limit + 10; i += 1) {
       const local = await start(get('/api/auth/linear?intent=signin'));
       expect(local.status).toBe(302);
     }
@@ -239,22 +239,33 @@ describe('POST /api/auth/switch: 60 per 10 minutes per client IP', () => {
   });
 });
 
-describe('POST /api/auth/logout: 60 per 10 minutes per client IP, OAuth mode only', () => {
-  test('OAuth mode: the 61st sign-out from one IP lands on the landing page', async () => {
-    for (let i = 0; i < RATE_LIMITS.signOut.limit; i += 1) {
-      const ok = await logout(
+describe('POST /api/auth/logout: never limited', () => {
+  test('OAuth mode: sign-outs flooding from one IP never stop a real one ending its sessions', async () => {
+    // Someone on the same office, campus or carrier IP sends session-less
+    // sign-outs with the planner's Origin, as curl can.
+    for (let i = 0; i < 200; i += 1) {
+      const flood = await logout(
         post('/api/auth/logout', { scope: 'all' }, { ip: '192.0.2.1' })
       );
-      expect(ok.headers.get('location')).toBe('/');
+      expect(flood.headers.get('location')).toBe('/');
     }
-    const refused = await logout(
-      post('/api/auth/logout', { scope: 'all' }, { ip: '192.0.2.1' })
+    // A person behind that IP signs out of everything on a shared
+    // computer: both sessions end and both cookies are cleared.
+    const real = await logout(
+      post(
+        '/api/auth/logout',
+        { scope: 'all' },
+        { ip: '192.0.2.1', cookies: { [ACTIVE]: ACME, [STASH]: GLOBEX } }
+      )
     );
-    expect(refused.status).toBe(303);
-    expect(refused.headers.get('location')).toBe(LIMITED);
+    expect(real.status).toBe(303);
+    expect(real.headers.get('location')).toBe('/');
+    expect(state.calls.signOut.sort()).toEqual([ACME, GLOBEX].sort());
+    expect(setCookie(real, ACTIVE)).toContain('Max-Age=0');
+    expect(setCookie(real, STASH)).toContain('Max-Age=0');
   });
 
-  test('demo and api_key mode are never limited', async () => {
+  test('demo and api_key mode are never limited either', async () => {
     for (const mode of ['demo', 'api_key'] as const) {
       resetProcessRateLimiters();
       state = freshState();

@@ -5,6 +5,8 @@
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { NextRequest } from 'next/server';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import * as tasksModule from '../app/tasks/route';
 import { KEY_TEXT_REFUSAL } from '../lib/key-text';
@@ -103,6 +105,22 @@ describe('proxy', () => {
       expect(location.endsWith(to)).toBe(true);
       expect(location).not.toContain('TESTKEY');
       expect(response.headers.get('content-security-policy')).toBeNull();
+    }
+    // A path that would resolve to another host never leaves the site
+    // (Next's slash redirect normally answers these first).
+    for (const from of [
+      `//evil.example/x?q=${key}`,
+      `/.//evil.example/x?q=${key}`,
+      `/\\evil.example/x?q=${key}`,
+    ]) {
+      const response = proxy(new NextRequest(`http://localhost:3360${from}`));
+      expect(response.status).toBe(303);
+      const location = new URL(
+        response.headers.get('location') ?? '',
+        'http://localhost:3360'
+      );
+      expect(location.origin).toBe('http://localhost:3360');
+      expect(location.pathname).toBe('/');
     }
     // A URL without a key renders as usual.
     const plain = proxy(
@@ -292,6 +310,29 @@ describe('proxy', () => {
     // would run before it and echo the URL.
     expect('config' in proxyModule).toBe(false);
     expect(nextConfig.redirects).toBeUndefined();
+    // So Next reads every request body to its end for the proxy before
+    // any route runs: no comment may promise that an early refusal leaves
+    // a body unread (the webhook's missing signature, an oversize body).
+    const read = (...path: string[]) =>
+      readFileSync(join(import.meta.dir, '..', ...path), 'utf8');
+    for (const [name, text] of [
+      ['webhook route', read('app', 'api', 'webhooks', 'linear', 'route.ts')],
+      ['next.config.ts', read('next.config.ts')],
+      ['lib/http.ts', read('lib', 'http.ts')],
+      ['architecture', read('..', '..', 'docs', 'architecture.md')],
+    ] as const) {
+      expect({ name, unread: /refused unread/.test(text) }).toEqual({
+        name,
+        unread: false,
+      });
+    }
+    // The comment says what happens instead (its lines joined).
+    expect(
+      read('app', 'api', 'webhooks', 'linear', 'route.ts').replaceAll(
+        /\s*\n\s*\*?\s*/g,
+        ' '
+      )
+    ).toContain('buffering at most 2 MB');
   });
 });
 

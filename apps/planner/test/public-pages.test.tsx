@@ -299,9 +299,20 @@ describe('the privacy page says what the code keeps', () => {
       expect(row('Webhook records')).toBe(`${WEBHOOK_RETENTION_DAYS} days`);
       expect(row('Digests')).toBe(`${NOTIFICATION_RETENTION_DAYS} days`);
       expect(row('Daily run records')).toBe(`${JOB_CLAIM_RETENTION_DAYS} days`);
+      // Deletion follows Linear's uninstall notice; without one (a grant
+      // Linear only refuses) nothing is deleted automatically.
       expect(
         row('Everything about a workspace after it uninstalls the app')
-      ).toContain(`${PURGE_AFTER_DAYS} days later`);
+      ).toBe(
+        `Deleted ${PURGE_AFTER_DAYS} days after Linear tells the planner about the uninstall, unless it is installed again first`
+      );
+      expect(
+        row(
+          'Everything about a workspace whose app access Linear refused with no uninstall notice'
+        )
+      ).toBe(
+        'Kept until the person who runs the planner removes it (ask them); sessions last until they expire'
+      );
       expect(
         row('The copy of Linear, settings, the run log and the audit log')
       ).toBe('While the workspace has the app installed');
@@ -320,12 +331,40 @@ describe('the privacy page says what the code keeps', () => {
       'SHA-256 hash',
       'descriptions and comments only as a length in characters',
       'recipient’s name and email address',
-      'Client IP addresses, in the web server’s memory only',
+      'Client IP addresses, which the planner keeps only in its memory (never in its database)',
       'Railway',
       'Not stored: issue descriptions, comments, labels and estimates',
     ]) {
       expect(copy).toContain(phrase);
     }
+  });
+
+  test('the host’s request logs, the real IP windows, backups and an uninstall Linear never reports', () => {
+    for (const mode of ['oauth', 'api_key', 'demo'] as const) {
+      // Railway logs every request's IP, user agent and path, whatever
+      // the planner itself keeps.
+      expect(pageText(privacyPage(facts({ mode })))).toContain(
+        'The host’s (Railway’s) request logs also record every request’s client IP address, browser user agent and the page or API path it asked for.'
+      );
+    }
+    const copy = pageText(privacyPage(facts()));
+    // Sign-out is never counted; webhook refusals use one minute; an
+    // address can outlive its window in memory.
+    expect(copy).toContain(
+      'to count sign-in starts and workspace switches over 10 minutes and refused webhook deliveries over a minute. An address can stay in memory after its window until a later request on the same count clears it'
+    );
+    expect(copy).not.toContain('sign-outs');
+    expect(copy).not.toContain('over the last 10 minutes');
+    expect(copy).toContain(
+      'Database backups, when the person who runs the planner turns them on, can keep data for longer than this.'
+    );
+    expect(copy).toContain('When Linear tells the planner about the uninstall');
+    expect(copy).toContain(
+      'If that notice never arrives (Linear then only refuses the app’s access), the planner stops reading the workspace but keeps what it holds until the person who runs it removes the workspace'
+    );
+    expect(copy).not.toContain(
+      'signs everyone out of it, and deletes everything it holds about the workspace 30 days later. To'
+    );
   });
 
   test('Slack is named only while a Slack channel is active', () => {
@@ -349,7 +388,11 @@ describe('the privacy page says what the code keeps', () => {
   test('the demo is fictional and keeps nothing about the visitor', () => {
     const copy = pageText(privacyPage(facts({ mode: 'demo' })));
     expect(copy).toContain('fictional workspace');
-    expect(copy).toContain('no client IP address');
+    // The planner itself stores none; the host's request logs do.
+    expect(copy).toContain(
+      'The planner itself stores no client IP address; the host’s request logs do (see Logs).'
+    );
+    expect(copy).not.toContain('no client IP address.');
     expect(copy).not.toContain('AES-256-GCM');
   });
 
@@ -431,7 +474,7 @@ describe('the landing page for strangers', () => {
         searchParams: Promise.resolve({ auth_error: 'auth_rate_limited' }),
       })
     );
-    expect(text(limited)).toContain('Too many sign-in, switch or sign-out');
+    expect(text(limited)).toContain('Too many sign-in or workspace switch');
   });
 
   test('operatorLine says nothing without OPERATOR_NAME', () => {

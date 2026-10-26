@@ -12,6 +12,7 @@ import type { IssueBulkPatch, IssueListOptions } from '@better-tracker/core';
 import type { IssueBulkResult } from '@better-tracker/engine';
 import type { ToastInput } from '@better-tracker/ui';
 
+import { withStartWorkspace } from './oauth-links';
 import { WORKSPACE_HEADER } from './workspace-copy';
 
 // The workspace the tab's shell frame shows; null outside the signed-in
@@ -244,7 +245,12 @@ export function notSavedToast(
     kind: 'error',
     label: 'Not saved',
     message: result.message,
-    action: { label: 'Allow edits', onClick: () => navigate(grant) },
+    action: {
+      label: 'Allow edits',
+      // The tab's workspace: the start route refuses the link when this
+      // browser switched to another one in a second tab.
+      onClick: () => navigate(withStartWorkspace(grant, frameWorkspaceId)),
+    },
     duration: 10_000,
   };
 }

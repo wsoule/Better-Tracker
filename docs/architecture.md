@@ -3027,9 +3027,9 @@ merge of the branch. Gr8r is a reference only; nothing is imported from it.
 | `/settings`                      | signed in         | modes, watchers, schedule, status, digest preview, notifications, audit; editable by everyone but a guest (read-only for them)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `/setup`                         | signed in         | install the app into the workspace (admin; nothing to start for a guest); names the session's workspace, says why a revoked installation was revoked and when its data is deleted, and offers "Sign out of all workspaces" with two or more held (§8.4)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `/setup/connect`                 | all (OAuth mode)  | connect another workspace: the hint and a "Continue to Linear" link to `/api/auth/linear?intent=add_workspace` (carrying `?returnTo=`); signed in or out, no JavaScript needed; 404 in api_key and demo mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| `/open?ws=&to=`                  | all               | the interstitial a page link naming a workspace (`ws=<org id>`, digest links, §7) is sent to by `proxy.ts`: to `to` when `ws` is the active workspace, a "Switch to <name>" form when the browser holds it, else a connect link; never renders `ws`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `/open?ws=&to=`                  | all               | the interstitial a page link naming a workspace (`ws=<org id>`, digest links, §7) is sent to by `proxy.ts`: to `to` when `ws` is the active workspace, a "Switch to <name>" form when the browser holds it, else a connect link that keeps `ws` in its `returnTo`; never shows `ws`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `GET /api/palette`               | signed in         | command-palette index (pages, projects, milestones, the user's open issues → `/issues/<key>`), fetched when the palette opens                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets the OAuth state cookie); a link, not origin-checked; `install` and `grant_write` need a session, sign its workspace id into the state (`expectWorkspaceId`) and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else; `add_workspace` (OAuth mode, `prompt=consent`) works signed in or out and is refused with `too_many_workspaces` while the browser holds 10                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `GET /api/auth/linear?intent=`   | —                 | starts OAuth (sets the OAuth state cookie); a link, not origin-checked; `install` and `grant_write` need a session, are refused with `/?auth_error=workspace_changed` when their `workspace` (the tab's) is not the active one, sign its workspace id into the state (`expectWorkspaceId`) and are refused for a read-only person (`/?auth_error=read_only`), except `install` while the first sync has not landed (`not_synced`); `grant_write` is offered to everyone else; `add_workspace` (OAuth mode, `prompt=consent`) works signed in or out and is refused with `too_many_workspaces` while the browser holds 10                                                                                                                                                                                                                                                                                                                                                           |
 | `GET /api/auth/linear/callback`  | —                 | finishes OAuth (not origin-checked, never rate-limited: the signed state protects it); the session rules below ("Session cookies")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `POST /api/auth/logout`          | —                 | ends sessions; OAuth mode takes `scope=current\|all` and `workspace=<org id>` (below)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | `POST /api/auth/switch`          | OAuth mode only   | `workspace=<org id>`, optional `returnTo`: makes another of the browser's sessions active (not a write: a guest may switch); JSON with `Accept: application/json`, else a 303; 404 in api_key and demo mode                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -3072,27 +3072,30 @@ and JSON bodies validated with zod, read through one limited reader (`readJson`:
 at most 1 MiB, else 413 `too_large` before anything is parsed; the webhook's
 limit is 1 MiB too; `next.config.ts` caps the body the proxy buffers at 2 MB,
 `experimental.proxyClientMaxBodySize` in Next 16, past which Next would cut it
-silently, above every body a route reads). `returnTo` must be a relative path.
-Every page/route resolves the actor server-side; the UI never decides
-permissions. Every mutating route above (PATCH, POST and DELETE, but the auth
-routes and the webhook) answers a Linear guest 403 `read_only` (owner decision
-2026-10-22, "Guests limited to read only") right after the CSRF guard and the
-session, before its body is read: `refuseReadOnly` in `lib/http.ts` runs the
-engine's own `requireWritable`, so the routes and the engine refuse with the
-same code and sentence, and `errorResponse` maps an engine `read_only` to 403 as
-well. A "write access" row above is therefore never a guest; the pages and GET
-routes stay open to one. Every engine read made for a person passes that actor
-as the `viewer` (§7, §2.13: pages, the palette, the issue read and search, the
-run detail, the audit and the digest preview; `lib/load.ts`'s cached view
-loaders take it from the request), so a private team's data reaches only its
-members and a guest sees only their teams. Every response carries
-`lib/security-headers.ts`: a Content-Security-Policy (`default-src 'self'`,
-`object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`,
-`connect-src 'self'`, `form-action 'self' https://linear.app`; `script-src` and
-`style-src` keep `'unsafe-inline'` in this static policy, which API routes,
-static assets and prefetches get; every page gets the stricter nonce policy of
-`proxy.ts` instead, in every mode ("Nonce CSP in every mode" below); development
-adds `'unsafe-eval'`),
+silently, above every body a route reads; because `proxy.ts` runs on every
+request, Next receives each upload to its end, buffering at most those 2 MB,
+before any route code runs, so a route's early refusal saves the parse, not the
+upload). `returnTo` must be a relative path. Every page/route resolves the actor
+server-side; the UI never decides permissions. Every mutating route above
+(PATCH, POST and DELETE, but the auth routes and the webhook) answers a Linear
+guest 403 `read_only` (owner decision 2026-10-22, "Guests limited to read only")
+right after the CSRF guard and the session, before its body is read:
+`refuseReadOnly` in `lib/http.ts` runs the engine's own `requireWritable`, so
+the routes and the engine refuse with the same code and sentence, and
+`errorResponse` maps an engine `read_only` to 403 as well. A "write access" row
+above is therefore never a guest; the pages and GET routes stay open to one.
+Every engine read made for a person passes that actor as the `viewer` (§7,
+§2.13: pages, the palette, the issue read and search, the run detail, the audit
+and the digest preview; `lib/load.ts`'s cached view loaders take it from the
+request), so a private team's data reaches only its members and a guest sees
+only their teams. Every response carries `lib/security-headers.ts`: a
+Content-Security-Policy (`default-src 'self'`, `object-src 'none'`,
+`base-uri 'none'`, `frame-ancestors 'none'`, `connect-src 'self'`,
+`form-action 'self' https://linear.app`; `script-src` and `style-src` keep
+`'unsafe-inline'` in this static policy, which API routes, static assets and
+prefetches get; every page gets the stricter nonce policy of `proxy.ts` instead,
+in every mode ("Nonce CSP in every mode" below); development adds
+`'unsafe-eval'`),
 `Strict-Transport-Security: max-age=31536000; includeSubDomains` (ignored by
 browsers over plain HTTP), `X-Frame-Options: DENY`, `nosniff`, a strict-origin
 referrer policy and a Permissions-Policy.
@@ -3132,8 +3135,12 @@ referrer policy and a Permissions-Policy.
   them with pure functions (`activate`, `without`, `unchanged`) whose `signOut`
   list the routes end in `after()`: a token removed from the cookies while its
   row may exist is signed out (its Linear grant revoked), never just dropped,
-  and past 9 stashed the oldest is signed out. Demo mode holds one session (no
-  stash; `describeSessions` answers nothing there).
+  and past 9 stashed the oldest is signed out. The stash cookie lives as long as
+  its newest session, so it routinely carries expired tokens: `engine.signOut`
+  leaves an expired row in place (OAuth mode) for cleanup's
+  `takeExpiredSessions`, which deletes it and revokes its grant, instead of
+  deleting it with nothing left to revoke the grant from. Demo mode holds one
+  session (no stash; `describeSessions` answers nothing there).
 - **Only the POST routes are origin-checked** (switch, logout, demo, key):
   `GET /api/auth/linear` is a link and the callback a cross-site redirect from
   linear.app, protected by the signed state. OAuth starts stay links, never
@@ -3141,9 +3148,20 @@ referrer policy and a Permissions-Policy.
 - **Start** (`GET /api/auth/linear`): `install` and `grant_write` sign the
   active session's workspace id into the state as `expectWorkspaceId` (a state
   without it reads as `oauth_expired`), so a switch in another tab during
-  Linear's consent screen cannot change which workspace they act for;
-  `add_workspace` is refused with `too_many_workspaces` when the browser already
-  holds 10.
+  Linear's consent screen cannot change which workspace they act for. Their
+  links name the workspace the tab shows (`workspace=<org id>`,
+  `lib/oauth-links.ts`: Setup's Install with the page's own workspace, every
+  "Allow edits in Linear" with the frame's through `useStartHref`, the "Not
+  saved" toast's with the api client's), and a start whose `workspace` is not
+  the active session's is refused first, before the guest check, with a 303 to
+  `/?auth_error=workspace_changed&workspace=<it>&returnTo=<the page>`: the
+  landing names both workspaces from the browser's own sessions ("This tab
+  showed <A>, but this browser had switched to <B> in another tab, so Linear was
+  not asked. Switch back to <A> to try again there, or continue in <B>.") with a
+  "Switch to <A>" form back to that page. A plain navigation is not covered by
+  the 409 guard below, so without this a stale tab would start the grant for the
+  other workspace (or be refused as a guest there). `add_workspace` is refused
+  with `too_many_workspaces` when the browser already holds 10.
 - **Callback**: for `signin`, `add_workspace` and `grant_write` the engine's
   `finishSignIn` (with `expectWorkspaceId` for `grant_write`) makes a session N
   for workspace W. `signin` and `add_workspace` that come back with a workspace
@@ -3180,11 +3198,16 @@ referrer policy and a Permissions-Policy.
   ends that workspace's held session, active or stashed; when another remains
   (the most recent stashed one taking an ended active one's place) it lands on
   `/week?signed_out=1&from=<a five-minute value signed with SESSION_SECRET naming the workspace signed out>`,
-  otherwise both cookies are cleared and it goes to `/`. When the browser holds
-  no session for that workspace nothing is ended (`/week?signed_out=none`).
-  Without `workspace` it ends the active session. `all` ends every held session
-  (each revoking its grant) and clears both cookies. Demo mode ends its one
-  session; the api_key branch is unchanged.
+  otherwise both cookies are cleared and it goes to `/`. The value is bound to
+  this browser (`lib/signed-out-notice.ts`: it carries a digest of the session
+  token left active, never the token, and `/week` names the workspace only when
+  the request's active cookie matches), since the name is the Linear
+  workspace's, which its admin chooses: a value copied into a link reads "Signed
+  out." in anyone else's browser. When the browser holds no session for that
+  workspace nothing is ended (`/week?signed_out=none`). Without `workspace` it
+  ends the active session. `all` ends every held session (each revoking its
+  grant) and clears both cookies. Demo mode ends its one session; the api_key
+  branch is unchanged.
 - **Stale tabs**: every `api-client.ts` request sends
   `X-Planner-Workspace: <the shell frame's workspace id>` (`setFrameWorkspace`,
   called by `PlannerShell` in the browser), and `requireApiActor` answers **409
@@ -3193,27 +3216,36 @@ referrer policy and a Permissions-Policy.
   another tab. Reload to continue in <B>, or switch back to <A>.", names from
   the engine, never the header; the "Not saved" toast offers Reload). No view
   calls `router.refresh()` on that answer (`issueWriteOutcome`, the Issues
-  page's moves): a refresh re-renders the layout too, so the tab would turn into
-  <B> without a reload, showing <B>'s page at the same address (Globex's ENG-1
-  where Acme's was), and the next edit would land there. Without the header a
-  request is let through (the engine scopes every read and write to the
-  session's workspace anyway). Layouts do not re-render on client navigation
-  (Next 16 `layout.md`), and an `(app)/template.tsx` would not cover it either
-  (Next 16 `template.md`: a template does not remount for a search-param change
-  or a navigation within a deeper segment), so **every `(app)` page renders
-  `WorkspaceGuard`**, a server component that puts its own request's workspace
-  id (null signed out) into a client component, which reloads the tab when it
-  differs from the frame's (`FrameWorkspaceProvider` in `PlannerShell`); nothing
-  can be lost, since a navigation just happened. A test checks every page
-  renders it. The Issues page's picker options are kept by workspace and mirror
-  version, and its folded groups are remembered under
+  page's moves and their Undo, `refusalRefreshes`): a refresh re-renders the
+  layout too, so the tab would turn into <B> without a reload, showing <B>'s
+  page at the same address (Globex's ENG-1 where Acme's was), and the next edit
+  would land there. Without the header a request is let through (the engine
+  scopes every read and write to the session's workspace anyway). Layouts do not
+  re-render on client navigation (Next 16 `layout.md`), and an
+  `(app)/template.tsx` would not cover it either (Next 16 `template.md`: a
+  template does not remount for a search-param change or a navigation within a
+  deeper segment), so **every `(app)` page renders `WorkspaceGuard`**, a server
+  component that puts its own request's workspace id (null signed out) into a
+  client component, which reloads the tab when it differs from the frame's
+  (`FrameWorkspaceProvider` in `PlannerShell`); nothing can be lost, since a
+  navigation just happened. `(app)/not-found.tsx` renders it too: pages call
+  `notFound()` before their own guard, so a stale tab's Acme issue or run,
+  looked up in Globex and missed, would otherwise say an existing item is gone.
+  A test checks every page and the not-found boundary render it. The error
+  boundary (`error.tsx`, a client component) cannot host the server guard; its
+  Try again and the next navigation re-render a guarded page. The Issues page's
+  picker options are kept by workspace and mirror version, and its folded groups
+  are remembered under
   `milestone-planner:issues:collapsed:<workspace id>:<grouping>`. Switching is a
   full page load.
-- **Links that leave the app** (digests, §7) carry `ws=<org id>`; `proxy.ts`
-  sends a page request carrying `ws` (OAuth and demo mode; not `/open`, API
-  routes, static assets or prefetches) with a 307 and `no-store` to
-  `/open?ws=<it>&to=<the path and query without ws>` (§8.4 "Several
-  workspaces"). In-app links never carry it.
+- **Links that leave the app** (digests, §7, and every Copy link action: the
+  issue page and drawer, the Issues page's row menu and toolbar, the milestone
+  drawer, through `useShareableLink` in `workspace-frame.tsx`; not with personal
+  API keys) carry `ws=<org id>`, since keys repeat across workspaces (Acme's and
+  Globex's ENG-1); `proxy.ts` sends a page request carrying `ws` (OAuth and demo
+  mode; not `/open`, API routes, static assets or prefetches) with a 307 and
+  `no-store` to `/open?ws=<it>&to=<the path and query without ws>` (§8.4
+  "Several workspaces"). In-app links never carry it.
 
 **Rate limits and the nonce CSP** (owner decision 2026-10-25, before strangers
 use the planner, design doc §12; binding):
@@ -3226,38 +3258,44 @@ use the planner, design doc §12; binding):
   most `limit` timestamps, so memory stays bounded. A refused hit is not
   counted.
 
-  | what                                  | key       | limit       | over it                                                          |
-  | ------------------------------------- | --------- | ----------- | ---------------------------------------------------------------- |
-  | `GET /api/auth/linear` (OAuth mode)   | client IP | 30 / 10 min | 303 `/?auth_error=auth_rate_limited` with `Retry-After`          |
-  | `POST /api/auth/switch`               | client IP | 60 / 10 min | JSON 429 `rate_limited`, a form post the 303 above               |
-  | `POST /api/auth/logout` (OAuth mode)  | client IP | 60 / 10 min | the 303 above                                                    |
-  | `POST /api/runs`                      | session   | 6 / 10 min  | 429 `rate_limited` with `Retry-After` and a sentence saying when |
-  | `POST /api/warnings/preview`          | session   | 20 / 10 min | the same                                                         |
-  | every other API PATCH, POST or DELETE | session   | 300 / min   | the same                                                         |
-  | refused webhook deliveries            | client IP | 100 / min   | a bare 429 with `Retry-After`                                    |
+  | what                                  | key       | limit        | over it                                                          |
+  | ------------------------------------- | --------- | ------------ | ---------------------------------------------------------------- |
+  | `GET /api/auth/linear` (OAuth mode)   | client IP | 120 / 10 min | 303 `/?auth_error=auth_rate_limited` with `Retry-After`          |
+  | `POST /api/auth/switch`               | client IP | 60 / 10 min  | JSON 429 `rate_limited`, a form post the 303 above               |
+  | `POST /api/runs`                      | session   | 6 / 10 min   | 429 `rate_limited` with `Retry-After` and a sentence saying when |
+  | `POST /api/warnings/preview`          | session   | 20 / 10 min  | the same                                                         |
+  | every other API PATCH, POST or DELETE | session   | 300 / min    | the same                                                         |
+  | refused webhook deliveries            | client IP | 100 / min    | a bare 429 with `Retry-After`                                    |
   - **The per-session limits apply in every mode** (OAuth, personal API keys and
     the demo); the IP limits are OAuth mode's (switching exists only there).
+  - **One IP is often many people** (an office, campus or carrier NAT), so the
+    OAuth start allows 120 per 10 minutes (the spec's 30 would lock out a team
+    signing in together, as everyone does once after the cookie rename, with
+    connects and Allow edits counted too): it only stops a script hammering the
+    redirect to Linear.
   - **The client IP is Railway's `X-Real-IP` only** (`clientIp`; never
     `X-Forwarded-For`, which a client can set). A request without a usable one
     is not limited by IP at all (Railway always sets it; a local run and the
     browser suites have none), so no shared bucket can lock everyone out.
   - **Never limited**: the OAuth callback (a refusal there would burn Linear's
     single-use code); `POST /api/auth/demo` (demo mode only, whose live showcase
-    visitors and browser suite share addresses); the demo-mode and api_key-mode
-    sign-outs (api_key mode's forgets keys and is never refused; its connect
-    form keeps its own limits, below); every read (GET, HEAD); and **a webhook
-    delivery with a valid signature**, even from an IP over the limit (Linear's
-    senders are shared by every Linear customer, so an outsider's refusals must
-    not hold back real deliveries). Only refusals count: a missing or bad
-    signature and an oversize body; a signed delivery refused later (a stale
-    timestamp) does not.
+    visitors and browser suite share addresses); **every sign-out, in every
+    mode** (`POST /api/auth/logout`: a stranger on the same public IP could
+    otherwise make Sign out fail and leave a session and its Linear grant alive
+    on a shared computer; api_key mode's forgets keys; its connect form keeps
+    its own limits, below); every read (GET, HEAD); and **a webhook delivery
+    with a valid signature**, even from an IP over the limit (Linear's senders
+    are shared by every Linear customer, so an outsider's refusals must not hold
+    back real deliveries). Only refusals count: a missing or bad signature and
+    an oversize body; a signed delivery refused later (a stale timestamp) does
+    not.
   - **Order**: the auth routes count after their mode check and (POST) the
     origin check; `requireApiActor` counts a mutation after the CSRF guard, the
     session and the 409 `workspace_changed` check, keyed by the session's
     internal id (never its cookie value), so a signed-out, cross-origin or
     stale-tab request is answered first and never counts. `/api/sync` keeps its
     one-per-minute cooldown on top. The landing page says `auth_rate_limited` in
-    words ("Too many sign-in, switch or sign-out requests came from this network
+    words ("Too many sign-in or workspace switch requests came from this network
     in the last few minutes. Wait a few minutes, then try again."; signed in,
     Gr8r's full-page state "That did not go through.").
 
@@ -3399,13 +3437,20 @@ Auth and frame details (decided while building `apps/planner`; binding):
 - The OAuth state cookie is scoped to `Path=/api/auth` on http and `Path=/` on
   https (as `__Host-mp_oauth`). `returnTo` must start with exactly one `/`
   (never `//` or `/\`), contain no control characters or spaces (browsers strip
-  them, turning `/\t/x` into `//x`), resolve to the same origin and hold no
-  Linear credential, as it is or percent-decoded up to three times
+  them, turning `/\t/x` into `//x`), resolve to the same origin with a
+  normalised path that does not start with `//` (dot segments: `/.//x`,
+  `/%2e//x` and `/a/..//x` all normalise to `//x`; a page-level `redirect()`
+  answers inside a streamed 200, and Next's client router then hard-navigates to
+  that path, which the browser reads as another host) and hold no Linear
+  credential, as it is or percent-decoded up to three times
   (`holdsLinearCredential`, `lib/key-text.ts`: every hop copies it into a
   `Location`, and no URL the planner answers carries a key); anything else
-  becomes `/week`. Non-ASCII characters are percent-encoded (UTF-8), because the
-  callback's `Location` header must be a byte string. It is checked when signing
-  the cookie and again after verifying it.
+  becomes `/week`. What comes back is the normalised path, query and hash, never
+  the raw value, so every hop redirects to exactly what was checked. Non-ASCII
+  characters are percent-encoded (UTF-8), because the callback's `Location`
+  header must be a byte string. It is checked when signing the cookie and again
+  after verifying it. The api_key proxy's key redirect also never leaves the
+  origin (a path that would resolve to another host goes to `/`).
 - Every callback outcome clears the OAuth state cookie. Failures land on
   `/?auth_error=<code>`: the engine's `EngineAuthError`/`EngineInputError` codes
   (with several workspaces `workspace_not_allowed`, `workspace_blocked` and
@@ -3432,13 +3477,16 @@ Auth and frame details (decided while building `apps/planner`; binding):
   uses a per-process random secret.
 - `POST /api/webhooks/linear` checks in this order, reading nothing it does not
   need yet: `LINEAR_WEBHOOK_SECRET` set (else 503) and a `Linear-Signature`
-  header present (else a bare 400), both before the body is read; at most 1 MiB
-  of raw body (else 413, a declared `Content-Length` refused unread); the HMAC
-  (else a bare 400); the `webhookTimestamp` within 60 s and a well-formed
-  payload (else 400); then 200, with verified event types the engine does not
-  use dropped, so Linear never disables the webhook over them. A missing or bad
-  signature and an oversize body count against the client IP ("Rate limits"
-  below). Demo mode acks everything; api_key mode answers a bare 404.
+  header present (else a bare 400), both before the route reads the body; at
+  most 1 MiB of raw body (else 413, a declared `Content-Length` over it refused
+  without the route reading it). Next has received the whole upload, buffering
+  at most 2 MB of it for `proxy.ts`, before the route's first line runs, so
+  these refusals save the parse and the HMAC, not the upload; the HMAC (else a
+  bare 400); the `webhookTimestamp` within 60 s and a well-formed payload (else
+  400); then 200, with verified event types the engine does not use dropped, so
+  Linear never disables the webhook over them. A missing or bad signature and an
+  oversize body count against the client IP ("Rate limits" below). Demo mode
+  acks everything; api_key mode answers a bare 404.
 - `GET /api/health` boots the engine (store opened and migrated) and calls
   `engine.ping()` (the store's liveness query, which never throws): `true` is
   200 `{ ok: true, db: 'ok' }`, `false` or a failed boot 503
@@ -4314,12 +4362,13 @@ links and follow-ups, new or unread, progress and the timeline's today.
     filters name, one milestone's issues, `/graph?milestone=<id>`, else one
     project's, `/graph?project=<id>`, a `none` value of either being no
     container; else one initiative's projects, `/graph?initiative=<id|none>`;
-    otherwise `/graph`) and **Copy link** (the address bar's URL; "Link
-    copied."), both Gr8r ghost buttons (`Button variant="quiet" size="sm"`) with
-    a leading icon. The search is the toolbar's 26px field with a leading icon
-    and a `--control-border` edge; the toolbar and the chips bar are rows over a
-    soft rule spanning the content column (`--view-toolbar-gutter: 0`). Every
-    menu is a `PickerPopover` with `searchable={false}`: Filter lists the fields
+    otherwise `/graph`) and **Copy link** (the address bar's URL with
+    `ws=<org id>`, §8.1 "Links that leave the app"; "Link copied."), both Gr8r
+    ghost buttons (`Button variant="quiet" size="sm"`) with a leading icon. The
+    search is the toolbar's 26px field with a leading icon and a
+    `--control-border` edge; the toolbar and the chips bar are rows over a soft
+    rule spanning the content column (`--view-toolbar-gutter: 0`). Every menu is
+    a `PickerPopover` with `searchable={false}`: Filter lists the fields
     (Initiative only for a viewer with initiatives, Team only with two or more
     teams) and the quick filters (Blocked, At risk, In next milestones; hinted
     "On" while set); Sort and Group are one multi-select list with one choice
@@ -5549,10 +5598,15 @@ links and follow-ups, new or unread, progress and the timeline's today.
     state "This link is for <name>." with a primary "Switch to <name>" (a POST
     switch form, `returnTo=to`) and, signed in, "Stay here"; otherwise "This
     link is for a Linear workspace this browser is not signed in to." with
-    "Connect another workspace" (`/setup/connect?returnTo=<to>`). The `ws` value
-    is never rendered (a value that is not id-shaped matches nothing). In
-    api_key and demo mode it just opens `to` (signed-out visitors via the
-    sign-in page).
+    "Connect another workspace"
+    (`/setup/connect?returnTo=<to with ws put back>`: Linear connects whichever
+    workspace is open at linear.app, so the connect lands on the link again,
+    which comes back here and opens the page only when the workspace connected
+    is the link's; otherwise this state shows again instead of the same path in
+    another workspace). The `ws` value is never shown (a value that is not
+    id-shaped matches nothing and goes into no link); it only goes back into
+    that connect link. In api_key and demo mode it just opens `to` (signed-out
+    visitors via the sign-in page).
   - **`/setup`** names the session's workspace before any install ("Acme · not
     installed yet"). A revoked installation's red "Reinstall needed" notice says
     why, by the reason `describeSessions` reports: uninstalled "An admin
@@ -5571,11 +5625,17 @@ links and follow-ups, new or unread, progress and the timeline's today.
     connected <W> again, which this browser already has. To add another
     workspace, open it at linear.app first, then choose Connect another
     workspace."; `?signed_out=1` "Signed out: Signed out of <A>. Still signed in
-    to <B>." (A from the logout route's signed `from` value; "Signed out. Still
-    signed in to <B>." when it does not verify) with a small "Sign out of all
+    to <B>." (A from the logout route's signed `from` value, bound to this
+    browser's active session; "Signed out. Still signed in to <B>." when it does
+    not verify or was issued to another browser) with a small "Sign out of all
     workspaces" button; `?signed_out=none` "This browser was not signed in to
     that workspace any more, so nothing was signed out."; `?switch_error=` "Not
-    switched". The page's own links leave these parameters out.
+    switched". The page's own links leave these parameters out. When the
+    workspace left active has no working installation (never installed, or
+    revoked), `requireInstalledActor` sends `/week` to `/setup` with these
+    parameters kept (`setupLocation`, everything else dropped), and `/setup`'s
+    not-installed and revoked states show the same notices under the head, so a
+    sign-out, connect or switch that lands there still says what happened.
   - **Settings → Status** shows the workspace's Linear id in Geist Mono ("Its
     Linear organization id: what LINEAR_WORKSPACES names to admit it") under the
     workspace row, and ends with "Sign out of all workspaces" while two or more
@@ -5616,19 +5676,30 @@ links and follow-ups, new or unread, progress and the timeline's today.
     name, the workspace's name and their tokens encrypted with AES-256-GCM, the
     cookie's SHA-256 only; the app's tokens, app user and installer; webhook
     records; sync records; the admit and block lists), logs and memory (client
-    IPs in memory only for the rate limits; the host's logs), where (Railway,
-    Linear, and Slack only while `slack`), how long (a table from
-    `SESSION_DAYS`, `WEBHOOK_RETENTION_DAYS`, `NOTIFICATION_RETENTION_DAYS`,
+    IPs kept only in the planner's memory for the rate limits, with their real
+    windows, 10 minutes for sign-in starts and switches and one for refused
+    webhook deliveries, and that an address can outlast its window until a later
+    request on the same count clears it or a restart; the host's logs, which
+    besides the planner's own lines hold Railway's request logs with every
+    request's client IP, user agent and path), where (Railway, Linear, and Slack
+    only while `slack`), how long (a table from `SESSION_DAYS`,
+    `WEBHOOK_RETENTION_DAYS`, `NOTIFICATION_RETENTION_DAYS`,
     `JOB_CLAIM_RETENTION_DAYS` and `PURGE_AFTER_DAYS`; the copy of Linear,
-    settings and the two logs while installed), and how to have it deleted (sign
-    out; uninstall in Linear, deleted `PURGE_AFTER_DAYS` later; ask the operator
-    sooner). api_key mode says the key and session live in memory only (idle and
-    absolute limits in hours), no digests and no webhooks; the demo says it is
-    fictional and keeps nothing about the visitor (no IP is held in demo mode).
-    The spec's wording was corrected where the code differs: digests are kept
-    for every channel (not only the outbox), run entries carry issue titles,
-    sync records and the admit/block lists are stored, and a held IP leaves
-    memory when pruned or on restart rather than after a fixed time.
+    settings and the two logs while installed; deletion `PURGE_AFTER_DAYS` after
+    Linear tells the planner about an uninstall, and a grant Linear refuses with
+    no uninstall notice, `grant_dead`, kept until the operator removes it with
+    sessions lasting until they expire; database backups, when the operator
+    turns them on, can keep data longer), and how to have it deleted (sign out;
+    uninstall in Linear, deleted `PURGE_AFTER_DAYS` after Linear's notice, kept
+    until the operator removes it when no notice comes; ask the operator sooner
+    or to make sure). api_key mode says the key and session live in memory only
+    (idle and absolute limits in hours), no digests and no webhooks; the demo
+    says it is fictional and asks for nothing: the planner stores no IP, the
+    host's request logs do. The spec's wording was corrected where the code
+    differs: digests are kept for every channel (not only the outbox), run
+    entries carry issue titles, sync records and the admit/block lists are
+    stored, and a held IP leaves memory when pruned or on restart rather than
+    after a fixed time.
   - **Terms**: provided as is, no uptime promise; the only Linear writes
     (allocation once switched to live, as the app user, or with the starter's
     key with personal API keys; people's own edits with their own access);
@@ -6254,7 +6325,8 @@ The planner's rate limits are constants, not variables (`RATE_LIMITS` in
 `apps/planner/lib/rate-limit.ts`, §8.1 "Rate limits"), counted per web process;
 the client IP is Railway's `X-Real-IP` request header alone. `next.config.ts`
 sets `experimental.proxyClientMaxBodySize: '2mb'` (Next 16; the body the proxy
-buffers), above the 1 MiB every route reads at most.
+buffers), above the 1 MiB every route reads at most. Next receives every upload
+to its end (buffering at most that much) before a route runs.
 
 In api_key mode `TOKEN_ENCRYPTION_KEY`, `LINEAR_CLIENT_ID`,
 `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET`, `SESSION_SECRET`,
@@ -6471,42 +6543,45 @@ not read; a deploy that still sets it boots normally and logs one warning
   most `limit` timestamps, `X-Real-IP` alone and shape-checked, no IP no limit,
   the numbers of every rule, the per-session rule by method and path, the 429
   and 303 answers); `test/rate-limit-routes.test.ts` (the real auth routes over
-  the auth fake engine: the 31st OAuth start from one IP lands on
+  the auth fake engine: the 121st OAuth start from one IP lands on
   `/?auth_error=auth_rate_limited` with Retry-After while another IP and no IP
   go on, the callback never limited even from an IP over the start limit, the
   61st switch a JSON 429 or a form 303, a cross-origin switch refused before it
-  counts, the 61st OAuth sign-out limited and demo and api_key sign-outs never,
-  100 demo sign-ins from one IP all through; `requireApiActor`'s 6 runs, 20
-  previews and 300 other mutations per session, reads never, another session
-  apart, signed-out, cross-origin and stale-tab requests answered first and
-  never counted); `test/webhook-route.test.ts` (no secret 503 and no signature
-  400 before the body is read, the 1 MiB cap declared or streamed, the 101st
-  refusal from an IP a bare 429 with Retry-After whatever it sends unsigned,
-  another IP apart, a signed delivery never limited or counted even from an IP
-  over the limit, no IP never limited); `test/health-route.test.ts` (ping true
-  200, false or a failed boot 503, never cached); `test/public-pages.test.tsx`
-  (the three pages and their layout render reading no cookie and touching
-  nothing of the engine but `config`, `mode` and `digestChannel`, the layout's
-  nonce on its script and the footer, `/contact` with and without `OPERATOR_*`,
-  every retention number equal to the engine's constants and `SESSION_DAYS`,
-  what is and is not stored, Slack named only with `slack`, the api_key and demo
-  variants, the terms; the landing's hint, admin line, privacy link, operator
-  line and demo link, no Slack promise without a channel, the contact link on
-  `workspace_not_allowed`, `auth_rate_limited`'s sentence; the Settings copy);
-  `test/no-key-leak-static.test.ts` (the `(public)` layout among the four places
-  with an inline script, each nonced); `packages/engine`
-  `test/fail-safes.test.ts` (`digestChannel`: Slack while one workspace may be
-  served, the outbox after a second install, under `*` or a list of several, or
-  with a channel that does not deliver, Slack named when the store cannot be
-  read); `packages/ui` `test/shell-ssr.test.tsx` (`SignedOutFrame`'s footer
-  links in a named landmark). In the browser, `e2e/smoke.e2e.ts` checks with
-  `e2e/csp-nonce.ts` (`expectScriptsNonced(response, label)`: the single nonce
-  of the response's CSP with `'strict-dynamic'`, and every `<script>` tag of the
-  raw HTML carrying it; spec-facing, it imports only `@playwright/test`, so the
-  OAuth suite can use it too) that every screen it opens signed in, the landing,
-  `/privacy`, `/terms` and `/contact` signed out carry the nonce on every
-  script, that the public pages show their heading and the footer links, and
-  that the landing's Privacy link opens the demo's privacy page.
+  counts, no sign-out ever limited in any mode (200 from one IP, then one with
+  live sessions still ends them), 100 demo sign-ins from one IP all through;
+  `requireApiActor`'s 6 runs, 20 previews and 300 other mutations per session,
+  reads never, another session apart, signed-out, cross-origin and stale-tab
+  requests answered first and never counted); `test/webhook-route.test.ts` (no
+  secret 503 and no signature 400 before the route reads the body, the 1 MiB cap
+  declared or streamed, the 101st refusal from an IP a bare 429 with Retry-After
+  whatever it sends unsigned, another IP apart, a signed delivery never limited
+  or counted even from an IP over the limit, no IP never limited);
+  `test/health-route.test.ts` (ping true 200, false or a failed boot 503, never
+  cached); `test/public-pages.test.tsx` (the three pages and their layout render
+  reading no cookie and touching nothing of the engine but `config`, `mode` and
+  `digestChannel`, the layout's nonce on its script and the footer, `/contact`
+  with and without `OPERATOR_*`, every retention number equal to the engine's
+  constants and `SESSION_DAYS`, what is and is not stored, Slack named only with
+  `slack`, the api_key and demo variants, the terms; the landing's hint, admin
+  line, privacy link, operator line and demo link, no Slack promise without a
+  channel, the contact link on `workspace_not_allowed`, `auth_rate_limited`'s
+  sentence; the Settings copy); `test/no-key-leak-static.test.ts` (the
+  `(public)` layout among the four places with an inline script, each nonced);
+  `packages/engine` `test/fail-safes.test.ts` (`digestChannel`: Slack while one
+  workspace may be served, the outbox after a second install, under `*` or a
+  list of several, or with a channel that does not deliver, Slack named when the
+  store cannot be read); `packages/ui` `test/shell-ssr.test.tsx`
+  (`SignedOutFrame`'s footer links in a named landmark). In the browser,
+  `e2e/smoke.e2e.ts` checks with `e2e/csp-nonce.ts`
+  (`expectScriptsNonced(response, label)`: the single nonce of the response's
+  CSP with `'strict-dynamic'`, and every `<script>` tag of the raw HTML carrying
+  it; spec-facing, it imports only `@playwright/test`, so the OAuth suite can
+  use it too) that every screen it opens signed in, the landing, `/privacy`,
+  `/terms` and `/contact` signed out carry the nonce on every script, that the
+  public pages show their heading and the footer links, and that the landing's
+  Privacy link opens the demo's privacy page; and that `/open?to=` and
+  `/?returnTo=` values that normalise to another host (`/.//evil.example`,
+  `/%252e//…`) land on `/week`, with no request reaching that host.
 - planner (issue list): `test/adapters-issue-list.test.ts` (the URL grammar:
   canonical order, defaults left out, `state=all`, `me` and `none`, dropped
   values, the 50-value and 200-character caps, `limit` steps, invalid section
@@ -6749,37 +6824,49 @@ not read; a deploy that still sets it boots normally and logs one warning
     (`actor=app`, `prompt=consent`, lands on `/timeline`) and allows edits
     (`read,write`); connects Globex from the brand-row menu through
     `/setup/connect` (`prompt=consent`, lands on `/setup` since Globex is not
-    installed, the stash cookie set) and Gia installs it in her own browser;
-    `/week`, `/timeline`, `/projects`, `/graph`, `/issues`, `/issues/ENG-1`,
-    `/runs` and Settings → Status each show only the active workspace (the
-    switcher names it, the page shows its data, and neither the page's text nor
-    its HTML, RSC payload included, holds a word of the other's issues,
-    projects, milestones or people; Globex's ENG-1 is another issue than
-    Acme's), in Globex, after switching to Acme with the menu, and after the
-    palette's "Switch to Globex"; with Acme open at Linear (the chooser
-    authorizes it at once) connecting lands on `/week?connect=same` with its
-    notice, the new grant revoked and the write grant kept (an edit reaches Acme
-    as Ana); in Globex Ana sees the guest notice and no edit control, and a
-    direct PATCH is 403 `read_only` with nothing sent to Linear, while Acme's
-    page is editable; a tab left on Acme after another tab switched to Globex
-    gets 409 `workspace_changed` with the "Not saved" toast naming both and its
-    Reload, nothing reaches either workspace, and its next client navigation
-    reloads it (a full load) into Globex; `/timeline?ws=org-globex` while Acme
-    is active goes through `/open` ("This link is for Globex.") and its Switch
-    lands on Globex's `/timeline`; "Sign out of Globex" lands on
-    `/week?signed_out=1` ("Signed out of Globex. Still signed in to Acme."),
-    revokes exactly Ana's Globex refresh token and keeps her Acme grant and both
-    app grants; the Acme-only planner refuses Globex at sign-in
-    (`workspace_not_allowed`, no session cookie, the grant revoked). Last, no
-    Linear token or code (`lin_oauth_access_`, `lin_oauth_refresh_`,
-    `lin_code_`), the OAuth client secret, `SESSION_SECRET` or
-    `TOKEN_ENCRYPTION_KEY` (`e2e/oauth-leak-needles.ts`) is in any planner
-    response (headers and bodies, RSC payloads included), and no session token
-    the suite saw in a Set-Cookie is anywhere else: not in a body or another
-    header, the servers' logs or any file they wrote; the fake saw no token in a
-    body or URL. Then `e2e/scan-oauth-leaks.ts` scans every file both planners
-    wrote under `E2E_ARTIFACTS_DIR` and both PGlite databases through SQL for
-    those needles (stored tokens are encrypted and session tokens hashed).
+    installed, the stash cookie set; Setup's workspace id line is one line
+    tall), connects again while Globex is open at Linear and lands on
+    `/setup?connect=same` with its notice (Globex not installed yet), and Gia
+    installs it in her own browser; `/week`, `/timeline`, `/projects`, `/graph`,
+    `/issues`, `/issues/ENG-1`, `/runs` and Settings → Status each show only the
+    active workspace (the switcher names it, the page shows its data, and
+    neither the page's text nor its HTML, RSC payload included, holds a word of
+    the other's issues, projects, milestones or people; Globex's ENG-1 is
+    another issue than Acme's), in Globex, after switching to Acme with the
+    menu, and after the palette's "Switch to Globex"; with Acme open at Linear
+    (the chooser authorizes it at once) connecting lands on `/week?connect=same`
+    with its notice, the new grant revoked and the write grant kept (an edit
+    reaches Acme as Ana); in Globex Ana sees the guest notice and no edit
+    control, and a direct PATCH is 403 `read_only` with nothing sent to Linear,
+    while Acme's page is editable; a tab left on Acme after another tab switched
+    to Globex gets 409 `workspace_changed` with the "Not saved" toast naming
+    both and its Reload, nothing reaches either workspace, and its next client
+    navigation reloads it (a full load) into Globex; a tab left on Acme's Setup
+    after another tab switched to Globex has its Reinstall refused before Linear
+    (`/?auth_error=workspace_changed`, both named) and its "Switch to Acme"
+    lands on Acme's `/week`; `/timeline?ws=org-globex` while Acme is active goes
+    through `/open` ("This link is for Globex.") and its Switch lands on
+    Globex's `/timeline`; `/open?ws=…&to=` and `/?returnTo=` values that
+    normalise to another host land on `/week`, nothing reaching that host; Copy
+    link on Acme's ENG-1 copies `…/issues/ENG-1?ws=org-acme`, which opened while
+    Globex is active shows "This link is for Acme." instead of Globex's ENG-1;
+    "Sign out of Globex" lands on `/week?signed_out=1` ("Signed out of Globex.
+    Still signed in to Acme."), revokes exactly Ana's Globex refresh token and
+    keeps her Acme grant and both app grants; the Acme-only planner refuses
+    Globex at sign-in (`workspace_not_allowed`, no session cookie, the grant
+    revoked); a browser with no session opens Acme's
+    `/issues/ENG-1?ws=org-acme`, connects, gets Globex from Linear and is back
+    on the interstitial (not Globex's ENG-1), then connects Acme and lands on
+    Acme's ENG-1. Last, no Linear token or code (`lin_oauth_access_`,
+    `lin_oauth_refresh_`, `lin_code_`), the OAuth client secret,
+    `SESSION_SECRET` or `TOKEN_ENCRYPTION_KEY` (`e2e/oauth-leak-needles.ts`) is
+    in any planner response (headers and bodies, RSC payloads included), and no
+    session token the suite saw in a Set-Cookie is anywhere else: not in a body
+    or another header, the servers' logs or any file they wrote; the fake saw no
+    token in a body or URL. Then `e2e/scan-oauth-leaks.ts` scans every file both
+    planners wrote under `E2E_ARTIFACTS_DIR` and both PGlite databases through
+    SQL for those needles (stored tokens are encrypted and session tokens
+    hashed).
 - image: CI's `image` job builds `deploy/Dockerfile` and starts both services
   from it in demo mode (the web app must answer `/api/health`, the worker's
   `tick` must exit 0).

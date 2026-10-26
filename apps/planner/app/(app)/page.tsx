@@ -39,6 +39,7 @@ import {
   sanitizeReturnTo,
   signInHref,
 } from '../../lib/auth-cookies';
+import { heldFor } from '../../lib/held-sessions';
 import { getPageContext, loadHeldSessions } from '../../lib/load';
 import { loadPublicFacts } from '../../lib/public-facts';
 import {
@@ -47,6 +48,9 @@ import {
   continueListIntro,
   parseSwitchError,
   switchErrorMessage,
+  switchToLabel,
+  UNNAMED_WORKSPACE,
+  workspaceChangedStartMessage,
   workspaceHint,
 } from '../../lib/workspace-copy';
 import ConnectKeyBlock, {
@@ -86,6 +90,56 @@ async function loadDemo(
   if (workspaceId === undefined) return { rows, workspaceName: 'the demo' };
   const installation = await engine.getInstallation(workspaceId);
   return { rows, workspaceName: installation?.workspaceName ?? 'the demo' };
+}
+
+/* "/?auth_error=workspace_changed" for someone signed in (OAuth mode):
+   an install or write grant started from a tab that showed another
+   workspace than the active one (GET /api/auth/linear refused it before
+   asking Linear). Both workspaces are named from this browser's own
+   sessions (`workspace` is an org id the link carried, only matched),
+   with a form that switches back to the tab's one, landing on the page
+   the tab showed (`returnTo`), and the way to My week in the active one. */
+async function WorkspaceChanged({
+  params,
+  returnTo,
+}: {
+  params: Record<string, string | string[] | undefined>;
+  returnTo: string;
+}) {
+  const held = await loadHeldSessions();
+  const tabId = firstParam(params.workspace);
+  const tab = tabId === undefined ? null : heldFor(held, tabId);
+  const back = tab !== null && tab.workspaceId !== held.active?.workspaceId;
+  const activeName = held.active?.workspaceName ?? UNNAMED_WORKSPACE;
+  const tabName = back ? (tab.workspaceName ?? UNNAMED_WORKSPACE) : null;
+  return (
+    <MessageBlock
+      label="Workspace changed"
+      headline="That did not go through."
+      icon={<CircleAlert strokeWidth={1.8} />}
+      tone="danger"
+      actions={
+        <>
+          {back ? (
+            <form method="post" action="/api/auth/switch">
+              <input type="hidden" name="workspace" value={tab.workspaceId} />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <Button type="submit">
+                {switchToLabel(tab.workspaceName ?? UNNAMED_WORKSPACE)}
+              </Button>
+            </form>
+          ) : null}
+          <Button href="/week" variant="primary">
+            Go to My week
+          </Button>
+        </>
+      }
+    >
+      <p role="alert">{workspaceChangedStartMessage(tabName, activeName)}</p>
+      <PageCrumb label="Workspace changed" />
+      <WorkspaceGuard />
+    </MessageBlock>
+  );
 }
 
 /* "/": signed in → My week. Signed out → Gr8r's sign-in card (or, in
@@ -178,6 +232,9 @@ export default async function HomePage({
 
   if (actor !== null) {
     if (errorMessage === null) redirect(returnTo);
+    if (errorCode === 'workspace_changed') {
+      return <WorkspaceChanged params={params} returnTo={returnTo} />;
+    }
     const rateLimited = errorCode === 'auth_rate_limited';
     return (
       <MessageBlock
@@ -244,7 +301,7 @@ export default async function HomePage({
         ) : null}
         {switchError !== null ? (
           <Notice label="Not switched" tone="danger" role="alert">
-            {switchErrorMessage(switchError)}
+            {switchErrorMessage(switchError, null, { signedOut: true })}
           </Notice>
         ) : null}
         <header className={styles.cardHead}>

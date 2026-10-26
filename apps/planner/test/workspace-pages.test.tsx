@@ -17,7 +17,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { revokedNotice } from '../lib/adapters/setup';
 import { FIRST_SYNC_RETRY_SENTENCE } from '../lib/read-only';
 import { signValue } from '../lib/signed-cookie';
-import { weekWorkspaceNotices } from '../lib/workspace-copy';
+import { signedOutNoticeValue } from '../lib/signed-out-notice';
+import {
+  setupLocation,
+  switchErrorMessage,
+  weekWorkspaceNotices,
+} from '../lib/workspace-copy';
 import {
   type FakeEngineState,
   fakeEngine,
@@ -65,6 +70,7 @@ const { default: SetupPage } = await import('../app/(app)/setup/page');
 const { default: HomePage } = await import('../app/(app)/page');
 const { default: WorkspaceNotices } =
   await import('../app/(app)/components/workspace-notices');
+const { requireInstalledActor } = await import('../lib/load');
 
 const ACME = tok('acme');
 const GLOBEX = tok('globex');
@@ -160,6 +166,17 @@ async function render(page: Promise<ReactNode>): Promise<string> {
 async function redirected(page: () => Promise<ReactNode>): Promise<string> {
   try {
     await render(page());
+  } catch (error) {
+    if (error instanceof Redirect) return error.message;
+    throw error;
+  }
+  throw new Error('expected a redirect');
+}
+
+/** Where `run` redirected to (a helper that is not a page). */
+async function redirectOf(run: () => Promise<unknown>): Promise<string> {
+  try {
+    await run();
   } catch (error) {
     if (error instanceof Redirect) return error.message;
     throw error;
@@ -269,8 +286,13 @@ describe('/open (the interstitial)', () => {
     expect(html).toContain(
       'This link is for a Linear workspace this browser is not signed in to.'
     );
-    expect(html).toContain('href="/setup/connect?returnTo=%2Ftimeline"');
-    expect(html).not.toContain('org-not-held');
+    // The connect keeps the link's workspace in its returnTo, so it comes
+    // back here and opens the page only if Linear connected that one; the
+    // value is never shown as text.
+    expect(html).toContain(
+      'href="/setup/connect?returnTo=%2Ftimeline%3Fws%3Dorg-not-held"'
+    );
+    expect(html.replaceAll(/href="[^"]*"/g, '')).not.toContain('org-not-held');
     const odd = await render(
       OpenPage({
         searchParams: params({ ws: '<b>Acme</b>', to: '/week' }),
@@ -278,6 +300,25 @@ describe('/open (the interstitial)', () => {
     );
     expect(odd).not.toContain('<b>Acme');
     expect(odd).not.toContain('&lt;b&gt;');
+    // An odd value matches nothing and goes into no link either.
+    expect(odd).toContain('href="/setup/connect"');
+  });
+
+  test('the connect from a not-held link lands back on the link, not on its path', async () => {
+    // A digest link for Acme's ENG-1 in a browser holding only Globex:
+    // Linear may connect any workspace, and Globex has an ENG-1 too.
+    jar = { mp_session: GLOBEX };
+    const html = await render(
+      OpenPage({
+        searchParams: params({ ws: 'org-acme', to: '/issues/ENG-1' }),
+      })
+    );
+    const connect = /href="(\/setup\/connect[^"]*)"/.exec(html)?.[1] ?? '';
+    const returnTo = new URL(
+      connect.replaceAll('&amp;', '&'),
+      'http://localhost:3000'
+    ).searchParams.get('returnTo');
+    expect(returnTo).toBe('/issues/ENG-1?ws=org-acme');
   });
 
   test('demo mode holds one workspace: the link just opens', async () => {
@@ -312,6 +353,69 @@ describe('the signed-out landing', () => {
     expect(html).toContain('Not switched');
     expect(html).toContain('Your session for that workspace ended.');
     expect(html).not.toContain('Continue in');
+    // The signed-out landing has no workspace menu to point at.
+    expect(html).toContain('Sign in with Linear again to continue there.');
+    expect(html).not.toContain('workspace menu');
+  });
+
+  test('switch errors: the menu in the shell, Sign in with Linear on the signed-out landing', () => {
+    const codes = [
+      'unknown_workspace',
+      'session_ended',
+      'invalid_request',
+    ] as const;
+    for (const code of codes) {
+      expect(switchErrorMessage(code)).toContain('workspace menu');
+      const signedOut = switchErrorMessage(code, null, { signedOut: true });
+      expect(signedOut).toContain('Sign in with Linear');
+      expect(signedOut).not.toContain('menu');
+    }
+    expect(
+      switchErrorMessage('unknown_workspace', null, { signedOut: true })
+    ).toBe(
+      'This browser is not signed in to that workspace any more. Sign in with Linear again to continue there.'
+    );
+    expect(switchErrorMessage('session_ended', null, { signedOut: true })).toBe(
+      'Your session for that workspace ended. Sign in with Linear again to continue there.'
+    );
+  });
+});
+
+describe('the landing, signed in', () => {
+  test("a stale tab's install or write grant: both workspaces named, a switch back to the tab's", async () => {
+    // GET /api/auth/linear refused it: the tab showed Globex, this browser
+    // had switched to Acme in another tab.
+    const html = await render(
+      HomePage({
+        searchParams: params({
+          auth_error: 'workspace_changed',
+          workspace: 'org-globex',
+          returnTo: '/issues/ENG-1',
+        }),
+      })
+    );
+    expect(html).toContain(
+      'This tab showed Globex, but this browser had switched to Acme in another tab, so Linear was not asked. Switch back to Globex to try again there, or continue in Acme.'
+    );
+    expect(html).toContain('action="/api/auth/switch"');
+    expect(html).toContain('name="workspace" value="org-globex"');
+    expect(html).toContain('name="returnTo" value="/issues/ENG-1"');
+    expect(html).toContain('Switch to Globex');
+    expect(html).not.toContain('Linear did not finish.');
+    // A workspace the browser does not hold is not named (nor echoed).
+    const unknown = await render(
+      HomePage({
+        searchParams: params({
+          auth_error: 'workspace_changed',
+          workspace: 'org-not-held',
+        }),
+      })
+    );
+    expect(unknown).toContain(
+      'This tab showed another workspace, but this browser had switched to Acme in another tab'
+    );
+    expect(unknown).not.toContain('org-not-held');
+    expect(unknown).not.toContain('action="/api/auth/switch"');
   });
 });
 
@@ -334,9 +438,14 @@ describe('/setup', () => {
 
   test('not installed: the session names its workspace', async () => {
     jar = { mp_session: ACME };
-    const html = await render(SetupPage());
+    const html = await render(SetupPage({ searchParams: params({}) }));
     expect(html).toContain('Acme · not installed yet');
     expect(html).not.toContain('Sign out of all workspaces');
+    // Install names the workspace this page shows, so a stale tab's click
+    // is refused instead of installing for the browser's active one.
+    expect(html).toContain(
+      'href="/api/auth/linear?intent=install&amp;workspace=org-acme"'
+    );
   });
 
   test('revoked: why, and when the data goes, per reason', async () => {
@@ -358,7 +467,7 @@ describe('/setup', () => {
       const acme = state.sessions.get(ACME)!;
       acme.revokedAt = '2026-10-20T12:00:00.000Z';
       acme.revokedReason = reason;
-      const html = await render(SetupPage());
+      const html = await render(SetupPage({ searchParams: params({}) }));
       expect(html).toContain(words);
       if (reason === 'grant_dead') {
         expect(html).not.toContain('Its data is deleted');
@@ -370,8 +479,54 @@ describe('/setup', () => {
     }
   });
 
+  test("/week's workspace notices survive a workspace that is not installed", async () => {
+    // Signing out of Globex promoted Acme, which nobody installed yet:
+    // /week sends the browser here, and the notice comes along.
+    expect(
+      await redirectOf(() =>
+        requireInstalledActor('/week?signed_out=1&from=v1&user=u1')
+      )
+    ).toBe('/setup?signed_out=1&from=v1');
+    expect(
+      await redirectOf(() => requireInstalledActor('/week?connect=same'))
+    ).toBe('/setup?connect=same');
+    expect(
+      await redirectOf(() => requireInstalledActor('/timeline?milestone=m1'))
+    ).toBe('/setup');
+    const same = await render(
+      SetupPage({ searchParams: params({ connect: 'same' }) })
+    );
+    expect(same).toContain(
+      'Linear connected Acme again, which this browser already has.'
+    );
+    const failed = await render(
+      SetupPage({ searchParams: params({ switch_error: 'session_ended' }) })
+    );
+    expect(failed).toContain('Not switched');
+    // A revoked installation shows them too.
+    installation = { ...base, revokedAt: '2026-10-20T12:00:00.000Z' };
+    const revoked = await render(
+      SetupPage({ searchParams: params({ signed_out: 'none' }) })
+    );
+    expect(revoked).toContain('Reinstall the app');
+    expect(revoked).toContain(
+      'This browser was not signed in to that workspace any more, so nothing was signed out.'
+    );
+  });
+
+  test('setupLocation keeps only the notice parameters', () => {
+    expect(setupLocation(undefined)).toBe('/setup');
+    expect(setupLocation('/week')).toBe('/setup');
+    expect(
+      setupLocation('/week?user=u1&switch_error=unknown_workspace#x')
+    ).toBe('/setup?switch_error=unknown_workspace');
+    expect(setupLocation('/week?connect=same&connect=other')).toBe(
+      '/setup?connect=same'
+    );
+  });
+
   test('two or more workspaces held: Sign out of all workspaces', async () => {
-    const html = await render(SetupPage());
+    const html = await render(SetupPage({ searchParams: params({}) }));
     expect(html).toContain('Sign out of all workspaces');
     expect(html).toContain('name="scope" value="all"');
   });
@@ -420,28 +575,41 @@ describe("/week's workspace notices", () => {
     ]);
   });
 
-  test('signed_out names the workspace from a signed value only, with sign out of all', () => {
-    const value = signValue(
-      { signedOut: 'Globex' },
-      SECRET,
-      Date.now() + 60_000
-    );
-    const html = renderToStaticMarkup(
-      <WorkspaceNotices
-        params={{ signed_out: '1', from: value }}
-        workspaceName="Acme"
-      />
-    );
+  test('signed_out names the workspace from a value signed for this browser only, with sign out of all', async () => {
+    // The logout route binds the value to the session it left active
+    // (Acme, this browser's active cookie).
+    const value = signedOutNoticeValue('Globex', ACME, SECRET);
+    const notices = (from: string) =>
+      render(
+        Promise.resolve(
+          <WorkspaceNotices
+            params={{ signed_out: '1', from }}
+            workspaceName="Acme"
+          />
+        )
+      );
+    const html = await notices(value ?? '');
     expect(html).toContain('Signed out of Globex. Still signed in to Acme.');
     expect(html).toContain('Sign out of all workspaces');
-    const forged = renderToStaticMarkup(
-      <WorkspaceNotices
-        params={{ signed_out: '1', from: 'eyJzaWduZWRPdXQiOiJFdmlsIn0.forged' }}
-        workspaceName="Acme"
-      />
-    );
+    const forged = await notices('eyJzaWduZWRPdXQiOiJFdmlsIn0.forged');
     expect(forged).toContain('Signed out. Still signed in to Acme.');
     expect(forged).not.toContain('Evil');
+    // A value someone minted by signing out in their own browser (an
+    // admitted workspace they renamed), sent as a link to another person:
+    // validly signed, but bound to a session this browser does not have.
+    const minted = signedOutNoticeValue(
+      'Acme. Your Linear access is suspended, email support@evil.example',
+      tok('attacker'),
+      SECRET
+    );
+    const replayed = await notices(minted ?? '');
+    expect(replayed).toContain('Signed out. Still signed in to Acme.');
+    expect(replayed).not.toContain('suspended');
+    // An unbound value (the old shape) names nothing either.
+    const unbound = await notices(
+      signValue({ signedOut: 'Evil' }, SECRET, Date.now() + 60_000)
+    );
+    expect(unbound).not.toContain('Evil');
   });
 
   test('switch errors and a sign-out of nothing; unknown values show nothing', () => {

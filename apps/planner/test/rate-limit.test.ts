@@ -158,17 +158,18 @@ describe('the client IP', () => {
 describe('the rules', () => {
   test('the numbers of the spec, in one place', () => {
     const minutes = (rule: RateRule): number => rule.windowMs / 60_000;
+    // Raised from the spec's 30 so an office behind one NAT can sign in
+    // together (review HARD-5).
     expect([
       RATE_LIMITS.oauthStart.limit,
       minutes(RATE_LIMITS.oauthStart),
-    ]).toEqual([30, 10]);
+    ]).toEqual([120, 10]);
     expect([
       RATE_LIMITS.switchWorkspace.limit,
       minutes(RATE_LIMITS.switchWorkspace),
     ]).toEqual([60, 10]);
-    expect([RATE_LIMITS.signOut.limit, minutes(RATE_LIMITS.signOut)]).toEqual([
-      60, 10,
-    ]);
+    // Sign-out is never limited (review HARD-4).
+    expect('signOut' in RATE_LIMITS).toBe(false);
     expect([RATE_LIMITS.runs.limit, minutes(RATE_LIMITS.runs)]).toEqual([
       6, 10,
     ]);

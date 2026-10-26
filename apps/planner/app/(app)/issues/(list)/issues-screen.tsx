@@ -84,6 +84,10 @@ import {
 } from '../../components/issue-drawer';
 import ReadOnlyNotice from '../../components/read-only-notice';
 import {
+  useShareableLink,
+  useStartHref,
+} from '../../components/workspace-frame';
+import {
   BulkActions,
   issueCell,
   MilestoneMenu,
@@ -240,6 +244,8 @@ export default function IssuesScreen({
   const searchParams = useSearchParams();
   const urlSearch = searchParams.toString();
   const { toast } = useToast();
+  const shareableLink = useShareableLink();
+  const startHref = useStartHref();
   const palette = useOptionalCommandPalette();
   const [busy, startTransition] = useTransition();
 
@@ -505,7 +511,7 @@ export default function IssuesScreen({
         }
         break;
       case 'copy': {
-        const url = `${window.location.origin}${issueListHref(query, { issue: row.key })}`;
+        const url = shareableLink(issueListHref(query, { issue: row.key }));
         void navigator.clipboard.writeText(url).then(
           () =>
             toast({ kind: 'info', label: 'Copied', message: 'Link copied.' }),
@@ -801,7 +807,7 @@ export default function IssuesScreen({
           );
 
   async function copyLink() {
-    const url = window.location.href;
+    const url = shareableLink(window.location.href);
     try {
       await navigator.clipboard.writeText(url);
       toast({ kind: 'info', label: 'Copied', message: 'Link copied.' });
@@ -846,7 +852,7 @@ export default function IssuesScreen({
                 action={
                   notice.action === undefined ? undefined : (
                     // A plain anchor: the OAuth start must never be prefetched.
-                    <Button size="sm" href={notice.action.href}>
+                    <Button size="sm" href={startHref(notice.action.href)}>
                       {notice.action.label}
                     </Button>
                   )

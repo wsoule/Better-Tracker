@@ -36,6 +36,7 @@ import { escapeResetsDraft } from '../../../lib/escape';
 import { formatDate } from '../../../lib/format';
 import type { IssueDrawerParts } from '../components/issue-drawer';
 import ReadOnlyNotice from '../components/read-only-notice';
+import { useShareableLink, useStartHref } from '../components/workspace-frame';
 import css from './page.module.css';
 
 interface MilestoneDrawerProps {
@@ -149,11 +150,12 @@ export default function MilestoneDrawer({
   issueHref,
 }: MilestoneDrawerProps) {
   const { toast } = useToast();
+  const shareableLink = useShareableLink();
   const dateRef = useRef<HTMLInputElement>(null);
 
   const copyLink = useCallback(async () => {
     if (model === null) return;
-    const url = new URL(model.path, window.location.origin).toString();
+    const url = shareableLink(model.path);
     try {
       await navigator.clipboard.writeText(url);
       toast({
@@ -168,7 +170,7 @@ export default function MilestoneDrawer({
         message: `Could not copy the link. It is ${url}`,
       });
     }
-  }, [model, toast]);
+  }, [model, toast, shareableLink]);
 
   const ready = !loading && model !== null;
   if (issue !== undefined && issue !== null) {
@@ -258,6 +260,7 @@ function DrawerBody({
   issueHref?: (key: string) => string;
 }) {
   const { busy, save } = useSave();
+  const startHref = useStartHref();
   const { permissions } = model;
   const milestoneUrl = `/api/milestones/${encodeURIComponent(model.milestoneId)}`;
   const projectUrl = `/api/projects/${encodeURIComponent(model.projectId)}`;
@@ -458,7 +461,10 @@ function DrawerBody({
           Weight and “done means…” are kept in the planner. Due date and lead
           are written to Linear as you, so they need Linear write access:{' '}
           {/* A plain anchor: the OAuth start must never be prefetched. */}
-          <a className={css.editLink} href={permissions.grantWriteHref}>
+          <a
+            className={css.editLink}
+            href={startHref(permissions.grantWriteHref)}
+          >
             Allow edits in Linear
           </a>
           .

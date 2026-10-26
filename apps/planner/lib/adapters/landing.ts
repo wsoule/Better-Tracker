@@ -46,11 +46,15 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
     'Linear granted write access for another workspace than the one you were working in, so the planner did not keep it. Open that workspace at linear.app, then choose Allow edits again.',
   too_many_workspaces:
     'This browser is signed in to 10 workspaces, the most it holds. Sign out of a workspace first, then connect another.',
+  // The page names both workspaces for someone signed in
+  // (workspaceChangedStartMessage); this is what is left without them.
+  workspace_changed:
+    'That tab showed another workspace than the one this browser has open now (it switched in another tab), so Linear was not asked. Switch back to that workspace and try again.',
   linear_unauthorized:
     'Linear refused the planner’s credentials. The person who runs it needs to check its Linear OAuth app.',
-  // Rate limits (lib/rate-limit.ts): the OAuth start, switch and sign-out.
+  // Rate limits (lib/rate-limit.ts): the OAuth start and the switch.
   auth_rate_limited:
-    'Too many sign-in, switch or sign-out requests came from this network in the last few minutes. Wait a few minutes, then try again.',
+    'Too many sign-in or workspace switch requests came from this network in the last few minutes. Wait a few minutes, then try again.',
   internal: 'Something went wrong on the server. It was logged; try again.',
 };
 

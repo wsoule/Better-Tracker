@@ -48,6 +48,33 @@ describe('sanitizeReturnTo', () => {
     }
   });
 
+  test('refuses dot segments that normalise to a protocol-relative path', () => {
+    // The origin of "/.//evil.example" against the planner stays the
+    // planner's, but its normalised path is "//evil.example": Next's
+    // client router hard-navigates to that path for a page-level
+    // redirect(), and the browser reads it as another host.
+    for (const value of [
+      '/.//evil.example',
+      '/..//evil.example',
+      '/%2e//evil.example',
+      '/%2E%2E//evil.example',
+      '/a/..//evil.example',
+      '/./\\evil.example',
+      '/.//evil.example/login?x=1#y',
+    ]) {
+      expect(sanitizeReturnTo(value)).toBe('/week');
+      expect(sanitizeReturnTo(value, '/settings')).toBe('/settings');
+    }
+  });
+
+  test('returns the normalised path, never the raw value', () => {
+    // What the caller redirects to is exactly what was checked.
+    expect(sanitizeReturnTo('/./timeline')).toBe('/timeline');
+    expect(sanitizeReturnTo('/a/../issues?x=1#y')).toBe('/issues?x=1#y');
+    expect(sanitizeReturnTo('/%2e/week')).toBe('/week');
+    expect(sanitizeReturnTo('/x//y')).toBe('/x//y');
+  });
+
   test('percent-encodes non-ASCII text so the redirect header stays valid', () => {
     expect(sanitizeReturnTo('/timeline?q=週')).toBe('/timeline?q=%E9%80%B1');
     expect(sanitizeReturnTo('/a?q=café#\u{1F600}')).toBe(

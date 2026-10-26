@@ -418,6 +418,45 @@ describe('the workspace switcher on the collapsed rail', () => {
     ).toBe('true');
   });
 
+  test("the rail's rules hide the line under the tile, never the menu foot's repeat", async () => {
+    collapse();
+    const pending = deferred();
+    render(
+      <ToastProvider>
+        <AppShell {...props(switcher({ onSwitch: () => pending.promise }))} />
+      </ToastProvider>
+    );
+    fireEvent.click(trigger());
+    fireEvent.click(screen.getByRole('option', { name: /globex/ }));
+    await act(async () => {
+      pending.reject(new Error('Your session for Globex ended.'));
+      await pending.promise.catch(() => undefined);
+    });
+    // Closed: the line under the tile is a direct child of the picker's
+    // root, the element the switcher's class (and the rail's rules) sit
+    // on.
+    const [line] = document.querySelectorAll('[data-edit-error]');
+    expect(line?.parentElement?.hasAttribute('data-picker')).toBe(true);
+    // Reopened: the foot repeats it inside the menu, deeper than a child,
+    // so the child-combinator rules below never clip or hide it.
+    fireEvent.click(trigger());
+    const popup = document.querySelector('[data-picker-popup]');
+    const foot = popup?.querySelector('[data-edit-error]');
+    expect(foot?.textContent).toContain('Your session for Globex ended.');
+    expect(foot?.parentElement?.hasAttribute('data-picker')).toBe(false);
+    const css = readFileSync(
+      path.join(import.meta.dir, '../src/shell/app-shell.module.css'),
+      'utf8'
+    );
+    const selectors = [
+      ...css.matchAll(/([^{};/]*\[data-edit-error\][^{]*)\{/g),
+    ].map((m) => (m[1] ?? '').replace(/\s+/g, ' ').trim());
+    expect(selectors.length).toBeGreaterThanOrEqual(3);
+    for (const selector of selectors) {
+      expect(selector).toMatch(/\.switcher(Toasted)? > \[data-edit-error\]$/);
+    }
+  });
+
   test('expanded, a refused switch does not toast', async () => {
     const pending = deferred();
     render(
@@ -516,7 +555,7 @@ describe('the switcher stylesheets', () => {
   test('the row keeps the collapse button beside it; "Switching" is the workspace line', () => {
     expect(shellCss).toMatch(/\.brand > \.switcher \{\s*display: contents;/);
     expect(shellCss).toMatch(
-      /\.switcher \[data-edit-error\] \{\s*order: 1;\s*flex: 1 0 100%;/
+      /\.switcher > \[data-edit-error\] \{\s*order: 1;\s*flex: 1 0 100%;/
     );
     expect(shellCss).toMatch(
       /\.switcher \[data-edit-pending\] \{\s*display: none;/
@@ -529,6 +568,25 @@ describe('the switcher stylesheets', () => {
   test('forced colours outline the row while its menu is open', () => {
     expect(pickerCss).toMatch(
       /@media \(forced-colors: active\) \{\s*\.brand\[aria-expanded='true'\] \{\s*outline: 1px solid CanvasText;/
+    );
+  });
+
+  test('forced colours keep the initials tiles square, the current one filled', () => {
+    // Forced colours drop background and box-shadow, the only things that
+    // drew the tiles: an edge keeps each square, and the current
+    // workspace's stays filled so it differs from the others.
+    const forced = [
+      ...shellCss.matchAll(
+        /@media \(forced-colors: active\) \{([\s\S]*?)\n\}/g
+      ),
+    ]
+      .map((m) => m[1] ?? '')
+      .join('\n');
+    expect(forced).toMatch(
+      /\.logo,\s*\.workspaceTile \{\s*border: 1px solid CanvasText;/
+    );
+    expect(forced).toMatch(
+      /\.workspaceTileCurrent \{\s*forced-color-adjust: none;\s*background: CanvasText;\s*color: Canvas;/
     );
   });
 

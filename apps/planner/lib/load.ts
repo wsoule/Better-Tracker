@@ -13,6 +13,7 @@ import {
   getRequestContext,
   type RequestContext,
 } from './session';
+import { setupLocation } from './workspace-copy';
 
 // Data loading for server components (pages and the (app) layout).
 //
@@ -144,7 +145,10 @@ export interface InstalledContext {
 
 /**
  * For every page that reads the workspace: signed out → "/", no working
- * installation (never installed, or Linear rejected the grant) → /setup.
+ * installation (never installed, or Linear rejected the grant) → /setup,
+ * carrying the workspace notices of `returnTo` (setupLocation: a sign-out,
+ * connect or switch that leaves a workspace without one active still says
+ * what happened).
  */
 export async function requireInstalledActor(
   returnTo?: string
@@ -153,7 +157,7 @@ export async function requireInstalledActor(
   const workspaceId = actor.session.workspaceId;
   const installation = await loadInstallation(engine, workspaceId);
   if (installation === null || installation.revokedAt !== null) {
-    redirect('/setup');
+    redirect(setupLocation(returnTo));
   }
   return { engine, actor, workspaceId, installation };
 }

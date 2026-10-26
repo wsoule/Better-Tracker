@@ -21,18 +21,19 @@ import {
   loadInstallation,
   requirePageActor,
 } from '../../../lib/load';
+import { installHref } from '../../../lib/oauth-links';
 import { FIRST_SYNC_RETRY_SENTENCE } from '../../../lib/read-only';
+import { UNNAMED_WORKSPACE } from '../../../lib/workspace-copy';
 import { PageCrumb } from '../components/page-crumb';
 import PolicyLinks from '../components/policy-links';
 import ReadOnlyNotice from '../components/read-only-notice';
 import Receipts from '../components/receipts';
 import SignOutAllForm from '../components/sign-out-all-form';
 import WorkspaceGuard from '../components/workspace-guard';
+import WorkspaceNotices from '../components/workspace-notices';
 import styles from './page.module.css';
 
 export const metadata = { title: 'Setup' };
-
-const INSTALL_HREF = '/api/auth/linear?intent=install';
 
 /** The installer's name and the workspace timezone, when the mirror has them. */
 async function installContext(
@@ -71,9 +72,21 @@ async function installContext(
    all workspaces". Every state shows the workspace's Linear id (what
    LINEAR_WORKSPACES names to admit it) and ends with the privacy · terms
    · contact links; a first sync that keeps failing points at the person
-   who runs the planner (their logs say why) through /contact. */
-export default async function SetupPage() {
-  const { engine, actor } = await requirePageActor('/setup');
+   who runs the planner (their logs say why) through /contact. A page that
+   sends a workspace without a working installation here keeps /week's
+   workspace notices in the query (requireInstalledActor), and the
+   not-installed and revoked states show them under the head: a sign-out,
+   connect or switch that left such a workspace active still says what
+   happened, with "Sign out of all workspaces" beside a sign-out. */
+export default async function SetupPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const [{ engine, actor }, params] = await Promise.all([
+    requirePageActor('/setup'),
+    searchParams,
+  ]);
   const workspaceId = actor.session.workspaceId;
   const [installation, held] = await Promise.all([
     loadInstallation(engine, workspaceId),
@@ -212,7 +225,7 @@ export default async function SetupPage() {
                     Open the timeline
                   </Button>
                   {demo || readOnly ? null : (
-                    <Button href={INSTALL_HREF}>
+                    <Button href={installHref(workspaceId)}>
                       Reinstall to change teams
                     </Button>
                   )}
@@ -255,6 +268,12 @@ export default async function SetupPage() {
             : `${workspaceName ?? 'Your Linear workspace'} · not installed yet`}
         </p>
       </header>
+      {oauth ? (
+        <WorkspaceNotices
+          params={params}
+          workspaceName={workspaceName ?? UNNAMED_WORKSPACE}
+        />
+      ) : null}
       {revoked && installation.revokedAt !== null ? (
         <div className="block">
           <div className={styles.column}>
@@ -285,7 +304,7 @@ export default async function SetupPage() {
             <ReadOnlyNotice />
           ) : (
             <div className={styles.installRow}>
-              <Button href={INSTALL_HREF} variant="primary">
+              <Button href={installHref(workspaceId)} variant="primary">
                 {revoked ? 'Reinstall in Linear' : 'Install in Linear'}
               </Button>
               <p className={styles.note}>

@@ -70,6 +70,14 @@
   color: var(--text-2);
 }
 
+/* A note straight in the column (the workspace id line of the
+   not-installed and revoked states): the flex basis above is a width in
+   the rows it was written for, but in the column it would be a 260px
+   height, leaving a blank band under one line of text. */
+.column > .note {
+  flex: none;
+}
+
 .installRow {
   display: flex;
   flex-wrap: wrap;

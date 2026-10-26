@@ -7,9 +7,11 @@ import {
   redirectWithCookies,
   sanitizeReturnTo,
   sessionSecret,
+  workspaceChangedLocation,
 } from '../../../../lib/auth-cookies';
 import { authErrorCode, logConfigError } from '../../../../lib/auth-flow';
 import { heldCount, readHeldSessions } from '../../../../lib/held-sessions';
+import { START_WORKSPACE_PARAM } from '../../../../lib/oauth-links';
 import {
   limitByIp,
   RATE_LIMITS,
@@ -39,7 +41,11 @@ import { signValue } from '../../../../lib/signed-cookie';
  * already; both act for the active session's workspace, whose id is
  * signed into the state (owner decision 2026-10-25: a browser holds
  * several workspaces, and a switch in another tab during Linear's consent
- * screen must not change which one they act for). Neither is offered to a
+ * screen must not change which one they act for). Their links name the
+ * workspace the tab shows (`workspace=<org id>`, lib/oauth-links.ts):
+ * when this browser has switched to another one since (in a second tab),
+ * the start is refused with workspace_changed before anything else, so a
+ * stale tab never starts them for a workspace it does not show. Neither is offered to a
  * read-only person (a Linear guest: owner decision 2026-10-22), who lands
  * on "/?auth_error=read_only" instead; the engine refuses both for a guest
  * again when they finish. The one exception is an install while the
@@ -47,7 +53,7 @@ import { signValue } from '../../../../lib/signed-cookie';
  * add_workspace (connect another workspace) is a sign-in that asks Linear
  * for its consent screen again; it works signed in or out, and is refused
  * with too_many_workspaces while the browser holds 10. Demo mode and
- * personal API keys have no OAuth and go home. More than 30 starts in 10
+ * personal API keys have no OAuth and go home. More than 120 starts in 10
  * minutes from one client IP land on /?auth_error=auth_rate_limited.
  */
 export async function GET(request: Request): Promise<Response> {
@@ -56,7 +62,7 @@ export async function GET(request: Request): Promise<Response> {
   // Demo mode has no OAuth; with personal API keys OAuth is off too.
   if (scheme.mode !== 'oauth') return redirectWithCookies('/');
   const housekeeping = legacyCookieClears(scheme);
-  // 30 starts per 10 minutes per client IP (lib/rate-limit.ts); the
+  // 120 starts per 10 minutes per client IP (lib/rate-limit.ts); the
   // callback is never limited, since a refusal there would burn Linear's
   // single-use code.
   const limited = limitByIp(request, RATE_LIMITS.oauthStart);
@@ -76,6 +82,16 @@ export async function GET(request: Request): Promise<Response> {
       activeSessionToken(request, scheme)
     );
     if (actor === null) return refuse('sign_in_first');
+    const tabWorkspace = params.get(START_WORKSPACE_PARAM);
+    if (tabWorkspace !== null && tabWorkspace !== actor.session.workspaceId) {
+      return redirectWithCookies(
+        workspaceChangedLocation(
+          tabWorkspace,
+          sanitizeReturnTo(params.get('returnTo'), DEFAULT_RETURN_TO)
+        ),
+        housekeeping
+      );
+    }
     // The engine's own guards, so this refuses exactly what finishing
     // would: an install also stays open while the first sync has not
     // landed (requireCanInstall), since that is how an admin fixes a

@@ -7,8 +7,9 @@ import { RATE_LIMITS, resetProcessRateLimiters } from '../lib/rate-limit';
 // The webhook route rejects before it ever needs the engine: these cases
 // run the exported handler with plain Requests and a test secret. The
 // 2026-10-25 hardening: an unset secret or a missing signature is refused
-// before the body is read, the body is capped at 1 MiB, and refused
-// deliveries (never signed ones) count per client IP.
+// before the route reads the body (Next has received the upload by then,
+// buffering at most 2 MB for proxy.ts), the body is capped at 1 MiB, and
+// refused deliveries (never signed ones) count per client IP.
 
 const SECRET = 'whsec-test-0123456789';
 const URL = 'http://localhost/api/webhooks/linear';

@@ -156,8 +156,10 @@
 }
 
 /* A failed switch's line ("Not switched …"): its own line under the
-   row, starting under the tile. */
-.switcher [data-edit-error] {
+   row, starting under the tile. Only the trigger's own line, a direct
+   child of the picker's root: the open menu is a descendant too, and its
+   foot repeats the line, which stays where it is. */
+.switcher > [data-edit-error] {
   order: 1;
   flex: 1 0 100%;
   padding: 0 6px 2px;
@@ -354,6 +356,21 @@
   .countAccent,
   .countToned {
     border: 1px solid CanvasText;
+  }
+
+  /* The initials tiles (the brand row's and the menu's) lose their fill
+     and inset ring too: give each an edge, so the square stays, and the
+     current workspace's a filled one, so it stays apart from the others
+     (border-box keeps both at their size). */
+  .logo,
+  .workspaceTile {
+    border: 1px solid CanvasText;
+  }
+
+  .workspaceTileCurrent {
+    forced-color-adjust: none;
+    background: CanvasText;
+    color: Canvas;
   }
 }
 
@@ -788,11 +805,11 @@
 
   :global(html[data-shell-collapsed='true'])
     .switcherToasted
-    [data-edit-error] {
+    > [data-edit-error] {
     display: none;
   }
 
-  :global(html[data-shell-collapsed='true']) .switcher [data-edit-error] {
+  :global(html[data-shell-collapsed='true']) .switcher > [data-edit-error] {
     position: absolute;
     width: 1px;
     height: 1px;
