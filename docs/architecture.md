@@ -3115,9 +3115,13 @@ referrer policy and a Permissions-Policy.
   `workspace_changed`** when the header is present and is not the active
   session's workspace ("This tab shows <A>, but this browser switched to <B> in
   another tab. Reload to continue in <B>, or switch back to <A>.", names from
-  the engine, never the header; the "Not saved" toast offers Reload). Without
-  the header a request is let through (the engine scopes every read and write to
-  the session's workspace anyway). Layouts do not re-render on client navigation
+  the engine, never the header; the "Not saved" toast offers Reload). No view
+  calls `router.refresh()` on that answer (`issueWriteOutcome`, the Issues
+  page's moves): a refresh re-renders the layout too, so the tab would turn into
+  <B> without a reload, showing <B>'s page at the same address (Globex's ENG-1
+  where Acme's was), and the next edit would land there. Without the header a
+  request is let through (the engine scopes every read and write to the
+  session's workspace anyway). Layouts do not re-render on client navigation
   (Next 16 `layout.md`), and an `(app)/template.tsx` would not cover it either
   (Next 16 `template.md`: a template does not remount for a search-param change
   or a navigation within a deeper segment), so **every `(app)` page renders
@@ -6388,6 +6392,10 @@ not read; a deploy that still sets it boots normally and logs one warning
     origin, with the error-level boot line, while the same boot without it calls
     only `https://api.linear.app` and links to
     `https://linear.app/oauth/authorize`.
+  - planner `test/issue-writes.test.ts`: a 409 `workspace_changed` fails every
+    issue write without a refresh (a refresh in a stale tab would render the
+    other workspace's page and shell at the same address), and the issue page
+    and the issue list's moves toast it with Reload (`notSavedToast`).
 - image: CI's `image` job builds `deploy/Dockerfile` and starts both services
   from it in demo mode (the web app must answer `/api/health`, the worker's
   `tick` must exit 0).
