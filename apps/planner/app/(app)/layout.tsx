@@ -34,9 +34,9 @@ export const metadata: Metadata = {
    palette, phone tabs). Signed out: the Analytics bar alone, around the
    landing page or an error. The two inline scripts apply the saved theme
    and the collapsed rail before first paint; they carry the request's
-   CSP nonce (`x-nonce`, set by proxy.ts in api_key mode, absent
-   otherwise). Pages decide on /setup redirects themselves (lib/load.ts);
-   the frame only renders. */
+   CSP nonce (`x-nonce`, set by proxy.ts on every page in every mode).
+   Pages decide on /setup redirects themselves (lib/load.ts); the frame
+   only renders. */
 export default async function AppLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {

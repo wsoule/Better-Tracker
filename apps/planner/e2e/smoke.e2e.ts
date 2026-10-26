@@ -1,5 +1,7 @@
 import { expect, type Page, test } from '@playwright/test';
 
+import { expectScriptsNonced } from './csp-nonce';
+
 // Browser smoke test of the planner in demo mode (architecture §11): every
 // screen renders, dragging a milestone's due date re-dates it, an issue
 // takes an edit, Ctrl K opens the palette, the slide-over's keyboard
@@ -11,8 +13,10 @@ import { expect, type Page, test } from '@playwright/test';
 // 2026-10-22, graph highlights), and the demo's Linear guest gets a
 // read-only planner
 // (owner decision 2026-10-22, "Guests limited to read only") whose graphs
-// fall back to the projects he can see. Demo data is fictional and lives
-// only in this server.
+// fall back to the projects he can see. Every screen it opens carries the
+// nonce Content-Security-Policy on each of its scripts (owner decision
+// 2026-10-25: proxy.ts nonces every page in every mode; e2e/csp-nonce.ts).
+// Demo data is fictional and lives only in this server.
 
 /** Signs in through the demo picker on "/" (Chloe Diaz unless told). */
 async function signIn(page: Page, userId = 'user-chloe'): Promise<void> {
@@ -52,8 +56,10 @@ test('every screen renders', async ({ page }) => {
     '/settings',
     '/issues',
     '/issues/ENG-24',
+    '/setup',
   ]) {
-    await page.goto(path);
+    const response = await page.goto(path);
+    await expectScriptsNonced(response, path);
     await expect(page.locator('h1').first(), path).toBeVisible();
     await expect(page.getByText('Something went wrong'), path).toHaveCount(0);
   }

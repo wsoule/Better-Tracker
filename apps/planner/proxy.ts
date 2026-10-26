@@ -2,45 +2,57 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
 
 import { KEY_TEXT_REFUSAL, urlWithoutKeys } from './lib/key-text';
-import { contentSecurityPolicy, isApiKeyAuthEnv } from './lib/security-headers';
+import {
+  authModeFromEnv,
+  contentSecurityPolicy,
+  OAUTH_FORM_ACTION,
+  SELF_FORM_ACTION,
+} from './lib/security-headers';
 
-/* The planner's Proxy (Next 16; Node runtime by default). In OAuth and
-   demo mode it does one thing (owner decision 2026-10-25, a browser holds
-   several workspaces): a page request whose query carries `ws` (the org
-   id a digest link names, architecture §7) gets a 307 to
-   /open?ws=<it>&to=<the same path and query without ws>, the interstitial
-   that opens the page in that workspace, offers the switch or says the
-   browser is not signed in to it (§8.4 "Open"); /open itself, API routes,
-   static assets and prefetches pass through. Everything else happens only
-   with personal API keys (LINEAR_AUTH=api_key, read at request time, so
-   one build serves every mode):
-   - a request whose URL holds a Linear credential (a key pasted into the
-     address bar or a link) never reaches what would answer it: Next
-     echoes the request URL in the RSC payload of every page it renders
-     (a typo path, a prefetch and a missing static file render a page
-     too), so the page would send the key back. A page or asset gets a
-     303 to the same URL without it, an API route a 400; neither is
-     cached (lib/key-text.ts urlWithoutKeys);
-   - every page gets a fresh nonce and a nonce Content-Security-Policy
-     (lib/security-headers.ts), on the forwarded request (Next reads the
-     nonce there and puts it on its own scripts; the layouts read
-     `x-nonce` for theirs) and on the response. API routes, static
-     assets and prefetches keep the static policy, as Next's CSP guide
-     recommends.
-   OAuth and demo responses otherwise pass through untouched. */
+/* The planner's Proxy (Next 16; Node runtime by default). The mode is
+   read at request time (lib/security-headers.ts authModeFromEnv, without
+   the engine), so one build serves every mode. In order:
+   - api_key mode only (LINEAR_AUTH=api_key): a request whose URL holds a
+     Linear credential (a key pasted into the address bar or a link) never
+     reaches what would answer it: Next echoes the request URL in the RSC
+     payload of every page it renders (a typo path, a prefetch and a
+     missing static file render a page too), so the page would send the
+     key back. A page or asset gets a 303 to the same URL without it, an
+     API route a 400; neither is cached (lib/key-text.ts urlWithoutKeys);
+   - OAuth and demo mode only (owner decision 2026-10-25, a browser holds
+     several workspaces): a page request whose query carries `ws` (the org
+     id a digest link names, architecture §7) gets a 307 to
+     /open?ws=<it>&to=<the same path and query without ws>, the
+     interstitial that opens the page in that workspace, offers the switch
+     or says the browser is not signed in to it (§8.4 "Open"); /open
+     itself, API routes, static assets and prefetches pass through;
+   - every mode: every page gets a fresh nonce and the nonce
+     Content-Security-Policy (lib/security-headers.ts; api_key mode since
+     2026-10-23, OAuth and demo mode since 2026-10-25), on the forwarded
+     request (Next reads the nonce there and puts it on its own scripts;
+     the layouts read `x-nonce` for theirs) and on the response. Forms may
+     also post to https://linear.app in OAuth mode, as the static policy
+     allows. API routes, static assets and prefetches keep the static
+     policy alone, as Next's CSP guide recommends. Every page is rendered
+     per request (the layouts read cookies or await connection()), which
+     a nonce needs. */
 export function proxy(request: NextRequest): NextResponse {
-  if (!isApiKeyAuthEnv(process.env)) {
-    return workspaceLinkRedirect(request) ?? NextResponse.next();
+  const mode = authModeFromEnv(process.env);
+  if (mode === 'api_key') {
+    const { pathname, search } = request.nextUrl;
+    const clean = urlWithoutKeys(pathname, search);
+    if (clean !== null) return refuseKeyInUrl(pathname, clean, request.url);
+  } else {
+    const redirect = workspaceLinkRedirect(request);
+    if (redirect !== null) return redirect;
   }
-  const { pathname, search } = request.nextUrl;
-  const clean = urlWithoutKeys(pathname, search);
-  if (clean !== null) return refuseKeyInUrl(pathname, clean, request.url);
   if (!isPageRequest(request)) return NextResponse.next();
   const nonce = randomBytes(16).toString('base64');
   const csp = contentSecurityPolicy({
     nonce,
     development: process.env.NODE_ENV === 'development',
     https: (process.env.APP_URL ?? '').trim().startsWith('https://'),
+    formAction: mode === 'oauth' ? OAUTH_FORM_ACTION : SELF_FORM_ACTION,
   });
   const headers = new Headers(request.headers);
   headers.set('x-nonce', nonce);

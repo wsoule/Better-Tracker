@@ -26,7 +26,7 @@ export default async function GalleryLayout({
   if (process.env.NODE_ENV === 'production' && !isFixtureEnv(process.env)) {
     notFound();
   }
-  // The request's CSP nonce (proxy.ts, api_key mode only).
+  // The request's CSP nonce (proxy.ts, every page in every mode).
   const nonce = (await headers()).get('x-nonce') ?? undefined;
   return (
     <html

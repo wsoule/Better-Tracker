@@ -1,7 +1,7 @@
 // proxy.ts: in api_key mode, no key in any URL Next would render or
-// answer, and a fresh nonce CSP on every page; in the other modes only the
-// redirect of a page link naming a workspace (`ws`) to /open (architecture
-// §8.1 "No key in a URL", "Nonce CSP", §8.4 "Open").
+// answer; in the other modes the redirect of a page link naming a
+// workspace (`ws`) to /open; in every mode a fresh nonce CSP on every page
+// (architecture §8.1 "No key in a URL", "Nonce CSP", §8.4 "Open").
 
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { NextRequest } from 'next/server';
@@ -47,15 +47,40 @@ describe('proxy', () => {
     expect(forwarded ?? '').not.toBe('');
   });
 
-  test('OAuth and demo mode: no CSP is set', () => {
-    for (const env of [{}, { LINEAR_AUTH: 'oauth' }, { LINEAR_FIXTURE: '1' }]) {
+  test('OAuth and demo mode: every page gets its own nonce CSP too (2026-10-25)', () => {
+    const nonce = (csp: string): string =>
+      /'nonce-([^']+)'/.exec(csp)?.[1] ?? '';
+    const cases: [Record<string, string>, string][] = [
+      [{}, "form-action 'self' https://linear.app"],
+      [{ LINEAR_AUTH: 'oauth' }, "form-action 'self' https://linear.app"],
+      [{ LINEAR_FIXTURE: '1' }, "form-action 'self';"],
+      [{ LINEAR_FIXTURE: 'showcase' }, "form-action 'self';"],
+    ];
+    for (const [env, formAction] of cases) {
       delete process.env.LINEAR_AUTH;
       delete process.env.LINEAR_FIXTURE;
       Object.assign(process.env, env);
-      const response = proxy(page());
-      expect(response.headers.get('content-security-policy')).toBeNull();
-      expect(response.headers.get('x-middleware-request-x-nonce')).toBeNull();
+      const first = proxy(page());
+      const second = proxy(page());
+      const csp = first.headers.get('content-security-policy') ?? '';
+      expect(nonce(csp)).not.toBe('');
+      expect(nonce(csp)).not.toBe(
+        nonce(second.headers.get('content-security-policy') ?? '')
+      );
+      expect(csp).toContain("'strict-dynamic'");
+      expect(csp).toContain(formAction);
+      // The forwarded request carries the same nonce for Next and the
+      // layouts.
+      expect(first.headers.get('x-middleware-request-x-nonce')).toBe(
+        nonce(csp)
+      );
     }
+    // upgrade-insecure-requests only on an https APP_URL.
+    delete process.env.LINEAR_FIXTURE;
+    process.env.APP_URL = 'https://planner.example.com';
+    expect(proxy(page()).headers.get('content-security-policy')).toContain(
+      'upgrade-insecure-requests'
+    );
   });
 
   test('api_key mode: a page URL holding a key is sent, before rendering, to the page without it', () => {
@@ -183,23 +208,32 @@ describe('proxy', () => {
     expect(csp('/issues', { purpose: 'prefetch' })).toBeNull();
   });
 
-  test('OAuth and demo mode: every URL passes through untouched', () => {
+  test('OAuth and demo mode: no URL is rewritten, and only pages get the nonce CSP', () => {
     const key = 'lin_api_TESTKEY_proxyurl_k4Rm8Wq2Zt6Yb1Nc';
     for (const env of [{}, { LINEAR_AUTH: 'oauth' }, { LINEAR_FIXTURE: '1' }]) {
       delete process.env.LINEAR_AUTH;
       delete process.env.LINEAR_FIXTURE;
       Object.assign(process.env, env);
-      for (const url of [
-        `/apiary?q=${key}`,
-        `/_next/static/${key}`,
-        `/api/issues/options?q=${key}`,
-        '/_next/static/chunks/a.js',
-      ]) {
+      for (const [url, isPage] of [
+        [`/apiary?q=${key}`, true],
+        [`/_next/static/${key}`, false],
+        [`/api/issues/options?q=${key}`, false],
+        ['/_next/static/chunks/a.js', false],
+        ['/icon.svg', false],
+      ] as const) {
         const response = proxy(new NextRequest(`http://localhost:3360${url}`));
         expect(response.status).toBe(200);
         expect(response.headers.get('location')).toBeNull();
-        expect(response.headers.get('content-security-policy')).toBeNull();
+        expect(response.headers.get('content-security-policy') !== null).toBe(
+          isPage
+        );
       }
+      const prefetch = proxy(
+        new NextRequest('http://localhost:3360/week', {
+          headers: { 'next-router-prefetch': '1' },
+        })
+      );
+      expect(prefetch.headers.get('content-security-policy')).toBeNull();
     }
   });
 

@@ -28,9 +28,10 @@ const nextConfig: NextConfig = {
   // Location would echo a key held in the URL. /tasks → /issues is the
   // route handler app/tasks/route.ts (architecture §8.1).
   // Security headers on every response (CSP, HSTS, framing, referrer;
-  // lib/security-headers.ts). In api_key mode proxy.ts adds a stricter
-  // nonce CSP to every page at request time; browsers enforce both, so
-  // the stricter one binds.
+  // lib/security-headers.ts). On pages, in every mode, proxy.ts sets a
+  // stricter nonce CSP at request time, which Next sends in place of this
+  // one (the response header the Proxy set wins over the same name here);
+  // API routes, static assets and prefetches keep this policy.
   headers() {
     return Promise.resolve([
       {

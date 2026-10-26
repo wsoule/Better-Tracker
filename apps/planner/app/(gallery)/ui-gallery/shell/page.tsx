@@ -17,7 +17,7 @@ export const metadata = { title: 'UI gallery · shell' };
 
    The inline script applies a remembered collapsed rail before first paint,
    as a host layout would next to themeScript(), with the request's CSP
-   nonce (proxy.ts, api_key mode only). */
+   nonce (proxy.ts, every page in every mode). */
 export default async function ShellGalleryPage({
   searchParams,
 }: {
