@@ -78,6 +78,8 @@ describe('fetchWorkspace', () => {
     const data = await gateway.fetchWorkspace();
 
     expect(data.workspaceId).toBe('org-1');
+    // The name and URL key Linear reports now (the installation follows).
+    expect(data.organization).toEqual({ name: 'Acme', urlKey: 'acme' });
     expect(data.users.map((u) => u.id)).toEqual(['u1', 'u2', 'u3', 'u4']);
     expect(data.issues.map((i) => i.id)).toEqual(['1', '2']);
 

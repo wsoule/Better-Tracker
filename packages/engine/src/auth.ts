@@ -56,7 +56,7 @@ import {
 } from './admission';
 import { needsRefresh } from './providers';
 import type { EngineRuntime, MirrorView } from './runtime';
-import { firstSync } from './sync';
+import { firstSync, refreshInstallationIdentity } from './sync';
 import { authorizeUrlViaTestEndpoint } from './test-endpoint';
 import {
   type Actor,
@@ -463,6 +463,8 @@ export async function finishSignIn(
       );
     }
   }
+  // An installed workspace's row follows a rename (no write otherwise).
+  await refreshInstallationIdentity(rt, workspace.id, workspace, log);
   const expiresAt = new Date(
     rt.clock().getTime() + rt.config.sessionDays * DAY_MS
   ).toISOString();
@@ -610,8 +612,9 @@ export async function devSignIn(
 }
 
 // The URL key admission matches a session's workspace with when a URL key
-// block or an unpinned LINEAR_WORKSPACES URL key needs it: the session's
-// sign-in value, else the installation's (one query, no decryption).
+// block or an unpinned LINEAR_WORKSPACES URL key needs it: the
+// installation's (refreshed by every full sync and sign-in), else the
+// session's sign-in value (one query, no decryption).
 async function sessionUrlKey(
   rt: EngineRuntime,
   sessionToken: string

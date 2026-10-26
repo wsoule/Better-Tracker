@@ -1163,7 +1163,11 @@ The allocation comment (§7.4) is exactly:
 - `fetchWorkspace` pages every connection (page size within Linear's limit),
   keeps nested connections shallow (ids only) to stay under complexity limits,
   and maps nodes with `map.ts` into core types. `lastStateChangeAt`
-  approximation = latest of createdAt/startedAt/completedAt/canceledAt.
+  approximation = latest of createdAt/startedAt/completedAt/canceledAt. It also
+  returns the organization's current name and URL key
+  (`WorkspaceData.organization`, from the `Identity` query it already makes;
+  optional in the type, not part of the mirror, absent on fixtures), which the
+  sync writes to the installation (§7 "Admission").
 - `fetchLastStateChanges(ids)` batches issue `history` lookups with aliases and
   returns the newest entry whose `toStateId` is set.
 - `IssueFields`, the fragment of every issue the mirror reads (the sync, a
@@ -1689,6 +1693,11 @@ shared PGlite/Postgres suite):
   and URL key are the installation's, else the newest session's. Ordered by last
   full sync attempt, never attempted first. It decrypts nothing, so a row
   encrypted with another key is listed like any other.
+- `updateInstallationIdentity(ws, { workspaceName, urlKey })` → whether it
+  changed: one `UPDATE` of the installation's name and URL key to what Linear
+  reports now (a full sync, a sign-in); `updated_at`, the tokens and the revoke
+  state are left alone (`updated_at` keeps dating the grant's last write for the
+  stale-revoke guard). False without a row or when nothing differs.
 - `revokeInstallation(ws, reason, now, { ifUpdatedBefore? })` → whether it
   changed: one `UPDATE` sets `revoked_at`/`revoked_reason` and wipes the
   credentials. No row, `updated_at` later than `ifUpdatedBefore` (a stale
@@ -1709,10 +1718,11 @@ shared PGlite/Postgres suite):
   order: **one statement**, sessions by `token_hash = ANY(…)` (the hashes as one
   JSON parameter) left-joined with `installations` and the person's
   `mirror_entities` user row. Per token: workspace id, name and URL key (the
-  session's, else the installation's), user id and name, expiry, `guest` (the
-  mirror's `User.guest`, false when the row lacks the field, null without a
-  row), `installed`, `revokedAt`, `revokedReason`; null when expired or unknown.
-  No token column is read.
+  installation's, kept current by every sync and sign-in, else the session's
+  sign-in values), user id and name, expiry, `guest` (the mirror's `User.guest`,
+  false when the row lacks the field, null without a row), `installed`,
+  `revokedAt`, `revokedReason`; null when expired or unknown. No token column is
+  read.
 - `purgeWorkspace(ws, { revokedBefore, allowGrantDead? })` → `PurgeResult`: one
   transaction that first takes `SELECT … FOR UPDATE` on the installation (a
   reinstall in flight commits first and is then seen), then refuses
@@ -1926,16 +1936,19 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   settings with no watchers): `WATCHER_EMAILS` matches, else the installer
   (`bootstrapWatchers`; app users and guests never, only active members match,
   and how many emails matched nobody is logged at warn, never the addresses; in
-  OAuth mode the emails apply only where "Fail-safes" below allows) →
-  `replaceMirror`. Later syncs never touch saved settings, so an emptied watcher
-  list stays empty. Single-flight per workspace within a process: a caller that
-  finds a sync running for its workspace (the web resync, the worker, `load`'s
-  first sync, a webhook's) shares its result or its error instead of paging
-  Linear again with the app's token, whose hourly quota allocation and webhooks
-  share. The wait is bounded: past `SYNC_JOIN_WAIT_MS` (2 minutes) from the
-  running sync's start on the engine clock, a caller runs its own (logged at
-  warn), which later callers then join, so a hung sync never holds the daily job
-  or a takeover. The web route adds a per-workspace cooldown (§8.1).
+  OAuth mode the emails apply only where "Fail-safes" below allows, matched with
+  the URL key Linear reports now) → `replaceMirror`. In OAuth mode it also
+  writes the workspace's current name and URL key to the installation
+  (`WorkspaceData.organization`, "Admission" below) when they changed. Later
+  syncs never touch saved settings, so an emptied watcher list stays empty.
+  Single-flight per workspace within a process: a caller that finds a sync
+  running for its workspace (the web resync, the worker, `load`'s first sync, a
+  webhook's) shares its result or its error instead of paging Linear again with
+  the app's token, whose hourly quota allocation and webhooks share. The wait is
+  bounded: past `SYNC_JOIN_WAIT_MS` (2 minutes) from the running sync's start on
+  the engine clock, a caller runs its own (logged at warn), which later callers
+  then join, so a hung sync never holds the daily job or a takeover. The web
+  route adds a per-workspace cooldown (§8.1).
 - **handleWebhook**: first, before anything is written (owner decision
   2026-10-25, §2.6 of the multi-workspace spec: after the route's signature and
   timestamp checks, before dedupe), a delivery for an organization with no
@@ -2099,9 +2112,14 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   read (any age, logged at warn). The URL key comes from the identity at
   sign-in, the installation in webhooks and the worker, and for a session
   (looked up only when a URL-key block or an unpinned URL-key entry needs it)
-  `describeSessions`' value: the session's sign-in value, else the
-  installation's. Enforced in `finishSignIn` (every intent, right after
-  identifying the workspace: `discardTokens`, then
+  `describeSessions`' value: the installation's, else the session's sign-in
+  value. The installation's name and URL key are **kept current**: every
+  successful full sync writes what Linear reports now
+  (`WorkspaceData.organization` → `store.updateInstallationIdentity`, OAuth
+  mode, no write when unchanged, best effort), and so does every sign-in to an
+  installed workspace, so URL-key entries and blocks match the key the workspace
+  has now, not the one saved at install. Enforced in `finishSignIn` (every
+  intent, right after identifying the workspace: `discardTokens`, then
   `EngineAuthError('workspace_not_allowed' | 'workspace_blocked')`, no session),
   `finishInstall` (the same, the new app token revoked), `authenticate` (a
   refused session reads as signed out; its row is kept), `listWorkspaceIds`

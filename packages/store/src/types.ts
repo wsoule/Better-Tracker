@@ -107,7 +107,10 @@ export interface SessionDescription {
   /** The cookie token this describes (the caller's own input). */
   token: string;
   workspaceId: string;
-  /** The session's sign-in value, else the installation's; null if neither. */
+  /**
+   * The installation's current value (refreshed by every full sync and
+   * sign-in), else the session's sign-in value; null if neither.
+   */
   workspaceName: string | null;
   workspaceUrlKey: string | null;
   userId: string;
@@ -385,6 +388,19 @@ export interface Store {
   getInstallation(workspaceId: string): Promise<Installation | null>;
   listInstallations(): Promise<Installation[]>;
   saveInstallation(installation: Installation): Promise<void>;
+  /**
+   * Additive (multi-workspace): sets the installation's workspace name and
+   * URL key to what Linear reports now (a full sync, a sign-in), so
+   * admission's URL-key matching and the listings follow a rename. One
+   * statement; nothing else changes, updated_at included (it keeps meaning
+   * the grant's last write, which the stale-revoke guard compares with).
+   * True when the row existed and changed; false when there is no row or
+   * it already holds these values.
+   */
+  updateInstallationIdentity(
+    workspaceId: string,
+    identity: { workspaceName: string; urlKey: string }
+  ): Promise<boolean>;
   /**
    * Runs fn while holding a row lock on the installation, so two processes
    * never refresh (and rotate) the same refresh token concurrently. fn's

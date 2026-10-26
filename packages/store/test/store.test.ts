@@ -2150,6 +2150,37 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         expect(bad).toBeInstanceOf(TypeError);
       });
 
+      test('updateInstallationIdentity follows a rename and changes nothing else', async () => {
+        const ws = newWorkspaceId();
+        const saved = installation(ws);
+        await store.saveInstallation(saved);
+        const renamed = { workspaceName: 'Acme Labs', urlKey: 'acme-labs' };
+        expect(await store.updateInstallationIdentity(ws, renamed)).toBe(true);
+        // updated_at keeps dating the grant's last write (the stale-revoke
+        // guard compares with it); the tokens are untouched.
+        expect(await store.getInstallation(ws)).toEqual({
+          ...saved,
+          ...renamed,
+        });
+        expect(await store.updateInstallationIdentity(ws, renamed)).toBe(false);
+        expect(
+          await store.updateInstallationIdentity(newWorkspaceId(), renamed)
+        ).toBe(false);
+        // A revoked row follows too, and stays revoked.
+        await store.revokeInstallation(ws, 'uninstalled', NOW);
+        expect(
+          await store.updateInstallationIdentity(ws, {
+            workspaceName: 'Acme',
+            urlKey: 'acme',
+          })
+        ).toBe(true);
+        expect(await store.getInstallation(ws)).toMatchObject({
+          workspaceName: 'Acme',
+          urlKey: 'acme',
+          revokedAt: NOW,
+        });
+      });
+
       test('revokeInstallation ignores stale revokes, upgrades grant_dead and never downgrades', async () => {
         const ws = newWorkspaceId();
         const saved = installation(ws);
@@ -2353,8 +2384,11 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         });
         // u-ana's mirror row has no guest field (read as not a guest);
         // u-nobody has no mirror row at all.
+        // Signed in before a rename: the installation (refreshed by every
+        // sync and sign-in) wins over the session's sign-in values.
         const member = await newSession(acme, 'ana', {
           workspaceName: 'Acme (signed in)',
+          workspaceUrlKey: 'acme-at-sign-in',
         });
         const guest = await newSession(acme, 'guest');
         const unknown = await newSession(acme, 'nobody');
@@ -2413,7 +2447,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
           {
             ...common,
             token: member.token,
-            workspaceName: 'Acme (signed in)',
+            workspaceName: 'Acme Robotics',
             userId: 'u-ana',
             userName: 'ana',
             guest: false,

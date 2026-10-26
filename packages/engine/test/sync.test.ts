@@ -293,6 +293,80 @@ describe('fullSync', () => {
   });
 });
 
+describe("a full sync keeps the installation's name and URL key current", () => {
+  // Northwind renamed itself in Linear after the install (saved as
+  // "Northwind Labs", linear.app/northwind).
+  const renamed: GatewayWrapper = (gateway): LinearGateway => ({
+    ...gateway,
+    fetchWorkspace: async () => ({
+      ...(await gateway.fetchWorkspace()),
+      organization: { name: 'Northwind Group', urlKey: 'northwind-group' },
+    }),
+  });
+  const oauth = {
+    auth: 'oauth' as const,
+    oauth: {
+      clientId: 'client-123',
+      clientSecret: 'secret-456',
+      redirectUri: 'https://planner.example/api/auth/linear/callback',
+    },
+  };
+
+  test('so LINEAR_WORKSPACES matches the key Linear reports now', async () => {
+    const s = await setup({ wrap: renamed, config: oauth });
+    const before = await s.store.getInstallation(WORKSPACE_ID);
+    await s.engine.fullSync(WORKSPACE_ID);
+    const after = await s.store.getInstallation(WORKSPACE_ID);
+    expect(after).toMatchObject({
+      workspaceName: 'Northwind Group',
+      urlKey: 'northwind-group',
+      // Nothing else moves: updated_at still dates the grant's last write.
+      updatedAt: before?.updatedAt,
+      revokedAt: null,
+    });
+    expect(after?.tokens).toEqual(before?.tokens);
+    expect(
+      s.logs.filter((l) =>
+        l.includes("updated the installation's workspace name or URL key")
+      )
+    ).toHaveLength(1);
+    // The id only: a name must not outlive its data in the host's logs.
+    expect(s.logs.join('\n')).not.toContain('Northwind Group');
+
+    // An operator who now lists the workspace by its current key admits it.
+    const listed = createEngine({
+      store: s.store,
+      linear: fixtureProvider(s.fixture, { wrap: renamed }),
+      channel: recordingChannel(),
+      logger: recordingLogger().logger,
+      config: {
+        ...TEST_CONFIG,
+        ...oauth,
+        workspaces: { mode: 'list', entries: ['northwind-group'] },
+      },
+      now: s.clock.now,
+    });
+    expect(await listed.listWorkspaceIds()).toEqual([WORKSPACE_ID]);
+
+    // Unchanged on the next sync: no write, no log line.
+    await s.engine.fullSync(WORKSPACE_ID);
+    expect(
+      s.logs.filter((l) =>
+        l.includes("updated the installation's workspace name or URL key")
+      )
+    ).toHaveLength(1);
+  });
+
+  test('not in demo mode, which serves one fixed workspace', async () => {
+    const s = await setup({ wrap: renamed });
+    await s.engine.fullSync(WORKSPACE_ID);
+    expect(await s.store.getInstallation(WORKSPACE_ID)).toMatchObject({
+      workspaceName: 'Northwind Labs',
+      urlKey: 'northwind',
+    });
+  });
+});
+
 describe('fullSync is single-flight per workspace', () => {
   test('concurrent callers share one sync and its result; later ones run again', async () => {
     let fetches = 0;

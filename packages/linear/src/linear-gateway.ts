@@ -835,6 +835,10 @@ export function createLinearGateway(
 
       return {
         workspaceId: requireString(organization, 'id', 'Organization'),
+        organization: {
+          name: requireString(organization, 'name', 'Organization'),
+          urlKey: requireString(organization, 'urlKey', 'Organization'),
+        },
         users: userNodes.map(mapUser),
         teams: teamNodes.map((node) => {
           const id = optionalString(node, 'id');

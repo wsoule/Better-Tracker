@@ -1003,6 +1003,20 @@ class SqlStore implements Store {
     );
   }
 
+  async updateInstallationIdentity(
+    workspaceId: string,
+    identity: { workspaceName: string; urlKey: string }
+  ): Promise<boolean> {
+    const rows = await this.write<{ workspace_id: string }>(
+      `UPDATE installations SET workspace_name = $2, url_key = $3
+       WHERE workspace_id = $1
+         AND (workspace_name <> $2 OR url_key <> $3)
+       RETURNING workspace_id`,
+      [workspaceId, identity.workspaceName, identity.urlKey]
+    );
+    return rows.length === 1;
+  }
+
   /**
    * Holds `SELECT … FOR UPDATE` on the installation row while fn runs, and
    * writes fn's rotated tokens in the same transaction, so a concurrent
@@ -1212,7 +1226,10 @@ class SqlStore implements Store {
   /**
    * The token hashes travel as one JSON array parameter (SqlParam has no
    * arrays). guest is null without a mirror user row and false for a row
-   * that has no guest field (mirrors written before 2026-10-22).
+   * that has no guest field (mirrors written before 2026-10-22). The
+   * installation's name and URL key win over the session's sign-in values
+   * (every full sync and sign-in refreshes them; listWorkspaceStatus picks
+   * the same way), so a rename shows, and admits, everywhere at once.
    */
   async describeSessions(
     tokens: readonly string[],
@@ -1222,8 +1239,8 @@ class SqlStore implements Store {
     const hashes = tokens.map(hashSessionToken);
     const rows = await this.sql.query<SessionDescriptionRow>(
       `SELECT s.token_hash, s.workspace_id,
-         COALESCE(s.workspace_name, i.workspace_name) AS workspace_name,
-         COALESCE(s.workspace_url_key, i.url_key) AS workspace_url_key,
+         COALESCE(i.workspace_name, s.workspace_name) AS workspace_name,
+         COALESCE(i.url_key, s.workspace_url_key) AS workspace_url_key,
          s.user_id, s.user_name, s.expires_at,
          CASE WHEN m.id IS NULL THEN NULL
            ELSE COALESCE(m.data->>'guest' = 'true', false) END AS guest,

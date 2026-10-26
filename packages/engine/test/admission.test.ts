@@ -1008,10 +1008,34 @@ describe('the worker list and cleanup', () => {
     expect(installation?.revokedAt).toBeNull();
     expect(installation?.tokens.accessToken).toBe('app-token-org-acme');
     expect(await store.getAdmittedPin('acme')).toBeNull();
-    // The next sign-in reads the current key from Linear: the entry pins.
+    // The next sign-in reads the current key from Linear: the entry pins,
+    // and the installation row takes the current name and key.
     await finish(engine, ANA_ACME);
     expect(await store.getAdmittedPin('acme')).toBe('org-acme');
+    expect(await store.getInstallation('org-acme')).toMatchObject({
+      urlKey: 'acme',
+      workspaceName: ACME.name,
+      tokens: { accessToken: 'app-token-org-acme' },
+    });
     expect(await engine.listWorkspaceIds()).toEqual(['org-acme']);
+  });
+
+  test("a sign-in keeps an installed workspace's name and URL key current, and sessions show them", async () => {
+    await installed(ACME, { urlKey: 'acme-old', workspaceName: 'Acme Old' });
+    const engine = oauthEngine({ mode: 'any' });
+    const before = await store.getInstallation('org-acme');
+    const ana = await finish(engine, ANA_ACME);
+    expect(await store.getInstallation('org-acme')).toMatchObject({
+      urlKey: 'acme',
+      workspaceName: ACME.name,
+      updatedAt: before?.updatedAt,
+    });
+    expect(await engine.describeSessions([ana.sessionToken])).toMatchObject([
+      { workspaceName: ACME.name, workspaceUrlKey: 'acme' },
+    ]);
+    // A workspace nobody installed gets no row from a sign-in.
+    await finish(engine, ANA_OTHER);
+    expect(await store.getInstallation('org-other')).toBeNull();
   });
 
   test('cleanup leaves admitted workspaces and other modes alone', async () => {
