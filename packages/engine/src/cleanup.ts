@@ -1,5 +1,5 @@
-// cleanup() (§7.1, §9 `tick`): the housekeeping the worker runs after every
-// tick.
+// cleanup() (§7.1, §9 `tick`): the housekeeping the worker runs at the
+// start of every tick, before any workspace.
 //
 // - Expired sessions are deleted. In real mode their Linear grants are
 //   revoked, best effort: Linear may auto-revoke a user's oldest tokens

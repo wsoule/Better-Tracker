@@ -227,11 +227,23 @@ function deadlineFrom(now: () => Date, config: WorkerConfig): Date {
   return new Date(now().getTime() + config.tickTimeoutMinutes * MINUTE_MS);
 }
 
+// What the deadline says was still running: the stage, and the workspaces
+// whose step had not finished (CommandContext.inFlight), so the operator
+// can tell which workspace keeps a run from finishing in time.
+function stageWithWorkspaces(
+  stage: string | null,
+  inFlight: ReadonlySet<string>
+): string | null {
+  if (inFlight.size === 0) return stage;
+  const ids = [...inFlight].join(', ');
+  return `${stage ?? 'running'} (workspaces still running: ${ids})`;
+}
+
 // Arms the hard deadline for `what` (a one-shot command, or serve's boot,
 // tick or shutdown): when it passes, log, tell the operator and end the
 // process with exit code 1. `stage` names what was still running then
 // (one deadline can cover several stages), e.g. "booting" for a one-shot
-// command's whole-run deadline.
+// command's whole-run deadline, and the workspaces still in flight.
 function armDeadline(
   target: DeadlineTarget,
   what: string,
@@ -270,7 +282,10 @@ async function serveLoop(
   let failedTicks = 0;
   while (!stop.aborted) {
     const startedMs = Date.now();
-    const deadline = armDeadline(session, 'tick');
+    const inFlight = session.ctx.inFlight ?? new Set<string>();
+    const deadline = armDeadline(session, 'tick', () =>
+      stageWithWorkspaces('running tick', inFlight)
+    );
     try {
       const ctx: CommandContext = {
         ...session.ctx,
@@ -374,10 +389,14 @@ export async function runCli(
   // several timeouts and overlap the next cron slot or a daily takeover.
   // serve: boot gets its own; each tick and the shutdown get theirs below.
   let stage = 'booting';
+  // The workspaces a command's steps are running now (runOne).
+  const inFlight = new Set<string>();
   const runDeadline =
     command.name === 'serve' || command.name === 'migrate'
       ? null
-      : armDeadline(target, command.name, () => stage);
+      : armDeadline(target, command.name, () =>
+          stageWithWorkspaces(stage, inFlight)
+        );
   const bootDeadline =
     command.name === 'serve' ? armDeadline(target, 'boot') : null;
 
@@ -406,7 +425,7 @@ export async function runCli(
   const session: Session = {
     ...target,
     config,
-    ctx: { engine, logger, config, now, deadlineAt },
+    ctx: { engine, logger, config, now, deadlineAt, inFlight },
   };
   let code: number;
   try {

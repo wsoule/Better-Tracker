@@ -420,19 +420,21 @@ describe('runCommand', () => {
 });
 
 describe('runCommand: tick', () => {
-  test('due → runDaily; then cleanup once after every workspace', async () => {
+  test('due → runDaily; cleanup once, before any workspace', async () => {
     const engine = fakeEngine({ workspaces: ['ws-a', 'ws-b'] });
     const result = await runCommand(
       context(engine, { now: new Date('2026-10-21T08:00:00Z') }),
       { name: 'tick', workspaceId: null }
     );
+    // Cleanup first: a workspace too slow for the tick's timeout must not
+    // keep the housekeeping of every other workspace from running.
     expect(engine.calls).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'workspaceTimezone:ws-b',
       'runDaily:ws-b@2026-10-21',
-      'cleanup',
     ]);
     expect(result.notes).toEqual([
       'cleanup: 0 expired sessions, 0 old webhook delivery records',
@@ -448,9 +450,9 @@ describe('runCommand: tick', () => {
     );
     expect(engine.calls).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'fullSync:ws-a',
-      'cleanup',
     ]);
     expect(result.outcomes[0]?.detail).toBe(
       'synced (mirror v7, 42 issues, 12 ms), daily due at 08:00 UTC'
@@ -466,14 +468,14 @@ describe('runCommand: tick', () => {
     const second = await runCommand(ctx, { name: 'tick', workspaceId: null });
     expect(engine.calls).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
-      'cleanup',
       'listWorkspaceStatus',
+      'cleanup',
       'workspaceTimezone:ws-a',
       'runDaily:ws-a@2026-10-21',
       'fullSync:ws-a',
-      'cleanup',
     ]);
     expect(second.outcomes[0]?.detail).toBe(
       'synced (mirror v7, 42 issues, 12 ms), daily already ran for 2026-10-21'
@@ -500,10 +502,10 @@ describe('runCommand: tick', () => {
       engine.calls.filter((c) => !c.startsWith('workspaceTimezone'))
     ).toEqual([
       'listWorkspaceStatus',
+      'cleanup',
       'runDaily:nz@2026-10-21',
       'runDaily:ny@2026-10-20',
       'fullSync:jp',
-      'cleanup',
     ]);
     expect(result.outcomes.map((o) => o.detail)).toEqual([
       expect.stringContaining('daily ran for 2026-10-21'),

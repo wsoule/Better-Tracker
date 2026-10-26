@@ -5926,18 +5926,19 @@ notice above the sign-in card.
 - `allocate --dry-run|--live [--workspace <id>]`
 - `warn [--workspace <id>]`
 - `tick` — **what the Railway cron runs every 15 minutes** (`*/15 * * * *`,
-  UTC): for each active, admitted installation (least recently synced first,
-  `WORKER_CONCURRENCY` at a time, each started only with enough time left; see
-  "Scaling"), if the local time in its timezone is at or past `DAILY_RUN_AT`
-  (default `08:00`) and today's daily job is unclaimed (or its claim was
-  abandoned by a run that died, past the engine's lease), `runDaily` (which
-  syncs first); otherwise a plain `fullSync` (the periodic resync that heals
-  milestone/relation drift, since Linear has no webhooks for those), skipped
-  when a successful one finished less than 10 minutes ago. Uninstalled, removed,
-  blocked and not admitted workspaces are skipped. Then `cleanup`. Closes the
-  store and exits. A hard timeout (`TICK_TIMEOUT_MINUTES`, default 10) exits
-  non-zero so a hung run never blocks later ones (Railway skips a cron tick
-  while the previous one runs).
+  UTC): first `cleanup` (bounded per call, so it always runs, whatever a slow
+  workspace does to the rest of the budget), then for each active, admitted
+  installation (least recently synced first, `WORKER_CONCURRENCY` at a time,
+  each started only with enough time left; see "Scaling"), if the local time in
+  its timezone is at or past `DAILY_RUN_AT` (default `08:00`) and today's daily
+  job is unclaimed (or its claim was abandoned by a run that died, past the
+  engine's lease), `runDaily` (which syncs first); otherwise a plain `fullSync`
+  (the periodic resync that heals milestone/relation drift, since Linear has no
+  webhooks for those), skipped when a successful one finished less than 10
+  minutes ago. Uninstalled, removed, blocked and not admitted workspaces are
+  skipped. Closes the store and exits. A hard timeout (`TICK_TIMEOUT_MINUTES`,
+  default 10) exits non-zero so a hung run never blocks later ones (Railway
+  skips a cron tick while the previous one runs).
 - `serve` — long-running alternative to cron for other hosts: runs `tick` every
   `SYNC_INTERVAL_MINUTES` (default 15) until SIGTERM.
 - Operator commands (OAuth mode, owner decision 2026-10-25; see "Operator
@@ -6038,16 +6039,19 @@ Worker decisions made while building it (binding):
   digests do not fail a run (they include people with no Slack account); they
   are counted in the summary.
 
-- **Cleanup** (`engine.cleanup()`, after every tick; each step bounded per call
-  so a backlog never stretches a tick past its timeout, the rest waiting for the
-  next tick; nothing of this runs with personal API keys): 0. Refused
-  installations (§7 "Admission"): a blocked workspace that still has an active
-  installation is revoked as `removed` (a block is a hard gate). An installed
-  workspace (active or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a
-  soft gate: one warn per call names its id and the fix (add it back, or run
-  `remove`), it is counted (`notServedWorkspaces`), and nothing is revoked,
-  wiped, ended or purged, so re-admitting it restores it as it was. Its sessions
-  stay unusable until then or until they expire (step 1).
+- **Cleanup** (`engine.cleanup()`, at the start of every tick, before any
+  workspace: a workspace whose sync cannot finish within `TICK_TIMEOUT_MINUTES`
+  gets the tick killed, and with cleanup last that stopped purges and session
+  revocations for every workspace; each step bounded per call so a backlog never
+  stretches a tick past its timeout, the rest waiting for the next tick; nothing
+  of this runs with personal API keys): 0. Refused installations (§7
+  "Admission"): a blocked workspace that still has an active installation is
+  revoked as `removed` (a block is a hard gate). An installed workspace (active
+  or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a soft gate: one warn
+  per call names its id and the fix (add it back, or run `remove`), it is
+  counted (`notServedWorkspaces`), and nothing is revoked, wiped, ended or
+  purged, so re-admitting it restores it as it was. Its sessions stay unusable
+  until then or until they expire (step 1).
   1. Expired sessions are taken in batches of 50 (at most 500) and their Linear
      grants revoked, best effort (unchanged).
   2. Webhook delivery records older than `WEBHOOK_RETENTION_DAYS` (30) are
@@ -6142,17 +6146,20 @@ Worker decisions made while building it (binding):
   manual one-shot commands (`sync`, `daily`, `allocate`, `warn`, and the
   operator commands) get the same budget; on expiry each logs and prints the
   stage it was stuck in (`booting`, `running <command>`, `closing the store`)
-  and exits 1. `TICK_TIMEOUT_MINUTES` is at most 14 (`MAX_TICK_TIMEOUT_MINUTES`,
-  derived from the engine's constants: the 45-minute daily lease minus the
-  30-minute stale-run threshold, minus a minute), so a run always ends, and its
-  allocation run is stale, before a tick may take its daily claim over; that
-  also keeps a tick below the 15-minute cron interval. `migrate` has no timeout:
-  it claims no daily job and starts no allocation run, and it is how an operator
-  applies a migration too long for one budget (every other command applies
-  pending migrations inside its own). `serve` gives its boot, each tick and its
-  shutdown one budget each; SIGTERM/SIGINT let the current tick finish, then the
-  store is closed and `serve` exits 0; a second signal, including one during
-  that close, exits 1 at once.
+  and the workspaces whose step was still running (`CommandContext.inFlight`:
+  "stuck while running tick (workspaces still running: <id>, …)", so a workspace
+  too slow for the budget is named; remove it or raise the timeout) and exits 1.
+  `TICK_TIMEOUT_MINUTES` is at most 14 (`MAX_TICK_TIMEOUT_MINUTES`, derived from
+  the engine's constants: the 45-minute daily lease minus the 30-minute
+  stale-run threshold, minus a minute), so a run always ends, and its allocation
+  run is stale, before a tick may take its daily claim over; that also keeps a
+  tick below the 15-minute cron interval. `migrate` has no timeout: it claims no
+  daily job and starts no allocation run, and it is how an operator applies a
+  migration too long for one budget (every other command applies pending
+  migrations inside its own). `serve` gives its boot, each tick and its shutdown
+  one budget each; SIGTERM/SIGINT let the current tick finish, then the store is
+  closed and `serve` exits 0; a second signal, including one during that close,
+  exits 1 at once.
 - The CLI runs only when its module is the process's main script, resolved the
   way node resolves it (`node apps/worker tick` and `node apps/worker/dist tick`
   work too), so it can never load and silently do nothing.

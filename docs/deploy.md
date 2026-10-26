@@ -730,6 +730,11 @@ Which outcomes turn the cron red (exit 1):
 - a workspace whose app grant Linear refused (`revoked:grant_dead`), on every
   tick, until an admin reinstalls or you remove or purge it;
 - housekeeping, the database, the configuration or the time limit, as before.
+  When the time limit fires, the error line names the workspaces still running
+  (`stuck while running tick (workspaces still running: <id>)`). One named on
+  every tick has a sync that never fits: raise `TICK_TIMEOUT_MINUTES` (at
+  most 14) or `remove` it. Housekeeping runs first in every tick, so purges and
+  session revocations go on meanwhile.
 
 **Operator commands.** These list and manage the workspaces this deployment
 holds. They run from the worker's command line only; nothing in the planner

@@ -150,6 +150,12 @@ export interface CommandContext {
    * daily job starts only with enough time left before it.
    */
   deadlineAt: Date | null;
+  /**
+   * The workspaces whose step is running right now (runOne adds and drops
+   * them), so the hard deadline's message can name what was still running
+   * when it fired. Optional: a context without it tracks nothing.
+   */
+  inFlight?: Set<string>;
 }
 
 /** Exit codes: 0 ok, 1 something failed, 2 usage error (cli.ts). */
@@ -417,11 +423,14 @@ async function runOne(
 
   let done: StepResult;
   let thrown: unknown = null;
+  ctx.inFlight?.add(workspaceId);
   try {
     done = await step(workspaceId, status);
   } catch (error) {
     thrown = error;
     done = { ok: false, detail: '', error: oneLine(error) };
+  } finally {
+    ctx.inFlight?.delete(workspaceId);
   }
   const outcome = (kind: OutcomeKind): WorkspaceOutcome => ({
     workspaceId,
@@ -579,7 +588,11 @@ async function dailyWorkspace(
   return describeDaily(await ctx.engine.runDaily({ workspaceId, force }));
 }
 
-// Housekeeping after a tick (engine.cleanup(), arch §9 "Cleanup"): expired
+// Housekeeping at the start of a tick (engine.cleanup(), arch §9
+// "Cleanup"), before any workspace: each of its steps is bounded per call,
+// while a workspace's sync is not, so one workspace too slow for
+// TICK_TIMEOUT_MINUTES can no longer starve every other workspace's
+// purges and session revocations by getting the tick killed first. Expired
 // sessions and those of uninstalled or removed workspaces (their Linear
 // grants revoked), purges 30 days after an uninstall or removal, and
 // retention for webhook deliveries, notifications and job claims; installed
@@ -770,10 +783,10 @@ export async function runCommand(
       }));
       break;
     case 'tick':
+      await runCleanup(ctx, result);
       result.outcomes = await run((id, status) =>
         tickWorkspace(ctx, id, status)
       );
-      await runCleanup(ctx, result);
       break;
   }
   result.outcomes.push(...plannedOutcomes(ctx, command.name, others));

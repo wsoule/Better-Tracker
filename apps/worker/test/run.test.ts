@@ -159,6 +159,37 @@ describe('runCli: one-shot commands', () => {
     ]);
   });
 
+  test('a workspace whose sync never ends in time still lets cleanup run, and the deadline names it', async () => {
+    const engine = fakeEngine({ workspaces: ['ws-huge', 'ws-a'] });
+    const realSync = engine.fullSync;
+    engine.fullSync = (id) => {
+      if (id !== 'ws-huge') return realSync(id);
+      engine.calls.push(`fullSync:${id}`);
+      return new Promise(() => undefined);
+    };
+    const exited = Promise.withResolvers<number>();
+    const d = deps(engine, {
+      env: { WORKER_CONCURRENCY: '2' },
+      // Before DAILY_RUN_AT: a plain resync for each workspace.
+      now: () => new Date('2026-10-21T07:00:00Z'),
+      tickTimeoutMs: 30,
+      exit: (code) => exited.resolve(code),
+    });
+    void runCli(['tick'], d);
+    expect(await exited.promise).toBe(1);
+    // Housekeeping ran first, before any workspace started.
+    expect(engine.calls.indexOf('cleanup')).toBeGreaterThanOrEqual(0);
+    expect(engine.calls.indexOf('cleanup')).toBeLessThan(
+      engine.calls.indexOf('fullSync:ws-huge')
+    );
+    expect(engine.calls).toContain('fullSync:ws-a');
+    expect(d.output.errLines).toEqual([
+      expect.stringContaining(
+        'stuck while running tick (workspaces still running: ws-huge)'
+      ),
+    ]);
+  });
+
   test('the deadline is cancelled when tick finishes in time', async () => {
     let exits = 0;
     const d = deps(fakeEngine({ workspaces: ['ws-a'] }), {
