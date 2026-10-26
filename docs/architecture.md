@@ -1558,7 +1558,15 @@ every workspace that installs it, routed by `organizationId`)
 → `pg.Pool`; otherwise PGlite (`pgliteDir` or in-memory). One SQL dialect
 (Postgres) for both. Migrations are an ordered array of SQL strings applied in a
 transaction and recorded in `schema_migrations`; `migrate()` takes
-`pg_advisory_lock` so two processes never race.
+`pg_advisory_lock` so two processes never race. Only version numbers are
+recorded (no checksum), so a migration is never edited once any database may
+have applied it: a database that ran the earlier text would skip the edited one.
+Migration 6 exists for that reason: `blocked_workspaces.url_key` first went into
+migration 5's `CREATE TABLE` on a development branch, so migration 5 is back to
+its first text and migration 6 adds the column `IF NOT EXISTS` with its `CHECK`,
+and a database that applied either text of migration 5 ends with the same column
+and one `CHECK` (Postgres skips the whole column definition, constraint
+included, when the column exists).
 
 Isolation: everything runs at READ COMMITTED (the lock-then-read patterns and
 the `ON CONFLICT` claims depend on seeing the latest commits; under a stricter
@@ -1670,10 +1678,10 @@ Tables (all keyed by `workspace_id`, except the two admission tables):
   `runMode` and `runTrigger`. Migration 4 adds
   `allocation_entries_issue_idx (workspace_id, issue_id, created_at DESC)`.
 - `blocked_workspaces (key pk, kind 'id'|'url_key', reason, created_at, url_key)`
-  — the operator block list (migration 5), keys lower-cased (`CHECK`); `url_key`
-  (lower-cased, null when unknown and for a `url_key` block) is the URL key an
-  id block was made under or pinned from, so `unblock <URL key>` still finds it
-  once nothing else knows that key.
+  — the operator block list (migration 5; `url_key` migration 6), keys
+  lower-cased (`CHECK`); `url_key` (lower-cased, null when unknown and for a
+  `url_key` block) is the URL key an id block was made under or pinned from, so
+  `unblock <URL key>` still finds it once nothing else knows that key.
   `blockWorkspace(key, kind, reason, now, { urlKey? })` upserts (a repeat
   updates kind and reason, keeps `created_at`, and keeps the recorded URL key
   unless given a new one; the reason is scrubbed like planner-owned text),
