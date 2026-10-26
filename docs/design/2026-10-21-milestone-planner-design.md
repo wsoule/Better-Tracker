@@ -887,4 +887,9 @@ call above that both "want an owner's read before strangers arrive". A change
 to what the planner stores or writes still updates those pages in the same
 change (`apps/planner/lib/adapters/public-pages.ts`), and a deployment run by
 someone else still has its own wording reviewed (`docs/deploy.md` §5, step 7).
-The owner also kept the bulk safety of Q6 (§11) as stated.
+The owner also kept the bulk safety of Q6 (§11) as stated, and answered Q1:
+the planner's own order (§6.6: milestone date first, then project priority,
+issue priority and age, with the per-milestone weight override) is what they
+want, because Linear's priority alone cannot say that an urgent milestone
+ending tomorrow outranks an urgent one ending in three weeks. Nothing changes
+and Linear's project priority is not written.
