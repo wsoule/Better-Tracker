@@ -11,16 +11,19 @@
 //   window keeps each delivery's processing error around to investigate.
 // - Admission refusals (design doc §12, 2026-10-25; architecture §7
 //   "Admission"): an installed workspace LINEAR_WORKSPACES no longer
-//   admits is a soft gate. It is not served, but nothing is revoked,
-//   ended or deleted here: a warn line per tick names it and the fix
-//   (handleRefusedInstallations), and re-admitting it restores everything
-//   as it was. Its sessions read as signed out until it is admitted again
-//   or they expire (the expired-session step then revokes their grants).
-//   When a URL key entry of the list is still unpinned, an active one gets
-//   one read of its current URL key with the app token first (a rename no
-//   sync has seen, since a refused workspace is never synced), which may
-//   admit it again. A blocked workspace is a hard gate: one still
-//   installed is revoked as 'removed', as the operator's `block` does.
+//   admits is a soft gate. It is not served, but the planner revokes, ends
+//   and deletes nothing of it by its own choice: a warn line per tick names
+//   it and the fix (handleRefusedInstallations), and re-admitting it
+//   restores everything as it was. Its sessions read as signed out until
+//   it is admitted again or they expire (the expired-session step then
+//   revokes their grants). When a URL key entry of the list is still
+//   unpinned, active ones get a read of their current URL key with the app
+//   token (a rename no sync has seen, since a refused workspace is never
+//   synced), which may admit them again: last in the pass, a few per tick,
+//   the ones checked longest ago first. A dead app grant Linear refuses in
+//   that read is recorded as grant_dead, as for any installed workspace. A
+//   blocked workspace is a hard gate: one still installed is revoked as
+//   'removed' first, as the operator's `block` does.
 // - Several workspaces (owner decision 2026-10-25): sessions of workspaces
 //   uninstalled or removed that predate the revoke are ended (grants
 //   revoked best effort); such workspaces are purged PURGE_AFTER_DAYS
@@ -34,7 +37,9 @@
 //   Linear (revocations, purges, identity reads) starts only when it ends
 //   before the deadline even if every revocation takes its full timeout
 //   (REVOKE_WORST_MS), so a slow Linear cannot use up the tick that every
-//   workspace's sync and daily job wait for. Taking sessions from the
+//   workspace's sync and daily job wait for. The identity reads come last
+//   and each waits IDENTITY_READ_MAX_MS at most, so they cannot take the
+//   time of the revocations and purges either. Taking sessions from the
 //   store deletes them, so a batch is sized to what the time left can
 //   revoke: nothing taken is left unrevoked. A step cut short (by time or
 //   by its count) is named in CleanupResult.deferred, and the next call
@@ -48,6 +53,7 @@ import type { RevokedReason } from '@better-tracker/store';
 
 import {
   admission,
+  type RefusedWorkspace,
   refusedWorkspaces,
   unpinnedUrlKeyEntries,
 } from './admission';
@@ -106,6 +112,13 @@ const PURGE_TRANSACTION_MS = 10_000;
  * deadline (a read leaves nothing behind).
  */
 const IDENTITY_READ_MIN_MS = REVOKE_WORST_MS;
+/** How long one identity read waits for Linear's answer, at most. */
+const IDENTITY_READ_MAX_MS = 10_000;
+/**
+ * Identity reads per cleanup, at most: the rest wait for the next ticks,
+ * the ones checked longest ago first.
+ */
+const MAX_IDENTITY_READS_PER_CLEANUP = 5;
 
 /**
  * One cleanup pass's time limit (CleanupOptions.deadline) on the engine's
@@ -199,7 +212,7 @@ async function revokeExpiredSessions(
   }
 }
 
-/** What handleRefusedInstallations found and did. */
+/** What the refused-installation steps found and did. */
 export interface RefusedInstallations {
   /** Blocked workspaces whose installation it revoked as 'removed'. */
   removed: string[];
@@ -210,12 +223,15 @@ export interface RefusedInstallations {
    * was read from Linear (refreshIdentity).
    */
   reAdmitted: string[];
-  /** An identity read was left for the next call (no time left). */
-  refreshDeferred: boolean;
+  /**
+   * Identity reads were left for the next call: no time left, or more
+   * candidates than MAX_IDENTITY_READS_PER_CLEANUP.
+   */
+  readsDeferred: boolean;
 }
 
 /** What one identity read of a refused installation came to. */
-type IdentityRefresh = 'admitted' | 'refused' | 'no_time';
+type IdentityRefresh = 'admitted' | 'refused' | 'failed' | 'no_time';
 
 // Waits for `work` at most `ms` (no limit when infinite); TIMED_OUT past it.
 // The work itself goes on unwatched, so only a read may be cut off here.
@@ -236,6 +252,32 @@ async function within<T>(
   }
 }
 
+// Records that an identity read was tried at `at` and whether it worked
+// (store.recordUrlKeyCheck), so the next pass reads the others first;
+// returns the failed tries in a row, or null when it could not be recorded
+// (logged).
+async function recordCheck(
+  rt: EngineRuntime,
+  workspaceId: string,
+  check: { at: string; ok: boolean }
+): Promise<number | null> {
+  try {
+    return await rt.store.recordUrlKeyCheck(workspaceId, check);
+  } catch (error) {
+    rt.logger.warn('could not record a URL key read from Linear', {
+      workspaceId,
+      error,
+    });
+    return null;
+  }
+}
+
+/** Why an identity read did not give a usable answer, for its log line. */
+interface ReadFailure {
+  message: string;
+  error?: unknown;
+}
+
 /**
  * One read of a refused installation's organization with the app token
  * (forApp, then whoAmI), for an active installation LINEAR_WORKSPACES
@@ -244,9 +286,19 @@ async function within<T>(
  * workspace is never synced, so nothing else refreshes it until someone
  * signs in. Keeps the name and URL key current
  * (refreshInstallationIdentity), then re-checks admission fresh, which
- * pins the entry when it matches the key now. The read is cut off at the
- * deadline. Nothing is revoked, ended or deleted; a failure is logged
- * (the workspace stays refused, and the next call reads again).
+ * pins the entry when it matches the key now.
+ *
+ * It starts only with IDENTITY_READ_MIN_MS left (forApp may refresh the
+ * app token, which writes the rotated tokens and is never cut off), and
+ * Linear's answer is waited for at most IDENTITY_READ_MAX_MS and never
+ * past the deadline. Every read asked of Linear is recorded
+ * (recordCheck), so the next pass reads the others first. A failure is
+ * logged at warn the first time in a row and at info after that (the
+ * store counts them: the worker exits after every tick); the workspace
+ * stays refused and is read again in its turn. Nothing is revoked or
+ * ended by the planner's choice; a dead app grant Linear refuses in
+ * forApp's refresh is recorded as grant_dead, as for any installed
+ * workspace.
  */
 async function refreshIdentity(
   rt: EngineRuntime,
@@ -255,105 +307,162 @@ async function refreshIdentity(
 ): Promise<IdentityRefresh> {
   if (budget.leftMs() < IDENTITY_READ_MIN_MS) return 'no_time';
   const readAt = rt.nowIso();
+  let outcome: IdentityRefresh;
+  let failure: ReadFailure | null = null;
   try {
     const gateway = await rt.linear.forApp(workspaceId);
-    const identity = await within(gateway.whoAmI(), budget.leftMs());
+    const left = budget.leftMs();
+    if (left <= 0) return 'no_time';
+    const wait = Math.min(IDENTITY_READ_MAX_MS, left);
+    const identity = await within(gateway.whoAmI(), wait);
     if (identity === TIMED_OUT) {
-      rt.logger.warn(
-        "could not read a refused workspace's URL key from Linear in time",
-        { workspaceId }
+      failure = {
+        message:
+          "could not read a refused workspace's URL key from Linear in time",
+      };
+      // Cut off by the deadline rather than the wait: the rest waits too.
+      outcome = wait < IDENTITY_READ_MAX_MS ? 'no_time' : 'failed';
+    } else if (identity.workspace.id !== workspaceId) {
+      failure = {
+        message:
+          "Linear answered for another workspace when asked for a refused workspace's URL key",
+      };
+      outcome = 'failed';
+    } else {
+      await refreshInstallationIdentity(
+        rt,
+        workspaceId,
+        identity.workspace,
+        readAt
       );
-      return 'no_time';
-    }
-    if (identity.workspace.id !== workspaceId) {
-      rt.logger.warn(
-        "Linear answered for another workspace when asked for a refused workspace's URL key",
-        { workspaceId }
+      const verdict = await admission(
+        rt,
+        { id: workspaceId, urlKey: identity.workspace.urlKey, installed: true },
+        { fresh: true }
       );
-      return 'refused';
+      outcome = verdict === 'ok' ? 'admitted' : 'refused';
     }
-    await refreshInstallationIdentity(
-      rt,
-      workspaceId,
-      identity.workspace,
-      readAt
-    );
-    const verdict = await admission(
-      rt,
-      { id: workspaceId, urlKey: identity.workspace.urlKey, installed: true },
-      { fresh: true }
-    );
-    return verdict === 'ok' ? 'admitted' : 'refused';
   } catch (error) {
-    rt.logger.warn("could not read a refused workspace's URL key from Linear", {
-      workspaceId,
+    failure = {
+      message: "could not read a refused workspace's URL key from Linear",
       error,
-    });
-    return 'refused';
+    };
+    outcome = 'failed';
   }
+  const failures = await recordCheck(rt, workspaceId, {
+    at: readAt,
+    ok: failure === null,
+  });
+  if (failure !== null) {
+    const fields: Record<string, unknown> = { workspaceId };
+    if (failure.error !== undefined) fields.error = failure.error;
+    if (failures !== null && failures > 1) {
+      rt.logger.info(failure.message, { ...fields, failuresInARow: failures });
+    } else {
+      rt.logger.warn(failure.message, fields);
+    }
+  }
+  return outcome;
 }
 
 /**
- * The installed workspaces admission refuses now (fresh read). A blocked
- * one with an active installation is revoked as 'removed' (revokeWorkspace:
- * credentials wiped, its cached mirror forgotten; warn), so a block stays
- * a hard gate even for a workspace that matched a URL-key block only after
- * the operator's `block`. An active one LINEAR_WORKSPACES refuses while a
- * URL key entry is still unpinned gets one identity read first
- * (refreshIdentity, at most once per call), so a rename no sync has seen
- * cannot keep it refused. One LINEAR_WORKSPACES does not admit then
- * (active, or revoked as grant_dead) is only warned about, every call,
- * with its id and the fix: nothing is revoked, ended or deleted, so
- * putting it back on the list restores it as it was, and only the
- * operator's `remove`, `block` or `purge` take it away. OAuth mode only
- * (refusedWorkspaces is empty otherwise).
+ * Step 0, before anything that calls Linear: of the workspaces admission
+ * refuses now (`refused`, a fresh read), a blocked one with an active
+ * installation is revoked as 'removed' (revokeWorkspace: credentials
+ * wiped, its cached mirror forgotten; warn; no Linear call), so a block
+ * stays a hard gate even for a workspace that matched a URL-key block only
+ * after the operator's `block`, and its sessions end in this same pass.
  */
-export async function handleRefusedInstallations(
+async function removeBlockedInstallations(
   rt: EngineRuntime,
-  options: CleanupOptions = {}
-): Promise<RefusedInstallations> {
-  const outcome: RefusedInstallations = {
-    removed: [],
-    notServed: [],
-    reAdmitted: [],
-    refreshDeferred: false,
+  refused: readonly RefusedWorkspace[],
+  outcome: RefusedInstallations
+): Promise<void> {
+  for (const { workspaceId, verdict, status } of refused) {
+    if (verdict !== 'blocked') continue;
+    if (status.installation === null || status.installation.revokedAt !== null)
+      continue;
+    if (!(await revokeWorkspace(rt, workspaceId, 'removed'))) continue;
+    rt.logger.warn('removed a blocked workspace; its app token is wiped', {
+      workspaceId,
+      admission: verdict,
+    });
+    outcome.removed.push(workspaceId);
+  }
+}
+
+// Active installations LINEAR_WORKSPACES refuses, the one checked longest
+// ago (never checked first) first, ties by id.
+function readOrder(refused: readonly RefusedWorkspace[]): RefusedWorkspace[] {
+  const checkedMs = (entry: RefusedWorkspace): number => {
+    const at = entry.status.installation?.urlKeyCheckedAt ?? null;
+    return at === null ? Number.NEGATIVE_INFINITY : Date.parse(at);
   };
-  const budget = budgetFor(rt, options);
-  const refused = await refusedWorkspaces(rt);
-  const unpinned = refused.some(
-    (entry) =>
-      entry.verdict === 'not_allowed' &&
-      entry.status.installation?.revokedAt === null
-  )
-    ? await unpinnedUrlKeyEntries(rt)
-    : [];
+  return refused
+    .filter(
+      (entry) =>
+        entry.verdict === 'not_allowed' &&
+        entry.status.installation !== null &&
+        entry.status.installation.revokedAt === null
+    )
+    .sort((a, b) => {
+      const byCheck = checkedMs(a) - checkedMs(b);
+      // Both never checked: -Infinity minus -Infinity is NaN.
+      if (!Number.isNaN(byCheck) && byCheck !== 0) return byCheck;
+      return a.workspaceId.localeCompare(b.workspaceId);
+    });
+}
+
+/**
+ * The last step, once the revocations and purges are done (so a slow
+ * Linear answer can only use what they left of the pass): the soft gate.
+ * While a LINEAR_WORKSPACES URL key entry is still unpinned, the active
+ * installations it refuses get an identity read (refreshIdentity), at
+ * most MAX_IDENTITY_READS_PER_CLEANUP per call, the ones checked longest
+ * ago first, so a rename no sync has seen cannot keep one refused; once no
+ * entry is left unpinned, no more reads are made. Every installation
+ * LINEAR_WORKSPACES still does not admit (active, or revoked as
+ * grant_dead) is warned about, every call, with its id and the fix: the
+ * planner revokes, ends and deletes nothing of it, so putting it back on
+ * the list restores it as it was, and only the operator's `remove`,
+ * `block` or `purge` take it away. OAuth mode only (refusedWorkspaces is
+ * empty otherwise).
+ */
+async function handleRefusedInstallations(
+  rt: EngineRuntime,
+  refused: readonly RefusedWorkspace[],
+  budget: Budget,
+  outcome: RefusedInstallations
+): Promise<void> {
+  const queue = readOrder(refused);
+  let unpinned = queue.length === 0 ? [] : await unpinnedUrlKeyEntries(rt);
+  let reads = 0;
+  for (const { workspaceId } of queue) {
+    if (unpinned.length === 0) break;
+    if (reads >= MAX_IDENTITY_READS_PER_CLEANUP) {
+      outcome.readsDeferred = true;
+      break;
+    }
+    const refreshed = await refreshIdentity(rt, workspaceId, budget);
+    if (refreshed === 'no_time') {
+      outcome.readsDeferred = true;
+      break;
+    }
+    reads += 1;
+    if (refreshed !== 'admitted') continue;
+    rt.logger.info(
+      'LINEAR_WORKSPACES admits an installed workspace again: its URL key, read from Linear now, matches an entry',
+      { workspaceId }
+    );
+    outcome.reAdmitted.push(workspaceId);
+    unpinned = await unpinnedUrlKeyEntries(rt);
+  }
   for (const { workspaceId, verdict, status } of refused) {
     const installation = status.installation;
-    if (installation === null) continue;
-    if (verdict === 'blocked') {
-      if (installation.revokedAt !== null) continue;
-      if (!(await revokeWorkspace(rt, workspaceId, 'removed'))) continue;
-      rt.logger.warn('removed a blocked workspace; its app token is wiped', {
-        workspaceId,
-        admission: verdict,
-      });
-      outcome.removed.push(workspaceId);
-      continue;
-    }
+    if (installation === null || verdict === 'blocked') continue;
+    if (outcome.reAdmitted.includes(workspaceId)) continue;
     const reason = installation.revokedReason ?? 'grant_dead';
     if (installation.revokedAt !== null && reason !== 'grant_dead') continue;
-    if (installation.revokedAt === null && unpinned.length > 0) {
-      const refreshed = await refreshIdentity(rt, workspaceId, budget);
-      if (refreshed === 'admitted') {
-        rt.logger.info(
-          'LINEAR_WORKSPACES admits an installed workspace again: its URL key, read from Linear now, matches an entry',
-          { workspaceId }
-        );
-        outcome.reAdmitted.push(workspaceId);
-        continue;
-      }
-      if (refreshed === 'no_time') outcome.refreshDeferred = true;
-    }
     rt.logger.warn(
       `${workspaceId} is installed but LINEAR_WORKSPACES does not admit it: it is not served, and nothing is removed automatically; add it to LINEAR_WORKSPACES to serve it again, or run 'remove --workspace ${workspaceId}' to uninstall it`,
       {
@@ -365,7 +474,6 @@ export async function handleRefusedInstallations(
     );
     outcome.notServed.push(workspaceId);
   }
-  return outcome;
 }
 
 // Ends the sessions of workspaces uninstalled or removed that were created
@@ -522,13 +630,13 @@ async function pruneRetention(
 }
 
 /**
- * Deletes expired sessions (revoking their grants) and old deliveries,
- * prunes notifications and job claims, ends the sessions of uninstalled
- * or removed workspaces and purges such workspaces once their grace is
- * over; removes blocked installations, reads the URL key of installed ones
- * LINEAR_WORKSPACES refuses for want of a current key, and warns about the
- * ones it still does not admit (the module comment above). With
- * `options.deadline`, work that calls Linear stops before it.
+ * Removes blocked installations first; deletes expired sessions (revoking
+ * their grants) and old deliveries, prunes notifications and job claims,
+ * ends the sessions of uninstalled or removed workspaces and purges such
+ * workspaces once their grace is over; last, reads the URL key of
+ * installed ones LINEAR_WORKSPACES refuses for want of a current key, and
+ * warns about the ones it still does not admit (the module comment
+ * above). With `options.deadline`, work that calls Linear stops before it.
  */
 export async function cleanup(
   rt: EngineRuntime,
@@ -549,10 +657,14 @@ export async function cleanup(
     reAdmittedWorkspaces: 0,
     deferred: [],
   };
-  const refused = await handleRefusedInstallations(rt, options);
-  result.notServedWorkspaces = refused.notServed.length;
-  result.reAdmittedWorkspaces = refused.reAdmitted.length;
-  if (refused.refreshDeferred) defer(result, 'identity_reads');
+  const refused = await refusedWorkspaces(rt);
+  const outcome: RefusedInstallations = {
+    removed: [],
+    notServed: [],
+    reAdmitted: [],
+    readsDeferred: false,
+  };
+  await removeBlockedInstallations(rt, refused, outcome);
   const oauth = rt.config.oauth;
   if (
     rt.linear.mode === 'fixture' ||
@@ -573,6 +685,10 @@ export async function cleanup(
   await pruneRetention(rt, now, result);
   await endRevokedWorkspaceSessions(rt, budget, result);
   await purgeRevokedWorkspaces(rt, now, budget, result);
+  await handleRefusedInstallations(rt, refused, budget, outcome);
+  result.notServedWorkspaces = outcome.notServed.length;
+  result.reAdmittedWorkspaces = outcome.reAdmitted.length;
+  if (outcome.readsDeferred) defer(result, 'identity_reads');
   rt.logger.info('cleanup finished', { ...result });
   return result;
 }

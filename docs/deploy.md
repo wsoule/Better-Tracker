@@ -705,10 +705,13 @@ Only `remove`, `block` and `purge` (below) uninstall a workspace, sign its
 people out for good or delete its data. A workspace listed by a URL key it got
 from a rename the planner has not seen yet (no sync runs for a workspace that is
 not served) is not stuck: while that URL-key entry is not tied to a workspace,
-each tick's housekeeping reads the workspace's current URL key from Linear once
-with the app's token and serves it again in the same tick when the entry matches
-(`1 installed workspace admitted again (its URL key read from Linear)`), and its
-people who signed in under the new key stay signed in meanwhile.
+each tick's housekeeping, after its other work, reads the current URL key of up
+to 5 such workspaces from Linear with the app's token (those read longest ago
+first, each read given 10 seconds at most) and serves one again in the same tick
+when the entry matches
+(`1 installed workspace admitted again (its URL key read from Linear)`); its
+people who signed in under the new key stay signed in meanwhile. A read that
+keeps failing is logged at `warn` once, then at `info`.
 
 The value (arch §7 "Admission"):
 

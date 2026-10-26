@@ -306,6 +306,17 @@ const URL_KEY_READ_AT: readonly string[] = [
   'ALTER TABLE installations ADD COLUMN url_key_read_at timestamptz',
 ];
 
+// When cleanup last tried to read a refused installation's URL key from
+// Linear, whether the read worked or not, and how many tries in a row
+// failed (recordUrlKeyCheck). The worker exits after every tick, so this
+// is how cleanup reads the ones checked longest ago first, a few per tick,
+// and logs a read that keeps failing at warn only the first time.
+const URL_KEY_CHECKS: readonly string[] = [
+  'ALTER TABLE installations ADD COLUMN url_key_checked_at timestamptz',
+  `ALTER TABLE installations
+    ADD COLUMN url_key_check_failures integer NOT NULL DEFAULT 0`,
+];
+
 export const MIGRATIONS: readonly Migration[] = [
   { version: 1, name: 'initial_schema', statements: INITIAL_SCHEMA },
   {
@@ -327,6 +338,7 @@ export const MIGRATIONS: readonly Migration[] = [
     statements: SYNC_ATTEMPT_START,
   },
   { version: 8, name: 'url_key_read_at', statements: URL_KEY_READ_AT },
+  { version: 9, name: 'url_key_checks', statements: URL_KEY_CHECKS },
 ];
 
 // Rejects lists that are not strictly increasing, which would otherwise

@@ -4,7 +4,7 @@
 // grant_write intents; sessions in two workspaces at once; describeSessions
 // and checkSession. ACME and OTHER are the two fake Linear workspaces.
 
-import type { OAuthClientConfig } from '@better-tracker/linear';
+import type { FetchLike, OAuthClientConfig } from '@better-tracker/linear';
 import type { Logger } from '@better-tracker/logger';
 import type { Installation, Store } from '@better-tracker/store';
 import {
@@ -94,10 +94,14 @@ afterEach(async () => {
   await store.close();
 });
 
-/** An OAuth-mode engine over the shared store with `workspaces` admission. */
+/**
+ * An OAuth-mode engine over the shared store with `workspaces` admission,
+ * calling Linear through `fetch` (the fake by default).
+ */
 function oauthEngine(
   workspaces?: WorkspaceAdmission,
-  over: Store = store
+  over: Store = store,
+  fetch: FetchLike = fake.fetch
 ): Engine {
   return createEngine({
     store: over,
@@ -106,7 +110,7 @@ function oauthEngine(
       oauth: OAUTH,
       logger,
       now: clock.now,
-      fetch: fake.fetch,
+      fetch,
     }),
     channel: recordingChannel(),
     logger,
@@ -117,7 +121,7 @@ function oauthEngine(
       ...(workspaces === undefined ? {} : { workspaces }),
     },
     now: clock.now,
-    fetch: fake.fetch,
+    fetch,
   });
 }
 
@@ -1303,7 +1307,7 @@ describe('a stale installation URL key', () => {
     ).toMatchObject({
       notServedWorkspaces: 1,
       reAdmittedWorkspaces: 0,
-      deferred: ['identity_reads', 'expired_sessions'],
+      deferred: ['expired_sessions', 'identity_reads'],
     });
     expect(fake.graphqlTokens).toEqual([]);
 
@@ -1317,20 +1321,149 @@ describe('a stale installation URL key', () => {
         scopes: ['read', 'write'],
       },
     });
+    const failedRead = (level: string): number =>
+      lines.filter(
+        (l) =>
+          l.includes(
+            "could not read a refused workspace's URL key from Linear"
+          ) && l.includes(`"level":"${level}"`)
+      ).length;
     expect(await listed.cleanup()).toMatchObject({
       notServedWorkspaces: 1,
       reAdmittedWorkspaces: 0,
     });
+    expect(failedRead('warn')).toBe(1);
+    expect(await store.getInstallation('org-acme')).toMatchObject({
+      urlKey: 'acme-old',
+      revokedAt: null,
+    });
+    expect(await store.getAdmittedPin('acme')).toBeNull();
+    // The same failure on the next ticks: tried again, logged at info.
+    for (let tick = 0; tick < 2; tick += 1) {
+      pastCache();
+      expect(await listed.cleanup()).toMatchObject({ notServedWorkspaces: 1 });
+    }
+    expect(failedRead('warn')).toBe(1);
+    expect(failedRead('info')).toBe(2);
+    expect(fake.graphqlTokens).toEqual([
+      'app-token-unknown',
+      'app-token-unknown',
+      'app-token-unknown',
+    ]);
+  });
+
+  test('identity reads wait for the revocations and purges, so a slow one cannot use their time', async () => {
+    await installed(ACME, { urlKey: 'acme-old' });
+    fake.addAccessToken('app-token-org-acme', ACME_APP);
+    await store.createSession({
+      workspaceId: 'org-other',
+      userId: 'u-gone',
+      userName: 'Gone',
+      tokens: {
+        accessToken: 'a-gone',
+        refreshToken: 'r-gone',
+        expiresAt: null,
+        scopes: ['read'],
+      },
+      expiresAt: new Date(clock.now().getTime() - 60_000).toISOString(),
+    });
+    // Linear answers the identity read only after 110 s: what the 2-minute
+    // pass leaves after it is too little to revoke even one grant.
+    const slowIdentity: FetchLike = async (input, init) => {
+      const header = new Headers(init?.headers).get('Authorization') ?? '';
+      if (
+        String(input) === 'https://api.linear.app/graphql' &&
+        header === 'Bearer app-token-org-acme'
+      ) {
+        clock.set(new Date(clock.now().getTime() + 110_000).toISOString());
+      }
+      return fake.fetch(String(input), init ?? {});
+    };
+    const engine = oauthEngine(
+      { mode: 'list', entries: ['acme'] },
+      store,
+      slowIdentity
+    );
+    const result = await engine.cleanup({
+      deadline: new Date(clock.now().getTime() + 120_000),
+    });
+    // The expired session's grant was revoked before the read started.
+    expect(fake.revoked).toEqual([{ token: 'r-gone', hint: 'refresh_token' }]);
+    expect(result).toMatchObject({
+      expiredSessions: 1,
+      revokedTokens: 1,
+      reAdmittedWorkspaces: 1,
+      deferred: [],
+    });
+  });
+
+  test('at most 5 identity reads per pass, the ones checked longest ago first', async () => {
+    const ids = ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7'];
+    for (const id of ids) {
+      const workspace = { id: `org-${id}`, name: id, urlKey: id };
+      await installed(workspace);
+      fake.addAccessToken(`app-token-org-${id}`, {
+        user: person(`u-app-${id}`, 'Planner app', { app: true }),
+        workspace,
+      });
+    }
+    // The list's acme matches none of them, so every read leaves it
+    // refused and unpinned.
+    const engine = oauthEngine({ mode: 'list', entries: ['acme'] });
+    const read = (): string[] =>
+      fake.graphqlTokens.map((token) => token.replace('app-token-org-', ''));
+
+    expect(await engine.cleanup()).toMatchObject({
+      notServedWorkspaces: 7,
+      deferred: ['identity_reads'],
+    });
+    expect(read()).toEqual(['r1', 'r2', 'r3', 'r4', 'r5']);
+    pastCache();
+    await engine.cleanup();
+    // The two never read, then the three read longest ago.
+    expect(read().slice(5)).toEqual(['r6', 'r7', 'r1', 'r2', 'r3']);
+    // Nothing was revoked or ended, and nothing was pinned.
+    expect(fake.revoked).toEqual([]);
+    expect(await store.getAdmittedPin('acme')).toBeNull();
+    for (const id of ids) {
+      expect((await store.getInstallation(`org-${id}`))?.revokedAt).toBeNull();
+    }
+  });
+
+  test('a read Linear does not answer is given up after 10 s', async () => {
+    await installed(ACME, { urlKey: 'acme-old' });
+    fake.addAccessToken('app-token-org-acme', ACME_APP);
+    const silent: FetchLike = (input, init) =>
+      String(input) === 'https://api.linear.app/graphql'
+        ? new Promise<Response>(() => undefined)
+        : fake.fetch(String(input), init ?? {});
+    const engine = oauthEngine(
+      { mode: 'list', entries: ['acme'] },
+      store,
+      silent
+    );
+    const started = Date.now();
+    // No deadline at all: the read is still cut off.
+    expect(await engine.cleanup()).toMatchObject({
+      notServedWorkspaces: 1,
+      reAdmittedWorkspaces: 0,
+      deferred: [],
+    });
+    const elapsed = Date.now() - started;
+    expect(elapsed).toBeGreaterThanOrEqual(9_500);
+    expect(elapsed).toBeLessThan(20_000);
     expect(
-      lines.some((l) =>
-        l.includes("could not read a refused workspace's URL key from Linear")
+      lines.some(
+        (l) =>
+          l.includes(
+            "could not read a refused workspace's URL key from Linear"
+          ) && l.includes('"level":"warn"')
       )
     ).toBe(true);
     expect(await store.getInstallation('org-acme')).toMatchObject({
       urlKey: 'acme-old',
       revokedAt: null,
     });
-    expect(await store.getAdmittedPin('acme')).toBeNull();
   });
 });
 

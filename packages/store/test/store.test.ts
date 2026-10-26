@@ -2284,6 +2284,46 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
         ).toBe(false);
       });
 
+      test('recordUrlKeyCheck counts failed tries in a row and never moves the time back', async () => {
+        const ws = newWorkspaceId();
+        await store.saveInstallation(installation(ws));
+        const summary = async () =>
+          (await store.listWorkspaceStatus()).find(
+            (row) => row.workspaceId === ws
+          )?.installation;
+        expect(await summary()).toMatchObject({ urlKeyCheckedAt: null });
+        const at = (hour: string) => `2026-10-21T${hour}:00:00.000Z`;
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('05'), ok: false })
+        ).toBe(1);
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('07'), ok: false })
+        ).toBe(2);
+        // An older time is not taken; the count still goes on.
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('06'), ok: false })
+        ).toBe(3);
+        expect(await summary()).toMatchObject({
+          urlKeyCheckedAt: at('07'),
+          updatedAt: '2026-10-01T09:00:00.000Z',
+          revokedAt: null,
+        });
+        // One that worked starts the count again.
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('08'), ok: true })
+        ).toBe(0);
+        expect(
+          await store.recordUrlKeyCheck(ws, { at: at('09'), ok: false })
+        ).toBe(1);
+        expect(await summary()).toMatchObject({ urlKeyCheckedAt: at('09') });
+        expect(
+          await store.recordUrlKeyCheck(newWorkspaceId(), {
+            at: NOW,
+            ok: false,
+          })
+        ).toBe(0);
+      });
+
       test('revokeInstallation ignores stale revokes, upgrades grant_dead and never downgrades', async () => {
         const ws = newWorkspaceId();
         const saved = installation(ws);
@@ -2425,6 +2465,7 @@ function storeSuite(label: string, openHandle: () => Promise<Sql>): void {
               updatedAt: '2026-10-01T09:00:00.000Z',
               revokedAt: null,
               revokedReason: null,
+              urlKeyCheckedAt: null,
             },
             sync: {
               workspaceId: installed,

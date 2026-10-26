@@ -207,6 +207,14 @@ export interface InstallationSummary {
   updatedAt: IsoDateTime;
   revokedAt: IsoDateTime | null;
   revokedReason: RevokedReason | null;
+  /**
+   * Additive: when cleanup last tried to read the URL key from Linear for
+   * a refused installation, whether it worked or not (migration 9,
+   * recordUrlKeyCheck; null when it never tried). Always set by
+   * listWorkspaceStatus; optional only so summaries built by hand keep
+   * compiling.
+   */
+  urlKeyCheckedAt?: IsoDateTime | null;
 }
 
 /**
@@ -446,6 +454,16 @@ export interface Store {
     identity: { workspaceName: string; urlKey: string },
     options?: { readAt?: IsoDateTime }
   ): Promise<boolean>;
+  /**
+   * Additive: records that cleanup tried to read the installation's URL key
+   * from Linear at `at` (url_key_checked_at, never moved back) and whether
+   * it worked, and returns how many tries in a row have failed now (0
+   * after one that worked, or without a row).
+   */
+  recordUrlKeyCheck(
+    workspaceId: string,
+    check: { at: IsoDateTime; ok: boolean }
+  ): Promise<number>;
   /**
    * Runs fn while holding a row lock on the installation, so two processes
    * never refresh (and rotate) the same refresh token concurrently. fn's

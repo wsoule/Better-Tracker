@@ -458,7 +458,7 @@ export interface DailyResult {
  * A cleanup step that calls Linear, and so stops at cleanup's deadline:
  * revoking expired sessions, ending the sessions of uninstalled or removed
  * workspaces, purging them, and reading the URL key of installed
- * workspaces LINEAR_WORKSPACES refuses.
+ * workspaces LINEAR_WORKSPACES refuses (last, and at most 5 a pass).
  */
 export type CleanupStep =
   | 'expired_sessions'
@@ -474,8 +474,9 @@ export interface CleanupOptions {
    * workspaces need). Sessions are taken from the store (which deletes
    * them) only as many as can still be revoked before it, each revocation
    * counted at its full timeout; a purge starts only when its
-   * revocations fit too; an identity read is cut off at it. Steps that
-   * only touch the store always run. Omitted: no time limit.
+   * revocations fit too; an identity read is cut off at it (and after
+   * 10 s in any case). Steps that only touch the store always run.
+   * Omitted: no time limit, but identity reads still wait 10 s at most.
    */
   deadline?: Date;
 }

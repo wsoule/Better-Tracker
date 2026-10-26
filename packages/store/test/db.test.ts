@@ -768,11 +768,50 @@ describe('runMigrations', () => {
          VALUES ('s-1', 'hash-1', 'ws-a', 'u-ana', 'Ana', '',
            '2026-10-20T09:00:00Z', '2099-01-01T00:00:00Z')`
       );
-      expect(await runMigrations(fresh)).toEqual([8]);
+      expect(
+        await runMigrations(
+          fresh,
+          MIGRATIONS.filter((m) => m.version <= 8)
+        )
+      ).toEqual([8]);
       const rows = await fresh.query<{ url_key_read_at: unknown }>(
         'SELECT url_key_read_at FROM installations'
       );
       expect(rows).toEqual([{ url_key_read_at: null }]);
+    } finally {
+      await fresh.close();
+    }
+  });
+
+  test("migration 9 adds cleanup's URL key checks, none tried and none failed for every row", async () => {
+    const fresh = await openPgliteSql();
+    try {
+      await runMigrations(
+        fresh,
+        MIGRATIONS.filter((m) => m.version <= 8)
+      );
+      await fresh.query(
+        `INSERT INTO installations (workspace_id, workspace_name, url_key,
+           app_user_id, installed_by_user_id, access_token_enc, created_at,
+           updated_at, url_key_read_at)
+         VALUES ('ws-a', 'Acme', 'acme', 'u-app', 'u-ana', '',
+           '2026-10-01T09:00:00Z', '2026-10-01T09:00:00Z',
+           '2026-10-01T09:00:00Z')`
+      );
+      expect(await runMigrations(fresh)).toEqual([9]);
+      const rows = await fresh.query<{
+        url_key_checked_at: unknown;
+        url_key_check_failures: number;
+      }>(
+        'SELECT url_key_checked_at, url_key_check_failures FROM installations'
+      );
+      expect(rows).toEqual([
+        { url_key_checked_at: null, url_key_check_failures: 0 },
+      ]);
+      const store = createSqlStore(fresh, { encryptionKey: TEST_KEY });
+      expect(
+        (await store.listWorkspaceStatus())[0]?.installation
+      ).toMatchObject({ urlKeyCheckedAt: null });
     } finally {
       await fresh.close();
     }

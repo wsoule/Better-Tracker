@@ -1602,6 +1602,14 @@ Tables (all keyed by `workspace_id`, except the two admission tables):
   the name and URL key were last read from Linear (an install, a full sync, a
   sign-in, cleanup's identity read; null on rows from before it until the next
   read), which admission compares a session's sign-in with (§7 "Admission").
+  `url_key_checked_at` and `url_key_check_failures` (migration 9) are when
+  cleanup last tried that read for a refused installation, whatever its outcome
+  (never moved back), and how many tries in a row failed:
+  `recordUrlKeyCheck(ws, { at, ok })` sets both and returns the count (0 after
+  one that worked, or without a row), so cleanup reads the ones checked longest
+  ago first (`listWorkspaceStatus` carries
+  `InstallationSummary.urlKeyCheckedAt`) and logs a read that keeps failing at
+  warn only once.
 - `sessions` — `token_hash` (SHA-256 of the cookie token), user, the user's
   Linear tokens (encrypted), expiry, and (migration 5) `workspace_name`,
   `workspace_url_key` from the sign-in identity (`NewSession` optional fields;
@@ -2175,17 +2183,28 @@ does not exist, before calling fn. `isStoreNotFoundError(error, kind?)` checks
   records `url_key_read_at`, and a read older than the recorded one changes
   nothing, so URL-key entries and blocks match the key the workspace has now,
   not the one saved at install. A refused workspace is never synced, so cleanup
-  reads the key itself when that could matter: an active installation
-  `LINEAR_WORKSPACES` refuses while one of its URL-key entries is still unpinned
-  gets one organization read with the app token per cleanup (`forApp` →
-  `whoAmI`; the read is cut off at cleanup's deadline), then
+  reads the key itself when that could matter: while one of its URL-key entries
+  is still unpinned, the active installations `LINEAR_WORKSPACES` refuses get an
+  organization read with the app token (`forApp` → `whoAmI`), then
   `refreshInstallationIdentity` and a fresh admission check, which pins the
   entry when it matches now (`reAdmittedWorkspaces`; the tick lists its
-  workspaces after cleanup, so it is served in the same tick). Nothing is
-  revoked or ended by it; a failed read is logged at warn and tried again next
-  cleanup. With every URL-key entry pinned, no read is made (it could not help).
-  Enforced in `finishSignIn` (every intent, right after identifying the
-  workspace: `discardTokens`, then
+  workspaces after cleanup, so it is served in the same tick). The reads are
+  cleanup's **last** step, after the revocations and purges, so a slow Linear
+  only uses what those left of the pass; at most 5 per cleanup
+  (`MAX_IDENTITY_READS_PER_CLEANUP`), the ones checked longest ago first
+  (`installations.url_key_checked_at`, migration 9, recorded by
+  `recordUrlKeyCheck` for every read asked of Linear, whatever its outcome;
+  never checked first), the rest left for the next ticks (`identity_reads` in
+  `deferred`). A read starts only with `REVOKE_WORST_MS` left (`forApp` may
+  refresh the app token, which is never cut off), and its answer is waited for
+  at most 10 s (`IDENTITY_READ_MAX_MS`) and never past the deadline. The planner
+  revokes and ends nothing by it (a dead app grant Linear refuses in `forApp`'s
+  refresh is recorded as `grant_dead`, as for any installed workspace); a failed
+  read is logged at warn the first time in a row and at info after that
+  (`url_key_check_failures`: the worker exits after every tick), and is tried
+  again in its turn. Once no URL-key entry is unpinned, no more reads are made
+  (they could not help). Enforced in `finishSignIn` (every intent, right after
+  identifying the workspace: `discardTokens`, then
   `EngineAuthError('workspace_not_allowed' | 'workspace_blocked')`, no session),
   `finishInstall` (the same, the new app token revoked), `authenticate` (a
   refused session reads as signed out; its row is kept), `listWorkspaceIds`
@@ -6230,17 +6249,10 @@ Worker decisions made while building it (binding):
   (counted from the listing, 4 at a time) fit, and one that could never fit a
   whole cleanup is logged with the operator's `purge` command. What is left
   waits for the next tick, named in `deferred` and in the summary
-  (`left for the next tick: …`). The store-only steps always run. 0. Refused
+  (`left for the next tick: …`). The store-only steps always run. 0. Blocked
   installations (§7 "Admission"): a blocked workspace that still has an active
-  installation is revoked as `removed` (a block is a hard gate). An installed
-  workspace (active or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a
-  soft gate: when an unpinned URL-key entry could admit an active one, its
-  current URL key is read from Linear once (`identity_reads`; admitted again →
-  `reAdmittedWorkspaces`, an info line); otherwise one warn per call names its
-  id and the fix (add it back, or run `remove`), it is counted
-  (`notServedWorkspaces`), and nothing is revoked, wiped, ended or purged, so
-  re-admitting it restores it as it was. Its sessions stay unusable until then
-  or until they expire (step 1).
+  installation is revoked as `removed` (a block is a hard gate; no Linear call),
+  so step 4 ends its sessions in the same pass.
   1. Expired sessions are taken in batches of 50 (at most 500, each batch at
      most what the time left can revoke one after another) and their Linear
      grants revoked, best effort.
@@ -6273,6 +6285,17 @@ Worker decisions made while building it (binding):
      cached mirror is forgotten and `workspace purged` is logged with the **id
      only** (a name must not outlive its data in the host's logs). `grant_dead`
      is never purged here; the operator's `purge` may.
+  6. Refused installations, last (§7 "Admission"): an installed workspace
+     (active or `grant_dead`) `LINEAR_WORKSPACES` does not admit is a soft gate.
+     While a URL-key entry is still unpinned, up to 5 of the active ones, those
+     checked longest ago first, get their current URL key read from Linear
+     (`identity_reads`, each answer waited for 10 s at most and never past the
+     deadline; admitted again → `reAdmittedWorkspaces`, an info line). Otherwise
+     one warn per call names its id and the fix (add it back, or run `remove`),
+     it is counted (`notServedWorkspaces`), and the planner revokes, wipes, ends
+     and purges nothing of it by its own choice, so re-admitting it restores it
+     as it was. Its sessions stay unusable until then or until they expire (step
+     1).
 - The tick's summary lists cleanup's counts: expired sessions (and failed
   revocations) and old webhook delivery records always; sessions of uninstalled
   or removed workspaces ended, workspaces purged, old notifications, old job
@@ -6487,10 +6510,12 @@ not read; a deploy that still sets it boots normally and logs one warning
   refuses the startup option. Migrations (`test/db.test.ts`): each one's
   backfills, and migration 6 converging from both texts of migration 5 (one
   `url_key` column, one `CHECK`, rows kept), migration 7's empty start column,
-  migration 8's empty `url_key_read_at`; `recordFullSyncStart` changing nothing
-  but its column and never moving back, `listWorkspaceStatus` ordering by the
-  later of start and finish, `updateInstallationIdentity` recording its read and
-  never applying an older one, and `describeSessions`' `signInUrlKey`,
+  migration 8's empty `url_key_read_at`, migration 9's checks (none tried, none
+  failed); `recordUrlKeyCheck` counting failures in a row, starting again after
+  one that worked and never moving its time back; `recordFullSyncStart` changing
+  nothing but its column and never moving back, `listWorkspaceStatus` ordering
+  by the later of start and finish, `updateInstallationIdentity` recording its
+  read and never applying an older one, and `describeSessions`' `signInUrlKey`,
   `signedInAt` and `urlKeyReadAt` (`test/store.test.ts`).
 - notify: rendering limits and Slack error mapping with a fake fetch.
 - engine: end-to-end with the fixture gateway + PGlite + a recording channel:
@@ -6594,7 +6619,10 @@ not read; a deploy that still sets it boots normally and logs one warning
   pinning an entry another org took after a rename that a sync read
   (`newerSignInUrlKey`), and never one pinned to another org, cleanup's identity
   read admitting a refused installation again with one app-token read, and
-  skipping the read without an unpinned entry or time, a failed one only warning
+  skipping the read without an unpinned entry or time, a failed one warning once
+  and then logged at info, the reads coming after the revocations (a slow answer
+  cannot cost an expired session its revocation), at most 5 per pass the ones
+  checked longest ago first, and an unanswered read given up after 10 s
   (`test/admission.test.ts`); cleanup's deadline: a slow revoke endpoint
   stopping it in time with every session it took revoked and the rest left for
   the next pass, no time left starting no revocation or purge while the

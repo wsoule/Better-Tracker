@@ -218,6 +218,7 @@ interface WorkspaceStatusRow {
   updated_at: DbTimestamp | null;
   revoked_at: DbTimestamp | null;
   revoked_reason: RevokedReason | null;
+  url_key_checked_at: DbTimestamp | null;
   session_count: number | null;
   session_workspace_name: string | null;
   session_url_key: string | null;
@@ -765,6 +766,7 @@ function workspaceStatusFromRow(row: WorkspaceStatusRow): WorkspaceStatus {
           updatedAt: toIso(row.updated_at),
           revokedAt: toIsoOrNull(row.revoked_at),
           revokedReason: row.revoked_reason,
+          urlKeyCheckedAt: toIsoOrNull(row.url_key_checked_at),
         };
   const sync =
     row.sync_workspace_id === null || row.version === null
@@ -1053,6 +1055,22 @@ class SqlStore implements Store {
     return rows[0]?.changed === true;
   }
 
+  async recordUrlKeyCheck(
+    workspaceId: string,
+    check: { at: IsoDateTime; ok: boolean }
+  ): Promise<number> {
+    const rows = await this.write<{ failures: number }>(
+      `UPDATE installations SET
+         url_key_checked_at = GREATEST(url_key_checked_at, $2::timestamptz),
+         url_key_check_failures = CASE WHEN $3::boolean THEN 0
+           ELSE url_key_check_failures + 1 END
+       WHERE workspace_id = $1
+       RETURNING url_key_check_failures AS failures`,
+      [workspaceId, check.at, check.ok]
+    );
+    return Number(rows[0]?.failures ?? 0);
+  }
+
   /**
    * Holds `SELECT … FOR UPDATE` on the installation row while fn runs, and
    * writes fn's rotated tokens in the same transaction, so a concurrent
@@ -1163,7 +1181,7 @@ class SqlStore implements Store {
        SELECT ids.workspace_id,
          i.workspace_name AS installation_name, i.url_key, i.app_user_id,
          i.installed_by_user_id, i.created_at AS installed_at, i.updated_at,
-         i.revoked_at, i.revoked_reason,
+         i.revoked_at, i.revoked_reason, i.url_key_checked_at,
          s.session_count, s.session_workspace_name, s.session_url_key,
          st.workspace_id AS sync_workspace_id, st.version,
          st.last_full_sync_at, st.last_full_sync_status,
