@@ -3,7 +3,9 @@ import { describe, expect, test } from 'bun:test';
 import {
   daysLeftPhrase,
   dueLabel,
+  formatClock,
   formatDate,
+  formatInstant,
   formatLongDate,
   greeting,
   plural,
@@ -60,5 +62,21 @@ describe('format', () => {
     expect(greeting(9)).toBe('Good morning');
     expect(greeting(13)).toBe('Good afternoon');
     expect(greeting(20)).toBe('Good evening');
+  });
+
+  // ICU versions disagree on the glue between date and time ("Oct 21, 3:04"
+  // in Node, "Oct 21 at 3:04" in Bun on macOS 26) and on the space before
+  // AM/PM (U+202F in Node), so the same instant must read the same on
+  // every host.
+  test('formatInstant and formatClock write the same text on every ICU', () => {
+    const iso = '2026-10-21T15:04:00.000Z';
+    expect(formatInstant(iso, 'UTC')).toBe('Oct 21, 3:04 PM UTC');
+    expect(formatInstant(iso, 'America/Denver')).toBe('Oct 21, 9:04 AM MDT');
+    expect(formatInstant('2026-10-21T00:05:00.000Z', 'UTC')).toBe(
+      'Oct 21, 12:05 AM UTC'
+    );
+    expect(formatInstant('not a date', 'UTC')).toBe('not a date');
+    expect(formatClock(iso, 'UTC')).toBe('3:04 PM');
+    expect(formatClock('not a date', 'UTC')).toBe('not a date');
   });
 });

@@ -103,18 +103,36 @@ export function greeting(hour: number): string {
   return 'Good evening';
 }
 
-/** "Oct 21, 3:04 PM UTC"-style timestamp for logs and run lists. */
-export function formatInstant(iso: string, timeZone: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return new Intl.DateTimeFormat('en-US', {
+/**
+ * The month, day, hour, minute, AM/PM and zone of an instant in `timeZone`,
+ * as separate strings. Only the parts come from Intl: the glue between them
+ * differs by ICU version ("Oct 21, 3:04" in Node, "Oct 21 at 3:04" in Bun
+ * on macOS 26, and U+202F before AM/PM in Node), so formatInstant and
+ * formatClock join them themselves and read the same on every host, server
+ * render and browser alike.
+ */
+function instantParts(date: Date, timeZone: string): Record<string, string> {
+  const parts: Record<string, string> = {};
+  for (const part of new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+    hourCycle: 'h12',
     timeZone,
     timeZoneName: 'short',
-  }).format(date);
+  }).formatToParts(date)) {
+    parts[part.type] = part.value;
+  }
+  return parts;
+}
+
+/** "Oct 21, 3:04 PM UTC"-style timestamp for logs and run lists. */
+export function formatInstant(iso: string, timeZone: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const p = instantParts(date, timeZone);
+  return `${p.month} ${p.day}, ${p.hour}:${p.minute} ${p.dayPeriod} ${p.timeZoneName}`;
 }
 
 /** "9:12 AM"-style clock time in `timeZone`, as formatInstant writes it
@@ -122,11 +140,8 @@ export function formatInstant(iso: string, timeZone: string): string {
 export function formatClock(iso: string, timeZone: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return new Intl.DateTimeFormat('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone,
-  }).format(date);
+  const p = instantParts(date, timeZone);
+  return `${p.hour}:${p.minute} ${p.dayPeriod}`;
 }
 
 /** Whether two instants fall on the same calendar day in `timeZone`. */
