@@ -52,9 +52,9 @@ const AUTH_ERROR_MESSAGE: Record<string, string> = {
     'That tab showed another workspace than the one this browser has open now (it switched in another tab), so Linear was not asked. Switch back to that workspace and try again.',
   linear_unauthorized:
     'Linear refused the planner’s credentials. The person who runs it needs to check its Linear OAuth app.',
-  // Rate limits (lib/rate-limit.ts): the OAuth start, switch and sign-out.
+  // Rate limits (lib/rate-limit.ts): the OAuth start and the switch.
   auth_rate_limited:
-    'Too many sign-in, switch or sign-out requests came from this network in the last few minutes. Wait a few minutes, then try again.',
+    'Too many sign-in or workspace switch requests came from this network in the last few minutes. Wait a few minutes, then try again.',
   internal: 'Something went wrong on the server. It was logged; try again.',
 };
 

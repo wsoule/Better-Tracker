@@ -3187,38 +3187,44 @@ use the planner, design doc §12; binding):
   most `limit` timestamps, so memory stays bounded. A refused hit is not
   counted.
 
-  | what                                  | key       | limit       | over it                                                          |
-  | ------------------------------------- | --------- | ----------- | ---------------------------------------------------------------- |
-  | `GET /api/auth/linear` (OAuth mode)   | client IP | 30 / 10 min | 303 `/?auth_error=auth_rate_limited` with `Retry-After`          |
-  | `POST /api/auth/switch`               | client IP | 60 / 10 min | JSON 429 `rate_limited`, a form post the 303 above               |
-  | `POST /api/auth/logout` (OAuth mode)  | client IP | 60 / 10 min | the 303 above                                                    |
-  | `POST /api/runs`                      | session   | 6 / 10 min  | 429 `rate_limited` with `Retry-After` and a sentence saying when |
-  | `POST /api/warnings/preview`          | session   | 20 / 10 min | the same                                                         |
-  | every other API PATCH, POST or DELETE | session   | 300 / min   | the same                                                         |
-  | refused webhook deliveries            | client IP | 100 / min   | a bare 429 with `Retry-After`                                    |
+  | what                                  | key       | limit        | over it                                                          |
+  | ------------------------------------- | --------- | ------------ | ---------------------------------------------------------------- |
+  | `GET /api/auth/linear` (OAuth mode)   | client IP | 120 / 10 min | 303 `/?auth_error=auth_rate_limited` with `Retry-After`          |
+  | `POST /api/auth/switch`               | client IP | 60 / 10 min  | JSON 429 `rate_limited`, a form post the 303 above               |
+  | `POST /api/runs`                      | session   | 6 / 10 min   | 429 `rate_limited` with `Retry-After` and a sentence saying when |
+  | `POST /api/warnings/preview`          | session   | 20 / 10 min  | the same                                                         |
+  | every other API PATCH, POST or DELETE | session   | 300 / min    | the same                                                         |
+  | refused webhook deliveries            | client IP | 100 / min    | a bare 429 with `Retry-After`                                    |
   - **The per-session limits apply in every mode** (OAuth, personal API keys and
     the demo); the IP limits are OAuth mode's (switching exists only there).
+  - **One IP is often many people** (an office, campus or carrier NAT), so the
+    OAuth start allows 120 per 10 minutes (the spec's 30 would lock out a team
+    signing in together, as everyone does once after the cookie rename, with
+    connects and Allow edits counted too): it only stops a script hammering the
+    redirect to Linear.
   - **The client IP is Railway's `X-Real-IP` only** (`clientIp`; never
     `X-Forwarded-For`, which a client can set). A request without a usable one
     is not limited by IP at all (Railway always sets it; a local run and the
     browser suites have none), so no shared bucket can lock everyone out.
   - **Never limited**: the OAuth callback (a refusal there would burn Linear's
     single-use code); `POST /api/auth/demo` (demo mode only, whose live showcase
-    visitors and browser suite share addresses); the demo-mode and api_key-mode
-    sign-outs (api_key mode's forgets keys and is never refused; its connect
-    form keeps its own limits, below); every read (GET, HEAD); and **a webhook
-    delivery with a valid signature**, even from an IP over the limit (Linear's
-    senders are shared by every Linear customer, so an outsider's refusals must
-    not hold back real deliveries). Only refusals count: a missing or bad
-    signature and an oversize body; a signed delivery refused later (a stale
-    timestamp) does not.
+    visitors and browser suite share addresses); **every sign-out, in every
+    mode** (`POST /api/auth/logout`: a stranger on the same public IP could
+    otherwise make Sign out fail and leave a session and its Linear grant alive
+    on a shared computer; api_key mode's forgets keys; its connect form keeps
+    its own limits, below); every read (GET, HEAD); and **a webhook delivery
+    with a valid signature**, even from an IP over the limit (Linear's senders
+    are shared by every Linear customer, so an outsider's refusals must not hold
+    back real deliveries). Only refusals count: a missing or bad signature and
+    an oversize body; a signed delivery refused later (a stale timestamp) does
+    not.
   - **Order**: the auth routes count after their mode check and (POST) the
     origin check; `requireApiActor` counts a mutation after the CSRF guard, the
     session and the 409 `workspace_changed` check, keyed by the session's
     internal id (never its cookie value), so a signed-out, cross-origin or
     stale-tab request is answered first and never counts. `/api/sync` keeps its
     one-per-minute cooldown on top. The landing page says `auth_rate_limited` in
-    words ("Too many sign-in, switch or sign-out requests came from this network
+    words ("Too many sign-in or workspace switch requests came from this network
     in the last few minutes. Wait a few minutes, then try again."; signed in,
     Gr8r's full-page state "That did not go through.").
 
@@ -6402,42 +6408,43 @@ not read; a deploy that still sets it boots normally and logs one warning
   most `limit` timestamps, `X-Real-IP` alone and shape-checked, no IP no limit,
   the numbers of every rule, the per-session rule by method and path, the 429
   and 303 answers); `test/rate-limit-routes.test.ts` (the real auth routes over
-  the auth fake engine: the 31st OAuth start from one IP lands on
+  the auth fake engine: the 121st OAuth start from one IP lands on
   `/?auth_error=auth_rate_limited` with Retry-After while another IP and no IP
   go on, the callback never limited even from an IP over the start limit, the
   61st switch a JSON 429 or a form 303, a cross-origin switch refused before it
-  counts, the 61st OAuth sign-out limited and demo and api_key sign-outs never,
-  100 demo sign-ins from one IP all through; `requireApiActor`'s 6 runs, 20
-  previews and 300 other mutations per session, reads never, another session
-  apart, signed-out, cross-origin and stale-tab requests answered first and
-  never counted); `test/webhook-route.test.ts` (no secret 503 and no signature
-  400 before the body is read, the 1 MiB cap declared or streamed, the 101st
-  refusal from an IP a bare 429 with Retry-After whatever it sends unsigned,
-  another IP apart, a signed delivery never limited or counted even from an IP
-  over the limit, no IP never limited); `test/health-route.test.ts` (ping true
-  200, false or a failed boot 503, never cached); `test/public-pages.test.tsx`
-  (the three pages and their layout render reading no cookie and touching
-  nothing of the engine but `config`, `mode` and `digestChannel`, the layout's
-  nonce on its script and the footer, `/contact` with and without `OPERATOR_*`,
-  every retention number equal to the engine's constants and `SESSION_DAYS`,
-  what is and is not stored, Slack named only with `slack`, the api_key and demo
-  variants, the terms; the landing's hint, admin line, privacy link, operator
-  line and demo link, no Slack promise without a channel, the contact link on
-  `workspace_not_allowed`, `auth_rate_limited`'s sentence; the Settings copy);
-  `test/no-key-leak-static.test.ts` (the `(public)` layout among the four places
-  with an inline script, each nonced); `packages/engine`
-  `test/fail-safes.test.ts` (`digestChannel`: Slack while one workspace may be
-  served, the outbox after a second install, under `*` or a list of several, or
-  with a channel that does not deliver, Slack named when the store cannot be
-  read); `packages/ui` `test/shell-ssr.test.tsx` (`SignedOutFrame`'s footer
-  links in a named landmark). In the browser, `e2e/smoke.e2e.ts` checks with
-  `e2e/csp-nonce.ts` (`expectScriptsNonced(response, label)`: the single nonce
-  of the response's CSP with `'strict-dynamic'`, and every `<script>` tag of the
-  raw HTML carrying it; spec-facing, it imports only `@playwright/test`, so the
-  OAuth suite can use it too) that every screen it opens signed in, the landing,
-  `/privacy`, `/terms` and `/contact` signed out carry the nonce on every
-  script, that the public pages show their heading and the footer links, and
-  that the landing's Privacy link opens the demo's privacy page.
+  counts, no sign-out ever limited in any mode (200 from one IP, then one with
+  live sessions still ends them), 100 demo sign-ins from one IP all through;
+  `requireApiActor`'s 6 runs, 20 previews and 300 other mutations per session,
+  reads never, another session apart, signed-out, cross-origin and stale-tab
+  requests answered first and never counted); `test/webhook-route.test.ts` (no
+  secret 503 and no signature 400 before the body is read, the 1 MiB cap
+  declared or streamed, the 101st refusal from an IP a bare 429 with Retry-After
+  whatever it sends unsigned, another IP apart, a signed delivery never limited
+  or counted even from an IP over the limit, no IP never limited);
+  `test/health-route.test.ts` (ping true 200, false or a failed boot 503, never
+  cached); `test/public-pages.test.tsx` (the three pages and their layout render
+  reading no cookie and touching nothing of the engine but `config`, `mode` and
+  `digestChannel`, the layout's nonce on its script and the footer, `/contact`
+  with and without `OPERATOR_*`, every retention number equal to the engine's
+  constants and `SESSION_DAYS`, what is and is not stored, Slack named only with
+  `slack`, the api_key and demo variants, the terms; the landing's hint, admin
+  line, privacy link, operator line and demo link, no Slack promise without a
+  channel, the contact link on `workspace_not_allowed`, `auth_rate_limited`'s
+  sentence; the Settings copy); `test/no-key-leak-static.test.ts` (the
+  `(public)` layout among the four places with an inline script, each nonced);
+  `packages/engine` `test/fail-safes.test.ts` (`digestChannel`: Slack while one
+  workspace may be served, the outbox after a second install, under `*` or a
+  list of several, or with a channel that does not deliver, Slack named when the
+  store cannot be read); `packages/ui` `test/shell-ssr.test.tsx`
+  (`SignedOutFrame`'s footer links in a named landmark). In the browser,
+  `e2e/smoke.e2e.ts` checks with `e2e/csp-nonce.ts`
+  (`expectScriptsNonced(response, label)`: the single nonce of the response's
+  CSP with `'strict-dynamic'`, and every `<script>` tag of the raw HTML carrying
+  it; spec-facing, it imports only `@playwright/test`, so the OAuth suite can
+  use it too) that every screen it opens signed in, the landing, `/privacy`,
+  `/terms` and `/contact` signed out carry the nonce on every script, that the
+  public pages show their heading and the footer links, and that the landing's
+  Privacy link opens the demo's privacy page.
 - planner (issue list): `test/adapters-issue-list.test.ts` (the URL grammar:
   canonical order, defaults left out, `state=all`, `me` and `none`, dropped
   values, the 50-value and 200-character caps, `limit` steps, invalid section

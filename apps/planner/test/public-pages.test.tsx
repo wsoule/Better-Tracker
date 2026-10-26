@@ -431,7 +431,7 @@ describe('the landing page for strangers', () => {
         searchParams: Promise.resolve({ auth_error: 'auth_rate_limited' }),
       })
     );
-    expect(text(limited)).toContain('Too many sign-in, switch or sign-out');
+    expect(text(limited)).toContain('Too many sign-in or workspace switch');
   });
 
   test('operatorLine says nothing without OPERATOR_NAME', () => {

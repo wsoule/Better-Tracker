@@ -484,27 +484,31 @@ it only while a deploy goes live. For continuous monitoring, point an external
 uptime check at it.
 
 **Rate limits** (arch §8.1 "Rate limits"). The web service limits, per client
-IP, OAuth sign-in starts (30 per 10 minutes), workspace switches and sign-outs
-(60 per 10 minutes each) and refused webhook deliveries (100 a minute; a
-delivery Linear signed is never limited), and, per session, allocation runs (6
-per 10 minutes), digest previews (20 per 10 minutes) and every other change (300
-a minute). Sign-in callbacks and the demo sign-in are never limited. The counts
-live in the web process's memory: each replica counts on its own and a redeploy
+IP, OAuth sign-in starts (120 per 10 minutes), workspace switches (60 per 10
+minutes) and refused webhook deliveries (100 a minute; a delivery Linear signed
+is never limited), and, per session, allocation runs (6 per 10 minutes), digest
+previews (20 per 10 minutes) and every other change (300 a minute). Sign-in
+callbacks, sign-outs and the demo sign-in are never limited. One address is
+often a whole office, campus or mobile carrier behind NAT: the start limit is
+set for a team signing in together (everyone does once after this release
+renames the cookies, and connecting a workspace or allowing edits counts as a
+start), so a lockout there means a script, not a busy morning. The counts live
+in the web process's memory: each replica counts on its own and a redeploy
 forgets them. The client IP is Railway's `X-Real-IP` header and nothing else; a
 request without one is not limited by IP.
 
 **Check once that `X-Real-IP` cannot be spoofed.** The limits rely on Railway's
 edge setting `X-Real-IP` to the real client address, replacing whatever a client
-sent. From one machine, send 31 sign-in starts, each claiming another address:
+sent. From one machine, send 121 sign-in starts, each claiming another address:
 
 ```bash
-for i in $(seq 1 31); do
+for i in $(seq 1 121); do
   curl -s -o /dev/null -w '%{redirect_url}\n' \
     -H "X-Real-IP: 198.51.100.$i" "$APP_URL/api/auth/linear?intent=signin"
 done | tail -1
 ```
 
-The last line must end in `/?auth_error=auth_rate_limited`: the 31st start was
+The last line must end in `/?auth_error=auth_rate_limited`: the 121st start was
 counted against your real address, so the forged header was ignored. If it is
 Linear's authorize URL instead, the header reached the planner as sent and the
 IP limits can be bypassed; do not open the planner to strangers until that is

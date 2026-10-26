@@ -53,7 +53,7 @@ import { signValue } from '../../../../lib/signed-cookie';
  * add_workspace (connect another workspace) is a sign-in that asks Linear
  * for its consent screen again; it works signed in or out, and is refused
  * with too_many_workspaces while the browser holds 10. Demo mode and
- * personal API keys have no OAuth and go home. More than 30 starts in 10
+ * personal API keys have no OAuth and go home. More than 120 starts in 10
  * minutes from one client IP land on /?auth_error=auth_rate_limited.
  */
 export async function GET(request: Request): Promise<Response> {
@@ -62,7 +62,7 @@ export async function GET(request: Request): Promise<Response> {
   // Demo mode has no OAuth; with personal API keys OAuth is off too.
   if (scheme.mode !== 'oauth') return redirectWithCookies('/');
   const housekeeping = legacyCookieClears(scheme);
-  // 30 starts per 10 minutes per client IP (lib/rate-limit.ts); the
+  // 120 starts per 10 minutes per client IP (lib/rate-limit.ts); the
   // callback is never limited, since a refusal there would burn Linear's
   // single-use code.
   const limited = limitByIp(request, RATE_LIMITS.oauthStart);

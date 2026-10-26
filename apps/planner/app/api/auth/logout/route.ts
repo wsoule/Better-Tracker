@@ -15,11 +15,6 @@ import {
   without,
 } from '../../../../lib/held-sessions';
 import { rejectCrossOrigin } from '../../../../lib/origin';
-import {
-  limitByIp,
-  RATE_LIMITS,
-  rateLimitedRedirect,
-} from '../../../../lib/rate-limit';
 import { getEngine } from '../../../../lib/runtime';
 import {
   activeSessionToken,
@@ -80,13 +75,9 @@ export async function POST(request: Request): Promise<Response> {
     if (token !== undefined) await signOutQuietly(engine, token);
     return redirectWithCookies('/', clearSessionCookies(scheme));
   }
-  // OAuth mode: 60 sign-outs per 10 minutes per client IP
-  // (lib/rate-limit.ts). Demo mode is exempt like its sign-in (the live
-  // showcase and the browser suite share addresses), and api_key mode's
-  // sign-out, which forgets keys, is never refused.
-  const limited = limitByIp(request, RATE_LIMITS.signOut);
-  if (limited !== null) return rateLimitedRedirect(limited.retryAfterSeconds);
-
+  // Never rate-limited, in any mode: someone sharing this browser's
+  // public IP could otherwise make Sign out fail and leave the session and
+  // its Linear grant alive (lib/rate-limit.ts).
   let fields: Record<string, unknown> = {};
   try {
     fields = Object.fromEntries((await request.formData()).entries());
