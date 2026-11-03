@@ -1,5 +1,10 @@
 # Milestone Planner (TypeScript monorepo)
 
+**Sunset (2026-11-03): this repository is read-only.** Its UI library and
+planning views moved into Dispatch (`wsoule/dispatch`: `packages/ui`,
+`packages/planning`, `apps/desktop`). Do not build features here; make UI and
+planning changes in Dispatch. The rules below describe the code as it was left.
+
 ## Project
 
 - The product design is `docs/design/2026-10-21-milestone-planner-design.md`.
