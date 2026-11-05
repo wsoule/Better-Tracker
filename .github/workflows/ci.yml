@@ -30,7 +30,9 @@ jobs:
   # typechecks), and restores unchanged work from the moon cache.
   ci:
     name: Build, test, lint
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, where the Playwright this repo
+    # pins (1.56.1) refuses to install Chromium's system dependencies.
+    runs-on: ubuntu-24.04
     # A real Postgres so the store's node-postgres suites (row and advisory
     # locks, isolation levels, the concurrent-migration race) run in CI, not
     # only the PGlite ones. Production uses node-postgres.
