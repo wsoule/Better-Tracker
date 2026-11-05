@@ -1,5 +1,13 @@
 # Milestone Planner
 
+> **Sunset (2026-11-03).** Better-Tracker is no longer developed. Its Gr8r
+> component library and its planning views (issue list, timeline, dependency
+> graph, projects register, task slide-over and page) moved into
+> [Dispatch](https://github.com/wsoule/dispatch), where they are `packages/ui`
+> (`@dispatch/ui`), `packages/planning` (`@dispatch/planning`) and the desktop
+> app in `apps/desktop`, fed by Dispatch's own data. This repository stays as a
+> read-only reference; send new work to Dispatch.
+
 A planning layer over Linear that **does the allocation and the noticing**:
 
 - **My week**: every person sees their open issues grouped by milestone and
