@@ -8,9 +8,9 @@ import { expectScriptsNonced } from './csp-nonce';
 // behaviour (focus on a swap, Esc with unsaved text) holds in a real
 // browser, the dependency graph drills from initiatives down and back up
 // (owner decision 2026-10-22, graphs at every level), draws every item of
-// its scope in frames by parent (owner decision 2026-10-23) and highlights
-// what can start, both paths and the critical path (owner request
-// 2026-10-22, graph highlights), and the demo's Linear guest gets a
+// its scope (owner decision 2026-10-23) in Vadim's chart, which traces a
+// box's upstream and downstream and highlights the critical path, and the
+// demo's Linear guest gets a
 // read-only planner
 // (owner decision 2026-10-22, "Guests limited to read only") whose graphs
 // fall back to the projects he can see. A return path that normalises to
@@ -144,22 +144,26 @@ test('a link whose return path normalises to another host stays on the planner',
   expect(offsite).toEqual([]);
 });
 
+/** A drawn chart box by its graph node id ("iss-eng-12"). */
+const chartBox = (page: Page, id: string) =>
+  page.locator(`[data-chart-node="${id}"]`);
+
+/** The inspector beside (or under) the chart. */
+const inspector = (page: Page) => page.locator('[data-chart-inspector]');
+
 test('the graph drills from initiatives to projects and back up', async ({
   page,
 }) => {
   await page.goto('/graph?level=initiative');
-  // A click locks the box; a second click on it opens its panel.
-  const platform = page.getByRole('button', {
-    name: /^Platform reliability\./,
-  });
-  await platform.click();
-  await expect(platform).toHaveAttribute('aria-pressed', 'true');
-  await expect(page).toHaveURL(/\/graph\?level=initiative&lock=init-platform$/);
-  await platform.click();
-  await page
-    .getByRole('dialog')
-    .getByRole('link', { name: 'Projects in Platform reliability' })
-    .click();
+  // A click traces the box and fills the inspector; a double-click on a
+  // container drills into its own graph.
+  const platform = chartBox(page, 'init-platform');
+  await platform.getByRole('button').click();
+  await expect(platform).toHaveAttribute('data-trace', 'sel');
+  await expect(
+    inspector(page).getByRole('heading', { name: 'Platform reliability' })
+  ).toBeVisible();
+  await platform.getByRole('button').dblclick();
   await expect(page).toHaveURL(/\/graph\?initiative=init-platform$/);
   await expect(page.locator('h1')).toHaveText(
     'Projects in Platform reliability'
@@ -173,45 +177,48 @@ test('the graph drills from initiatives to projects and back up', async ({
   await expect(page.locator('h1')).toHaveText('Dependencies');
 });
 
-test('the graph draws every item, framed by its parent', async ({ page }) => {
+test('the chart draws every container, and issues on a relation', async ({
+  page,
+}) => {
   // Compass's milestones wait on nothing: all three are drawn all the
-  // same, inside Compass's frame, each saying it has no dependencies.
+  // same, each saying it has no dependencies; Box by parent frames them.
   await page.goto('/graph?project=proj-compass&level=milestone');
-  await expect(page.locator('[data-graph-node]')).toHaveCount(3);
-  await expect(page.locator('[data-graph-cluster]')).toHaveCount(1);
-  await expect(page.locator('[data-graph-cluster-title]')).toHaveText(
+  await expect(page.locator('[data-chart-node]')).toHaveCount(3);
+  await expect(
+    page.getByRole('button', { name: /^Guided setup, .*No dependencies/ })
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Display' }).click();
+  await page.getByRole('switch', { name: 'Box by parent' }).click();
+  await expect(page.locator('[data-chart-group-title]')).toHaveText(
     'Compass onboarding'
   );
-  await expect(
-    page.getByRole('button', { name: /^Guided setup\..*no dependencies/ })
-  ).toBeVisible();
-  // At rest (signIn parked the pointer off the drawing, nothing has
-  // focus), so no box is pointed at and the readout sums up the graph.
-  await expect(page.locator('[data-graph-node][data-pointed]')).toHaveCount(0);
-  await expect(page.locator('[data-graph-readout]')).toContainText(
-    '3 with no dependencies'
-  );
-  // Something is drawn, so the level tabs sit in the canvas toolbar.
+  // Something is drawn, so the level tabs sit in the chart's toolbar.
   const tabs = page.getByRole('navigation', { name: 'Graph level' });
   await expect(tabs.getByRole('link', { name: 'Issues' })).toHaveAttribute(
     'href',
     '/graph?project=proj-compass'
   );
 
-  // The workspace's issue level: every issue, done ones included, in a
-  // frame per milestone (or "No milestone") inside one per project, and
-  // "No project". Those on no relation are neutral, with no chip.
+  // The workspace's issue level follows Vadim's chart: the 9 issues on a
+  // blocking relation, the other 42 one toggle away (the inspector says
+  // so), then every issue in its frames.
   await page.goto('/graph?level=issue');
-  await expect(page.locator('[data-graph-node]')).toHaveCount(51);
-  await expect(page.locator('[data-graph-cluster]')).toHaveCount(28);
-  await expect(page.locator('[data-readiness="independent"]')).toHaveCount(36);
-  await expect(
-    page.locator('[data-readiness="independent"] [data-readiness-chip]')
-  ).toHaveCount(0);
+  await expect(page.locator('[data-chart-node]')).toHaveCount(9);
+  await expect(page.locator('[data-chart-edge]')).toHaveCount(6);
+  await expect(inspector(page)).toContainText(
+    '42 issues with no blocking relation either way are left off'
+  );
+  await inspector(page).getByRole('button', { name: 'Show unlinked' }).click();
+  await expect(page.locator('[data-chart-node]')).toHaveCount(51);
+  await page.getByRole('button', { name: 'Display' }).click();
+  await page.getByRole('switch', { name: 'Box by parent' }).click();
+  await expect(page.locator('[data-chart-group]')).toHaveCount(28);
   await expect(page.locator('h1 + p')).toHaveText(
     /^51 issues in the workspace, 45 of them in 16 milestones; 6 blocking relations/
   );
-  await expect(page.getByText('no blocking relations')).toHaveCount(0);
+  // The display choices are remembered for this scope.
+  await page.reload();
+  await expect(page.locator('[data-chart-node]')).toHaveCount(51);
 });
 
 test('an empty graph says so, with nothing to highlight', async ({ page }) => {
@@ -220,10 +227,8 @@ test('an empty graph says so, with nothing to highlight', async ({ page }) => {
   await expect(
     page.getByText('No issues in Push notifications.')
   ).toBeVisible();
-  await expect(page.locator('[data-graph-node]')).toHaveCount(0);
-  await expect(page.getByRole('radiogroup', { name: 'Highlight' })).toHaveCount(
-    0
-  );
+  await expect(page.locator('[data-chart-node]')).toHaveCount(0);
+  await expect(page.locator('[data-chart-preset]')).toHaveCount(0);
 });
 
 test('a milestone drawer opens what it waits on as a graph', async ({
@@ -235,14 +240,15 @@ test('a milestone drawer opens what it waits on as a graph', async ({
     .getByRole('link', { name: 'What it waits on' })
     .click();
   await expect(page).toHaveURL(/\/graph\?node=ms-beacon-1$/);
-  // Arriving with ?node= selects the box (its paths lit at rest) and opens
-  // its panel; it locks nothing.
-  const beacon = page.getByRole('button', { name: /^Search v2 beta\./ });
-  await expect(beacon).toHaveAttribute('data-state', 'active');
-  await expect(beacon).toHaveAttribute('aria-pressed', 'false');
-  await expect(page.getByRole('dialog')).toBeVisible();
-  // The box panel's own parts: where it stands in one line, where to
-  // start upstream, what finishing it would clear, the box-arrow caveat.
+  // Arriving with ?node= traces the box and opens its details panel.
+  await expect(chartBox(page, 'ms-beacon-1')).toHaveAttribute(
+    'data-trace',
+    'sel'
+  );
+  await expect(chartBox(page, 'ms-atlas-2')).toHaveAttribute(
+    'data-trace',
+    'up'
+  );
   const panel = page.getByRole('dialog');
   await expect(panel).toContainText(
     'Waits on 1 · Holds up 1 · Finishing it would clear 1'
@@ -250,382 +256,86 @@ test('a milestone drawer opens what it waits on as a graph', async ({
   await expect(
     panel.getByRole('button', { name: 'Show Dual-write, Start here' })
   ).toBeVisible();
-  await expect(
-    panel.getByRole('button', { name: 'Show Tokens and type, Clear next' })
-  ).toBeVisible();
-  await expect(panel).toContainText(
-    'Box paths follow the arrows between boxes: an arrow in and an arrow out may be different issues.'
-  );
-  // Under Critical path it says its step on the longest chain through it.
-  await page.goto('/graph?node=ms-beacon-1&highlight=critical');
-  await expect(page.getByRole('dialog')).toContainText(
-    'Step 2 of 3 (Dual-write → Search v2 beta → Tokens and type)'
-  );
+  // The inspector's Details reopens it once closed.
+  await panel.getByRole('button', { name: /close/i }).first().click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await inspector(page).getByRole('button', { name: 'Details' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Search v2 beta');
 });
 
-// The graph highlights (architecture §8.4 "Graph"): each test is a fresh
-// browser context, so no graph-highlight cookie carries over between them
-// and the anchored URL assertions elsewhere still hold.
-test.describe('graph highlights', () => {
-  /** A drawn box by its graph node id ("iss-eng-12"). */
-  const box = (page: Page, id: string) =>
-    page.locator(`[data-graph-node="${id}"]`);
-
-  test('a chain reads its focus and lights both paths on hover and focus', async ({
-    page,
-  }) => {
-    // At rest: signIn parked the pointer off the drawing.
-    await page.goto('/graph?chain=ENG-23');
-    const frame = page.locator('[data-highlight]');
-    await expect(frame).toHaveAttribute('data-highlight', 'status');
-    await expect(
-      page
-        .getByRole('radiogroup', { name: 'Highlight' })
-        .getByRole('radio', { name: 'Status' })
-    ).toHaveAttribute('aria-checked', 'true');
-    // At rest the readout describes the chain's focus.
-    const readout = page.locator('[data-graph-readout]');
-    await expect(readout).toHaveText(
-      'ENG-23 · Blocked by 1 · Waits on 1 open, start with ENG-12 · Holds up 1 · Done would unblock 1: OPS-20'
-    );
-    await expect(box(page, 'iss-eng-12')).toHaveAttribute(
-      'data-readiness',
-      'ready'
-    );
-    // Pointing at ENG-12 lights what it holds up, and marks what
-    // finishing it alone would unblock.
-    await box(page, 'iss-eng-12').hover();
-    await expect(box(page, 'iss-eng-12')).toHaveAttribute(
-      'data-state',
-      'active'
-    );
-    await expect(box(page, 'iss-eng-23')).toHaveAttribute('data-state', 'down');
-    await expect(box(page, 'iss-ops-20')).toHaveAttribute('data-state', 'down');
-    await expect(box(page, 'iss-eng-23')).toHaveAttribute('data-next', '');
-    await expect(box(page, 'iss-eng-23').getByText('Ready next')).toBeVisible();
-    await expect(readout).toHaveText(
-      'ENG-12 · Ready · Nothing open blocks it · Holds up 2 · Done would unblock 1: ENG-23'
-    );
-    // Keyboard focus lights what it waits on, in the other style.
-    await page.mouse.move(0, 0);
-    await box(page, 'iss-ops-20').focus();
-    await expect(box(page, 'iss-eng-23')).toHaveAttribute('data-state', 'lit');
-    await expect(box(page, 'iss-eng-12')).toHaveAttribute('data-state', 'lit');
-  });
-
-  test('Critical path is kept in the URL, across a reload and to the next graph', async ({
-    page,
-  }) => {
-    await page.goto('/graph?chain=ENG-23');
-    const switcher = page.getByRole('radiogroup', { name: 'Highlight' });
-    await switcher.getByRole('radio', { name: 'Critical path' }).click();
-    await expect(page).toHaveURL(/\/graph\?chain=ENG-23&highlight=critical$/);
-    const frame = page.locator('[data-highlight]');
-    await expect(frame).toHaveAttribute('data-highlight', 'critical');
-    const steps = async () =>
-      Promise.all(
-        ['iss-eng-12', 'iss-eng-23', 'iss-ops-20'].map((id) =>
-          box(page, id).getAttribute('data-step')
-        )
-      );
-    await expect.poll(steps).toEqual(['1', '2', '3']);
-    await expect(
-      page.getByRole('group', { name: 'Graph legend: Critical path' })
-    ).toBeVisible();
-    // Copy Mermaid follows the highlight.
-    await expect(
-      page.locator('pre').filter({ hasText: 'flowchart LR' })
-    ).toContainText('%% Critical path:');
-
-    await page.reload();
-    await expect(frame).toHaveAttribute('data-highlight', 'critical');
-    await expect.poll(steps).toEqual(['1', '2', '3']);
-
-    // The cookie carries it to a graph whose link says nothing about it,
-    // and the address bar then says so too.
-    await page
-      .getByRole('navigation', { name: 'Graph scope' })
-      .getByRole('link', { name: 'Workspace' })
-      .click();
-    await expect(page).toHaveURL(
-      /\/graph\?level=initiative&highlight=critical$/
-    );
-    await expect(
-      switcher.getByRole('radio', { name: 'Critical path' })
-    ).toHaveAttribute('aria-checked', 'true');
-
-    // Status is the default: choosing it drops the parameter.
-    await switcher.getByRole('radio', { name: 'Status' }).click();
-    await expect(page).toHaveURL(/\/graph\?level=initiative$/);
-    await expect(frame).toHaveAttribute('data-highlight', 'status');
-    await page.goto('/graph');
-    await expect(page).toHaveURL(/\/graph$/);
-    await expect(frame).toHaveAttribute('data-highlight', 'status');
-  });
-
-  test('the three highlights redraw every box in place', async ({ page }) => {
-    await page.goto('/graph?level=issue');
-    const frame = page.locator('[data-highlight]');
-    const switcher = page.getByRole('radiogroup', { name: 'Highlight' });
-    // Where each box sits on the canvas: a highlight never moves one.
-    const places = () =>
-      page
-        .locator('[data-graph-node]')
-        .evaluateAll((els) =>
-          els.map((el) =>
-            el instanceof HTMLElement
-              ? `${el.dataset.graphNode}@${el.style.left},${el.style.top}`
-              : ''
-          )
-        );
-    const before = await places();
-    expect(before).toHaveLength(51);
-    for (const [label, id] of [
-      ['Risk', 'risk'],
-      ['Critical path', 'critical'],
-      ['Status', 'status'],
-    ] as const) {
-      await switcher.getByRole('radio', { name: label }).click();
-      await expect(frame).toHaveAttribute('data-highlight', id);
-      await expect(
-        page.getByRole('group', { name: `Graph legend: ${label}` })
-      ).toBeVisible();
-      expect(await places()).toEqual(before);
-      if (id === 'critical') {
-        // At rest the longest chain is numbered: ENG-12 → ENG-23 → OPS-20.
-        await expect
-          .poll(() =>
-            Promise.all(
-              ['iss-eng-12', 'iss-eng-23', 'iss-ops-20'].map((node) =>
-                box(page, node).getAttribute('data-step')
-              )
-            )
-          )
-          .toEqual(['1', '2', '3']);
-        await expect(page.locator('[data-graph-readout]')).toContainText(
-          'Critical path: 3 issues, each waiting on the one before: ENG-12 → ENG-23 → OPS-20.'
-        );
-      }
-    }
-    // Pointing at ENG-12 lights what it holds up across the frames.
-    await box(page, 'iss-eng-12').hover();
-    await expect(box(page, 'iss-eng-23')).toHaveAttribute('data-state', 'down');
-    await expect(box(page, 'iss-ops-20')).toHaveAttribute('data-state', 'down');
-  });
-
-  test('switching the highlight never moves the switch or the drawing on the page', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1366, height: 900 });
-    await page.goto('/graph?level=issue');
-    const switcher = page.getByRole('radiogroup', { name: 'Highlight' });
-    // Page positions, not canvas ones: each mode's legend (under the
-    // drawing) has its own height, which must not move anything. (Critical
-    // path scrolls the frame only when no step of its path shows; here
-    // ENG-12, its step 1, does.)
-    const where = () =>
-      page.evaluate(() => {
-        const top = (selector: string) =>
-          Math.round(
-            document.querySelector(selector)?.getBoundingClientRect().top ?? -1
-          );
-        return [
-          top('[role="radiogroup"][aria-label="Highlight"]'),
-          top('[data-graph-node="iss-eng-12"]'),
-          top('[data-graph-viewport]'),
-        ];
-      });
-    // The drawing is on the page (streamed in) before anything is measured.
-    await expect(box(page, 'iss-eng-12')).toBeVisible();
-    const before = await where();
-    for (const label of ['Risk', 'Critical path', 'Status', 'Critical path']) {
-      await switcher.getByRole('radio', { name: label }).click();
-      await expect(
-        page.getByRole('group', { name: `Graph legend: ${label}` })
-      ).toBeVisible();
-      expect(await where()).toEqual(before);
-    }
-  });
-
-  test('Back and Forward show the highlight each history entry says', async ({
-    page,
-  }) => {
-    // Wide enough that the switch stays clear of the issue drawer.
-    await page.setViewportSize({ width: 1920, height: 1000 });
-    const frame = page.locator('[data-highlight]');
-    const switcher = page.getByRole('radiogroup', { name: 'Highlight' });
-    // Pick Risk, leave for the timeline, come back: Risk, as the entry says.
-    await page.goto('/graph?level=issue');
-    await switcher.getByRole('radio', { name: 'Risk' }).click();
-    await expect(page).toHaveURL(/\/graph\?level=issue&highlight=risk$/);
-    await page.getByRole('link', { name: 'Timeline' }).first().click();
-    await expect(page).toHaveURL(/\/timeline/);
-    await page.goBack();
-    await expect(page).toHaveURL(/\/graph\?level=issue&highlight=risk$/);
-    await expect(frame).toHaveAttribute('data-highlight', 'risk');
-    // Arrive on a shared Critical path link, pick Status, leave, come back:
-    // Status, never the first render's Critical path.
-    await page.goto('/graph?level=issue&highlight=critical');
-    await expect(frame).toHaveAttribute('data-highlight', 'critical');
-    await switcher.getByRole('radio', { name: 'Status' }).click();
-    await expect(page).toHaveURL(/\/graph\?level=issue$/);
-    await page.getByRole('link', { name: 'Timeline' }).first().click();
-    await expect(page).toHaveURL(/\/timeline/);
-    await page.goBack();
-    await expect(page).toHaveURL(/\/graph\?level=issue$/);
-    await expect(frame).toHaveAttribute('data-highlight', 'status');
-    // Inside the issue drawer: switch there, close, then Back to it.
-    await switcher.getByRole('radio', { name: 'Risk' }).click();
-    // A click locks the box, a second click opens it.
-    await box(page, 'iss-eng-23').click();
-    await box(page, 'iss-eng-23').click();
-    await expect(page).toHaveURL(/issue=ENG-23/);
-    await expect(page.getByRole('dialog')).toContainText('Typo tolerance');
-    await switcher.getByRole('radio', { name: 'Critical path' }).click();
-    await expect(page).toHaveURL(/issue=ENG-23&highlight=critical$/);
-    await page
-      .getByRole('dialog')
-      .getByRole('button', { name: /close/i })
-      .first()
-      .click();
-    await expect(page).not.toHaveURL(/issue=/);
-    await page.goBack();
-    await expect(page).toHaveURL(/issue=ENG-23&highlight=critical$/);
-    await expect(frame).toHaveAttribute('data-highlight', 'critical');
-  });
-
-  test('a switch while the drawer is on its way never cancels it', async ({
-    page,
-  }) => {
-    await page.setViewportSize({ width: 1920, height: 1000 });
-    await page.goto('/graph?level=issue');
-    // Hold the drawer's server round trip back, then switch inside it.
-    await page.route('**/*', async (route) => {
-      if (route.request().headers().rsc === '1') {
-        await new Promise((resolve) => setTimeout(resolve, 900));
-      }
-      await route.continue();
-    });
-    await box(page, 'iss-eng-23').click();
-    await box(page, 'iss-eng-23').click();
-    await page
-      .getByRole('radiogroup', { name: 'Highlight' })
-      .getByRole('radio', { name: 'Risk' })
-      .click();
-    await expect(page.getByRole('dialog')).toContainText('Typo tolerance');
-    await expect(page).toHaveURL(/issue=ENG-23&highlight=risk$/);
-    await expect(page.locator('[data-highlight]')).toHaveAttribute(
-      'data-highlight',
-      'risk'
-    );
-  });
-
-  test('a mode from a shared link survives a level tab; an explicit Status survives a reload', async ({
-    page,
-    context,
-  }) => {
-    // No cookie: a shared Critical path link, then a level tab.
-    await page.goto('/graph?level=issue&highlight=critical');
-    await page
-      .getByRole('navigation', { name: 'Graph level' })
-      .getByRole('link', { name: 'Milestones' })
-      .click();
-    await expect(page).toHaveURL(/\/graph\?highlight=critical$/);
-    await expect(page.locator('[data-highlight]')).toHaveAttribute(
-      'data-highlight',
-      'critical'
-    );
-    // A device that remembers Risk, opening a link that says Status.
-    await context.addCookies([
-      {
-        name: 'graph-highlight',
-        value: 'risk',
-        url: new URL('/graph', page.url()).toString(),
-      },
-    ]);
-    await page.goto('/graph?level=issue&highlight=status');
-    await expect(page).toHaveURL(/\/graph\?level=issue&highlight=status$/);
-    await page.reload();
-    await expect(page.locator('[data-highlight]')).toHaveAttribute(
-      'data-highlight',
-      'status'
-    );
-  });
-
-  test('?highlight= is read leniently and written back canonically', async ({
-    page,
-  }) => {
-    await page.goto('/graph?highlight=RISK');
-    await expect(page).toHaveURL(/\/graph\?highlight=risk$/);
-    await expect(page.locator('[data-highlight]')).toHaveAttribute(
-      'data-highlight',
-      'risk'
-    );
-    // Opening it from a link is not a switch: nothing is remembered, and
-    // a value that is no highlight reads as the default and is dropped.
-    await page.goto('/graph?level=issue&highlight=nonsense');
-    await expect(page).toHaveURL(/\/graph\?level=issue$/);
-    await expect(page.locator('[data-highlight]')).toHaveAttribute(
-      'data-highlight',
-      'status'
-    );
-  });
+test('a chain traces its issue; the critical path numbers its steps', async ({
+  page,
+}) => {
+  const errors = trackErrors(page);
+  await page.goto('/graph?chain=ENG-23');
+  // The chain's issue is traced on arrival: what it waits on and what it
+  // holds up.
+  await expect(chartBox(page, 'iss-eng-23')).toHaveAttribute(
+    'data-trace',
+    'sel'
+  );
+  await expect(chartBox(page, 'iss-eng-12')).toHaveAttribute(
+    'data-trace',
+    'up'
+  );
+  await expect(chartBox(page, 'iss-ops-20')).toHaveAttribute(
+    'data-trace',
+    'down'
+  );
+  await expect(page.locator('[data-chart-edge][data-tone="up"]')).toHaveCount(
+    1
+  );
+  await expect(page.locator('[data-chart-edge][data-tone="down"]')).toHaveCount(
+    1
+  );
+  // Critical path: the longest open chain, numbered.
+  await page.locator('[data-chart-preset="critical"]').click();
+  await expect(chartBox(page, 'iss-eng-12')).toHaveAttribute(
+    'data-trace',
+    'set'
+  );
+  await expect(inspector(page)).toContainText('Critical path · 3');
+  // Escape on the canvas lets it go.
+  await page.locator('[data-chart-stage]').focus();
+  await page.keyboard.press('Escape');
+  await expect(chartBox(page, 'iss-eng-12')).not.toHaveAttribute(
+    'data-trace',
+    /.*/
+  );
+  // Find (/) traces a box; Open issue opens its slide-over.
+  await page.keyboard.press('/');
+  await page
+    .getByRole('combobox', { name: 'Find on the chart' })
+    .fill('OPS-20');
+  await page.keyboard.press('Enter');
+  await expect(chartBox(page, 'iss-ops-20')).toHaveAttribute(
+    'data-trace',
+    'sel'
+  );
+  await inspector(page).getByRole('button', { name: 'Open issue' }).click();
+  await expect(page).toHaveURL(/\/graph\?chain=ENG-23&issue=OPS-20$/);
+  await expect(page.getByRole('dialog')).toContainText('Brand review sign-off');
+  expect(errors).toEqual([]);
 });
 
-// On a touch screen a tap locks a box (nothing opens) and a second tap on
-// the locked box opens it (owner request 2026-10-23, "lock on"; it used to
-// be a pin that only traced).
-test.describe('graph lock on a touch screen', () => {
+// On a phone the inspector moves under the canvas and a tap traces.
+test.describe('the chart on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
-  test('a tap locks, a second tap opens the issue', async ({ page }) => {
+  test('a tap traces a box, and the inspector follows', async ({ page }) => {
     await page.goto('/graph?chain=ENG-23');
-    const eng12 = page.locator('[data-graph-node="iss-eng-12"]');
-    await eng12.tap();
-    await expect(eng12).toHaveAttribute('data-locked', '');
-    await expect(eng12).toHaveAttribute('data-state', 'active');
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(page.locator('[data-graph-readout]')).toContainText(
-      'Locked on ENG-12'
-    );
-    await expect(page).toHaveURL(/\/graph\?chain=ENG-23&lock=ENG-12$/);
-    // Slower than a double tap: the second tap opens it.
-    await page.waitForTimeout(400);
-    await eng12.tap();
-    await expect(page).toHaveURL(/issue=ENG-12/);
-    await expect(page.getByRole('dialog')).toBeVisible();
-  });
-
-  test('a locked box is marked, and Escape or a tap on the background unlocks it', async ({
-    page,
-  }) => {
-    await page.goto('/graph?chain=ENG-23');
-    const eng23 = page.locator('[data-graph-node="iss-eng-23"]');
-    await eng23.tap();
-    await expect(eng23).toHaveAttribute('data-state', 'active');
-    // The box being read gets the accent flood on touch too, and the lock
-    // its strip.
-    await expect(eng23).toHaveAttribute('data-pointed', '');
+    const eng12 = chartBox(page, 'iss-eng-12');
+    await eng12.getByRole('button').tap();
+    await expect(eng12).toHaveAttribute('data-trace', 'sel');
     await expect(
-      page.locator('[data-graph-lock-strip="iss-eng-23"]')
+      inspector(page).getByRole('heading', {
+        name: /Reconcile dual-write drift/,
+      })
     ).toBeVisible();
-    await expect(
-      page.locator('[data-graph-node="iss-eng-12"]')
-    ).toHaveAttribute('data-state', 'lit');
-    await page.keyboard.press('Escape');
-    await expect(eng23).not.toHaveAttribute('data-state', /./);
-    await expect(eng23).not.toHaveAttribute('data-pointed', /.*/);
-    await expect(
-      page.locator('[data-graph-node="iss-eng-12"]')
-    ).not.toHaveAttribute('data-state', /./);
-    await expect(page).toHaveURL(/\/graph\?chain=ENG-23$/);
-    await eng23.tap();
-    await expect(eng23).toHaveAttribute('data-locked', '');
-    const viewport = page.locator('[data-graph-viewport]');
-    const frame = await viewport.boundingBox();
-    if (frame === null) throw new Error('no frame');
-    await page.touchscreen.tap(frame.x + frame.width - 12, frame.y + 12);
-    await expect(eng23).not.toHaveAttribute('data-locked', /.*/);
+    const stage = await page.locator('[data-chart-stage]').boundingBox();
+    const aside = await inspector(page).boundingBox();
+    if (stage === null || aside === null) throw new Error('not laid out');
+    expect(aside.y).toBeGreaterThanOrEqual(stage.y + stage.height - 1);
   });
 });
 
@@ -809,8 +519,8 @@ test.describe('a Linear guest', () => {
       0
     );
     // He sees no relation, but the four projects he can see are drawn.
-    await expect(page.locator('[data-graph-node]')).toHaveCount(4);
-    await expect(page.locator('[data-graph-cluster]')).toHaveCount(0);
+    await expect(page.locator('[data-chart-node]')).toHaveCount(4);
+    await expect(page.locator('[data-chart-group]')).toHaveCount(0);
     expect(errors).toEqual([]);
   });
 

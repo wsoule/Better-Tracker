@@ -34,7 +34,6 @@ import {
   type GraphClusterData,
   type GraphEdgeData,
   type GraphEdgeKind,
-  type GraphLayout,
   type GraphLegendItem,
   type GraphNodeData,
   type GraphNodeReadiness,
@@ -57,7 +56,6 @@ import {
 import { dueLabel, formatDate, plural } from '../format';
 import type { ReadOnlyReasonCopy } from '../read-only';
 import { drillTargets } from './graph-drill';
-import { cachedLayoutGraph } from './graph-layout-cache';
 import {
   chainHref,
   GRAPH_DRAW_LIMITS,
@@ -214,10 +212,6 @@ export interface GraphPageModel {
       DependencyGraph.clusters); empty at the initiative level, in a chain
       and when nothing is drawn. The canvas names each box's frames. */
   clusters: GraphClusterData[];
-  /** layoutGraph of nodes and edges (in the clusters, except for a
-      chain), computed on the server, or reused from cachedLayoutGraph
-      when the same drawing was laid out before. */
-  layout: GraphLayout | null;
   /** Slide-over details of the drawn nodes. */
   details: Record<string, GraphNodeDetail>;
   /** Set instead of nodes when the graph is past GRAPH_DRAW_LIMITS. */
@@ -2604,6 +2598,10 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
         tags: nodeTags(node),
         readiness: nodeReadiness(node),
       };
+      // An issue in a started workflow state: the chart's In progress.
+      if (node.kind === 'issue' && node.status === 'started' && node.open) {
+        data.inProgress = true;
+      }
       if (node.kind === 'issue') {
         const key = snapshot.issues.get(node.id)?.identifier;
         if (key !== undefined) data.key = key;
@@ -2875,15 +2873,6 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
 
   const initialSelectedId = drawn && arrival !== undefined ? arrival.id : null;
   const heading = graphHeading(snapshot, scope);
-  // A chain keeps its one dagre flow; every other scope is laid out in
-  // its frames (the initiative level's are none: its loose boxes pack).
-  const layout = drawn
-    ? cachedLayoutGraph(
-        nodes,
-        edges,
-        isChain ? { direction: 'LR' } : { direction: 'LR', clusters }
-      )
-    : null;
   return {
     level,
     container,
@@ -2902,7 +2891,6 @@ export function buildGraphPage(input: GraphPageInput): GraphPageModel {
     nodes,
     edges,
     clusters,
-    layout,
     details,
     tooLarge,
     initialSelectedId,

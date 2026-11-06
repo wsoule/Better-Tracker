@@ -1,15 +1,9 @@
 import type { DependencyGraph, GraphScope } from '@better-tracker/core';
 import type { Engine } from '@better-tracker/engine';
 import type { Metadata } from 'next';
-import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 
-import {
-  buildGraphPage,
-  DEFAULT_GRAPH_HIGHLIGHT,
-  highlightFromCookies,
-  parseGraphParams,
-} from '../../../lib/adapters/graph';
+import { buildGraphPage, parseGraphParams } from '../../../lib/adapters/graph';
 import { parseIssueParam } from '../../../lib/adapters/issue';
 import { engineInputCode } from '../../../lib/engine-errors';
 import { currentHref, loadIssueDrawer } from '../../../lib/issue-load';
@@ -44,19 +38,16 @@ async function loadGraph(
    projects, milestones, issues) inside the workspace, an initiative
    (?initiative=<id|none>), a project (?project=), a milestone
    (?milestone=), or one issue's blocking chain (?chain=<key>); ?level=
-   picks another level the container offers, ?node=<id> selects a box on
-   arrival, ?highlight=status|risk|critical picks what the drawing
-   emphasises (else the graph-highlight cookie remembers the last one
-   picked, else Status; the island reads both, so Back and Forward show
-   what each history entry says), ?lock=<id|key> keeps the box the reader
-   locked (client state the island reads and writes in place; the server
-   ignores it), and ?issue=<key> opens an issue node's slide-over
-   (§8.5). With no parameters it is the workspace's milestones. Everyone sees the
-   graph; it is read-only. The engine builds the graph from the viewer's
-   mirror (a viewer with no initiatives gets the workspace, with a notice),
-   lib/adapters/graph.ts maps it, lays it out and computes the Mermaid text
-   on the server, and the client island draws it and opens the selected
-   node's details. */
+   picks another level the container offers, ?node=<id> selects (traces)
+   a box on arrival, and ?issue=<key> opens an issue node's slide-over
+   (§8.5). With no parameters it is the workspace's milestones. Everyone
+   sees the graph; it is read-only. The engine builds the graph from the
+   viewer's mirror (a viewer with no initiatives gets the workspace, with
+   a notice), lib/adapters/graph.ts maps it and computes the Mermaid text
+   on the server, and the client island lays it out (elkjs, in the
+   browser), draws Vadim's dependency chart and opens the selected node's
+   details. Old ?highlight= and ?lock= links still load; the chart ignores
+   them. */
 export default async function GraphPage({
   searchParams,
 }: {
@@ -77,14 +68,6 @@ export default async function GraphPage({
     ])
   );
   if (graph === null) notFound();
-  // A viewing preference: the URL's ?highlight= wins (the island reads it
-  // from the URL), then the cookie (an invalid value is ignored), then
-  // the default. The raw Cookie header, first valid pair: the browser
-  // sends the reader's own Path=/graph pick before any wider one. Not a
-  // write, not audited.
-  const bareHighlight =
-    highlightFromCookies((await headers()).get('cookie')) ??
-    DEFAULT_GRAPH_HIGHLIGHT;
   const model = buildGraphPage({
     graph,
     snapshot: loaded.snapshot,
@@ -96,14 +79,11 @@ export default async function GraphPage({
     readOnlyReason: actor.readOnlyReason,
   });
 
-  // The island draws the header too: its trail links carry the mode on
-  // screen (carryHighlight), which only the client knows after a switch.
   return (
     <>
       <GraphScreen
         key={model.pageKey}
         model={model}
-        bareHighlight={bareHighlight}
         issueDrawer={issueDrawer}
       />
       {model.crumb !== null ? <PageCrumb label={model.crumb} /> : null}

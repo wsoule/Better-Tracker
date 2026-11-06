@@ -17,6 +17,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "catalog:",
     "@playwright/test": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",

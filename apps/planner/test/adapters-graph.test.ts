@@ -487,7 +487,6 @@ describe('buildGraphPage on the demo workspace', () => {
     const model = page({ level: 'issue', milestoneId: 'ms-garnet-2' });
     expect(model.nodes).toEqual([]);
     expect(model.clusters).toEqual([]);
-    expect(model.layout).toBeNull();
     expect(model.mermaid).toBeNull();
     expect(model.emptyMessage).toBe('No issues in Push notifications.');
     expect(model.ariaSummary).toBe('No issues in Push notifications.');
@@ -540,12 +539,9 @@ describe('every item drawn, framed by parent', () => {
     expect(model.meta).toBe('17 milestones · 3 edges');
     expect(model.receipts).not.toContain('listed');
     expect(model.ariaSummary).not.toContain('listed');
-    // The server layout is framed: one frame per cluster, every box in it.
-    expect(model.layout?.clustered).toBe(true);
-    expect(
-      model.layout?.groups.filter((g) => g.kind === 'cluster').map((g) => g.id)
-    ).toEqual(model.clusters.map((c) => c.id));
-    expect(model.layout?.nodes).toHaveLength(17);
+    // Every box names its frame, which the chart can box it in.
+    expect(model.nodes).toHaveLength(17);
+    expect(model.nodes.every((n) => n.cluster !== undefined)).toBe(true);
     // The Mermaid copy is the drawn graph: one line per box, one subgraph
     // per frame.
     const lines = (model.mermaid?.body ?? '').split('\n');
@@ -663,16 +659,14 @@ describe('every item drawn, framed by parent', () => {
     ]);
   });
 
-  test('the initiative level packs its loose boxes; a chain keeps one flow', () => {
+  test('the initiative level and a chain draw no frames', () => {
     const initiatives = page({ level: 'initiative' });
     expect(initiatives.clusters).toEqual([]);
-    expect(initiatives.layout?.clustered).toBe(true);
     expect(
       initiatives.legends.status.some((item) => item.mark === 'cluster')
     ).toBe(false);
     const chain = page({ level: 'issue', issueId: 'ENG-23' });
     expect(chain.clusters).toEqual([]);
-    expect(chain.layout?.clustered).toBeUndefined();
     expect(chain.nodes.every((n) => n.cluster === undefined)).toBe(true);
   });
 
@@ -1474,18 +1468,22 @@ describe('every level on the demo workspace', () => {
     expect(model.tabs.find((tab) => tab.id === 'issue')?.href).toBe(
       '/graph?project=proj-compass'
     );
-    expect(model.layout).toBeNull();
     expect(model.mermaid).toBeNull();
     expect(model.details).toEqual({});
   });
 
-  test('a drawn graph carries its server layout, one box per drawn node', () => {
+  // The browser lays the chart out (elkjs): the model carries no layout,
+  // only the boxes, arrows and frames, and marks the issues under way.
+  test('a drawn graph carries no server layout; started issues are in progress', () => {
     const model = page({ level: 'milestone' });
-    expect(model.layout?.nodes.map((n) => n.id).sort()).toEqual(
-      ids(model.nodes).sort()
-    );
-    expect(model.layout?.edges).toHaveLength(model.edges.length);
-    expect(model.layout?.direction).toBe('LR');
+    expect('layout' in model).toBe(false);
+    const issues = page({ level: 'issue' });
+    const started = issues.nodes.filter((n) => n.inProgress === true);
+    expect(started.length).toBeGreaterThan(0);
+    for (const node of started) {
+      expect(node.readiness?.state).not.toBe('done');
+    }
+    expect(issues.nodes.some((n) => n.inProgress === undefined)).toBe(true);
   });
 });
 
@@ -1804,7 +1802,6 @@ describe('notices', () => {
     expect(model.edges.map((e) => e.kind)).toEqual(['risk', 'risk']);
     expect(model.nodes.every((n) => n.cluster === undefined)).toBe(true);
     expect(model.clusters).toEqual([]);
-    expect(model.layout?.clustered).toBe(true);
     expect(model.legends.risk.some((item) => item.mark === 'edge-cross')).toBe(
       false
     );
@@ -1862,7 +1859,6 @@ describe('the draw limits', () => {
     expect(model.edges).toEqual([]);
     expect(model.clusters).toEqual([]);
     expect(model.details).toEqual({});
-    expect(model.layout).toBeNull();
     expect(model.mermaid).toBeNull();
     expect(model.meta).toBe('750 issues · 125 edges · too many to draw');
     expect(model.receipts).toBe(
@@ -1945,7 +1941,6 @@ describe('the draw limits', () => {
     const model = pageOf(graph);
     expect(model.tooLarge).toBeNull();
     expect(model.nodes).toHaveLength(700);
-    expect(model.layout?.nodes).toHaveLength(700);
     expect(model.clusters).toHaveLength(7);
     expect(model.meta).toBe('700 issues · 0 edges');
     expect(model.readouts.status).toBe('700 with no dependencies');

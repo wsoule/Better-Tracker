@@ -4957,6 +4957,31 @@ links and follow-ups, new or unread, progress and the timeline's today.
   quiet key rows for the legend; the styles live in
   `dependency-graph.module.css`, `graph-legend.module.css` and the page's
   `page.module.css`, on tokens only.
+  - **Vadim's chart (2026-11-06; supersedes the drawing, highlights, lock and
+    readout described below).** The page draws ui `DependencyChart`
+    (`packages/ui/src/chart/`), Vadim Sevriuk's interactive dependency chart
+    ported from the Dispatch desktop, over the same page model (nodes, edges,
+    clusters, details). The browser lays it out with elkjs (layered, left to
+    right, right-angle edges, separate pieces packed into rows; lazily loaded,
+    cached by content); the server no longer runs dagre and the model carries no
+    `layout`. A click on a box traces what it waits on (`--trace-up`, amber
+    lines) and what it holds up (`--trace-down`, teal lines) and fades the rest;
+    the inspector beside the canvas (under it below 880px) lists both, with the
+    transitive reach and blockers outside the graph, and offers Open issue (the
+    §8.5 slide-over) or Details (the box's panel), Open graph (its drill-down),
+    Fit its chain and Clear. A double-click drills into a container's own graph
+    or opens an issue; a double-click on a frame title drills into the frame.
+    The toolbar holds the level tabs, Find (`/`), the highlights Critical path
+    (the longest open chain over edges that still block, its steps numbered),
+    Ready, In progress (issues in a started state) and At risk (open boxes in a
+    danger or warning risk tone), and Display: Hide done, Show unlinked (off at
+    the issue level, on elsewhere and in a chain) and Box by parent (nested
+    frames), remembered per scope in `localStorage`. Boxes keep the §8.2 hues as
+    edges (amber blocked or at risk, blue in progress, green ready, red overdue
+    or on a cycle, done dashed and quiet); the accent is the selection and a
+    chain's focus ring. `?node=` and a chain's focus are traced on arrival;
+    `?highlight=` and `?lock=` links still load and are ignored; the draw cap
+    (too-large state) and Copy Mermaid (Status styles) stay.
   - **Header.** Above the h1 a trail (`TaskCrumbs`, labelled "Graph scope"; the
     page title, receipts and quiet `--text-2` notices are the timeline's
     header):
