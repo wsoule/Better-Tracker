@@ -86,6 +86,12 @@ export interface GraphNodeData {
    */
   readiness?: GraphNodeReadiness;
   /**
+   * Work on it has started (the planner: an issue in a started workflow
+   * state). The dependency chart draws it in the in-progress blue and
+   * lists it under In progress; DependencyGraph ignores it.
+   */
+  inProgress?: boolean;
+  /**
    * The node's own graph, one level down (the planner: an initiative's
    * projects, a project's milestones, a milestone's issues, an issue's
    * blocking chain). A double-click (a double tap on touch, Shift + Enter

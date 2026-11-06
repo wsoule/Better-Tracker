@@ -23,8 +23,8 @@ import {
 // demo) through the same engine calls and adapters the pages use: /graph
 // at every level and inside every container kind, /timeline, /projects and
 // /week, for a member and for the read-only guest. Each page's model must
-// build without error, draw (never "Too many to draw") with a layout and
-// Mermaid text, and stay fast: the server time per page is measured.
+// build without error, draw (never "Too many to draw") with Mermaid text,
+// and stay fast: the server time per page is measured.
 
 const WORKSPACE = 'org-northwind';
 /** Generous per-page budget for the model on a shared CI machine. */
@@ -84,45 +84,6 @@ async function graphPage(
   });
 }
 
-/** Points along an SVG path of M, L and C commands (a layout edge's). */
-function sampled(d: string): { x: number; y: number }[] {
-  const tokens = d.match(/[MLC]|-?\d*\.?\d+/g) ?? [];
-  const out: { x: number; y: number }[] = [];
-  let i = 0;
-  let at = { x: 0, y: 0 };
-  const next = () => ({ x: Number(tokens[i++]), y: Number(tokens[i++]) });
-  while (i < tokens.length) {
-    const command = tokens[i++];
-    if (command === 'M') {
-      at = next();
-      out.push(at);
-    } else if (command === 'L') {
-      const to = next();
-      for (let k = 1; k <= 20; k += 1) {
-        out.push({
-          x: at.x + ((to.x - at.x) * k) / 20,
-          y: at.y + ((to.y - at.y) * k) / 20,
-        });
-      }
-      at = to;
-    } else {
-      const [c1, c2, to] = [next(), next(), next()];
-      for (let k = 1; k <= 32; k += 1) {
-        const t = k / 32;
-        const u = 1 - t;
-        const mix = (a: number, b: number, c: number, e: number) =>
-          u ** 3 * a + 3 * u * u * t * b + 3 * u * t * t * c + t ** 3 * e;
-        out.push({
-          x: mix(at.x, c1.x, c2.x, to.x),
-          y: mix(at.y, c1.y, c2.y, to.y),
-        });
-      }
-      at = to;
-    }
-  }
-  return out;
-}
-
 describe('showcase pages', () => {
   const scopes: [string, GraphScope][] = [
     ['workspace milestones', { level: 'milestone' }],
@@ -154,7 +115,6 @@ describe('showcase pages', () => {
       expect(model.tooLarge).toBeNull();
       expect(model.nodes.length).toBeGreaterThan(1);
       expect(model.edges.length).toBeGreaterThan(0);
-      expect(model.layout).not.toBeNull();
       // Mermaid per highlight: one body, each mode's styles.
       expect(model.mermaid?.body ?? '').toStartWith('flowchart LR');
       expect(Object.keys(model.mermaid?.styles ?? {}).sort()).toEqual([
@@ -162,11 +122,6 @@ describe('showcase pages', () => {
         'risk',
         'status',
       ]);
-      // Every box shows its whole sublabel: a milestone keeps its date.
-      const sublabels = new Map(model.nodes.map((n) => [n.id, n.sublabel]));
-      for (const box of model.layout?.nodes ?? []) {
-        expect(box.sublabelLine).toBe(sublabels.get(box.id) ?? '');
-      }
     });
   }
 
@@ -183,10 +138,9 @@ describe('showcase pages', () => {
         const graph = await engine.getGraph(WORKSPACE, { level }, actor);
         const model = await graphPage({ level }, actor);
         expect(model.tooLarge).toBeNull();
-        // Every box and arrow of the scope is drawn and laid out.
+        // Every box and arrow of the scope is drawn.
         expect(model.nodes.length).toBe(graph.nodes.length);
         expect(model.edges.length).toBe(graph.edges.length);
-        expect(model.layout?.nodes.length).toBe(graph.nodes.length);
         expect(model.nodes.length).toBeLessThanOrEqual(GRAPH_DRAW_LIMITS.nodes);
         expect(model.edges.length).toBeLessThanOrEqual(GRAPH_DRAW_LIMITS.edges);
         out[level] = [model.nodes.length, model.edges.length];
@@ -208,11 +162,9 @@ describe('showcase pages', () => {
     });
   });
 
-  // No highlight moves a box (the island switches modes on its own; the
-  // page never reads ?highlight= into the model), and a slide-over opening
-  // or closing re-renders the same drawing: each reuses the framed layout
-  // of the 406-box issue level instead of laying it out again.
-  test('/graph: a highlight switch or a slide-over reuses the layout', async () => {
+  // No ?highlight= reaches the model (the chart ignores old links), and a
+  // slide-over opening or closing re-renders the same drawing.
+  test('/graph: an old highlight link or a slide-over draws the same chart', async () => {
     const pages = [];
     for (const highlight of [undefined, 'status', 'risk', 'critical']) {
       const { scope } = parseGraphParams({ level: 'issue', highlight });
@@ -220,44 +172,11 @@ describe('showcase pages', () => {
     }
     pages.push(await graphPage({ level: 'issue' }, member, 'GRO-40'));
     const [first, ...rest] = pages;
-    expect(first?.layout?.clustered).toBe(true);
     for (const page of rest) {
-      expect(page.layout).toBe(first?.layout ?? null);
       expect(page.nodes).toEqual(first?.nodes ?? []);
+      expect(page.edges).toEqual(first?.edges ?? []);
       expect(page.clusters).toEqual(first?.clusters ?? []);
     }
-  });
-
-  // Arrows between frames turn round the boxes in their way (ui
-  // layoutClustered, routeAround): before, 67 of the issue level's 247
-  // arrows, 24 of the milestones' 54 and 8 of the projects' 27 ran behind
-  // a box they do not join, so a reader could not tell where one ended
-  // (2026-10-23 showcase review). Counted on the drawn curve, sampled.
-  test('/graph: arrows keep clear of the boxes they do not join', async () => {
-    const behind = async (scope: GraphScope) => {
-      const layout = (await graphPage(scope)).layout;
-      let count = 0;
-      for (const edge of layout?.edges ?? []) {
-        const points = sampled(edge.path);
-        const hit = (layout?.nodes ?? []).some(
-          (n) =>
-            n.id !== edge.from &&
-            n.id !== edge.to &&
-            points.some(
-              (p) =>
-                p.x > n.x + 2 &&
-                p.x < n.x + n.width - 2 &&
-                p.y > n.y + 2 &&
-                p.y < n.y + n.height - 2
-            )
-        );
-        if (hit) count += 1;
-      }
-      return count;
-    };
-    expect(await behind({ level: 'project' })).toBeLessThanOrEqual(2);
-    expect(await behind({ level: 'milestone' })).toBeLessThanOrEqual(6);
-    expect(await behind({ level: 'issue' })).toBeLessThanOrEqual(8);
   });
 
   test('/graph for the guest: his projects, with the guest notice', async () => {

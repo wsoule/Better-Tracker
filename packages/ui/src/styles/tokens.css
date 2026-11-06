@@ -123,6 +123,12 @@
   --teal: #1e8580;
   --rose: #bc4270;
   --orange: #c0612b;
+  /* The dependency chart's traces (packages/ui/src/chart): the lines back
+     to what a picked box waits on, and on to what it holds up. Lines and
+     their keys only, never a box fill or edge, so a trace is not read as
+     a status. */
+  --trace-up: var(--amber);
+  --trace-down: var(--teal);
 
   /* Linear workflow-state glyph colours (StateGlyph), in the status
      mapping of docs/architecture.md §8.2: triage, backlog and canceled
