@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "catalog:",
+    "elkjs": "catalog:",
     "lucide-react": "catalog:"
   },
   "devDependencies": {

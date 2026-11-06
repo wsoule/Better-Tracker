@@ -261,6 +261,27 @@ export type {
   PathReadout,
 } from './graph/paths';
 export { DependencyGraph } from './graph/dependency-graph';
+export {
+  type ChartPrefs,
+  DEFAULT_CHART_PREFS,
+  DependencyChart,
+  type DependencyChartProps,
+} from './chart/dependency-chart';
+export {
+  type ChartModel,
+  type ChartNode,
+  type ChartState,
+  chartModel,
+  drawnNodes,
+  traceChart,
+} from './chart/chart-model';
+export { chartSpec, NODE_SIZE } from './chart/chart-spec';
+export {
+  type ChartLayout,
+  type ChartSpec,
+  layoutChart,
+  roundedPath,
+} from './chart/chart-layout';
 export { defaultGraphLegend, GraphLegend } from './graph/graph-legend';
 export {
   CLUSTER_METRICS,
